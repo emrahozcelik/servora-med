@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppShell } from '../src/AppShell';
@@ -45,6 +45,17 @@ function LocationProbe() {
   return <span data-location>{useLocation().pathname}</span>;
 }
 
+/** Sibling of the shell inside the router: navigates without touching overlays. */
+function NavigateProbe({ back = false }: { back?: boolean }) {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button type="button" data-navigate-to onClick={() => navigate('/customers')}>Git</button>
+      {back ? <button type="button" data-navigate-back onClick={() => navigate(-1)}>Geri</button> : null}
+    </>
+  );
+}
+
 describe('responsive authenticated AppShell', () => {
   let container: HTMLDivElement; let root: Root;
   beforeEach(() => {
@@ -59,6 +70,18 @@ describe('responsive authenticated AppShell', () => {
     await act(async () => root.render(
       <MemoryRouter initialEntries={[path]}>
         <AppShell user={user} pendingSignOut={false} onSignOut={() => {}}>
+          <main><h1>İçerik</h1><LocationProbe /></main>
+        </AppShell>
+      </MemoryRouter>,
+    ));
+  }
+
+  async function renderWithNavigateProbe({ back = false }: { back?: boolean } = {}) {
+    setDesktop(false);
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={back ? ['/jobs', '/customers'] : ['/jobs']} initialIndex={back ? 1 : 0}>
+        <NavigateProbe back={back} />
+        <AppShell user={staff} pendingSignOut={false} onSignOut={() => {}}>
           <main><h1>İçerik</h1><LocationProbe /></main>
         </AppShell>
       </MemoryRouter>,
@@ -331,20 +354,42 @@ describe('responsive authenticated AppShell', () => {
     expect(trigger.querySelector('svg.mobile-nav-icon')?.getAttribute('aria-hidden')).toBe('true');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     await act(async () => trigger.click());
-    const sheet = create.querySelector<HTMLElement>('[role="dialog"]')!;
+    const sheet = document.querySelector<HTMLElement>('.new-job-menu-panel--sheet')!;
+    expect(sheet).not.toBeNull();
+    expect(sheet.getAttribute('role')).toBe('dialog');
     expect(sheet.getAttribute('aria-modal')).toBe('true');
     expect(sheet.textContent).toContain('Görüşme / ziyaret planla');
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(sheet.querySelector('button'));
+    expect(trigger.getAttribute('aria-controls')).toBe(sheet.id);
+  });
+
+  it('renders the create sheet as a global body layer, not inside the bottom navigation', async () => {
+    await render(staff, false, '/jobs');
+    const trigger = container.querySelector<HTMLButtonElement>('.mobile-bottom-nav-create .new-job-menu-trigger')!;
+    await act(async () => trigger.click());
+    const sheet = document.querySelector<HTMLElement>('.new-job-menu-panel--sheet')!;
+    const backdrop = document.querySelector<HTMLElement>('.new-job-menu-backdrop')!;
+    expect(sheet).not.toBeNull();
+    expect(backdrop).not.toBeNull();
+    // A fixed bottom-nav ancestor would trap the sheet's own z-index inside the
+    // nav stacking context (z 20), below the shell drawer (30), notifications
+    // (40) and dialog (50) layers.
+    expect(container.querySelector('.mobile-bottom-nav [role="dialog"]')).toBeNull();
+    expect(container.querySelector('.mobile-bottom-nav .new-job-menu-backdrop')).toBeNull();
+    expect(sheet.closest('.mobile-bottom-nav')).toBeNull();
+    expect(backdrop.closest('.mobile-bottom-nav')).toBeNull();
+    expect(sheet.parentElement).toBe(document.body);
+    expect(backdrop.parentElement).toBe(document.body);
   });
 
   it('closes the create sheet on Escape and restores focus to the bottom-nav create', async () => {
     await render(staff, false, '/jobs');
     const trigger = container.querySelector<HTMLButtonElement>('.mobile-bottom-nav-create .new-job-menu-trigger')!;
     await act(async () => trigger.click());
-    expect(container.querySelector('.mobile-bottom-nav-create [role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('.new-job-menu-panel--sheet')).not.toBeNull();
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-    expect(container.querySelector('.mobile-bottom-nav-create [role="dialog"]')).toBeNull();
+    expect(document.querySelector('.new-job-menu-panel--sheet')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
 
@@ -355,12 +400,58 @@ describe('responsive authenticated AppShell', () => {
     const trigger = container.querySelector<HTMLButtonElement>('.mobile-bottom-nav-create .new-job-menu-trigger')!;
     expect(trigger).not.toBeNull();
     await act(async () => trigger.click());
-    const sheet = container.querySelector<HTMLElement>('.mobile-bottom-nav-create [role="dialog"]')!;
+    const sheet = document.querySelector<HTMLElement>('.new-job-menu-panel--sheet')!;
     const delivery = Array.from(sheet.querySelectorAll('button'))
       .find((button) => button.textContent === 'Yeni teslim')!;
     await act(async () => delivery.click());
-    expect(container.querySelector('.mobile-bottom-nav-create [role="dialog"]')).toBeNull();
+    expect(document.querySelector('.new-job-menu-panel--sheet')).toBeNull();
     expect(container.querySelector('[data-location]')?.textContent).toBe('/jobs/new-delivery');
+  });
+
+  it('closes the open menu panel on programmatic navigation without focusing the stale trigger', async () => {
+    await renderWithNavigateProbe();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    const navigateAway = container.querySelector<HTMLButtonElement>('[data-navigate-to]')!;
+    await act(async () => navigateAway.click());
+
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/customers');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.style.overflow).toBe('');
+    expect(document.activeElement).not.toBe(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('closes the open menu panel on browser Back without focusing the stale trigger', async () => {
+    await renderWithNavigateProbe({ back: true });
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-navigate-back]')!.click());
+
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/jobs');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.style.overflow).toBe('');
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it('closes the open create sheet on programmatic navigation and releases the scroll lock', async () => {
+    await renderWithNavigateProbe();
+    const trigger = container.querySelector<HTMLButtonElement>('.mobile-bottom-nav-create .new-job-menu-trigger')!;
+    await act(async () => trigger.click());
+    expect(document.querySelector('.new-job-menu-panel--sheet')).not.toBeNull();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-navigate-to]')!.click());
+
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/customers');
+    expect(document.querySelector('.new-job-menu-panel--sheet')).toBeNull();
+    expect(document.body.style.overflow).toBe('');
+    expect(document.activeElement).not.toBe(trigger);
   });
 
   it('links Staff own profile navigation to the stable /staff area', async () => {
@@ -612,7 +703,7 @@ describe('responsive authenticated AppShell', () => {
     expect(css).not.toMatch(/\.sticky-new-job/);
     expect(exactRuleBody('.authenticated-shell--mobile .shell-content')).toMatch(/safe-area-inset-bottom/);
     expect(css).toMatch(
-      /\.authenticated-shell--mobile \.shell-content > :first-child\s*\{[^}]*margin-top:\s*0/s,
+      /\.authenticated-shell--mobile \.shell-content > :first-child,\s*\.authenticated-shell--mobile \.shell-content > main\s*\{[^}]*margin-top:\s*0/s,
     );
     expect(exactRuleBody('.mobile-nav-icon')).toMatch(/width:\s*1\.25rem/);
     expect(css).toMatch(

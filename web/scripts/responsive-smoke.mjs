@@ -41,12 +41,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
     <a class="mobile-bottom-nav-item" href="/customers"><svg class="mobile-nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16" /></svg><span class="mobile-bottom-nav-label">Müşt.</span></a>
     <div class="mobile-bottom-nav-create" id="mobile-bottom-nav-create">
       <div class="new-job-menu">
-        <button type="button" class="primary-button compact-button new-job-menu-trigger" aria-expanded="false" aria-controls="bottom-sheet"><span class="new-job-menu-trigger-icon" aria-hidden="true"><svg class="mobile-nav-icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></span><span class="new-job-menu-trigger-label">Yeni iş</span></button>
-        <div class="new-job-menu-panel surface-raised" id="bottom-sheet" style="display:none">
-          <button type="button" class="new-job-menu-item">Yeni görüşme</button>
-          <button type="button" class="new-job-menu-item">Yeni görev</button>
-          <button type="button" class="new-job-menu-item">Yeni teslim</button>
-        </div>
+        <button type="button" class="primary-button compact-button new-job-menu-trigger" aria-expanded="false"><span class="new-job-menu-trigger-icon" aria-hidden="true"><svg class="mobile-nav-icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></span><span class="new-job-menu-trigger-label">Yeni iş</span></button>
       </div>
     </div>
     <a class="mobile-bottom-nav-item" href="/products"><svg class="mobile-nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16" /></svg><span class="mobile-bottom-nav-label">Ürün.</span></a>

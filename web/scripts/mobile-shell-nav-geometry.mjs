@@ -59,12 +59,18 @@ const users = ${JSON.stringify(users)};
 const params = new URLSearchParams(location.search);
 const role = params.get('role') || 'MANAGER';
 const path = params.get('path') || '/jobs';
+const banner = params.get('banner') === '1';
 Object.defineProperty(window, 'EventSource', { configurable: true, value: undefined });
 createRoot(document.getElementById('root')).render(
   <ServoraAntProvider>
     <MemoryRouter initialEntries={[path]}>
       <AppShell user={users[role]} pendingSignOut={false} onSignOut={() => {}}>
-        <main className="workspace">
+        {banner ? (
+          <nav className="offboarding-return-nav" aria-label="Personel ayrılma akışına dönüş">
+            <a className="secondary-button" href="#personel">Personel ayrılma ekranına dön ve planı yenile</a>
+          </nav>
+        ) : null}
+        <main className="workspace" data-fixture-main>
           <PageHeader description="Yerel geometri fixture'ı; gerçek bileşenler ve üretim CSS'i." />
           <section className="surface" style={{ minHeight: '140vh', padding: '1rem' }}>
             <h2>Operasyon içeriği</h2>
@@ -178,9 +184,26 @@ async function measure(page) {
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       activeElement: document.activeElement?.className ?? document.activeElement?.tagName ?? null,
       activeText: document.activeElement?.textContent ?? null,
-      sheet: rect(document.querySelector('.mobile-bottom-nav-create [role="dialog"]')),
-      sheetOptions: [...document.querySelectorAll('.mobile-bottom-nav-create [role="dialog"] .new-job-menu-item')]
+      sheet: rect(document.querySelector('.new-job-menu-panel--sheet')),
+      sheetInsideBottomNav: Boolean(document.querySelector('.mobile-bottom-nav [role="dialog"]')),
+      sheetParentIsBody: document.querySelector('.new-job-menu-panel--sheet')?.parentElement === document.body,
+      sheetOptions: [...document.querySelectorAll('.new-job-menu-panel--sheet .new-job-menu-item')]
         .map((item) => item.textContent),
+      drawerTopmost: (() => {
+        if (!drawer) return null;
+        const bounds = drawer.getBoundingClientRect();
+        const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+        return Boolean(hit && drawer.contains(hit));
+      })(),
+      mainTop: rect(document.querySelector('[data-fixture-main]'))?.top ?? null,
+      bannerBottom: rect(document.querySelector('.offboarding-return-nav'))?.bottom ?? null,
+      sheetTopmost: (() => {
+        const node = document.querySelector('.new-job-menu-panel--sheet');
+        if (!node) return null;
+        const bounds = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+        return Boolean(hit && node.contains(hit));
+      })(),
       innerWidth: window.innerWidth,
       innerHeight: window.innerHeight,
     };
@@ -190,7 +213,7 @@ async function measure(page) {
 const browser = await chromium.launch({ headless: true });
 const rows = [];
 
-async function open({ role, path, width, height }) {
+async function open({ role, path, width, height, banner = false }) {
   const page = await browser.newPage({
     viewport: { width, height },
     locale: 'tr-TR',
@@ -204,7 +227,7 @@ async function open({ role, path, width, height }) {
     contentType: 'application/json',
     body: JSON.stringify({ items: [], total: 0, limit: 20, offset: 0, unreadCount: 0 }),
   }));
-  await page.goto(`${url}?role=${role}&path=${encodeURIComponent(path)}`, { waitUntil: 'load' });
+  await page.goto(`${url}?role=${role}&path=${encodeURIComponent(path)}${banner ? '&banner=1' : ''}`, { waitUntil: 'load' });
   await page.locator('.authenticated-shell').waitFor();
   await page.evaluate(() => document.fonts.ready);
   return page;
@@ -274,6 +297,7 @@ try {
           + ` signOut=${JSON.stringify(m.signOut)}, viewport=${m.innerHeight})`,
       );
       check(m.overflow <= 1, `${tag}: horizontal overflow ${m.overflow}px`);
+      check(m.drawerTopmost === true, `${tag}: the menu panel is not the topmost layer at its centre`);
       checks.push({ tag, drawer: m.drawer, accountBottom: m.account?.bottom, groups: m.drawerGroups });
       if (width === 390) await capture(page, `${role}-menu`);
       // Escape closes and restores focus to the trigger.
@@ -307,6 +331,13 @@ try {
         && m.sheet.bottom <= m.innerHeight + 1,
       `create sheet 390x844: sheet is outside the viewport (${JSON.stringify(m.sheet)})`,
     );
+    check(m.sheetInsideBottomNav === false,
+      'create sheet 390x844: the sheet must not be a descendant of the bottom navigation');
+    check(m.sheetParentIsBody === true,
+      'create sheet 390x844: the sheet must render as a global document-body layer');
+    check(m.sheetTopmost === true,
+      'create sheet 390x844: the sheet is not the topmost layer at its centre point');
+    checks.push({ tag: 'create sheet 390x844', sheet: m.sheet, topmost: m.sheetTopmost });
     await capture(page, 'STAFF-390x844-create-sheet');
     await page.keyboard.press('Escape');
     const closed = await measure(page);
@@ -333,6 +364,20 @@ try {
     );
     checks.push({ tag, topbarBottom: m.topbar?.bottom, returnLinkTop: m.returnLink?.top, gap });
     if (width === 390) await capture(page, 'MANAGER-nested');
+    await page.close();
+  }
+
+  // 4b. F-14: a leading banner (offboarding return nav) must not re-introduce
+  //     the page top margin below it.
+  for (const [width, height] of [[390, 844], [768, 1024]]) {
+    const page = await open({ role: 'ADMIN', path: '/jobs/abc', width, height, banner: true });
+    const m = await measure(page);
+    const tag = `banner ${width}x${height}`;
+    check(m.overflow <= 1, `${tag}: horizontal overflow ${m.overflow}px`);
+    check(m.bannerBottom !== null, `${tag}: the leading banner did not render`);
+    const gap = m.bannerBottom !== null && m.mainTop !== null ? m.mainTop - m.bannerBottom : null;
+    check(gap !== null && gap <= 1, `${tag}: page main keeps ${gap}px of top margin below the banner`);
+    checks.push({ tag, bannerBottom: m.bannerBottom, mainTop: m.mainTop, gap });
     await page.close();
   }
 
