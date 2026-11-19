@@ -69,4 +69,29 @@ describe('messaging desktop workspace layout contract (M1)', () => {
     expect(block).toMatch(/\.messaging-sidebar\s*\{[^}]*width:\s*100%/s);
     expect(block).toMatch(/\.messaging-thread\s*\{[^}]*display:\s*none/s);
   });
+
+  it('uses the shared workspace gutter instead of sitting flush to the shell edge (F-08)', () => {
+    const baseBlock = messagingCss.slice(0, messagingCss.indexOf('.messaging-container'));
+    expect(baseBlock).toMatch(/\.messaging-workspace\s*\{[^}]*padding:\s*0\s+1rem/s);
+    const desktopBlock = messagingCss.slice(messagingCss.indexOf('@media (min-width: 64rem)'));
+    expect(desktopBlock).toMatch(
+      /\.messaging-workspace\s*\{[^}]*padding-inline:\s*clamp\(1rem,\s*3vw,\s*2\.5rem\)/s,
+    );
+  });
+
+  it('fits the mobile workspace above the fixed bottom navigation (F-08)', () => {
+    expect(messagingCss).toMatch(
+      /\.authenticated-shell--mobile \.messaging-workspace\s*\{[^}]*height:\s*calc\([^}]*3\.75rem[^}]*safe-area-inset-bottom/s,
+    );
+    expect(messagingCss).toMatch(
+      /\.authenticated-shell--mobile \.shell-content:has\(> \.messaging-workspace\)\s*\{[^}]*padding-bottom:\s*0/s,
+    );
+  });
+
+  it('keeps the Aktif/Arşiv selector at the 44px control target (F-08)', () => {
+    expect(messagingCss).toMatch(
+      /\.conversation-view-tab\s*\{[^}]*min-height:\s*var\(--control-height\)/s,
+    );
+    expect(messagingCss).not.toMatch(/min-height:\s*36px/);
+  });
 });

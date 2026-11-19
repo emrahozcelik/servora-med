@@ -1,5 +1,8 @@
 .messaging-workspace {
-  padding: 0;
+  /* Full-bleed application workspace (M1) that still uses the shared page
+     gutter, so the page header and panes align with every other workspace
+     (UI audit F-08). */
+  padding: 0 1rem;
   width: 100%;
   max-width: none;
   margin: 0;
@@ -12,6 +15,21 @@
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+/* The page owns its own viewport-fit scroll box on mobile: the generic shell
+   reserve for scrolling pages would otherwise push the composer under the
+   fixed bottom navigation (UI audit F-08). */
+.authenticated-shell--mobile .shell-content:has(> .messaging-workspace) {
+  padding-bottom: 0;
+}
+
+.authenticated-shell--mobile .messaging-workspace {
+  /* Visible band = viewport − sticky top bar − shell top rhythm − bottom nav. */
+  height: calc(
+    100dvh - 4.5rem - 0.5rem - 3.75rem
+    - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+  );
 }
 
 .messaging-container.composing {
@@ -91,7 +109,8 @@
 }
 
 .conversation-view-tab {
-  min-height: 36px;
+  min-height: var(--control-height);
+  min-width: 2.75rem;
   padding: 0.35rem 0.65rem;
   border: 0;
   border-radius: 6px;
@@ -559,7 +578,7 @@
 }
 
 .required-mark {
-  color: var(--border-error);
+  color: var(--error);
 }
 
 .create-search {
@@ -684,7 +703,7 @@
 .create-error {
   margin: 0.25rem 0 0;
   font-size: 0.8rem;
-  color: var(--border-error);
+  color: var(--error);
 }
 
 .create-actions {
@@ -816,6 +835,8 @@
     width: 100%;
     max-width: none;
     margin: 0;
+    /* Align with the desktop shell top-bar gutter. */
+    padding-inline: clamp(1rem, 3vw, 2.5rem);
     height: calc(100dvh - 4.75rem);
   }
 

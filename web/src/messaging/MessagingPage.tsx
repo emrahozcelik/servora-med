@@ -1191,13 +1191,11 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               <div className="composer-hint">{selected.participantIsActive ? `Enter: gönder • Shift+Enter: alt satır • ${composerText.length}/4000` : 'Alıcı pasif durumda • Mesaj gönderilemez'}</div>
             </div>
           </>) : (
-            <div className="thread-empty">
-              {conversations.length === 0 ? (
-                <EmptyState title="Henüz konuşma yok" description={emptyDescription} />
-              ) : (
+            conversations.length > 0 ? (
+              <div className="thread-empty">
                 <EmptyState title="Konuşma seçin" description="Sol taraftan bir konuşma seçin veya yeni bir konuşma başlatın." />
-              )}
-            </div>
+              </div>
+            ) : null
           )}
         </section>}
       </div>
