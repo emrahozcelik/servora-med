@@ -47,9 +47,13 @@ const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
     </nav>
   </div>
   <div id="login-fixture" style="display:none">
-    <main class="login-layout">
-      <section class="login-introduction"><span class="dunya-dental-brand dunya-dental-brand--login-hero" aria-label="Dünya Dental"><img src="/branding/dunya-dental-sidebar.png" alt="" /></span></section>
-      <section class="login-panel"><div class="login-form-wrap"><h1>Giriş yap</h1><p class="form-intro">Yerel responsive fixture.</p></div></section>
+    <main class="login-panel">
+      <section class="login-form-wrap">
+        <div class="login-brand"><span class="dunya-dental-brand dunya-dental-brand--login-hero" aria-label="Dünya Dental"><img src="/branding/dunya-dental-sidebar.png" alt="" /></span></div>
+        <p class="eyebrow">İş ve operasyon yönetimi</p>
+        <h1>Hesabınıza giriş yapın</h1>
+        <p class="form-help">Yerel responsive fixture.</p>
+      </section>
     </main>
   </div>
   <div id="drawer-backdrop" class="shell-drawer-backdrop" style="display:none">

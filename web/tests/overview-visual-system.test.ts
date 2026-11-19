@@ -86,6 +86,8 @@ describe('overview visual system contract (UX audit slice 1)', () => {
       ['.servora-metric-statistic--attention', 'border: 1px solid var(--warning)'],
       ['.servora-metric-statistic--warning', 'border: 1px solid var(--warning)'],
       ['.servora-metric-statistic--success', 'border: 1px solid var(--success)'],
+      // Overdue is the loudest KPI tone: same amber outline plus a tonal fill.
+      ['.servora-metric-statistic--overdue', 'border: 1px solid var(--warning)'],
     ];
     for (const [selector, border] of expectations) {
       const rules = rulesFor(selector);
@@ -97,5 +99,32 @@ describe('overview visual system contract (UX audit slice 1)', () => {
       }
       expect(rules.some((body) => body.includes(border))).toBe(true);
     }
+    expect(rulesFor('.servora-metric-statistic--overdue')
+      .some((body) => body.includes('background: var(--warning-soft)'))).toBe(true);
+  });
+
+  it('keeps zero trend days visible and labels the plotted range (F-17)', () => {
+    const zero = rulesFor('.report-trend-bars span[data-zero="true"]');
+    expect(zero).toHaveLength(1);
+    expect(zero[0]).toContain('height: 0.35rem');
+    expect(zero[0]).toContain('opacity: 1');
+    const range = rulesFor('.report-trend-range');
+    expect(range.length).toBeGreaterThan(0);
+    expect(range.some((body) => body.includes('display: flex')
+      && body.includes('justify-content: space-between'))).toBe(true);
+  });
+
+  it('renders record lists as divided rows inside one card per section (F-17)', () => {
+    const list = rulesFor('.overview-row-list');
+    expect(list).toHaveLength(1);
+    expect(list[0]).not.toMatch(/border:|background:|border-radius:/);
+    const row = rulesFor('.overview-row');
+    expect(row.length).toBeGreaterThan(0);
+    for (const body of row) {
+      // Rows carry no frame of their own; the containing card owns the surface.
+      expect(body).not.toMatch(/border-radius:|box-shadow:/);
+    }
+    const divider = rulesFor('.overview-row + .overview-row');
+    expect(divider.some((body) => body.includes('border-top: 1px solid var(--rule)'))).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { OpenSubmissionLateSection } from '../jobs/SubmissionLateness';
@@ -18,12 +18,61 @@ import { OperationalCard } from '../ui/antd/OperationalCard';
 import { PageHeader } from '../ui/PageHeader';
 import { ResultState } from '../ui/antd/ResultState';
 
-function formatOverviewDate(value: string): string {
+function resolveTimeZone(value: string): string {
+  try {
+    new Intl.DateTimeFormat('tr-TR', { timeZone: value });
+    return value;
+  } catch {
+    return 'UTC';
+  }
+}
+
+/** Period range copy: date only, no time-of-day and no seconds. */
+function formatOverviewDate(value: string, timeZone: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const date = new Date(`${value}T12:00:00.000Z`);
   return Number.isNaN(date.getTime())
     ? value
-    : date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+    : date.toLocaleDateString('tr-TR', {
+      day: 'numeric', month: 'long', year: 'numeric', timeZone: resolveTimeZone(timeZone),
+    });
+}
+
+/**
+ * Record timestamps use one scannable shape, e.g. "Çar 19 Kas · 10:00".
+ * Seconds are operational noise on overview lists; the server timezone keeps
+ * the reading independent of the operator's device.
+ */
+function formatOverviewDateTime(value: string, timeZone: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const zone = resolveTimeZone(timeZone);
+  // tr-TR orders the weekday last; the brief's scanning shape leads with it.
+  const parts = new Intl.DateTimeFormat('tr-TR', {
+    weekday: 'short', day: 'numeric', month: 'short', timeZone: zone,
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? '';
+  const time = date.toLocaleTimeString('tr-TR', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: zone,
+  });
+  return `${part('weekday')} ${part('day')} ${part('month')} · ${time}`;
+}
+
+/** "45 dk", "2 sa 15 dk". Null when the API has no measurement yet. */
+function formatWaitingDuration(minutes: number | null): string | null {
+  if (minutes === null || !Number.isFinite(minutes) || minutes < 0) return null;
+  const total = Math.floor(minutes);
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  return hours > 0 ? `${hours} sa ${rest} dk` : `${rest} dk`;
+}
+
+function OverviewList({ children }: { children: ReactNode }) {
+  return (
+    <OperationalCard>
+      <ul className="overview-row-list">{children}</ul>
+    </OperationalCard>
+  );
 }
 
 export function OverviewPage({
@@ -80,9 +129,11 @@ export function OverviewPage({
 
   const { overview } = state;
   const isStaff = overview.scope === 'staff';
+  const timeZone = overview.range.timezone;
   const distributionTotal = overview.scope === 'management'
     ? Math.max(1, (overview.workTypeDistribution ?? []).reduce((sum, item) => sum + item.count, 0))
     : 1;
+  const unreadMessages = overview.messageUnreadSummary?.unreadTotal ?? 0;
 
   const kpis = isStaff
     ? [
@@ -94,10 +145,12 @@ export function OverviewPage({
           statusPhrase: 'Açık görev kayıtları',
         },
         {
+          // Awaiting a manager is a to-do, not a warning: neutral surface plus
+          // the explicit wait phrase (UI audit F-17).
           label: 'Kontrol bekleyen',
           value: overview.waitingApproval,
           href: `${paths.jobs}?status=WAITING_APPROVAL`,
-          tone: overview.waitingApproval > 0 ? ('attention' as const) : ('default' as const),
+          tone: 'default' as const,
           statusPhrase: overview.waitingApproval > 0 ? 'Yönetici değerlendirmesinde' : 'Bekleyen onay yok',
         },
         {
@@ -124,17 +177,18 @@ export function OverviewPage({
           statusPhrase: 'Devam eden işler',
         },
         {
+          // Lateness is the strongest operational signal on this page.
           label: 'Geciken',
           value: overview.overdue,
           href: `${paths.jobs}?overdue=true`,
-          tone: overview.overdue > 0 ? ('attention' as const) : ('default' as const),
+          tone: overview.overdue > 0 ? ('overdue' as const) : ('default' as const),
           statusPhrase: overview.overdue > 0 ? 'Termin süresi aşıldı' : 'Geciken iş yok',
         },
         {
           label: 'Kontrol bekleyen',
           value: overview.waitingApproval,
           href: paths.approvalReports,
-          tone: overview.waitingApproval > 0 ? ('attention' as const) : ('default' as const),
+          tone: 'default' as const,
           statusPhrase: overview.waitingApproval > 0 ? 'Yönetici değerlendirmesinde' : 'Bekleyen onay yok',
         },
         {
@@ -146,12 +200,15 @@ export function OverviewPage({
         },
       ];
 
+  const approvalQueue = overview.scope === 'management' ? overview.approvalQueueSummary : null;
+  const oldestWaiting = approvalQueue ? formatWaitingDuration(approvalQueue.oldestWaitingMinutes) : null;
+
   return (
     <main className="workspace overview-workspace">
       <PageHeader
         eyebrow={isStaff ? 'Kişisel çalışma alanı' : 'Operasyon görünümü'}
         fallbackTitle="Genel Bakış"
-        description={`${user.name} · ${formatOverviewDate(overview.range.from)} – ${formatOverviewDate(overview.range.to)}`}
+        description={`${user.name} · ${formatOverviewDate(overview.range.from, timeZone)} – ${formatOverviewDate(overview.range.to, timeZone)}`}
       />
 
       <h2 id="overview-kpis-title" className="sr-only">Dönem özeti</h2>
@@ -170,16 +227,40 @@ export function OverviewPage({
 
       <div className="overview-main-grid">
         <div className="overview-main-column">
+        {approvalQueue && (
+          <section className="overview-section" aria-labelledby="approval-queue-title">
+            <h2 id="approval-queue-title">Onay kuyruğu</h2>
+            <OperationalCard
+              tone={approvalQueue.pendingCount > 0 ? 'attention' : 'default'}
+              statusLabel="Yönetici kontrolü bekliyor"
+            >
+              {approvalQueue.pendingCount > 0 ? (
+                <>
+                  <p className="overview-queue-count">
+                    <strong>{approvalQueue.pendingCount}</strong> iş onay bekliyor
+                  </p>
+                  <p className="overview-queue-wait">
+                    {oldestWaiting
+                      ? `En eskisi ${oldestWaiting} bekliyor.`
+                      : 'En eski bekleme süresi henüz ölçülmedi.'}
+                  </p>
+                </>
+              ) : (
+                <p className="overview-queue-count">Kontrol bekleyen iş yok.</p>
+              )}
+              <Link className="overview-queue-link" to={paths.approvalReports}>
+                Onay kuyruğuna git
+              </Link>
+            </OperationalCard>
+          </section>
+        )}
         {!isStaff && <OpenSubmissionLateSection />}
         {!isStaff && (
           <section className="overview-section" aria-labelledby="completion-trend-title">
             <h2 id="completion-trend-title">Tamamlanma eğilimi</h2>
             <OperationalCard title="Tamamlanan ve iptal edilen işler">
               <p>{overview.completedInPeriod} iş tamamlandı; {overview.cancelledInPeriod} iş iptal edildi.</p>
-              <TrendBars points={overview.completionTrend} className="overview-trend" />
-              <p className="overview-text-summary">
-                Kontrol kuyruğunda {overview.approvalQueueSummary.pendingCount} iş bulunuyor.
-              </p>
+              <TrendBars points={overview.completionTrend} className="overview-trend" dateLabels />
             </OperationalCard>
           </section>
         )}
@@ -189,18 +270,16 @@ export function OverviewPage({
             <h2 id="upcoming-work-title">Yaklaşan işler</h2>
             {overview.upcomingWork.items.length === 0
               ? <EmptyState title="Yaklaşan iş bulunmuyor" />
-              : <ul className="overview-card-stack">
+              : <OverviewList>
                   {overview.upcomingWork.items.map((item) => (
-                    <li key={`${item.source}:${item.id}`}>
-                      <OperationalCard
-                        title={<Link to={item.path}>{item.title}</Link>}
-                        tone="upcoming"
-                      >
-                        <span>{new Date(item.startsAt).toLocaleString('tr-TR')} · {item.assignedUserName}</span>
-                      </OperationalCard>
+                    <li key={`${item.source}:${item.id}`} className="overview-row">
+                      <Link className="overview-row-title" to={item.path}>{item.title}</Link>
+                      <p className="overview-row-meta">
+                        {formatOverviewDateTime(item.startsAt, timeZone)} · {item.assignedUserName}
+                      </p>
                     </li>
                   ))}
-                </ul>
+                </OverviewList>
             }
           </section>
         )}
@@ -209,18 +288,16 @@ export function OverviewPage({
           <h2 id="recent-work-title">Son tamamlanan işler</h2>
           {overview.recentCompletedWork.length === 0
             ? <EmptyState title="Bu dönemde tamamlanan iş bulunmuyor" />
-            : <ul className="overview-card-stack">
+            : <OverviewList>
                 {overview.recentCompletedWork.map((item) => (
-                  <li key={item.id}>
-                    <OperationalCard
-                      title={<Link to={paths.job(item.id)}>{item.title}</Link>}
-                      tone="success"
-                    >
-                      <span>{item.customerName ?? 'Müşteri bağlantısı yok'} · {item.assigneeName ?? 'Atanmamış'}</span>
-                    </OperationalCard>
+                  <li key={item.id} className="overview-row">
+                    <Link className="overview-row-title" to={paths.job(item.id)}>{item.title}</Link>
+                    <p className="overview-row-meta">
+                      {item.customerName ?? 'Müşteri bağlantısı yok'} · {item.assigneeName ?? 'Atanmamış'}
+                    </p>
                   </li>
                 ))}
-              </ul>
+              </OverviewList>
           }
         </section>
 
@@ -230,19 +307,16 @@ export function OverviewPage({
           <h2 id="recent-notes-title">Son notlar</h2>
           {overview.recentNotes.length === 0
             ? <EmptyState title="Yakın tarihli not bulunmuyor" />
-            : <ul className="overview-card-stack">
+            : <OverviewList>
                 {overview.recentNotes.map((note) => (
-                  <li key={note.id}>
-                    <OperationalCard
-                      title={<Link to={paths.job(note.jobCardId)}>{note.jobTitle}</Link>}
-                      tone="default"
-                    >
-                      <p>Operasyon notu eklendi</p>
-                      <span>{note.authorName} · {new Date(note.createdAt).toLocaleString('tr-TR')}</span>
-                    </OperationalCard>
+                  <li key={note.id} className="overview-row">
+                    <Link className="overview-row-title" to={paths.job(note.jobCardId)}>{note.jobTitle}</Link>
+                    <p className="overview-row-meta">
+                      {note.authorName} · {formatOverviewDateTime(note.createdAt, timeZone)}
+                    </p>
                   </li>
                 ))}
-              </ul>
+              </OverviewList>
           }
         </section>
 
@@ -267,24 +341,11 @@ export function OverviewPage({
           </section>
         )}
 
-        {overview.messageUnreadSummary !== undefined && (
+        {unreadMessages > 0 && (
           <section className="overview-section" aria-labelledby="message-summary-title">
             <h2 id="message-summary-title">Okunmamış mesaj</h2>
-            <OperationalCard
-              title={
-                <Link to={paths.messages}>
-                  {overview.messageUnreadSummary.unreadTotal > 0
-                    ? `${overview.messageUnreadSummary.unreadTotal} okunmamış mesaj`
-                    : 'Okunmamış mesaj yok'}
-                </Link>
-              }
-              tone={overview.messageUnreadSummary.unreadTotal > 0 ? 'attention' : 'default'}
-            >
-              <span>
-                {overview.messageUnreadSummary.unreadTotal > 0
-                  ? 'Yeni operasyon mesajı'
-                  : 'Tüm operasyon mesajları okundu'}
-              </span>
+            <OperationalCard tone="attention">
+              <Link to={paths.messages}>{unreadMessages} okunmamış mesaj</Link>
             </OperationalCard>
           </section>
         )}

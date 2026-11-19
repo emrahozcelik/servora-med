@@ -8,7 +8,7 @@
  * embedded from `package.json` via the Vite `define` contract.
  *
  * Visible display uses the short SHA only; the full 40-character SHA stays
- * available in build metadata (and the `data-build-sha` DOM contract used
+ * available in build metadata (and the `data-build-sha` document contract used
  * by production smoke parity).
  */
 
@@ -89,3 +89,20 @@ export function resolveBuildIdentity(environment: {
 }
 
 export const BUILD_IDENTITY = resolveBuildIdentity();
+
+/**
+ * Anonymous, non-visual release marker on the document element.
+ *
+ * The production deploy gate compares the browser-visible release identity
+ * against the expected deploy SHA on a signed-out page, where no shell footer
+ * exists. The login screen no longer shows user-facing build metadata
+ * (UI audit F-16), so the same stable `data-build-sha` / `data-build-label`
+ * contract is exposed once on `<html>` instead of in the login form.
+ */
+export function applyDocumentBuildIdentity(
+  documentElement: HTMLElement,
+  identity: BuildIdentity = BUILD_IDENTITY,
+): void {
+  documentElement.dataset.buildSha = identity.buildSha ?? identity.buildShortSha;
+  documentElement.dataset.buildLabel = identity.buildLabel;
+}

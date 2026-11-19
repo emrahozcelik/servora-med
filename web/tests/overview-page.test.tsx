@@ -126,15 +126,35 @@ describe('OverviewPage', () => {
     expect(html).not.toContain('dueBefore=2026-07-26');
   });
 
-  it('renders management trend and approval summary only for management scope', async () => {
+  it('renders the manager approval queue with its oldest wait and no duplicate trend sentence', async () => {
     const html = await render(managementOverview);
+    expect(html).toContain('Onay kuyruğu');
+    expect(html).toContain('3</strong> iş onay bekliyor');
+    expect(html).toContain('En eskisi 2 sa 0 dk bekliyor.');
+    expect(html).toContain('href="/reports/approvals"');
     expect(html).toContain('Tamamlanma eğilimi');
-    expect(html).toContain('Kontrol kuyruğunda');
-    expect(html).toContain('3 iş');
+    expect(html).not.toContain('Kontrol kuyruğunda');
 
     const staffHtml = await render(staffOverview);
     expect(staffHtml).not.toContain('Tamamlanma eğilimi');
-    expect(staffHtml).not.toContain('Kontrol kuyruğunda');
+    expect(staffHtml).not.toContain('Onay kuyruğu');
+  });
+
+  it('keeps the approval queue null-safe and calm when nothing waits', async () => {
+    const neverMeasured = await render({
+      ...managementOverview,
+      approvalQueueSummary: { pendingCount: 2, oldestWaitingMinutes: null },
+    });
+    expect(neverMeasured).toContain('En eski bekleme süresi henüz ölçülmedi.');
+    expect(neverMeasured).not.toContain('null');
+
+    const empty = await render({
+      ...managementOverview,
+      waitingApproval: 0,
+      approvalQueueSummary: { pendingCount: 0, oldestWaitingMinutes: null },
+    });
+    expect(empty).toContain('Kontrol bekleyen iş yok.');
+    expect(empty).not.toContain('iş onay bekliyor');
   });
 
   it('renders OperationalCards for recent completed work', async () => {
@@ -170,7 +190,7 @@ describe('OverviewPage', () => {
     expect(html).not.toContain('Europe/Istanbul');
   });
 
-  it('resets zero-count KPI tones to default and updates zero-unread message copy', async () => {
+  it('resets zero-count KPI tones and omits the unread-message section at zero', async () => {
     const html = await render({
       ...managementOverview,
       overdue: 0,
@@ -182,17 +202,50 @@ describe('OverviewPage', () => {
     expect(html).toContain('Bekleyen onay yok');
     expect(html).toContain('Düzeltme bekleyen iş yok');
     expect(html).not.toContain('Termin süresi aşıldı');
-    expect(html).toContain('Okunmamış mesaj yok');
-    expect(html).toContain('Tüm operasyon mesajları okundu');
+    expect(html).not.toContain('servora-metric-statistic--overdue');
+    expect(html).not.toContain('servora-metric-statistic--warning');
+    // The notification bell already covers an empty inbox.
+    expect(html).not.toContain('Okunmamış mesaj');
+    expect(html).not.toContain('Tüm operasyon mesajları okundu');
     expect(html).not.toContain('Yeni operasyon mesajı');
+  });
+
+  it('shows the unread-message section only while messages are unread', async () => {
+    const html = await render({
+      ...managementOverview,
+      messageUnreadSummary: { unreadTotal: 3 },
+    });
+    expect(html).toContain('Okunmamış mesaj');
+    expect(html).toContain('3 okunmamış mesaj');
     expect(html).toContain('href="/messages"');
   });
 
-  it('renders OperationalCards for recent notes', async () => {
+  it('keeps lateness as the strongest KPI tone and approval waiting neutral', async () => {
+    const html = await render(managementOverview);
+    expect((html.match(/servora-metric-statistic--overdue/g) ?? []).length).toBe(1);
+    expect((html.match(/servora-metric-statistic--warning/g) ?? []).length).toBe(1);
+    expect(html).not.toContain('servora-metric-statistic--attention');
+    expect(html).toContain('Yönetici değerlendirmesinde');
+  });
+
+  it('renders record timestamps without seconds and with a readable shape', async () => {
+    const html = await render(managementOverview);
+    expect(html).not.toMatch(/\d{1,2}:\d{2}:\d{2}/);
+    expect(html).toContain('Cum 24 Tem · 17:00');
+    expect(html).toContain('Gösterilen aralık: ');
+
+    const staffHtml = await render(staffOverview);
+    expect(staffHtml).not.toMatch(/\d{1,2}:\d{2}:\d{2}/);
+    expect(staffHtml).toContain('Cmt 25 Tem · 13:00');
+  });
+
+  it('renders notes as author, time and job title without filler copy', async () => {
     const html = await render(staffOverview);
-    expect(html).toContain('Operasyon notu eklendi');
+    expect(html).not.toContain('Operasyon notu eklendi');
     expect(html).not.toContain('Teslim saati klinikle doğrulandı.');
-    expect(html).toContain('Ayşe Personel');
+    expect(html).toContain('Klinik ziyareti');
+    expect(html).toContain('Ayşe Personel · Cmt 25 Tem · 13:00');
+    expect(html).toContain('overview-row-list');
   });
 
   it('renders EmptyState when recent completed work is empty', async () => {

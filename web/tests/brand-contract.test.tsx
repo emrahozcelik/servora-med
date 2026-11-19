@@ -83,9 +83,11 @@ describe('DunyaDentalBrand variant source map', () => {
     const css = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8');
 
     expect(css).toMatch(/\.dunya-dental-brand--login-hero\s*\{[^}]*margin-inline-start:\s*-0\.75rem/s);
-    expect(css).toMatch(/\.dunya-dental-brand--login-hero img\s*\{[^}]*width:\s*clamp\(13rem,\s*15vw,\s*14rem\)[^}]*height:\s*auto[^}]*max-width:\s*100%/s);
+    // F-16: the login brand sits above the form in one centred column and must
+    // stay small enough for the 320x568 first screen.
+    expect(css).toMatch(/\.dunya-dental-brand--login-hero img\s*\{[^}]*width:\s*clamp\(8rem,\s*18vw,\s*12rem\)[^}]*height:\s*auto[^}]*max-width:\s*100%/s);
     expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.dunya-dental-brand--login-hero\s*\{[^}]*margin-inline-start:\s*-0\.25rem/s);
-    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.dunya-dental-brand--login-hero img\s*\{[^}]*width:\s*clamp\(8rem,\s*35vw,\s*9rem\)[^}]*height:\s*auto/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.dunya-dental-brand--login-hero img\s*\{[^}]*width:\s*clamp\(7rem,\s*30vw,\s*9rem\)[^}]*height:\s*auto/s);
     expect(css).toMatch(/\.dunya-dental-brand--full img\s*\{[^}]*max-height:\s*8rem/s);
     expect(css).not.toMatch(/dunya-dental-brand--(?:login\s|sidebar|topbar)/);
   });

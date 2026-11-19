@@ -65,6 +65,24 @@ describe('TrendBars contract', () => {
     expect(long).toContain('data-density="density-dense"');
     expect(long).toContain('data-point-count="366"');
   });
+
+  it('labels the plotted date range only when asked (F-17 minimal API extension)', () => {
+    const points = [{ date: '2026-10-21', count: 0 }, { date: '2026-11-19', count: 3 }];
+    const plain = renderToStaticMarkup(<TrendBars points={points} />);
+    expect(plain).not.toContain('report-trend-range');
+
+    const labelled = renderToStaticMarkup(<TrendBars points={points} dateLabels />);
+    expect(labelled).toContain('class="report-trend-figure"');
+    expect(labelled).toContain('class="report-trend-range"');
+    expect(labelled).toContain('Gösterilen aralık: ');
+    expect(labelled).toContain('21 Eki');
+    expect(labelled).toContain('19 Kas');
+    // The bars keep their structural contract inside the labelled figure.
+    expect(labelled).toContain('class="report-trend-bars report-trend-bars--density-normal"');
+
+    // No points means no range sentence at all.
+    expect(renderToStaticMarkup(<TrendBars points={[]} dateLabels />)).not.toContain('report-trend-range');
+  });
 });
 
 describe('WorkflowTrend contract', () => {
