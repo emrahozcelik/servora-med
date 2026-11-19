@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 
-/** Slices the `/* Phase 2 C2 *\/` block so later stylesheet edits cannot satisfy these contracts by accident. */
+/** Slices the trailing Phase 2 C2 block so later stylesheet edits cannot satisfy these contracts by accident. */
 function phaseBlock(): string {
   const marker = '/* Phase 2 C2 */';
   const start = css.indexOf(marker);
