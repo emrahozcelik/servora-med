@@ -104,6 +104,14 @@ describe('PageHeader contract', () => {
     expect(container.querySelector('.route-context-control')).toBeNull();
   });
 
+  it('keeps a clickable İşler crumb plus the mobile ReturnLink on a job detail', async () => {
+    await render('/jobs/job-1', <PageHeader />);
+    const crumb = Array.from(container.querySelectorAll('.route-breadcrumb a'))
+      .find((link) => link.textContent === 'İşler');
+    expect(crumb?.getAttribute('href')).toBe('/jobs');
+    expect(container.querySelector('.route-return-link')?.textContent).toContain('İşler');
+  });
+
   it('computes no title fallback inside PageHeader', async () => {
     await render('/jobs/job-1', <PageHeader />);
     // Generic fallback comes from the resolution layer, not the component.
