@@ -341,6 +341,18 @@ jobs:
           path: ${{ runner.temp }}/servora-people-ui/
           if-no-files-found: warn
           retention-days: 14
+      - name: Legacy-pattern rendered UI acceptance (UI audit C2)
+        run: npm run smoke:c2
+        env:
+          C2_CAPTURE_DIR: ${{ runner.temp }}/servora-c2-patterns-ui
+      - name: Upload legacy-pattern UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: servora-c2-patterns-ui-${{ github.run_id }}
+          path: ${{ runner.temp }}/servora-c2-patterns-ui/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Reports overview and staff browser acceptance
         run: node scripts/reports-ui-smoke.mjs
         env:
