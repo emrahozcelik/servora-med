@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { NewJobMenu } from '../src/jobs/NewJobMenu';
@@ -177,7 +178,7 @@ describe('NewJobMenu', () => {
     expect(host.querySelector('.new-job-menu-panel')).toBeTruthy();
   });
 
-  it('uses sheet presentation with dialog role and body scroll lock for sticky create', () => {
+  it('uses sheet presentation with dialog role and body scroll lock for the mobile create', () => {
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -193,11 +194,158 @@ describe('NewJobMenu', () => {
     });
     const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
     act(() => { trigger.click(); });
-    expect(host.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
     expect(document.body.style.overflow).toBe('hidden');
     act(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('portals the sheet and its backdrop to the document body', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(<NewJobMenu presentation="sheet" onCreateMeeting={() => {}} />);
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    const panel = document.querySelector('.new-job-menu-panel--sheet')!;
+    const backdrop = document.querySelector('.new-job-menu-backdrop')!;
+    expect(panel.parentElement).toBe(document.body);
+    expect(backdrop.parentElement).toBe(document.body);
+    expect(host.contains(panel)).toBe(false);
+  });
+
+  it('wraps Tab and Shift+Tab inside the sheet', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <NewJobMenu
+          presentation="sheet"
+          onCreateMeeting={() => {}}
+          onCreateTask={() => {}}
+          onCreateDelivery={() => {}}
+        />,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    const panel = document.querySelector<HTMLElement>('.new-job-menu-panel--sheet')!;
+    const focusables = Array.from(panel.querySelectorAll<HTMLButtonElement>('button'));
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    expect(first.textContent).toBe('Görüşme / ziyaret planla');
+    expect(last.textContent).toBe('Vazgeç');
+    expect(document.activeElement).toBe(first);
+
+    last.focus();
+    act(() => { panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); });
+    expect(document.activeElement).toBe(first);
+
+    first.focus();
+    act(() => {
+      panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    });
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('contains focus inside the sheet for non-Tab focus moves', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(<NewJobMenu presentation="sheet" onCreateMeeting={() => {}} />);
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    const panel = document.querySelector<HTMLElement>('.new-job-menu-panel--sheet')!;
+
+    const outside = document.createElement('button');
+    outside.type = 'button';
+    document.body.appendChild(outside);
+    outside.focus();
+
+    expect(panel.contains(document.activeElement)).toBe(true);
+    outside.remove();
+  });
+
+  it.each([
+    ['backdrop', () => document.querySelector<HTMLButtonElement>('.new-job-menu-backdrop')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))],
+    ['Escape', () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))],
+    ['Vazgeç', () => Array.from(document.querySelectorAll<HTMLButtonElement>('.new-job-menu-panel--sheet button'))
+      .find((button) => button.textContent === 'Vazgeç')!.click()],
+  ] as const)('closes the sheet via %s and restores focus to the trigger', (_label, close) => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(<NewJobMenu presentation="sheet" onCreateMeeting={() => {}} />);
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    expect(document.querySelector('.new-job-menu-panel--sheet')).not.toBeNull();
+
+    act(() => { close(); });
+
+    expect(document.querySelector('.new-job-menu-panel--sheet')).toBeNull();
+    expect(document.body.style.overflow).toBe('');
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('keeps the desktop disclosure free of focus trapping', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(<NewJobMenu presentation="popover" onCreateMeeting={() => {}} />);
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    const panel = host.querySelector<HTMLElement>('.new-job-menu-panel')!;
+    expect(panel.getAttribute('role')).toBeNull();
+    expect(panel.getAttribute('aria-modal')).toBeNull();
+
+    const outside = document.createElement('button');
+    outside.type = 'button';
+    document.body.appendChild(outside);
+    outside.focus();
+
+    expect(document.activeElement).toBe(outside);
+    expect(host.querySelector('.new-job-menu-panel')).toBe(panel);
+    outside.remove();
+  });
+
+  it('closes the open sheet when the router location changes', () => {
+    function NavButton() {
+      const navigate = useNavigate();
+      return <button type="button" data-nav onClick={() => navigate('/customers')}>Git</button>;
+    }
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <MemoryRouter initialEntries={['/jobs']}>
+          <NavButton />
+          <NewJobMenu presentation="sheet" onCreateMeeting={() => {}} />
+        </MemoryRouter>,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    expect(document.querySelector('.new-job-menu-panel--sheet')).not.toBeNull();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    act(() => { host!.querySelector<HTMLButtonElement>('[data-nav]')!.click(); });
+
+    expect(document.querySelector('.new-job-menu-panel--sheet')).toBeNull();
+    expect(document.body.style.overflow).toBe('');
+    expect(document.activeElement).not.toBe(trigger);
   });
 });

@@ -18,19 +18,43 @@ export type NavMenuItem = {
   label: string;
 };
 
-export type BottomNavItem = NavLinkItem | NavMenuItem;
-
-export type NavigationModel = {
-  /** Full destination list for sidebar + full drawer body. */
-  destinations: NavLinkItem[];
-  /** High-frequency mobile bottom destinations. */
-  bottom: BottomNavItem[];
-  /** Lower-frequency items for bottom-nav Menü overflow drawer. */
-  overflow: NavLinkItem[];
+/** Centered mobile create action; opens the NewJobMenu sheet (DECISIONS.md UI-004). */
+export type NavCreateItem = {
+  kind: 'create';
+  id: 'new-job';
+  label: string;
 };
 
+export type BottomNavItem = NavLinkItem | NavMenuItem | NavCreateItem;
+
+export type NavGroupLabel = NavLinkItem['section'] | 'Çalışma' | 'Hesap ve destek';
+
+export type NavGroup = {
+  label: NavGroupLabel;
+  items: NavLinkItem[];
+};
+
+export type NavigationModel = {
+  /** Full destination list for sidebar + single mobile menu panel. */
+  destinations: NavLinkItem[];
+  /** Mobile bottom destinations, the centered create action, and one Menü control. */
+  bottom: BottomNavItem[];
+};
+
+/** Mobile menu panel group for every destination section (UI-004). */
+const menuGroupBySection: Record<NavLinkItem['section'], 'Çalışma' | 'Hesap ve destek'> = {
+  Operasyon: 'Çalışma',
+  Analiz: 'Çalışma',
+  Ekip: 'Çalışma',
+  Destek: 'Hesap ve destek',
+  Hesap: 'Hesap ve destek',
+};
+
+/** At most three direct links: with the create action and Menü that is five slots. */
+const mobileDirectLimit = 3;
+
 /**
- * Single navigation SSOT for sidebar, drawer, bottom nav, and overflow.
+ * Single navigation SSOT for sidebar, menu panel, and bottom nav.
  * Do not duplicate role lists in shell components.
  */
 export function buildNavigationModel(user: CurrentUser): NavigationModel {
@@ -77,32 +101,55 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
     ...(user.role === 'ADMIN' && user.capabilities?.backup === true ? [backupRecovery] : []),
   ];
 
-  if (user.role === 'STAFF') {
-    const direct = user.capabilities?.overviewDashboard
+  const direct = user.role === 'STAFF'
+    ? (user.capabilities?.overviewDashboard
       ? [overview, jobs, ...(user.capabilities?.calendar ? [calendar] : [customers])]
-      : [jobs, customers, products];
-    const directIds = new Set(direct.map((item) => item.id));
-    return {
-      destinations,
-      bottom: [...direct, { kind: 'menu', id: 'menu', label: 'Menü' }],
-      overflow: destinations.filter((item) => !directIds.has(item.id)),
-    };
-  }
-
-  const direct = user.capabilities?.overviewDashboard
-    ? [overview, jobs, ...(user.capabilities?.calendar ? [calendar] : [reports])]
-    : [jobs, customers, reports];
-  const directIds = new Set(direct.map((item) => item.id));
-  const overflow = destinations.filter((item) => !directIds.has(item.id));
+      : [jobs, customers, products])
+    : (user.capabilities?.overviewDashboard
+      ? [overview, jobs, ...(user.capabilities?.calendar ? [calendar] : [reports])]
+      : [jobs, customers, reports]);
 
   return {
     destinations,
-    bottom: [
-      ...direct,
-      { kind: 'menu', id: 'menu', label: 'Menü' },
-    ],
-    overflow,
+    bottom: buildBottomNavItems(direct.slice(0, mobileDirectLimit)),
   };
+}
+
+/**
+ * Place the create action in the middle slot so it is centered under the
+ * thumb, with Menü last (UI-004: at most five slots).
+ */
+function buildBottomNavItems(direct: NavLinkItem[]): BottomNavItem[] {
+  const leftCount = Math.ceil(direct.length / 2);
+  return [
+    ...direct.slice(0, leftCount),
+    { kind: 'create', id: 'new-job', label: 'Yeni iş' },
+    ...direct.slice(leftCount),
+    { kind: 'menu', id: 'menu', label: 'Menü' },
+  ];
+}
+
+/** Sidebar grouping: the five destination sections in model order. */
+export function groupNavigationBySection(destinations: NavLinkItem[]): NavGroup[] {
+  return groupDestinations(destinations, (item) => item.section);
+}
+
+/** Mobile menu panel grouping: operational work first, then account and support (UI-004). */
+export function groupNavigationForMenu(destinations: NavLinkItem[]): NavGroup[] {
+  return groupDestinations(destinations, (item) => menuGroupBySection[item.section]);
+}
+
+function groupDestinations(
+  destinations: NavLinkItem[],
+  labelOf: (item: NavLinkItem) => NavGroupLabel,
+): NavGroup[] {
+  return destinations.reduce<NavGroup[]>((groups, destination) => {
+    const label = labelOf(destination);
+    const current = groups.find((group) => group.label === label);
+    if (current) current.items.push(destination);
+    else groups.push({ label, items: [destination] });
+    return groups;
+  }, []);
 }
 
 /**
@@ -123,8 +170,4 @@ export function resolveIdentityTitle(identity: RouteIdentity, role: CurrentUser[
   if (identity.id === 'jobs' && role === 'STAFF') return 'İşlerim';
   if ((identity.id === 'staff' || identity.id === 'staffProfile') && role === 'STAFF') return 'Profilim';
   return identity.title;
-}
-
-export function isJobsListPath(pathname: string): boolean {
-  return pathname === paths.jobs || pathname === '/jobs/';
 }

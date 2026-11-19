@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
-import { NewJobMenu } from './jobs/NewJobMenu';
 import { BuildIdentity } from './BuildIdentity';
 import { setDocumentTitle } from './document-title';
 import { paths } from './paths';
@@ -15,9 +14,10 @@ import { AppleInstallGuidance } from './install/AppleInstallGuidance';
 import { useInstallOpportunity } from './install/InstallOpportunity';
 import {
   buildNavigationModel,
-  isJobsListPath,
+  groupNavigationBySection,
+  groupNavigationForMenu,
   resolveHomePath,
-  type NavLinkItem,
+  type NavGroup,
 } from './shell/navigation-model';
 import { matchRouteIdentity } from './shell/route-identity';
 import { ResolvedIdentityProvider, useResolvedIdentity } from './shell/resolved-identity';
@@ -31,6 +31,7 @@ export type AppShellProps = {
 };
 
 const desktopQuery = '(min-width: 64rem)';
+const drawerId = 'app-navigation-drawer';
 const roleLabels = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
 
 function useDesktopLayout() {
@@ -48,31 +49,21 @@ function useDesktopLayout() {
 }
 
 function DestinationNav({
-  destinations,
+  groups,
   onNavigate,
-  label = 'Ana navigasyon',
+  label,
 }: {
-  destinations: NavLinkItem[];
+  groups: NavGroup[];
   onNavigate?: () => void;
-  label?: string;
+  label: string;
 }) {
-  const sections = destinations.reduce<Array<{ label: NavLinkItem['section']; items: NavLinkItem[] }>>(
-    (groups, destination) => {
-      const current = groups.at(-1);
-      if (current?.label === destination.section) current.items.push(destination);
-      else groups.push({ label: destination.section, items: [destination] });
-      return groups;
-    },
-    [],
-  );
-
   return (
     <nav className="shell-nav" aria-label={label}>
-      {sections.map((section) => (
-        <section className="shell-nav-section" data-nav-section={section.label} key={section.label}>
-          <h2>{section.label}</h2>
+      {groups.map((group) => (
+        <section className="shell-nav-section" data-nav-section={group.label} key={group.label}>
+          <h2>{group.label}</h2>
           <div className="shell-nav-links">
-            {section.items.map((destination) => (
+            {group.items.map((destination) => (
               <NavLink key={destination.id} to={destination.to} onClick={onNavigate}>
                 {destination.label}
               </NavLink>
@@ -138,9 +129,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   const homePath = resolveHomePath(user);
   const install = useInstallOpportunity();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<'full' | 'overflow'>('full');
-  const topMenuRef = useRef<HTMLButtonElement>(null);
-  const bottomMenuRef = useRef<HTMLButtonElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const drawerOpenerRef = useRef<HTMLElement | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
@@ -149,12 +138,9 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   // route identity is owned by PageHeader; the desktop topbar carries only
   // global shell actions (notifications).
   const title = resolved?.effectiveTitle ?? 'Dünya Dental';
-  const showStickyCreate = !desktop && isJobsListPath(location.pathname);
   const applicationSettingsActive = location.pathname === paths.settingsApplication;
   const showGlobalAppleGuidance = install.shouldOfferAppleGuidance && !applicationSettingsActive;
-  const drawerDestinations = drawerMode === 'overflow' && model.overflow.length > 0
-    ? model.overflow
-    : model.destinations;
+  const menuGroups = groupNavigationForMenu(model.destinations);
 
   useEffect(() => {
     setDocumentTitle(resolved?.effectiveTitle ?? null);
@@ -165,15 +151,25 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
     setDrawerOpen(false);
   }
 
-  function openDrawer(mode: 'full' | 'overflow', opener: HTMLElement) {
+  function openDrawer(opener: HTMLElement) {
     drawerOpenerRef.current = opener;
-    setDrawerMode(mode);
     setDrawerOpen(true);
   }
 
   useEffect(() => {
     if (desktop && drawerOpen) closeDrawer(false);
   }, [desktop, drawerOpen]);
+
+  // Back/Forward or programmatic navigation while the panel is open must close
+  // it and release the scroll lock. Focus is not pushed back to the stale
+  // trigger: the new route owns the page.
+  const routeKey = `${location.pathname}${location.search}`;
+  const previousRouteKeyRef = useRef(routeKey);
+  useEffect(() => {
+    if (previousRouteKeyRef.current === routeKey) return;
+    previousRouteKeyRef.current = routeKey;
+    if (drawerOpen) closeDrawer(false);
+  }, [routeKey, drawerOpen]);
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -217,8 +213,6 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
     }
   }
 
-  const menuExpanded = drawerOpen;
-
   return (
     <div className={`authenticated-shell${desktop ? ' authenticated-shell--desktop' : ' authenticated-shell--mobile'}`}>
       {desktop ? (
@@ -227,7 +221,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
             <div className="shell-sidebar-brand brand-lockup">
               <DunyaDentalBrand variant="full" to={homePath} />
             </div>
-            <DestinationNav destinations={model.destinations} />
+            <DestinationNav groups={groupNavigationBySection(model.destinations)} label="Ana navigasyon" />
             <div className="shell-sidebar-footer">
               <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
               <small className="shell-copyright">© {new Date().getFullYear()} Dünya Dental</small>
@@ -241,10 +235,6 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
       ) : (
         <MobileTopBar
           title={title}
-          menuExpanded={menuExpanded && drawerMode === 'full'}
-          menuControlsId="app-navigation-drawer"
-          onOpenMenu={(opener) => openDrawer('full', opener)}
-          menuTriggerRef={topMenuRef}
           notifications={<NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile />}
         />
       )}
@@ -257,50 +247,35 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
       </div>
 
       {!desktop && (
-        <>
-          {showStickyCreate && (
-            <div className="sticky-new-job">
-              <NewJobMenu
-                presentation="sheet"
-                onCreateMeeting={() => navigate(paths.newMeeting)}
-                onCreateTask={() => navigate(paths.newTask)}
-                onCreateDelivery={() => navigate(paths.newDelivery)}
-                onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
-              />
-            </div>
-          )}
-          <MobileBottomNav
-            items={model.bottom}
-            menuExpanded={menuExpanded && drawerMode === 'overflow'}
-            menuControlsId="app-navigation-drawer"
-            menuTriggerRef={bottomMenuRef}
-            onOpenMenu={(opener) => openDrawer(
-              model.overflow.length > 0 ? 'overflow' : 'full',
-              opener,
-            )}
-          />
-        </>
+        <MobileBottomNav
+          items={model.bottom}
+          menuExpanded={drawerOpen}
+          menuControlsId={drawerId}
+          menuTriggerRef={menuTriggerRef}
+          onOpenMenu={openDrawer}
+          onCreateMeeting={() => navigate(paths.newMeeting)}
+          onCreateTask={() => navigate(paths.newTask)}
+          onCreateDelivery={() => navigate(paths.newDelivery)}
+          onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
+        />
       )}
 
       {!desktop && drawerOpen && (
         <div className="shell-drawer-backdrop" onClick={(event) => {
             if (event.target === event.currentTarget) closeDrawer(true);
           }}>
-          <div id="app-navigation-drawer" ref={drawerRef} className="shell-drawer" role="dialog" aria-modal="true"
+          <div id={drawerId} ref={drawerRef} className="shell-drawer" role="dialog" aria-modal="true"
             aria-labelledby="app-navigation-title" onKeyDown={handleDrawerKeyDown}>
             <div className="drawer-heading">
-              <h2 id="app-navigation-title">{drawerMode === 'overflow' ? 'Diğer menü' : 'Menü'}</h2>
+              <h2 id="app-navigation-title">Menü</h2>
               <button className="drawer-close" type="button" aria-label="Menüyü kapat" onClick={() => closeDrawer(true)}>Kapat</button>
             </div>
-            <div className="shell-drawer-brand brand-lockup">
-              <DunyaDentalBrand variant="full" to={homePath} onNavigate={() => closeDrawer(true)} />
-            </div>
-            <DestinationNav
-              destinations={drawerDestinations}
-              onNavigate={() => closeDrawer(true)}
-              label={drawerMode === 'overflow' ? 'Diğer destinasyonlar' : 'Tüm destinasyonlar'}
-            />
             <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
+            <DestinationNav
+              groups={menuGroups}
+              onNavigate={() => closeDrawer(true)}
+              label="Tüm destinasyonlar"
+            />
             <BuildIdentity />
           </div>
         </div>

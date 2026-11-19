@@ -1,6 +1,8 @@
 import type { RefObject } from 'react';
 import { NavLink } from 'react-router-dom';
 
+import { NewJobMenu } from '../jobs/NewJobMenu';
+import { NavigationIcon } from './navigation-icons';
 import type { BottomNavItem } from './navigation-model';
 
 export function MobileBottomNav({
@@ -9,12 +11,20 @@ export function MobileBottomNav({
   menuExpanded,
   menuControlsId,
   menuTriggerRef,
+  onCreateMeeting,
+  onCreateTask,
+  onCreateDelivery,
+  onCreateWeeklyReport,
 }: {
   items: BottomNavItem[];
   onOpenMenu: (opener: HTMLElement) => void;
   menuExpanded: boolean;
   menuControlsId: string;
   menuTriggerRef: RefObject<HTMLButtonElement | null>;
+  onCreateMeeting?: () => void;
+  onCreateTask?: () => void;
+  onCreateDelivery?: () => void;
+  onCreateWeeklyReport?: () => void;
 }) {
   return (
     <nav className="mobile-bottom-nav" aria-label="Mobil ana navigasyon">
@@ -31,8 +41,23 @@ export function MobileBottomNav({
               aria-controls={menuControlsId}
               onClick={(event) => onOpenMenu(event.currentTarget)}
             >
-              {item.label}
+              <NavigationIcon id={item.id} />
+              <span className="mobile-bottom-nav-label">{item.label}</span>
             </button>
+          );
+        }
+        if (item.kind === 'create') {
+          return (
+            <div key={item.id} className="mobile-bottom-nav-create">
+              <NewJobMenu
+                presentation="sheet"
+                triggerIcon={<NavigationIcon id={item.id} />}
+                onCreateMeeting={onCreateMeeting}
+                onCreateTask={onCreateTask}
+                onCreateDelivery={onCreateDelivery}
+                onCreateWeeklyReport={onCreateWeeklyReport}
+              />
+            </div>
           );
         }
         const visible = item.shortLabel ?? item.label;
@@ -46,7 +71,8 @@ export function MobileBottomNav({
             }
             aria-label={hasShort ? item.label : undefined}
           >
-            {visible}
+            <NavigationIcon id={item.id} />
+            <span className="mobile-bottom-nav-label">{visible}</span>
           </NavLink>
         );
       })}
