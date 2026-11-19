@@ -302,3 +302,119 @@ test('normal route argument rules: a pinned CI run needs its package; no attempt
   assert.match(source, /REMOTE_MIGRATION_COUNT_INVALID/, 'an unknown migration count never enables rollback');
   assert.match(source, /observe_public_health \|\| fail LIVE_BUT_OBSERVATION_FAILED/);
 });
+
+/**
+ * 2026-11-19: security.ubuntu.com and archive.ubuntu.com returned 503 for hours
+ * while azure.archive.ubuntu.com stayed up. Every Playwright `--with-deps`
+ * install in the deploy path (web -> release-package -> Production Deploy) must
+ * first add the Azure mirror as an apt fallback with retries and fail within a bound.
+ */
+test('every Playwright --with-deps install first adds the Azure apt fallback under a timeout', () => {
+  const ci = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+  for (const [file, source, expected] of [['deploy-production.yml', workflow, 1], ['ci.yml', ci, 2]]) {
+    const installs = [...source.matchAll(/npx playwright install --with-deps chromium webkit/g)];
+    assert.equal(installs.length, expected, file);
+    for (const install of installs) {
+      const before = source.slice(0, install.index);
+      const stepStart = Math.max(before.lastIndexOf('\n      - name:'), before.lastIndexOf('\n      - run:'));
+      const step = before.slice(stepStart);
+      assert.match(step, /\n {8}timeout-minutes: 15\n/, `${file}: install step must be time-bounded`);
+      assert.match(step, /\n {10}sudo bash \.\.\/ops\/ci\/use-azure-apt-mirror\.sh\n/, `${file}: mirror guard must run first`);
+    }
+  }
+  const releasePackage = ci.slice(ci.indexOf('\n  release-package:'));
+  assert.match(releasePackage, /path: ~\/\.cache\/ms-playwright/);
+});
+
+const AZURE = 'http://azure.archive.ubuntu.com/ubuntu/';
+const count = (text, needle) => text.split(needle).length - 1;
+
+test('Azure apt mirror guard adds Azure as a fallback next to existing Ubuntu mirrors', () => {
+  const script = resolve(repoRoot, 'ops/ci/use-azure-apt-mirror.sh');
+  const run = (root) => spawnSync('/bin/bash', [script], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', APT_ROOT: root } });
+  const runTwice = (root) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = run(root);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /APT_AZURE_MIRROR_READY/);
+    }
+  };
+
+  // Actual ubuntu-24.04 runner layout (failed release-package job, 2026-11-19):
+  // every stanza is `mirror+file:` and the list starts with the EC2 mirror.
+  withTempDir((root) => {
+    const apt = join(root, 'etc/apt');
+    mkdirSync(join(apt, 'sources.list.d'), { recursive: true });
+    const stanzas = [
+      'Types: deb',
+      'URIs: mirror+file:/etc/apt/apt-mirrors.txt',
+      'Suites: noble noble-updates noble-backports noble-security',
+      'Components: main universe restricted multiverse',
+      'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg',
+      '',
+    ].join('\n');
+    writeFileSync(join(apt, 'sources.list.d/ubuntu.sources'), stanzas);
+    const mirrors = [
+      'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:1',
+      'https://archive.ubuntu.com/ubuntu/\tpriority:2',
+      'https://security.ubuntu.com/ubuntu/\tpriority:3',
+      '',
+    ].join('\n');
+    writeFileSync(join(apt, 'apt-mirrors.txt'), mirrors);
+    runTwice(root);
+    assert.equal(readFileSync(join(apt, 'apt-mirrors.txt'), 'utf8'), `${mirrors}${AZURE}\tpriority:4\n`);
+    assert.equal(readFileSync(join(apt, 'sources.list.d/ubuntu.sources'), 'utf8'), stanzas);
+    const retries = readFileSync(join(apt, 'apt.conf.d/80-servora-ci-retries'), 'utf8');
+    assert.match(retries, /Acquire::Retries "5";/);
+    assert.match(retries, /Acquire::http::Timeout "30";/);
+
+    rmSync(join(apt, 'apt-mirrors.txt'));
+    const missingList = run(root);
+    assert.notEqual(missingList.status, 0);
+    assert.match(missingList.stderr, /APT_MIRROR_LIST_MISSING/);
+  });
+
+  // Direct URIs: deb822 lines gain Azure as an extra URI, one-line entries gain
+  // an Azure duplicate; originals stay first and third-party sources are untouched.
+  withTempDir((root) => {
+    const apt = join(root, 'etc/apt');
+    mkdirSync(join(apt, 'sources.list.d'), { recursive: true });
+    writeFileSync(join(apt, 'sources.list'), '# Ubuntu sources have moved to /etc/apt/sources.list.d/ubuntu.sources\n');
+    writeFileSync(join(apt, 'sources.list.d/ubuntu.sources'), [
+      'Types: deb',
+      'URIs: http://archive.ubuntu.com/ubuntu/',
+      'Suites: noble noble-updates noble-backports',
+      'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg',
+      '',
+      'Types: deb',
+      'URIs: http://security.ubuntu.com/ubuntu/',
+      'Suites: noble-security',
+      'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg',
+      '',
+    ].join('\n'));
+    writeFileSync(join(apt, 'sources.list.d/legacy.list'), 'deb http://us.archive.ubuntu.com/ubuntu noble universe\n');
+    const thirdParty = 'deb [arch=amd64] https://packages.microsoft.com/ubuntu/24.04/prod noble main\n';
+    writeFileSync(join(apt, 'sources.list.d/microsoft-prod.list'), thirdParty);
+    runTwice(root);
+
+    const sources = readFileSync(join(apt, 'sources.list.d/ubuntu.sources'), 'utf8');
+    assert.match(sources, new RegExp(`URIs: http://archive\\.ubuntu\\.com/ubuntu/ ${AZURE}\\nSuites: noble noble-updates`));
+    assert.match(sources, new RegExp(`URIs: http://security\\.ubuntu\\.com/ubuntu/ ${AZURE}\\nSuites: noble-security`));
+    assert.equal(count(sources, AZURE), 2);
+    assert.equal(readFileSync(join(apt, 'sources.list.d/legacy.list'), 'utf8'),
+      'deb http://us.archive.ubuntu.com/ubuntu noble universe\ndeb http://azure.archive.ubuntu.com/ubuntu noble universe\n');
+    assert.equal(readFileSync(join(apt, 'sources.list.d/microsoft-prod.list'), 'utf8'), thirdParty);
+    assert.equal(readFileSync(join(apt, 'sources.list'), 'utf8'), '# Ubuntu sources have moved to /etc/apt/sources.list.d/ubuntu.sources\n');
+  });
+
+  withTempDir((root) => {
+    const missing = run(root);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /APT_CONFIG_DIR_MISSING/);
+    mkdirSync(join(root, 'etc/apt/sources.list.d'), { recursive: true });
+    writeFileSync(join(root, 'etc/apt/sources.list.d/other.list'), 'deb https://example.invalid/repo stable main\n');
+    const noUbuntu = run(root);
+    assert.notEqual(noUbuntu.status, 0);
+    assert.match(noUbuntu.stderr, /APT_AZURE_MIRROR_NOT_CONFIGURED/);
+  });
+});
