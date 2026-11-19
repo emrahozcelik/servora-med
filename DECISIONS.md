@@ -2560,7 +2560,8 @@ Contract and evidence limits:
 
 ## OPS-DEPLOY-001 — Single approved production deployment workflow
 
-Status: owner explicitly selected the single approved flow ("Tek onaylı akış")
+Status: **superseded for ordinary releases by OPS-DEPLOY-002 (2026-11-19).**
+Owner explicitly selected the single approved flow ("Tek onaylı akış")
 on 2026-11-16. Source implementation, focused tests and Draft PR review only.
 No production dispatch, approval, attestation, admission, migration, backup,
 host helper/profile change or deployment is authorized by this record.
@@ -2598,6 +2599,51 @@ This supersedes only the workflow's advertised migration-false branch. Earlier
 local/operator `allow_migrations`/`--allow-migrations` semantics are otherwise
 unchanged. Owning runbook:
 [docs/operations/production-deployment.md](docs/operations/production-deployment.md).
+
+## OPS-DEPLOY-002 — One-action normal production deployment
+
+Status: accepted by the owner on 2026-11-19 (issue #451: "Her normal production
+deployment için ayrı root approval, `attempt_id`, UUID üretimi veya hash girişi
+istemiyorum"; scope answers: keep the GitHub `production` reviewer, migrations
+by an explicit workflow checkbox, short observation). **Supersedes OPS-DEPLOY-001**
+for ordinary releases. Source implementation and Draft PR only; the one-time
+host transition and the first one-action deployment need separate owner go-ahead.
+
+- Operator action: Actions → **Production Deploy** → Run workflow on `main`
+  (optional `allow_migrations` checkbox) → approve the `production` environment.
+  The workflow binds `GITHUB_SHA`, resolves that SHA's green `push` CI run and
+  downloads its `servora-med-release-<sha>` package. No `deploy_sha`,
+  `attempt_id`, `ci_run_id`, root approval or hash is entered by hand.
+- The runner still requires current canonical main, a clean exact source, the
+  successful exact-main CI run **including `release-package`** whenever a
+  prebuilt artifact is used, and the artifact SHA-256/sidecar.
+- Host route: the existing attempt-less helper path — pending-attempt refusal,
+  host lock, predeploy backup, migration history `EXACT` (or ordered
+  `PREFIX_WITH_PENDING` only with `--allow-migrations`), data-invariant capture,
+  schema check, atomic switch, health/release identity, automatic rollback only
+  when zero migrations ran, browser smoke and postdeploy backup.
+  `DIVERGENT`/`DATABASE_AHEAD`/duplicate/invalid catalogs still stop.
+- Observation: ~2 minutes of public health/release-SHA samples on the normal
+  route. The 1,800-second interval stays on the attempt-bound route.
+- B1-01 fence: `deploy`, `postdeploy` and `rollback` no longer require an
+  attempt UUID in `RELEASED`. `attempt-preflight`, `forward-recovery`,
+  `pre-migration-abort` and `controller` still do; `legacy-deploy` and
+  `legacy-restore` stay disabled. The fence remains a prerequisite, not an
+  approval.
+- Unchanged and still available: the R4 attempt-bound route, root
+  `issueRootApproval`, forward recovery, TT-A/Chrony, historical evidence,
+  narrow `servora-deploy` sudo, SSH known_hosts pinning and secrets handling.
+- One-time host transition: the root-only
+  `ops/recovery-tools/normal-deploy-transition` installs exactly the pinned new
+  helper/fence bytes, archives every superseded record under
+  `/var/lib/servora-med/deploy/transitions/ops-deploy-002/`, and re-seals the
+  manifest → closed → verification → authorization → released chain plus the
+  profile `helperSha256`. `--check` rehearses it read-only on the real host.
+  Root deliberately changing host policy is outside the B1-01 threat model; this
+  makes the change bounded and auditable. Historical R4 approvals keep their old
+  profile hash and are not re-validated after the re-seal.
+
+Owning runbook: [docs/operations/production-deployment.md](docs/operations/production-deployment.md).
 
 ## U3-A — Offboarded Staff cannot be reactivated
 

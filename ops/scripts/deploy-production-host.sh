@@ -1657,10 +1657,9 @@ if [[ -n "$ATTEMPT_ID" ]]; then
   [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || fail ATTEMPT_ID_INVALID
 fi
 [[ "$PHASE" == deploy || "$ALLOW_MIGRATIONS" == false ]] || fail INVALID_MIGRATION_PHASE
-
-if [[ "$PHASE" == deploy && "$ALLOW_MIGRATIONS" == true && -z "$ATTEMPT_ID" ]]; then
-  fail ATTEMPT_REQUIRED_FOR_MIGRATIONS
-fi
+# OPS-DEPLOY-002: --allow-migrations without an attempt selects the ordinary
+# guarded path (predeploy backup, ordered PREFIX check, invariant capture,
+# schema check). It authorizes only pending migrations already in the release.
 
 # The persistent guard precedes lock creation, staging, backup and service work.
 # Holding the stable lock below serializes later mutations with bootstrap. The

@@ -64,6 +64,11 @@ DEPLOY_STATUS="FAIL"
 BROWSER_STATUS="NOT_RUN"
 POSTDEPLOY_STATUS="NOT_RUN"
 ROLLBACK_STATUS="NOT_REQUIRED"
+OBSERVATION_STATUS="NOT_RUN"
+# OPS-DEPLOY-002 short public observation for the normal route (~2 minutes).
+# The 1,800-second interval remains only on the attempt-bound recovery route.
+readonly OBSERVATION_SAMPLES=6
+readonly OBSERVATION_INTERVAL_SECONDS=20
 PREDEPLOY_BACKUP_STATUS="NOT_RUN"
 ACTIVATION_STATUS="NOT_RUN"
 HEALTH_STATUS="NOT_RUN"
@@ -74,7 +79,8 @@ Usage:
   ops/deploy-production.sh --sha <40-character-main-sha> [--allow-migrations]
   ops/deploy-production.sh --sha <40-character-main-sha> --ci-mode local --evidence <manifest-or-bundle>
   ops/deploy-production.sh --check
-  ops/deploy-production.sh --sha SHA --ci-mode github --ci-run-id RUN --artifact ARCHIVE --attempt-id UUID --allow-migrations
+  ops/deploy-production.sh --sha SHA --ci-mode github --ci-run-id RUN --artifact ARCHIVE [--allow-migrations]
+  ops/deploy-production.sh --sha SHA --ci-mode github --ci-run-id RUN --artifact ARCHIVE --attempt-id UUID [--allow-migrations|--forward-recovery]
   ops/deploy-production.sh --sha SHA --package-only --output-dir ABSOLUTE_DIRECTORY
   ops/deploy-production.sh --sha SHA --ci-mode local --evidence BUNDLE --artifact ARCHIVE --attempt-id UUID [--allow-migrations|--forward-recovery]
 
@@ -168,6 +174,7 @@ write_summary() {
     echo "- Health: ${HEALTH_STATUS}"
     echo "- Browser smoke: ${BROWSER_STATUS}"
     echo "- Postdeploy backup: ${POSTDEPLOY_STATUS}"
+    echo "- Observation: ${OBSERVATION_STATUS}"
     echo "- Rollback: ${ROLLBACK_STATUS}"
     echo
     echo 'No business-data import, seed, bootstrap, or database restore was invoked.'
@@ -348,7 +355,8 @@ verify_exact_main_ci() {
   [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || fail EXACT_MAIN_CI_NOT_GREEN
   run_json="$(gh run view "$run_id" --json databaseId,attempt,headSha,headBranch,event,status,conclusion,workflowName,jobs)" \
     || fail EXACT_MAIN_CI_JOBS_LOOKUP_FAILED
-  if [[ -n "$ATTEMPT_ID" ]]; then proof_args=(--require-package); fi
+  # A prebuilt artifact is trusted only from a run whose release-package job passed.
+  if [[ -n "$ATTEMPT_ID" || -n "$ARTIFACT_INPUT" ]]; then proof_args=(--require-package); fi
   CI_MANIFEST_SHA="$(printf '%s\n' "$run_json" | node "$REPO_ROOT/ops/scripts/github-ci-evidence.mjs" \
     --sha "$SHA" --run-id "$run_id" "${proof_args[@]}")" || fail GITHUB_CI_PROOF_INVALID
   [[ "$CI_MANIFEST_SHA" =~ ^[0-9a-f]{64}$ ]] || fail GITHUB_CI_PROOF_INVALID
@@ -858,7 +866,8 @@ deploy_remote() {
   [[ "$NEW_RELEASE" == "/opt/servora-med/releases/$SHA" ]] || fail REMOTE_NEW_RELEASE_INVALID
   [[ "$PREDEPLOY_BACKUP_STATUS" == PASS ]] || fail REMOTE_PREDEPLOY_BACKUP_NOT_VERIFIED
   [[ "$ACTIVATION_STATUS" == PASS && "$HEALTH_STATUS" == PASS ]] || fail REMOTE_ACTIVATION_NOT_VERIFIED
-  [[ "$MIGRATIONS_APPLIED" =~ ^[0-9]+$ ]] || MIGRATIONS_APPLIED=0
+  # Unknown migration count must never be read as zero: zero enables automatic rollback.
+  [[ "$MIGRATIONS_APPLIED" =~ ^[0-9]+$ ]] || { MIGRATIONS_APPLIED=UNKNOWN; fail REMOTE_MIGRATION_COUNT_INVALID; }
   DEPLOY_STATUS=PASS
   rm -f -- "$output_file"
 }
@@ -892,6 +901,21 @@ rollback_remote() {
   ROLLBACK_STATUS=FAIL
   rm -f -- "$output_file"
   return 1
+}
+
+observe_public_health() {
+  PHASE=OBSERVATION
+  local sample body
+  for ((sample = 1; sample <= OBSERVATION_SAMPLES; sample += 1)); do
+    body="$(curl -fsS --max-time 15 "https://${FQDN}/api/health")" || { OBSERVATION_STATUS=FAIL; return 1; }
+    node -e '
+      let value; try { value = JSON.parse(process.argv[1]); } catch { process.exit(1); }
+      process.exit(value && value.status === "ok" && value.releaseSha === process.argv[2] ? 0 : 1);
+    ' "$body" "$SHA" || { OBSERVATION_STATUS=FAIL; return 1; }
+    echo "OBSERVATION_SAMPLE=${sample}/${OBSERVATION_SAMPLES} UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) health=PASS release=PASS"
+    if ((sample < OBSERVATION_SAMPLES)); then sleep "$OBSERVATION_INTERVAL_SECONDS"; fi
+  done
+  OBSERVATION_STATUS=PASS
 }
 
 postdeploy_remote() {
@@ -947,10 +971,12 @@ if [[ -n "$ATTEMPT_ID" ]]; then
   else
     [[ -z "$CI_RUN_ID_INPUT" ]] || fail ATTEMPT_ARGUMENTS_INVALID
   fi
-else
-  [[ -z "$CI_RUN_ID_INPUT" ]] || fail CI_RUN_ID_REQUIRES_ATTEMPT
+elif [[ -n "$CI_RUN_ID_INPUT" ]]; then
+  # OPS-DEPLOY-002 normal route: a pinned hosted CI run always comes with the
+  # prebuilt package that run produced; no attempt UUID or root approval.
+  [[ "$CI_MODE" == github && "$CI_RUN_ID_INPUT" =~ ^[1-9][0-9]*$ && -n "$ARTIFACT_INPUT" \
+    && "$EVIDENCE_EXPLICIT" == false ]] || fail NORMAL_ARGUMENTS_INVALID
 fi
-[[ "$ALLOW_MIGRATIONS" == false || -n "$ATTEMPT_ID" ]] || fail ATTEMPT_REQUIRED_FOR_MIGRATIONS
 [[ "$FORWARD_RECOVERY" == false || ( -n "$ATTEMPT_ID" && "$ALLOW_MIGRATIONS" == false ) ]] || fail RECOVERY_ARGUMENTS_INVALID
 if [[ "$PACKAGE_ONLY" == true ]]; then
   [[ -n "$SHA" && -n "$PACKAGE_OUTPUT_DIR" && "$PACKAGE_OUTPUT_DIR" == /* \
@@ -1012,6 +1038,13 @@ if ! postdeploy_remote; then
   fail POSTDEPLOY_FAILED
 fi
 
+# The attempt-bound route already completed its host-side 1,800-second observation.
+if [[ -z "$ATTEMPT_ID" ]]; then
+  observe_public_health || fail LIVE_BUT_OBSERVATION_FAILED
+else
+  OBSERVATION_STATUS=PASS_ATTEMPT_BOUND
+fi
+
 PHASE=COMPLETE
-echo "PRODUCTION_DEPLOYMENT_COMPLETE sha=${SHA} previous=${OLD_RELEASE} migrations_applied=${MIGRATIONS_APPLIED} browser_smoke=${BROWSER_STATUS} postdeploy_backup=${POSTDEPLOY_STATUS} ci_mode=${CI_MODE}"
+echo "PRODUCTION_DEPLOYMENT_COMPLETE sha=${SHA} previous=${OLD_RELEASE} migrations_applied=${MIGRATIONS_APPLIED} browser_smoke=${BROWSER_STATUS} postdeploy_backup=${POSTDEPLOY_STATUS} observation=${OBSERVATION_STATUS} ci_mode=${CI_MODE}"
 fi

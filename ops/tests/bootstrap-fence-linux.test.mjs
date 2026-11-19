@@ -151,13 +151,21 @@ test('real Linux ownership, fixed entrypoints, interrupted state and process dea
     fs.unlinkSync(ROOT + '/released.json');
   });
 
-  await t.test('RELEASED admits only the guard prerequisite; a UUID cannot substitute for root approval', () => {
+  await t.test('RELEASED admits the normal route without an attempt; recovery still needs one', () => {
     release();
     assert.equal(guard().status, 0, text(guard()));
-    for (const phase of ['deploy', 'postdeploy', 'forward-recovery', 'pre-migration-abort', 'attempt-preflight']) {
+    // OPS-DEPLOY-002: the fence passes; the helper's own argument gate decides next.
+    for (const args of [['--phase', 'deploy'], ['--phase', 'postdeploy'], ['--phase', 'deploy', '--allow-migrations']]) {
+      const result = run(LIB + '/deploy-production-host', args);
+      denied(result, /MISSING_ARGUMENT/);
+      assert.doesNotMatch(text(result), /BOOTSTRAP_FENCE_|ATTEMPT_REQUIRED/);
+    }
+    const rollback = run(LIB + '/deploy-production-host', ['--phase', 'rollback', '--sha', 'a'.repeat(40)]);
+    assert.notEqual(rollback.status, 0, text(rollback));
+    assert.doesNotMatch(text(rollback), /BOOTSTRAP_FENCE_/);
+    for (const phase of ['forward-recovery', 'pre-migration-abort', 'attempt-preflight']) {
       denied(run(LIB + '/deploy-production-host', ['--phase', phase]), /ATTEMPT_REQUIRED/);
     }
-    denied(run(LIB + '/deploy-production-host', ['--phase', 'rollback', '--sha', 'a'.repeat(40)]), /LEGACY_MUTATION_DISABLED/);
     fs.mkdirSync(state + '/approvals', {mode: 0o700});
     denied(run('/usr/bin/node', [LIB + '/deployment-controller.mjs', 'admit', ID]), /ATTEMPT_APPROVAL_MISSING/);
     assert.equal(fs.existsSync(state + '/active.json'), false);

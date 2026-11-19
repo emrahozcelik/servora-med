@@ -25,9 +25,12 @@ export const REQUIRED_MANAGEMENT_FILES = Object.freeze([
   ['historical-recovery-evidence.mjs', 0o644], ['host-operation-lock.sh', 0o644],
   ['migration-reconciliation.mjs', 0o644], ['trusted-time.mjs', 0o644],
 ].map(([name, mode]) => Object.freeze({path: LIB + '/' + name, mode})));
-const ATTEMPT_OPERATIONS = ['deploy', 'postdeploy', 'attempt-preflight', 'forward-recovery', 'pre-migration-abort', 'controller'];
-const OPERATIONS = [...ATTEMPT_OPERATIONS, 'controller', 'forward', 'emergency-handoff',
-  'preserve-authorization', 'adoption', 'legacy-deploy', 'rollback', 'legacy-restore'];
+// OPS-DEPLOY-002: ordinary deploy/postdeploy/rollback run without an attempt
+// UUID; the helper's own pending-attempt, backup and migration gates still apply.
+const NORMAL_OPERATIONS = ['deploy', 'postdeploy', 'rollback'];
+const ATTEMPT_OPERATIONS = ['attempt-preflight', 'forward-recovery', 'pre-migration-abort', 'controller'];
+const OPERATIONS = [...NORMAL_OPERATIONS, ...ATTEMPT_OPERATIONS, 'forward', 'emergency-handoff',
+  'preserve-authorization', 'adoption', 'legacy-deploy', 'legacy-restore'];
 export const BOOTSTRAP_RELEASE_CHECKS = Object.freeze(['toolClosure', 'mutationCoverage', 'delegatedAccess', 'noPendingOperation',
   'historicalPreservation', 'canonicalTrustedTime', 'profileContracts', 'serviceUnchanged']);
 const CHECKS = BOOTSTRAP_RELEASE_CHECKS;
@@ -160,8 +163,10 @@ export function createBootstrapFenceGuard(io) {
     for (const tool of tools) {
       if (hash(read(tool.path, tool.mode)) !== tool.sha256) fail('TOOL_DRIFT');
     }
-    if (['legacy-deploy', 'rollback', 'legacy-restore'].includes(operation)) fail('LEGACY_MUTATION_DISABLED');
+    if (['legacy-deploy', 'legacy-restore'].includes(operation)) fail('LEGACY_MUTATION_DISABLED');
     if (ATTEMPT_OPERATIONS.includes(operation) && !UUID.test(attemptId ?? '')) fail('ATTEMPT_REQUIRED');
+    // An optional attempt on a normal operation must still be well-formed.
+    if (NORMAL_OPERATIONS.includes(operation) && attemptId && !UUID.test(attemptId)) fail('ATTEMPT_REQUIRED');
     // This permission is a prerequisite, never a deployment approval. The
     // caller must still run its existing R4 or forward/emergency authorization.
     return {state: 'RELEASED', fenceSha256: closed.sha256, manifestSha256: manifest.sha256};

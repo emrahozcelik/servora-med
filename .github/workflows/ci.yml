@@ -81,7 +81,7 @@ jobs:
             --workdir /source --env BOOTSTRAP_QUARANTINE_CONTAINER_TEST=1 \
             "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-delegation-quarantine-linux.test.mjs
       - name: Bootstrap CLOSED installation and release contracts
-        run: node --test ../ops/recovery-tools/bootstrap-transition.test.mjs ../ops/recovery-tools/bootstrap-transition-host.test.mjs
+        run: node --test ../ops/recovery-tools/bootstrap-transition.test.mjs ../ops/recovery-tools/bootstrap-transition-host.test.mjs ../ops/recovery-tools/normal-deploy-transition.test.mjs
       - name: Installed OLD cutover identity and admission separation
         run: node --test ../ops/tests/installed-old-cutover-attestation.test.mjs ../ops/tests/cutover-attestation-host.test.mjs ../ops/tests/cutover-attestation-faults.test.mjs ../ops/tests/cutover-attestation-cli.test.mjs
       - name: Bootstrap transition isolated Linux acceptance
@@ -144,7 +144,8 @@ jobs:
             ../ops/recovery-tools/profile-reseal \
             ../ops/recovery-tools/bootstrap-delegation-quarantine \
             ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
-            ../ops/recovery-tools/bootstrap-transition
+            ../ops/recovery-tools/bootstrap-transition \
+            ../ops/recovery-tools/normal-deploy-transition
           node --check ../ops/scripts/backup-observation.mjs
           node --check ../ops/scripts/bootstrap-fence.mjs
           node --check ../ops/scripts/backup-observation-writer.mjs
@@ -155,6 +156,7 @@ jobs:
           node --check ../ops/recovery-tools/bootstrap-delegation-quarantine.mjs
           node --check ../ops/recovery-tools/bootstrap-transition.mjs
           node --check ../ops/recovery-tools/bootstrap-transition-host.mjs
+          node --check ../ops/recovery-tools/normal-deploy-transition.mjs
           node --check ../ops/recovery-tools/profile-reseal-e2e-fixture.mjs
           node --check ../ops/recovery-tools/profile-reseal-e2e.test.mjs
           node --check ../web/scripts/production-browser-smoke.mjs
@@ -176,6 +178,7 @@ jobs:
             ../ops/recovery-tools/bootstrap-delegation-quarantine \
             ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
             ../ops/recovery-tools/bootstrap-transition \
+            ../ops/recovery-tools/normal-deploy-transition \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
             ../ops/scripts/stage-historical-recovery-6ce4cff0.sh \

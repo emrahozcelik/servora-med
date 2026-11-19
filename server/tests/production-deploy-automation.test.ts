@@ -933,55 +933,47 @@ describe('controlled production deployment automation contract', () => {
 
   it('binds production deployment to the exact main SHA before checkout', () => {
     const content = readFileSync(workflow, 'utf8');
-    const validationIndex = content.indexOf('name: Validate immutable deployment identity');
+    const validationIndex = content.indexOf('name: Validate deployment identity');
     const checkoutIndex = content.indexOf('uses: actions/checkout@v6');
     const checkoutVerificationIndex = content.indexOf('name: Verify checked out deployment SHA');
+    const resolveIndex = content.indexOf('name: Resolve exact-main CI run for this SHA');
     const deployStepIndex = content.indexOf(
-      'name: Build, transfer, activate, smoke, and back up exact main SHA',
+      'name: Transfer, activate, smoke, back up and observe exact main SHA',
     );
     const deployIndex = content.indexOf('bash ops/deploy-production.sh');
 
-    expect(content).toContain('deploy_sha:');
-    expect(content).toMatch(/deploy_sha:\n\s+description: Deploy this exact canonical main SHA/);
-    expect(content).toMatch(/deploy_sha:[\s\S]*?required: true[\s\S]*?type: string/);
-    expect(content).not.toContain('allow_migrations');
-    expect(content).toMatch(/attempt_id:[\s\S]*?required: true[\s\S]*?type: string/);
-    expect(content).toMatch(/ci_run_id:[\s\S]*?required: true[\s\S]*?type: string/);
-    expect(content).not.toContain('main_ref:');
-    expect(content).not.toContain('ref: ${{ inputs.main_ref }}');
-    expect(content).not.toContain('ref: main');
+    // OPS-DEPLOY-002: no hand-entered SHA, attempt UUID or CI run id.
+    for (const removed of ['deploy_sha:', 'attempt_id:', 'ci_run_id:', 'main_ref:', 'inputs.deploy_sha',
+      'inputs.attempt_id', 'inputs.ci_run_id', '--attempt-id', 'ref: main']) {
+      expect(content).not.toContain(removed);
+    }
+    expect(content).toMatch(/allow_migrations:[\s\S]*?required: false[\s\S]*?default: false[\s\S]*?type: boolean/);
 
     expect(validationIndex).toBeGreaterThan(-1);
     expect(checkoutIndex).toBeGreaterThan(validationIndex);
     expect(checkoutVerificationIndex).toBeGreaterThan(checkoutIndex);
-    expect(deployIndex).toBeGreaterThan(checkoutVerificationIndex);
+    expect(resolveIndex).toBeGreaterThan(checkoutVerificationIndex);
+    expect(deployIndex).toBeGreaterThan(resolveIndex);
 
     const validationBlock = content.slice(validationIndex, checkoutIndex);
-    expect(validationBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
-    expect(validationBlock).toContain('[[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]');
     expect(validationBlock).toContain('[[ "$GITHUB_REF" == "refs/heads/main" ]]');
-    expect(validationBlock).toContain('[[ "$GITHUB_SHA" == "$DEPLOY_SHA" ]]');
-    expect(validationBlock).toContain('ATTEMPT_ID: ${{ inputs.attempt_id }}');
-    expect(validationBlock).toContain('CI_RUN_ID: ${{ inputs.ci_run_id }}');
-    expect(validationBlock).toContain('ATTEMPT_ID_REQUIRED');
-    expect(validationBlock).toContain('CI_RUN_ID_REQUIRED');
-    expect(content).toContain('ref: ${{ inputs.deploy_sha }}');
+    expect(validationBlock).toContain('[[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]');
+    expect(validationBlock).toContain('echo "DEPLOY_SHA=$GITHUB_SHA" >>"$GITHUB_ENV"');
+    expect(content).toContain('ref: ${{ github.sha }}');
 
-    const checkoutVerificationBlock = content.slice(checkoutVerificationIndex, deployIndex);
-    expect(checkoutVerificationBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
+    const checkoutVerificationBlock = content.slice(checkoutVerificationIndex, resolveIndex);
     expect(checkoutVerificationBlock).toContain('git rev-parse --verify HEAD');
     expect(checkoutVerificationBlock).toContain('[[ "$CHECKED_OUT_SHA" == "$DEPLOY_SHA" ]]');
 
+    const resolveBlock = content.slice(resolveIndex, deployStepIndex);
+    expect(resolveBlock).toContain('--workflow ci.yml --branch main --event push --commit "$DEPLOY_SHA"');
+    expect(resolveBlock).toContain('EXACT_MAIN_CI_NOT_GREEN');
+
     const deployBlock = content.slice(deployStepIndex);
-    expect(deployBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
-    expect(deployBlock).toContain('deploy_args=(--sha "$DEPLOY_SHA"');
-    expect(deployBlock).not.toContain('deploy_args=(--sha "$GITHUB_SHA")');
-    expect(deployBlock).toContain('ATTEMPT_ID: ${{ inputs.attempt_id }}');
-    expect(deployBlock).toContain('CI_RUN_ID: ${{ inputs.ci_run_id }}');
-    expect(deployBlock).toContain('--allow-migrations --attempt-id "$ATTEMPT_ID"');
-    expect(deployBlock).toContain('--ci-mode github --ci-run-id "$CI_RUN_ID"');
+    expect(deployBlock).toContain('ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}');
+    expect(deployBlock).toContain('deploy_args=(--sha "$DEPLOY_SHA" --ci-mode github --ci-run-id "$CI_RUN_ID"');
     expect(deployBlock).toContain('--artifact "$RUNNER_TEMP/servora-release/');
-    expect(deployBlock).not.toContain('ALLOW_MIGRATIONS');
+    expect(deployBlock).toContain('[[ "$ALLOW_MIGRATIONS" != true ]] || deploy_args+=(--allow-migrations)');
   });
 
   it('documents the environment approval and one-time host bootstrap boundary', () => {
