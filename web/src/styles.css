@@ -2422,15 +2422,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin: clamp(2rem, 6vh, 4rem) auto;
   min-width: 0;
 }
-/* Narrow shells: the job-detail page starts closer to the shell chrome so the
-   responsibility panel and its primary command reach the first screen
-   (DECISIONS.md UI-005). */
-@media (width < 64rem) {
-  .job-detail {
-    margin-top: 1rem;
-    margin-bottom: 2rem;
-  }
-}
 .job-detail-workflow-layout {
   display: grid;
   grid-template-columns: 1fr;
@@ -2611,6 +2602,23 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin-inline-end: 0.25rem;
   color: var(--warning);
 }
+/* Revision attention owns its icon surface: Ant's custom-icon slot has no
+   background/border of its own, so this element is the amber marker instead of
+   the primary-blue `process` circle (DECISIONS.md UI-005). */
+.servora-workflow-attention-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--warning);
+  border-radius: 50%;
+  color: var(--warning);
+  background: var(--warning-soft);
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1;
+}
 .servora-workflow-step--skipped .servora-ant-steps-item-title,
 .servora-workflow-step--upcoming .servora-ant-steps-item-title { color: var(--muted); }
 /* Revision-loop attention: Delay Amber title plus the ⚠ state text, never
@@ -2634,6 +2642,19 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-size: 0.8rem;
   font-weight: 650;
 }
+.overdue-history-body { min-width: 0; }
+.overdue-history-error {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid oklch(78% 0.07 28deg);
+  border-radius: var(--radius-control);
+  color: var(--error);
+  background: var(--error-soft);
+}
+.overdue-history-error p { margin: 0; }
 .job-detail-lateness-history {
   min-width: 0;
   margin-top: 1.15rem;
@@ -3519,6 +3540,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
     overflow-wrap: anywhere;
   }
   .job-row-facts {
+    grid-template-columns: 1fr;
+  }
+  /* The narrow lateness-signal two-column rule must not defeat the 20rem
+     reflow contract. */
+  [data-submission-lateness="open"] .job-row-facts {
     grid-template-columns: 1fr;
   }
   .job-row-commands {

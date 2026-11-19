@@ -356,3 +356,107 @@ describe('OVR-4 keyboard focus after a shrinking total', () => {
     } finally { await view.dispose(); }
   });
 });
+
+describe('OVR-4 collapsible history disclosure (UI-005)', () => {
+  type HistoryPage = { items: OverdueIncidentHistoryItem[]; total: number; limit: number; offset: number };
+
+  function deferredSecondPage() {
+    let completeNext!: (page: HistoryPage) => void;
+    const load = vi.fn((_jobId: string, { limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => (
+      offset === 0
+        ? Promise.resolve({ items: historyRows.slice(0, limit), total: 13, limit, offset })
+        : new Promise<HistoryPage>((resolve) => { completeNext = resolve; })
+    ));
+    return { load, complete: (page: HistoryPage) => completeNext(page) };
+  }
+
+  function disclosure(container: HTMLElement) {
+    return container.querySelector<HTMLDetailsElement>('details[data-overdue-history-disclosure="true"]');
+  }
+
+  async function openDisclosure(container: HTMLElement) {
+    const details = disclosure(container);
+    expect(details).not.toBeNull();
+    expect(details!.open).toBe(false);
+    await act(async () => {
+      details!.querySelector('summary')!.click();
+    });
+    expect(details!.open).toBe(true);
+    return details!;
+  }
+
+  it('keeps the disclosure open and the pager focused across a deferred page load', async () => {
+    const { load, complete } = deferredSecondPage();
+    const view = await mountView(<OverdueIncidentHistorySection jobId="test-job" load={load} collapsible />);
+    try {
+      const details = await openDisclosure(view.container);
+      const pager = view.container.querySelector('.servora-list-pagination');
+      expect(pager).not.toBeNull();
+
+      const next = view.container.querySelector<HTMLElement>('.servora-ant-pagination-next')!;
+      await act(async () => {
+        next.focus();
+        next.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      });
+      expect(load).toHaveBeenLastCalledWith('test-job', { limit: 6, offset: 6 });
+
+      // Loading renders inside the same, still-open disclosure: the panel must not
+      // unmount, collapse, or drop the pager's focus ticket.
+      expect(disclosure(view.container)).toBe(details);
+      expect(details.open).toBe(true);
+      expect(view.container.querySelector('[data-overdue-history-busy="true"]')).not.toBeNull();
+      expect(view.container.querySelector('.servora-list-pagination')).toBe(pager);
+
+      await act(async () => {
+        complete({ items: historyRows.slice(6, 12), total: 13, limit: 6, offset: 6 });
+      });
+      expect(disclosure(view.container)).toBe(details);
+      expect(details.open).toBe(true);
+      expect(view.container.textContent).toContain('Sayfa 2 / 3');
+      expect(view.container.querySelector('[data-overdue-history-busy="false"]')).not.toBeNull();
+      expect(document.activeElement).toBe(view.container.querySelector('.servora-list-pagination'));
+    } finally { await view.dispose(); }
+  });
+
+  it('stays open and busy through a realtime-style refresh', async () => {
+    const initial = vi.fn().mockResolvedValue({
+      items: historyRows.slice(0, 6), total: 13, limit: 6, offset: 0,
+    });
+    let completeRefresh!: (page: HistoryPage) => void;
+    const refresh = vi.fn((_jobId: string, { limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => (
+      new Promise<HistoryPage>((resolve) => { completeRefresh = resolve; })
+        .then((page) => ({ ...page, limit, offset }))
+    ));
+    const view = await mountView(<OverdueIncidentHistorySection jobId="test-job" load={initial} collapsible />);
+    try {
+      const details = await openDisclosure(view.container);
+      await view.render(<OverdueIncidentHistorySection jobId="test-job" load={refresh} collapsible />);
+      expect(details.open).toBe(true);
+      expect(view.container.querySelector('[data-overdue-history-busy="true"]')).not.toBeNull();
+      // The last good page stays visible while the refresh is in flight.
+      expect(view.container.querySelectorAll('[data-overdue-history-item]')).toHaveLength(6);
+
+      await act(async () => {
+        completeRefresh({ items: historyRows.slice(0, 6), total: 13, limit: 6, offset: 0 });
+      });
+      expect(details.open).toBe(true);
+      expect(view.container.querySelector('[data-overdue-history-busy="false"]')).not.toBeNull();
+      expect(view.container.querySelectorAll('[data-overdue-history-item]')).toHaveLength(6);
+    } finally { await view.dispose(); }
+  });
+
+  it('renders no disclosure before the first page or for an empty history', async () => {
+    let completeFirst!: (page: HistoryPage) => void;
+    const load = vi.fn((_jobId: string, _page: { limit?: number; offset?: number } = {}) => (
+      new Promise<HistoryPage>((resolve) => { completeFirst = resolve; })
+    ));
+    const view = await mountView(<OverdueIncidentHistorySection jobId="test-job" load={load} collapsible />);
+    try {
+      expect(disclosure(view.container)).toBeNull();
+      await act(async () => {
+        completeFirst({ items: [], total: 0, limit: 6, offset: 0 });
+      });
+      expect(disclosure(view.container)).toBeNull();
+    } finally { await view.dispose(); }
+  });
+});

@@ -222,9 +222,17 @@ export function OverdueIncidentHistorySection({ jobId, load = listOverdueInciden
   /** Collapsed disclosure presentation; the job detail opts in below 1024px (UI-005). */
   collapsible?: boolean;
 }) {
-  const asDisclosure = collapsible;
   const [state, setState] = useState<HistoryState>({ kind: 'loading' });
   const [offset, setOffset] = useState(0);
+  // Controlled disclosure: a paging or realtime refresh must not collapse the
+  // panel the user opened (DECISIONS.md UI-005).
+  const [open, setOpen] = useState(false);
+  // Last successful page. It keeps the disclosure, the list and the pager mounted
+  // while a refresh is in flight, so the disclosure cannot collapse and the pager
+  // keeps its pending keyboard-focus ticket.
+  const lastPage = useRef<{
+    items: OverdueIncidentHistoryItem[]; total: number; offset: number;
+  } | null>(null);
   const requestId = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -238,6 +246,7 @@ export function OverdueIncidentHistorySection({ jobId, load = listOverdueInciden
         setOffset(lastOffset);
         return;
       }
+      lastPage.current = { items: page.items, total: page.total, offset };
       setState({ kind: 'ready', items: page.items, total: page.total });
     } catch (caught) {
       if (id !== requestId.current) return;
@@ -248,12 +257,75 @@ export function OverdueIncidentHistorySection({ jobId, load = listOverdueInciden
     }
   }, [jobId, load, offset]);
 
-  useEffect(() => { setOffset(0); }, [jobId]);
+  useEffect(() => {
+    // A different job must never show the previous job's retained page.
+    lastPage.current = null;
+    setOffset(0);
+  }, [jobId]);
+
   useEffect(() => {
     void refresh();
     return () => { requestId.current += 1; };
   }, [refresh]);
   useRealtimeInvalidation([`job-detail:${jobId}`], () => { void refresh(); });
+
+  if (collapsible) {
+    // Ready page, or the last good page while a refresh is in flight. A history
+    // that has never loaded (or is empty) renders nothing.
+    const snapshot = state.kind === 'ready'
+      ? { items: state.items, total: state.total, offset }
+      : lastPage.current;
+    if (snapshot && snapshot.total > 0) {
+      const busy = state.kind === 'loading';
+      return (
+        <section
+          aria-label="Gecikme geçmişi"
+          data-overdue-history="ready"
+          data-overdue-history-busy={busy ? 'true' : 'false'}
+        >
+          <details
+            className="overdue-history"
+            data-overdue-history-disclosure="true"
+            open={open}
+            onToggle={(event) => setOpen(event.currentTarget.open)}
+          >
+            <summary className="overdue-history-summary">
+              <span className="overdue-history-title">Gecikme geçmişi</span>
+              <span className="overdue-history-count">{snapshot.total} kayıt</span>
+            </summary>
+            <div className="overdue-history-body" aria-busy={busy}>
+              {state.kind === 'error' && (
+                <div className="overdue-history-error" role="alert">
+                  <p>{state.message}</p>
+                  {state.retryable && (
+                    <button className="secondary-button" type="button" onClick={() => void refresh()}>
+                      Tekrar dene
+                    </button>
+                  )}
+                </div>
+              )}
+              <ul>
+                {snapshot.items.map((item) => (
+                  <li key={item.id} data-overdue-history-item={item.delayType}>
+                    <strong>{DELAY_TYPE_LABELS[item.delayType]}</strong>
+                    {' '}
+                    <span>{historyDetail(item)}</span>
+                  </li>
+                ))}
+              </ul>
+              <ServoraListPagination
+                total={snapshot.total}
+                offset={snapshot.offset}
+                label="Gecikme geçmişi sayfaları"
+                itemName="gecikme kaydı"
+                onOffsetChange={setOffset}
+              />
+            </div>
+          </details>
+        </section>
+      );
+    }
+  }
 
   if (state.kind === 'loading') return null;
   if (state.kind === 'error') {
@@ -306,22 +378,9 @@ export function OverdueIncidentHistorySection({ jobId, load = listOverdueInciden
 
   return (
     <section aria-label="Gecikme geçmişi" data-overdue-history="ready">
-      {asDisclosure ? (
-        <details className="overdue-history" data-overdue-history-disclosure="true">
-          <summary className="overdue-history-summary">
-            <span className="overdue-history-title">Gecikme geçmişi</span>
-            <span className="overdue-history-count">{state.total} kayıt</span>
-          </summary>
-          {historyList}
-          {pager}
-        </details>
-      ) : (
-        <>
-          <h2>Gecikme geçmişi</h2>
-          {historyList}
-          {pager}
-        </>
-      )}
+      <h2>Gecikme geçmişi</h2>
+      {historyList}
+      {pager}
     </section>
   );
 }
