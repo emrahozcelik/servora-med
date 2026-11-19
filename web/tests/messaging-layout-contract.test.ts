@@ -25,24 +25,40 @@ describe('messaging desktop workspace layout contract (M1)', () => {
     expect(block).toMatch(/\.messaging-workspace\s*\{[^}]*height:\s*calc\(100dvh\s*-\s*4\.75rem\)/s);
   });
 
-  it('gives the conversation list an intentional desktop width between 320 and 360px', () => {
-    expect(messagingCss).toMatch(/\.messaging-sidebar\s*\{[^}]*width:\s*clamp\(320px,[^}]*360px\)/s);
+  it('gives the conversation list an intentional desktop width between 340 and 380px', () => {
+    expect(messagingCss).toMatch(/\.messaging-sidebar\s*\{[^}]*width:\s*clamp\(340px,[^}]*380px\)/s);
   });
 
-  it('gives the sidebar header explicit heading and control regions', () => {
+  it('gives the sidebar header an explicit control region without a duplicate title', () => {
     expect(messagingCss).toMatch(/\.messaging-sidebar-header\s*\{[^}]*display:\s*flex/s);
     expect(messagingCss).toMatch(/\.messaging-sidebar-heading-row\s*\{[^}]*display:\s*flex/s);
-    expect(messagingCss).toMatch(/\.messaging-sidebar-heading\s*\{[^}]*min-width:\s*0/s);
-    expect(messagingCss).toMatch(/\.messaging-sidebar-heading\s*\{[^}]*text-overflow:\s*clip/s);
+    expect(messagingCss).toMatch(/\.messaging-sidebar-heading-row\s*\{[^}]*justify-content:\s*flex-end/s);
   });
 
-  it('reserves a fixed action rail and bounded activity column for every conversation row', () => {
+  it('reserves a fixed action rail and a content-sized activity column for every conversation row', () => {
     expect(messagingCss).toContain('--conversation-action-width');
     expect(messagingCss).toMatch(/\.conversation-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+var\(--conversation-action-width\)/s);
     expect(messagingCss).toMatch(/\.conversation-item\s*\{[^}]*min-width:\s*0/s);
-    expect(messagingCss).toMatch(/\.conversation-item\s*\{[^}]*grid-template-columns:\s*40px\s+minmax\(0,\s*1fr\)\s+4\.5rem/s);
-    expect(messagingCss).toMatch(/\.conversation-activity\s*\{[^}]*width:\s*4\.5rem/s);
+    expect(messagingCss).toMatch(/\.conversation-item\s*\{[^}]*grid-template-columns:\s*40px\s+minmax\(0,\s*1fr\)\s+auto/s);
+    expect(messagingCss).toMatch(/\.conversation-activity\s*\{[^}]*width:\s*auto/s);
+    expect(messagingCss).toMatch(/\.conversation-activity\s*\{[^}]*min-width:\s*3\.25rem/s);
     expect(messagingCss).toMatch(/\.conversation-actions\s*\{[^}]*flex:\s*0\s+0\s+var\(--conversation-action-width\)/s);
+  });
+
+  it('ellipsizes conversation names while keeping the participant count intact (visual review)', () => {
+    expect(messagingCss).toMatch(/\.conversation-name-text\s*\{[^}]*min-width:\s*0;[^}]*text-overflow:\s*ellipsis/s);
+    expect(messagingCss).toMatch(/\.conversation-participants-count\s*\{[^}]*flex:\s*0\s+0\s+auto/s);
+    expect(messagingCss).toMatch(/\.conversation-participants-name\s*\{[^}]*text-overflow:\s*ellipsis/s);
+    expect(messagingCss).toMatch(/\.disabled-badge\s*\{[^}]*flex:\s*0\s+0\s+auto/s);
+  });
+
+  it('draws the selected conversation ring on the whole row, not only the item', () => {
+    expect(messagingCss).toMatch(/\.conversation-row:has\(\.conversation-item\.selected\)\s*\{[^}]*outline:\s*2px solid var\(--accent\)/s);
+    const itemBlock = messagingCss.slice(
+      messagingCss.indexOf('.conversation-item.selected'),
+      messagingCss.indexOf('.conversation-item.selected') + 200,
+    );
+    expect(itemBlock).not.toMatch(/box-shadow/);
   });
 
   it('keeps the thread as the flexible application surface with min-width zero', () => {

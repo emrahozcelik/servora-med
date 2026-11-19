@@ -49,6 +49,30 @@ const manager = { userId: 'fixture-manager', name: 'Deniz Yönetici', isActive: 
 
 const conversations = [
   {
+    id: 'conv-long',
+    directKey: 'conv-long',
+    contextType: 'GENERAL',
+    jobId: null,
+    jobTitle: null,
+    customerId: null,
+    customerName: null,
+    title: 'Bostancı bölgesi çok uzun başlıklı konuşma başlığı örneği',
+    participantName: 'Ayşe Yılmaz',
+    participantId: 'staff-ayse',
+    participantIsActive: true,
+    participants: [
+      manager,
+      staff,
+      { userId: 'staff-mehmet', name: 'Mehmet Kaya', isActive: true },
+      { userId: 'staff-zeynep', name: 'Zeynep Şahin', isActive: true },
+      { userId: 'staff-ali', name: 'Ali Demir', isActive: true },
+      { userId: 'staff-fatma', name: 'Fatma Çelik', isActive: true },
+    ],
+    unreadCount: 0,
+    lastActivityAt: minutesAgo(240),
+    updatedAt: minutesAgo(240),
+  },
+  {
     id: 'conv-job',
     directKey: 'conv-job',
     contextType: 'JOB',
@@ -286,6 +310,23 @@ async function measure(page) {
       height: element.getBoundingClientRect().height,
     } : null);
     const emptyTitleBox = emptyTitle ? box(emptyTitle) : null;
+    const longTitle = [...document.querySelectorAll('.conversation-name-text')]
+      .find((element) => element.textContent?.includes('Bostancı bölgesi'));
+    const longTitleStyle = longTitle ? getComputedStyle(longTitle) : null;
+    const participantCount = document.querySelector('.conversation-participants-count');
+    const participantCountRow = participantCount?.closest('.conversation-row');
+    const selectedRow = document.querySelector('.conversation-row:has(.conversation-item.selected)');
+    const selectedItem = document.querySelector('.conversation-item.selected');
+    const visibleRouteTitles = [...document.querySelectorAll('body *')]
+      .filter((element) => element.children.length === 0 && element.textContent?.trim() === 'Mesajlar')
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        if (style.clipPath === 'inset(50%)') return false;
+        const bounds = element.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0;
+      });
+    const firstMeta = document.querySelector('.conversation-meta');
     return {
       width: window.innerWidth,
       height: window.innerHeight,
@@ -315,6 +356,27 @@ async function measure(page) {
       threadVisible: document.querySelector('.messaging-thread')
         ? getComputedStyle(document.querySelector('.messaging-thread')).display !== 'none'
         : false,
+      longTitle: longTitle ? {
+        clientWidth: longTitle.clientWidth,
+        scrollWidth: longTitle.scrollWidth,
+        overflow: longTitleStyle?.overflow,
+        textOverflow: longTitleStyle?.textOverflow,
+        whiteSpace: longTitleStyle?.whiteSpace,
+      } : null,
+      participantCount: participantCount && participantCountRow ? {
+        text: participantCount.textContent?.trim() ?? '',
+        width: participantCount.getBoundingClientRect().width,
+        insideRow: participantCount.getBoundingClientRect().right <= participantCountRow.getBoundingClientRect().right + 1,
+      } : null,
+      conversationMetaWidth: firstMeta ? firstMeta.clientWidth : null,
+      selectedRow: selectedRow ? {
+        outlineStyle: getComputedStyle(selectedRow).outlineStyle,
+        outlineWidth: getComputedStyle(selectedRow).outlineWidth,
+        outlineColor: getComputedStyle(selectedRow).outlineColor,
+      } : null,
+      selectedItemBoxShadow: selectedItem ? getComputedStyle(selectedItem).boxShadow : null,
+      visibleRouteTitles: visibleRouteTitles.map((element) => element.className || element.tagName),
+      sidebarAccessibleName: document.querySelector('.messaging-sidebar')?.getAttribute('aria-label') ?? null,
       tabs: [...document.querySelectorAll('.conversation-view-tab')].map((element) => ({
         text: element.textContent?.trim() ?? '',
         width: element.getBoundingClientRect().width,
@@ -372,6 +434,35 @@ try {
 
       // Empty list: the list pane owns the only empty state. Populated list on
       // mobile: the thread pane is hidden. Populated desktop: one neutral prompt.
+      // One visible route title only (PageHeader or MobileTopBar), and the list
+      // region keeps an accessible name.
+      assert.equal(measurement.visibleRouteTitles.length, 1, `${label}: expected one visible "Mesajlar" title, found ${measurement.visibleRouteTitles.length}`);
+      assert.equal(measurement.sidebarAccessibleName, 'Konuşmalar', `${label}: list accessible name`);
+
+      if (state !== 'empty') {
+        // Long titles truncate with an ellipsis instead of clipping mid-glyph.
+        assert.ok(measurement.longTitle, `${label}: long-title fixture missing`);
+        assert.equal(measurement.longTitle.overflow, 'hidden', `${label}: title overflow`);
+        assert.equal(measurement.longTitle.textOverflow, 'ellipsis', `${label}: title ellipsis`);
+        assert.ok(
+          measurement.longTitle.scrollWidth > measurement.longTitle.clientWidth + 1,
+          `${label}: long title is not actually truncating (${measurement.longTitle.scrollWidth} <= ${measurement.longTitle.clientWidth})`,
+        );
+
+        // The "+ N kişi" count survives the name truncation.
+        assert.ok(measurement.participantCount, `${label}: participant count missing`);
+        assert.match(measurement.participantCount.text, /\+ \d+ kişi/, `${label}: participant count text`);
+        assert.ok(measurement.participantCount.width > 0, `${label}: participant count has no width`);
+        assert.ok(measurement.participantCount.insideRow, `${label}: participant count overflows its row`);
+
+        if (width >= 1024) {
+          assert.ok(
+            (measurement.conversationMetaWidth ?? 0) >= 150,
+            `${label}: conversation meta width ${measurement.conversationMetaWidth}px (expected >= 150px)`,
+          );
+        }
+      }
+
       const visibleEmptyStates = state === 'selected'
         ? 0
         : state === 'empty'
@@ -411,6 +502,13 @@ try {
       }
 
       assertNoSubMinimumText(measurement.subMinimumText, label);
+
+      if (state === 'selected' && width >= 1024) {
+        assert.ok(measurement.selectedRow, `${label}: selected row missing`);
+        assert.equal(measurement.selectedRow.outlineStyle, 'solid', `${label}: selection ring style`);
+        assert.equal(measurement.selectedRow.outlineWidth, '2px', `${label}: selection ring width`);
+        assert.equal(measurement.selectedItemBoxShadow, 'none', `${label}: item still draws its own ring`);
+      }
 
       if (width === 390) {
         assert.equal(measurement.threadVisible, state === 'selected', `${label}: thread overlay visibility`);

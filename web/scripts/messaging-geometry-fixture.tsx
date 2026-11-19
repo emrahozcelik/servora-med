@@ -33,6 +33,8 @@ const user: CurrentUser = {
   support: { displayLabel: '', email: null, helpUrl: null },
 };
 
+// Synthetic API payloads live in the smoke runner (periodic table below is
+// served through Playwright routing); this flag only marks the fixture frame.
 const identityMatch = matchRouteIdentity('/messages');
 const selectedConversation = params.get('selected');
 document.documentElement.dataset.fixtureSelected = selectedConversation ?? '';

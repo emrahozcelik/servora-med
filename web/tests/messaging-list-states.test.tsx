@@ -92,7 +92,9 @@ describe('MessagingPage conversation list states', () => {
     const pageHeadings = container.querySelectorAll('.page-header h1');
     expect(pageHeadings).toHaveLength(1);
     expect(pageHeadings[0]?.textContent).toBe('Mesajlar');
-    expect(container.querySelector('.messaging-sidebar-heading')?.textContent).toBe('Mesajlar');
+    // One visible route title only: the list region keeps an accessible name.
+    expect(container.querySelector('.messaging-sidebar-heading')).toBeNull();
+    expect(container.querySelector('.messaging-sidebar')?.getAttribute('aria-label')).toBe('Konuşmalar');
     unmount();
   });
 
