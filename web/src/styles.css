@@ -3336,22 +3336,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .customer-facts div { display: grid; gap: 0.25rem; }
 .customer-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
 .customer-facts dd { margin: 0; font-size: 0.875rem; }
-.customer-row-commands {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  position: relative;
-  z-index: 1;
-}
-.customer-row-commands .secondary-button,
-.customer-row-commands .destructive-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--control-height);
-  text-decoration: none;
-}
 .customer-create { width: min(100% - 2rem, 48rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .customer-form { margin-top: 1.5rem; }
 .customer-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
@@ -3461,22 +3445,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .product-facts dt, .product-detail-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
 .product-facts dd, .product-detail-facts dd { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
 .product-detail-facts dd { overflow-wrap: anywhere; }
-.product-row-commands {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  position: relative;
-  z-index: 1;
-}
-.product-row-commands .secondary-button,
-.product-row-commands .destructive-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--control-height);
-  text-decoration: none;
-}
 .product-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.5rem; }
 .product-pagination span { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .product-form { margin-top: 1.5rem; }
@@ -3551,9 +3519,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .product-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.75rem;
-  }
-  .product-row-commands {
-    justify-content: flex-start;
   }
 }
 
@@ -3742,8 +3707,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .customer-filters { grid-template-columns: 1fr; gap: 0.75rem; }
   .customer-row { grid-template-columns: 1fr; gap: 1rem; }
   .customer-facts { grid-template-columns: 1fr 1fr; }
-  .customer-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
-  .customer-row-commands > * { width: auto; }
   .customer-form-pair { grid-template-columns: 1fr; gap: 0; }
   .form-actions { align-items: stretch; flex-direction: column-reverse; }
   /* T4A repair: operational forms use column so DOM/tab order matches visual order (Cancel first). */
@@ -3765,8 +3728,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .product-filters { grid-template-columns: 1fr; }
   .product-row { grid-template-columns: 1fr; gap: 0.9rem; padding-block: 1.1rem; }
   .product-form-pair { grid-template-columns: 1fr; }
-  .product-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
-  .product-row-commands > * { width: auto; }
   .product-detail .product-detail-facts { grid-template-columns: 1fr; }
   .product-dialog-actions { align-items: stretch; flex-direction: column-reverse; }
   .product-dialog-actions button { width: 100%; }
@@ -5416,7 +5377,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .customer-detail .operational-summary .record-facts > div { min-width: 0; }
 .customer-detail .operational-summary dd { overflow-wrap: anywhere; }
 .customer-detail .operational-summary dd p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
-.product-row-commands .product-delete-action { color: var(--muted); background: transparent; }
 .job-list-card .job-row-relations dd { color: var(--ink); font-weight: 600; }
 .job-list-card .compact-workflow:not(.compact-workflow--attention) { font-weight: 400; }
 .job-list-card .compact-workflow:not(.compact-workflow--attention) p { color: var(--muted); font-weight: 400; }

@@ -543,8 +543,16 @@ async function runBrowserAcceptance(fixture) {
   const pendingButtons = pendingDialog.getByRole('button');
   record('UI-PENDING-DIALOG-LOCK', await pendingButtons.nth(0).isDisabled() && await pendingButtons.nth(1).isDisabled(),
     'Confirmation controls stay disabled while the request is pending');
-  record('UI-NAVIGATION-REMAINS-AVAILABLE', await page.getByRole('button', { name: 'Listeye dön', exact: true }).isDisabled() === false,
-    'Navigation remains available during the JobCard-local mutation');
+  // The legacy `Listeye dön` button is gone. At 1440px the hierarchy return is
+  // PageHeader's desktop breadcrumb; the mobile/tablet ReturnLink stays in the
+  // DOM as the same route-identity contract.
+  const desktopReturn = page.locator('.route-breadcrumb a', { hasText: 'İşler' });
+  record('UI-NAVIGATION-REMAINS-AVAILABLE',
+    await desktopReturn.count() === 1 && await desktopReturn.first().isVisible()
+      && await desktopReturn.first().isEnabled(),
+    'PageHeader hierarchy navigation stays available during the JobCard-local mutation');
+  record('UI-MOBILE-RETURN-LINK-PRESENT', await page.locator('.route-return-link').count() === 1,
+    'Nested route keeps exactly one mobile ReturnLink');
   await screenshot('02-r3b-pending-desktop.png');
 
   await page.getByText('İşlem sonucu doğrulanamadı.', { exact: true }).waitFor();

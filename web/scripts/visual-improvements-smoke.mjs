@@ -142,7 +142,8 @@ async function capture(ctx, suffix = '') {
     headings: [...document.querySelectorAll('main h1,main h2,main h3')].map(el => ({ text: el.textContent, y: Math.round(el.getBoundingClientRect().top) })),
     alerts: [...document.querySelectorAll('[role="alert"]')].filter(el => el.getClientRects().length).map(el => el.textContent),
     commands: [...document.querySelectorAll('[data-job-command]')].filter(el => el.getClientRects().length).map(el => ({ text: el.textContent, height: el.getBoundingClientRect().height })),
-    rowActions: [...document.querySelectorAll('.customer-row-commands a, .product-row-commands a, .product-row-commands button')].filter(el => el.getClientRects().length).map(el => ({ text: el.textContent, width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })),
+    // F-15: list rows are a single navigation target; no row-level commands.
+    rowCommands: document.querySelectorAll('.customer-row-commands, .product-row-commands').length,
   }));
   const file = `${name}-${role.toLowerCase()}-${width}-${scenario}${suffix}`;
   await page.screenshot({ path: resolve(out, `${file}-viewport.png`) });
@@ -152,7 +153,8 @@ async function capture(ctx, suffix = '') {
   if (!['retry', 'conflict', 'save-error'].includes(scenario)) assert.deepEqual(metrics.alerts, [], `${file}: alerts`);
   if (after) {
     assert.equal(metrics.overflow, false, `${file}: overflow`);
-    assert.ok([...metrics.rowActions, ...metrics.commands].every(action => action.height >= 43), `${file}: action target height`);
+    assert.equal(metrics.rowCommands, 0, `${file}: dead row-level command groups`);
+    assert.ok(metrics.commands.every(action => action.height >= 43), `${file}: action target height`);
     if (name === 'staff-profile' && !['retry', 'loading'].includes(scenario)) {
       assert.equal(await page.locator('.staff-current-workload-grid').count(), 0);
       const order = await page.evaluate(() => document.querySelector('.staff-job-history').compareDocumentPosition(document.querySelector('.embedded-staff-report')) & Node.DOCUMENT_POSITION_FOLLOWING);
