@@ -158,6 +158,15 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('tr-TR', {
   day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
 }).format(new Date(`${value}T00:00:00Z`));
 
+/** Range endpoint copy inside the current period: "19 Kas". */
+const formatRangeDate = (value: string | undefined) => {
+  if (!value) return '';
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(date);
+};
+
 /** Density class so long ranges (up to 366 days) fit without horizontal overflow. */
 export function trendDensityClass(pointCount: number): 'density-normal' | 'density-compact' | 'density-dense' {
   if (pointCount <= 60) return 'density-normal';
@@ -172,13 +181,18 @@ const TREND_BARS_BASE_CLASS = 'report-trend-bars';
  * Decorative daily trend bars. Always pair with an accessible summary/table.
  * Never conveys meaning alone (always aria-hidden).
  * Zero / single / max edge cases: min height for zero, scale to max count.
+ *
+ * `dateLabels` adds the plotted range below the bars so a bar row is never
+ * context-free (UI audit F-17); the bar geometry contract is unchanged.
  */
 export function TrendBars({
   points,
   className,
+  dateLabels = false,
 }: {
   points: readonly TrendPoint[];
   className?: string;
+  dateLabels?: boolean;
 }) {
   const max = points.reduce((peak, point) => Math.max(peak, point.count), 0);
   const density = trendDensityClass(points.length);
@@ -187,7 +201,7 @@ export function TrendBars({
   // context only and must never replace the base geometry contract.
   const classes = [TREND_BARS_BASE_CLASS, `${TREND_BARS_BASE_CLASS}--${density}`];
   if (className && className !== TREND_BARS_BASE_CLASS) classes.push(className);
-  return (
+  const bars = (
     <div
       className={classes.join(' ')}
       data-density={density}
@@ -209,6 +223,20 @@ export function TrendBars({
           />
         );
       })}
+    </div>
+  );
+  if (!dateLabels || points.length === 0) return bars;
+  return (
+    <div className="report-trend-figure">
+      {bars}
+      <p className="report-trend-range">
+        <span className="sr-only">Gösterilen aralık: </span>
+        <span>{formatRangeDate(points[0]?.date)}</span>
+        <span>
+          <span aria-hidden="true">– </span>
+          {formatRangeDate(points[points.length - 1]?.date)}
+        </span>
+      </p>
     </div>
   );
 }

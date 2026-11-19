@@ -197,7 +197,7 @@ const overviewCardsFixture = `<!doctype html><html lang="tr"><head><meta charset
     <div class="overview-main-column">
     <section class="overview-section" aria-labelledby="recent-work-title">
       <h2 id="recent-work-title">Son tamamlanan işler</h2>
-      <div class="overview-card-stack" id="responsive-overview-cards-root" data-smoke-overview-card-stack></div>
+      <div id="responsive-overview-cards-root" data-smoke-overview-card-stack></div>
     </section>
     </div>
   </div>
@@ -251,13 +251,16 @@ async function measureOverviewCards(page) {
     const root = document.documentElement;
     const stack = document.querySelector('[data-smoke-overview-card-stack]');
     const section = stack?.closest('.overview-section');
-    const titles = [...document.querySelectorAll('.servora-operational-card__title')];
+    const titles = [...document.querySelectorAll('.overview-row-title')];
     const heads = [...document.querySelectorAll('.servora-operational-card .servora-ant-card-head')];
     const titleContained = titles.every((title) => {
       const tr = title.getBoundingClientRect();
-      const head = title.closest('.servora-operational-card .servora-ant-card-head');
-      return !head || tr.right <= head.getBoundingClientRect().right + 1;
+      const card = title.closest('.servora-operational-card');
+      const body = card?.querySelector('.servora-operational-card__body');
+      return !body || tr.right <= body.getBoundingClientRect().right + 1;
     });
+    const rows = [...(stack?.querySelectorAll('.overview-row') ?? [])];
+    const cards = [...(stack?.querySelectorAll('.servora-operational-card') ?? [])];
     // VIS-02: semantic metric tones must use a full radius-following outline.
     // VIS-04: overview sections are unboxed; the operational cards own the
     // canonical raised radius, keeping the hierarchy free of nested frames.
@@ -276,8 +279,7 @@ async function measureOverviewCards(page) {
         };
       });
     const sectionStyle = section ? getComputedStyle(section) : null;
-    const cardRadii = [...(stack?.querySelectorAll('.servora-operational-card') ?? [])]
-      .map((card) => getComputedStyle(card).borderRadius);
+    const cardRadii = cards.map((card) => getComputedStyle(card).borderRadius);
     return {
       overflowX: root.scrollWidth > root.clientWidth + 1,
       scrollWidth: root.scrollWidth,
@@ -287,6 +289,10 @@ async function measureOverviewCards(page) {
       titleContained,
       titleCount: titles.length,
       headCount: heads.length,
+      cardCount: cards.length,
+      rowCount: rows.length,
+      rowDividers: rows.slice(1).map((row) => getComputedStyle(row).borderTopWidth),
+      rowChipCount: stack?.querySelectorAll('.overview-row .servora-tone-chip').length ?? 0,
       kpiVariantCount: kpiVariants.length,
       kpiVariants,
       sectionRadius: sectionStyle?.borderRadius ?? '',
@@ -1653,8 +1659,18 @@ try {
     await page.waitForSelector('[data-smoke-overview-card-stack] .servora-operational-card');
     const m = await measureOverviewCards(page);
     console.log(JSON.stringify({ viewport: `${vp.name}-overview-cards`, ...m }));
-    if (m.titleCount !== 3 || m.headCount !== 3) {
-      failures.push(`${vp.name} overview cards: fixture missing cards`);
+    if (m.titleCount !== 3 || m.headCount !== 0 || m.cardCount !== 1) {
+      failures.push(`${vp.name} overview cards: expected one card with three plain rows`
+        + ` (titles=${m.titleCount} heads=${m.headCount} cards=${m.cardCount})`);
+    }
+    if (m.rowCount !== 3 || m.rowChipCount !== 0) {
+      failures.push(`${vp.name} overview cards: rows missing or carry a repeated section chip`
+        + ` (rows=${m.rowCount} chips=${m.rowChipCount})`);
+    }
+    if ((m.rowDividers ?? []).length !== 2
+      || m.rowDividers.some((width) => width !== '1px')) {
+      failures.push(`${vp.name} overview cards: row dividers missing`
+        + ` (${(m.rowDividers ?? []).join(', ')})`);
     }
     if (m.overflowX) failures.push(`${vp.name} overview cards: document horizontal overflow`);
     if (!m.stackFitsSection) failures.push(`${vp.name} overview cards: card stack exceeds section width`);
@@ -1688,8 +1704,8 @@ try {
       failures.push(`${vp.name} overview cards: unexpected nested section surface`
         + ` (radius ${m.sectionRadius}, border ${m.sectionBorderTopWidth}, background ${m.sectionBackground})`);
     }
-    if (m.cardRadii?.length !== 3 || m.cardRadii.some((radius) => radius !== '12px')) {
-      failures.push(`${vp.name} overview cards: card radius does not match canonical 12px token`
+    if (m.cardRadii?.length !== 1 || m.cardRadii.some((radius) => radius !== '12px')) {
+      failures.push(`${vp.name} overview cards: section card radius does not match canonical 12px token`
         + ` (${(m.cardRadii ?? []).join(', ')})`);
     }
     await page.close();

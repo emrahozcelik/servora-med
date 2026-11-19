@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import { App } from './App';
+import { applyDocumentBuildIdentity } from './build-identity';
 import {
   createInstallOpportunityController,
   InstallOpportunityProvider,
@@ -15,6 +16,8 @@ const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('Root element not found');
 }
+
+applyDocumentBuildIdentity(document.documentElement);
 
 const installOpportunityController = createInstallOpportunityController(window);
 installOpportunityController.start();

@@ -50,7 +50,7 @@ for (const engine of engines) for (const mode of modes) for (const width of widt
           async function login(actor, path = `/users/${target.id}`) {
             await go(path);
             await expect(page.locator('#email')).toBeVisible();
-            if (process.env.VITE_SERVORA_BUILD_SHA) assert.equal(await page.locator('.build-identity').first().getAttribute('data-build-sha'),process.env.VITE_SERVORA_BUILD_SHA);
+            if (process.env.VITE_SERVORA_BUILD_SHA) assert.equal(await page.evaluate(() => document.documentElement.dataset.buildSha ?? null),process.env.VITE_SERVORA_BUILD_SHA);
             await page.locator('#email').fill(actor.email); await page.locator('#password').fill(f.password);
             await activate(page.getByRole('button',{name:'Giriş yap',exact:true}));
             await expect(page.locator('#email')).toHaveCount(0);

@@ -145,13 +145,18 @@ async function assertLoginBoot(browser, baseUrl, routePath) {
     auth401Observed
       && message === 'Failed to load resource: the server responded with a status of 401 (Unauthorized)'
   ));
-  const buildIdentity = page.locator('.build-identity').first();
+  // Signed-out releases expose the anonymous build marker on <html>; the login
+  // screen itself no longer renders user-facing build metadata (UI audit F-16).
+  const documentIdentity = await page.evaluate(() => ({
+    sha: document.documentElement.dataset.buildSha ?? null,
+    label: document.documentElement.dataset.buildLabel ?? null,
+  })).catch(() => ({ sha: null, label: null }));
   const result = {
     route: routePath,
     loginVisible: await page.locator('#login-title').isVisible().catch(() => false),
     rootNonEmpty: rootHtml.trim().length > 0,
-    buildSha: await buildIdentity.getAttribute('data-build-sha').catch(() => null),
-    buildLabel: (await buildIdentity.textContent().catch(() => null))?.trim() ?? null,
+    buildSha: documentIdentity.sha,
+    buildLabel: documentIdentity.label,
     pageErrors,
     consoleErrors: actionableConsoleErrors,
     auth401Observed,

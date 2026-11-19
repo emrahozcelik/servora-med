@@ -11,24 +11,27 @@ if (root) {
       {/* Metric tones must keep a radius-following full outline (VIS-02). */}
       <div className="overview-kpis" data-smoke-overview-kpis>
         <MetricStatistic title="Aktif işler" value={11} tone="default" />
-        <MetricStatistic title="Geciken" value={2} tone="attention" />
+        <MetricStatistic title="Geciken" value={2} tone="overdue" />
         <MetricStatistic title="Düzeltme gereken" value={1} tone="warning" />
         <MetricStatistic title="Tamamlanan" value={4} tone="success" />
       </div>
-      <OperationalCard
-        tone="success"
-        title={<a href="#">UXA-20260809 Dental Klinik ürün teslimi</a>}
-      >
-        <span>UXA-20260809 Dental Klinik · Kaan Gürsoy</span>
-      </OperationalCard>
-      <OperationalCard
-        tone="default"
-        title={<a href="#">M5 gorsel kabul — konusmasiz tamamlanmis is</a>}
-      >
-        <span>Müşteri bağlantısı yok · Demo Staff</span>
-      </OperationalCard>
-      <OperationalCard tone="default" title="İş dağılımı">
-        <span>3 iş</span>
+      {/* F-17: one card per section; records are plain divided rows without a
+          per-item frame or a chip repeating the section name. */}
+      <OperationalCard>
+        <ul className="overview-row-list">
+          <li className="overview-row">
+            <a className="overview-row-title" href="#">UXA-20260809 Dental Klinik ürün teslimi</a>
+            <p className="overview-row-meta">Mavi Klinik · Elif Saha</p>
+          </li>
+          <li className="overview-row">
+            <a className="overview-row-title" href="#">M5 gorsel kabul — konusmasiz tamamlanmis is</a>
+            <p className="overview-row-meta">Müşteri bağlantısı yok · Demo Staff</p>
+          </li>
+          <li className="overview-row">
+            <a className="overview-row-title" href="#">Ortodonti braket kontrolü</a>
+            <p className="overview-row-meta">Deniz Ağız Sağlığı · Mert Saha</p>
+          </li>
+        </ul>
       </OperationalCard>
       {/* Focus/disabled probes (VIS-03/VIS-06): keyboard-focus token contract
           runs inside the Ant provider scope so the real runtime cascade
