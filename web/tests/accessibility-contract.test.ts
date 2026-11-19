@@ -98,7 +98,7 @@ describe('shared accessibility CSS contract', () => {
   it('defines the 64rem shell structure, 44px targets, and no page overflow', () => {
     expect(css).toContain('@media (min-width: 64rem)');
     expect(css).toContain('@media (width < 64rem)');
-    expect(css).toMatch(/\.shell-menu-button, \.shell-nav a, \.shell-signout, \.drawer-close \{[^}]*min-width: 2\.75rem;[^}]*min-height: var\(--control-height\);/);
+    expect(css).toMatch(/\.shell-nav a, \.shell-signout, \.drawer-close \{[^}]*min-width: 2\.75rem;[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/\.authenticated-shell \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.shell-content \{[^}]*min-width: 0;/);
     expect(css).toMatch(/body \{[^}]*overflow-x: clip;/);

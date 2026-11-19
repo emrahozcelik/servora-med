@@ -5,6 +5,10 @@
  * styles only; it never calls the API or a deployed environment. It measures
  * the widths required by the acceptance contract at every shell breakpoint,
  * including large-text and the responsive login composition.
+ *
+ * DECISIONS.md UI-004: the mobile top bar has no menu trigger and the single
+ * menu panel opens from the right edge with the account row before the
+ * destinations.
  */
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -34,12 +38,12 @@ const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
       <div class="mobile-top-bar-start"><p id="shell-title" class="mobile-shell-title">Genel Bakış</p></div>
       <div class="mobile-top-bar-actions">
         <div class="notification-center"><button class="shell-notification-trigger" type="button" aria-label="Bildirimler"><span class="shell-notification-icon" aria-hidden="true">◌</span></button></div>
-        <button class="shell-menu-button" type="button" aria-label="Menüyü aç">Menü</button>
       </div>
     </header>
     <div class="shell-content"><main class="workspace"><h1>Shell fixture</h1><p>Yerel geometri verisi.</p></main></div>
     <nav id="bottom-nav" class="mobile-bottom-nav" aria-label="Mobil ana navigasyon">
-      <a class="mobile-bottom-nav-item" href="/jobs">İşler</a><button class="mobile-bottom-nav-item mobile-bottom-nav-menu" type="button">Menü</button>
+      <a class="mobile-bottom-nav-item" href="/jobs"><svg class="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true"></svg><span class="mobile-bottom-nav-label">İşler</span></a>
+      <button class="mobile-bottom-nav-item mobile-bottom-nav-menu" type="button" aria-controls="drawer" aria-expanded="false"><svg class="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true"></svg><span class="mobile-bottom-nav-label">Menü</span></button>
     </nav>
   </div>
   <div id="login-fixture" style="display:none">
@@ -51,12 +55,14 @@ const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
   <div id="drawer-backdrop" class="shell-drawer-backdrop" style="display:none">
     <aside id="drawer" class="shell-drawer" role="dialog" aria-label="Menü">
       <div class="drawer-heading"><h2>Menü</h2><button class="drawer-close" type="button">Kapat</button></div>
-      <div class="shell-drawer-brand brand-lockup">
-        <a class="dunya-dental-brand dunya-dental-brand--full" href="/jobs" aria-label="Dünya Dental ana sayfa">
-          <img src="/branding/dunya-dental-sidebar.png" alt="" />
-        </a>
+      <div class="shell-account">
+        <div class="shell-identity"><span class="servora-user-avatar" aria-hidden="true">AY</span><div><strong>Ayşe Personel</strong><span>Personel</span></div></div>
+        <button class="shell-signout" type="button">Oturumu kapat</button>
       </div>
-      <nav class="shell-nav" aria-label="Drawer navigasyonu"><a href="/jobs">İşler</a></nav>
+      <nav class="shell-nav" aria-label="Tüm destinasyonlar">
+        <section class="shell-nav-section"><h2>Çalışma</h2><div class="shell-nav-links"><a href="/jobs" aria-current="page">İşler</a></div></section>
+        <section class="shell-nav-section"><h2>Hesap ve destek</h2><div class="shell-nav-links"><a href="/settings">Ayarlar</a></div></section>
+      </nav>
     </aside>
   </div>
 </body></html>`;
@@ -143,7 +149,7 @@ async function measure(page, viewport, mode = 'normal') {
     sidebar.style.display = mobile ? 'none' : 'flex';
     desktopTopbar.style.display = mobile ? 'none' : 'flex';
     mobileTopbar.style.display = mobile ? 'flex' : 'none';
-    bottomNav.style.display = mobile ? 'flex' : 'none';
+    bottomNav.style.display = mobile ? 'grid' : 'none';
     title.textContent = textMode === 'long'
       ? 'Müşteri ve operasyon detayları için çok uzun dinamik rota başlığı'
       : 'Genel Bakış';
@@ -155,7 +161,11 @@ async function measure(page, viewport, mode = 'normal') {
     const titleRect = rect(title);
     const actionsRect = rect(mobileTopbar.querySelector('.mobile-top-bar-actions'));
     const bellRect = rect(topbar.querySelector('[aria-label="Bildirimler"]'));
-    const menuRect = rect(mobileTopbar.querySelector('.shell-menu-button'));
+    const menuInTopbar = mobileTopbar.querySelector('.shell-menu-button');
+    const bottomMenuRect = rect(bottomNav.querySelector('.mobile-bottom-nav-menu'));
+    const bottomNavRect = rect(bottomNav);
+    const bottomLabel = bottomNav.querySelector('.mobile-bottom-nav-label');
+    const bottomIconRect = rect(bottomNav.querySelector('.mobile-nav-icon'));
     const brands = [...document.querySelectorAll('.dunya-dental-brand--full')];
     const visibleBrands = brands.filter((brand) => {
       const brandRect = brand.getBoundingClientRect();
@@ -164,21 +174,13 @@ async function measure(page, viewport, mode = 'normal') {
     });
     const topbarStyle = getComputedStyle(topbar);
     const sidebarBrand = rect(sidebar.querySelector('.dunya-dental-brand--full'));
-    const drawerBrand = rect(drawer.querySelector('.shell-drawer-brand .dunya-dental-brand--full'));
-    const drawerImage = drawer.querySelector('.shell-drawer-brand .dunya-dental-brand--full img');
-    const drawerImageRect = rect(drawerImage);
+    const drawerRect = drawer.getBoundingClientRect();
+    const accountRect = rect(drawer.querySelector('.shell-account'));
+    const signOutRect = rect(drawer.querySelector('.shell-signout'));
+    const drawerHeadingRect = rect(drawer.querySelector('.drawer-heading'));
+    const drawerNavRect = rect(drawer.querySelector('.shell-nav'));
     const drawerStyle = getComputedStyle(drawer);
-    const canonicalFullImage = sidebar.querySelector('.dunya-dental-brand--full img');
-    const canonicalFullImageMaxHeight = canonicalFullImage
-      ? getComputedStyle(canonicalFullImage).maxHeight
-      : null;
-    const drawerImageMaxHeight = drawerImage ? getComputedStyle(drawerImage).maxHeight : null;
-    const naturalRatio = drawerImage?.naturalWidth && drawerImage?.naturalHeight
-      ? drawerImage.naturalWidth / drawerImage.naturalHeight
-      : null;
-    const renderedRatio = drawerImageRect && drawerImageRect.height > 0
-      ? drawerImageRect.width / drawerImageRect.height
-      : null;
+    const drawerBackdropStyle = getComputedStyle(drawerBackdrop);
     const titleText = title.textContent ?? '';
     return {
       mode: textMode,
@@ -201,8 +203,13 @@ async function measure(page, viewport, mode = 'normal') {
         && titleRect.left < actionsRect.right + 1),
       bellWidth: bellRect?.width ?? 0,
       bellHeight: bellRect?.height ?? 0,
-      menuWidth: menuRect?.width ?? 0,
-      menuHeight: menuRect?.height ?? 0,
+      topbarMenuButtonPresent: Boolean(menuInTopbar),
+      bottomMenuWidth: bottomMenuRect?.width ?? 0,
+      bottomMenuHeight: bottomMenuRect?.height ?? 0,
+      bottomNavInViewport: Boolean(bottomNavRect && bottomNavRect.left >= -1
+        && bottomNavRect.right <= viewportWidth + 1 && bottomNavRect.bottom <= viewportHeight + 1),
+      bottomLabelFontSize: bottomLabel ? Number.parseFloat(getComputedStyle(bottomLabel).fontSize) : 0,
+      bottomIconVisible: Boolean(bottomIconRect && bottomIconRect.width > 0 && bottomIconRect.height > 0),
       actionsInViewport: Boolean(actionsRect && actionsRect.left >= -1 && actionsRect.right <= viewportWidth + 1),
       desktopNotificationRightGap: mobile || !topbarRect || !bellRect
         ? null
@@ -212,22 +219,25 @@ async function measure(page, viewport, mode = 'normal') {
       desktopTopbarBrandCount: desktopTopbar.querySelectorAll('.dunya-dental-brand').length,
       sidebarBrandInViewport: Boolean(sidebarBrand && sidebarBrand.left >= -1 && sidebarBrand.right <= viewportWidth + 1),
       sidebarBrandHref: sidebar.querySelector('.dunya-dental-brand--full')?.getAttribute('href') ?? null,
-      drawerWidth: drawer.getBoundingClientRect().width,
-      drawerBrandCount: drawer.querySelectorAll('.shell-drawer-brand .dunya-dental-brand--full').length,
-      drawerBrandVisible: Boolean(drawerBrand && drawerBrand.width > 0 && drawerBrand.height > 0),
-      drawerBrandWidth: drawerBrand?.width ?? 0,
-      drawerBrandHeight: drawerBrand?.height ?? 0,
-      drawerBrandContained: Boolean(drawerBrand && drawerBrand.left >= -1
-        && drawerBrand.right <= viewportWidth + 1
-        && drawerBrand.left >= drawer.getBoundingClientRect().left - 1
-        && drawerBrand.right <= drawer.getBoundingClientRect().right + 1),
+      drawerWidth: drawerRect.width,
+      drawerRight: drawerRect.right,
+      drawerRightAligned: Math.abs(drawerRect.right - viewportWidth) <= 1,
+      drawerBrandCount: drawer.querySelectorAll('.dunya-dental-brand').length,
+      drawerAccountBeforeNav: Boolean(accountRect && drawerNavRect && accountRect.bottom <= drawerNavRect.top + 1),
+      drawerAccountBelowHeading: Boolean(accountRect && drawerHeadingRect && accountRect.top >= drawerHeadingRect.bottom - 1),
+      drawerAccountVisible: Boolean(accountRect
+        && accountRect.top >= -1
+        && accountRect.bottom <= viewportHeight + 1
+        && getComputedStyle(drawer).display !== 'none'),
+      drawerSignOutVisible: Boolean(signOutRect
+        && signOutRect.top >= -1
+        && signOutRect.bottom <= viewportHeight + 1),
       drawerOverflow: drawer.scrollWidth - drawer.clientWidth,
-      drawerImageNaturalRatio: naturalRatio,
-      drawerImageRenderedRatio: renderedRatio,
-      drawerImageMaxHeight,
-      canonicalFullImageMaxHeight,
       drawerZIndex: Number.parseInt(getComputedStyle(drawerBackdrop).zIndex || '0', 10),
+      drawerJustify: drawerBackdropStyle.justifyContent,
       drawerStyleOverflowX: drawerStyle.overflowX,
+      drawerBorderLeft: drawerStyle.borderLeftWidth,
+      drawerBorderRight: drawerStyle.borderRightWidth,
     };
   }, { viewportWidth: width, viewportHeight: height, textMode: mode });
 }
@@ -237,8 +247,11 @@ function verifyShell(row) {
   if (row.mobile) {
     invariant(row.bellWidth >= 44 && row.bellHeight >= 44,
       `${row.width}px ${row.mode}: notification target below 44px (${row.bellWidth}x${row.bellHeight})`);
-    invariant(row.menuWidth >= 44 && row.menuHeight >= 44,
-      `${row.width}px ${row.mode}: Menu target below 44px (${row.menuWidth}x${row.menuHeight})`);
+    invariant(row.topbarMenuButtonPresent === false,
+      `${row.width}px ${row.mode}: the mobile top bar must not carry a menu trigger (UI-004)`);
+    invariant(row.bottomMenuWidth >= 44 && row.bottomMenuHeight >= 44,
+      `${row.width}px ${row.mode}: bottom Menü target below 44px (${row.bottomMenuWidth}x${row.bottomMenuHeight})`);
+    invariant(row.bottomNavInViewport, `${row.width}px ${row.mode}: bottom navigation is not in the viewport`);
     invariant(row.topbarPosition === 'sticky' && row.topbarTop === '0px' && row.topbarZIndex < 30,
       `${row.width}px ${row.mode}: sticky mobile topbar contract failed`);
     invariant(row.mobileHeaderBrandCount === 0 && row.desktopTopbarBrandCount === 0,
@@ -246,8 +259,11 @@ function verifyShell(row) {
     invariant(row.actionsInViewport && !row.titleActionsOverlap,
       `${row.width}px ${row.mode}: title/actions overlap or leave viewport`);
     invariant(row.titleWidth > 0, `${row.width}px ${row.mode}: title is not measurable`);
+    invariant(row.bottomLabelFontSize >= 12,
+      `${row.width}px ${row.mode}: bottom label below the 12px floor (${row.bottomLabelFontSize}px)`);
+    invariant(row.bottomIconVisible, `${row.width}px ${row.mode}: bottom-nav icon is not rendered`);
     if (row.width === 320 && row.mode === 'normal') {
-      invariant(row.titleText === 'Genel Bakış' && row.titleClientWidth >= 80,
+      invariant(row.titleText === 'Genel Bakış' && row.titleClientWidth >= 120,
         `320px: Genel Bakış title is not readable (${row.titleClientWidth}px)`);
     }
     if (row.width === 320 && row.mode === 'large-text') {
@@ -267,18 +283,20 @@ function verifyShell(row) {
 
 function verifyDrawer(row) {
   invariant(row.mobile && row.mode === 'drawer', `${row.width}px drawer: fixture is not mobile/open`);
-  invariant(row.drawerBrandCount === 1 && row.drawerBrandVisible,
-    `${row.width}px drawer: expected exactly one visible full brand`);
-  invariant(row.drawerBrandContained && row.drawerOverflow <= 1 && row.overflow <= 1,
-    `${row.width}px drawer: brand/drawer/page containment failed`
-      + ` (brandContained=${row.drawerBrandContained} drawerOverflow=${row.drawerOverflow} pageOverflow=${row.overflow})`);
-  invariant(row.drawerImageNaturalRatio !== null && row.drawerImageRenderedRatio !== null
-    && Math.abs(row.drawerImageNaturalRatio - row.drawerImageRenderedRatio) <= 0.01,
-  `${row.width}px drawer: full brand aspect ratio changed`
-    + ` (natural=${row.drawerImageNaturalRatio} rendered=${row.drawerImageRenderedRatio})`);
-  invariant(row.drawerImageMaxHeight === row.canonicalFullImageMaxHeight,
-    `${row.width}px drawer: drawer image sizing diverges from canonical full rule`
-      + ` (drawer=${row.drawerImageMaxHeight} canonical=${row.canonicalFullImageMaxHeight})`);
+  invariant(row.drawerRightAligned && row.drawerJustify === 'flex-end',
+    `${row.width}px drawer: the panel must open from the right edge (right=${row.drawerRight},`
+      + ` viewport=${row.width}, justify=${row.drawerJustify})`);
+  invariant(row.drawerBorderLeft !== '0px' && row.drawerBorderRight === '0px',
+    `${row.width}px drawer: expected a left border only (left=${row.drawerBorderLeft} right=${row.drawerBorderRight})`);
+  invariant(row.drawerBrandCount === 0, `${row.width}px drawer: the menu must not carry a brand block (UI-004)`);
+  invariant(row.drawerAccountBelowHeading && row.drawerAccountBeforeNav,
+    `${row.width}px drawer: the account row must come before the destinations (UI-004)`);
+  invariant(row.drawerAccountVisible && row.drawerSignOutVisible,
+    `${row.width}px drawer: account/sign-out is below the fold (account=${row.drawerAccountVisible}`
+      + ` signOut=${row.drawerSignOutVisible})`);
+  invariant(row.drawerOverflow <= 1 && row.overflow <= 1,
+    `${row.width}px drawer: drawer/page containment failed`
+      + ` (drawerOverflow=${row.drawerOverflow} pageOverflow=${row.overflow})`);
   invariant(row.drawerZIndex === 30 && row.drawerStyleOverflowX === 'hidden',
     `${row.width}px drawer: shell layering/overflow contract failed`);
   invariant(row.mobileHeaderBrandCount === 0 && row.desktopTopbarBrandCount === 0,
@@ -315,7 +333,7 @@ try {
       `${width}px login: responsive brand contract failed`);
     rows.push(login);
   }
-  for (const width of [320, 390]) {
+  for (const width of [320, 390, 768]) {
     const viewport = viewports.find((candidate) => candidate.width === width);
     invariant(viewport, `missing viewport fixture for ${width}px`);
     const drawer = await measure(page, viewport, 'drawer');

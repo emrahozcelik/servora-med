@@ -82,6 +82,9 @@ describe('follow-up dialog layering contract', () => {
   it('leaves neighboring overlay layers untouched', () => {
     expect(ruleBody('.shell-drawer-backdrop', true)).toMatch(/z-index:\s*30/);
     expect(ruleBody('.filter-sheet-root', true)).toMatch(/z-index:\s*55/);
-    expect(ruleBody('.sticky-new-job', true)).toMatch(/z-index:\s*22/);
+    // UI-004: the create sheet replaces the sticky bar and still layers above
+    // the bottom navigation that now hosts its trigger.
+    expect(ruleBody('.new-job-menu-panel--sheet', true)).toMatch(/z-index:\s*50/);
+    expect(ruleBody('.mobile-bottom-nav', true)).toMatch(/z-index:\s*20/);
   });
 });
