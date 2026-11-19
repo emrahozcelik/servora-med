@@ -230,16 +230,17 @@ function isManagementUser(user: CurrentUser): boolean {
 }
 
 /**
- * Narrow job-detail composition: the same 64rem gate as the shell. Unknown
- * environments (no matchMedia, e.g. server rendering) keep the desktop
- * structure; the browser always resolves the real value.
+ * Narrow job-detail composition: the same 64rem gate as the shell. When the
+ * environment has no `matchMedia` (server rendering, non-browser tests) this
+ * falls back to the narrow composition, matching `useDesktopShell` in the
+ * `WorkflowSteps` adapter.
  */
 function useNarrowDetail(): boolean {
   const query = '(min-width: 64rem)';
   const [narrow, setNarrow] = useState(() => (
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
       ? !window.matchMedia(query).matches
-      : false
+      : true
   ));
 
   useEffect(() => {

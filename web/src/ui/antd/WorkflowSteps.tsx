@@ -35,6 +35,18 @@ const STATE_ICON: Partial<Record<WorkflowStepState, string>> = {
   attention: '⚠',
 };
 
+/**
+ * Revision attention replaces Ant's numeric `process` icon with an owned amber
+ * marker. Ant paints the `process` icon shell with the primary color at a
+ * specificity that a stylesheet override cannot beat without `!important`, so the
+ * awareness state owns the whole icon surface instead (DECISIONS.md UI-005).
+ */
+function attentionIcon(): ReactNode {
+  return (
+    <span className="servora-workflow-attention-icon" aria-hidden="true">!</span>
+  );
+}
+
 function useDesktopShell() {
   const query = '(min-width: 64rem)';
   const [desktop, setDesktop] = useState(() => (
@@ -74,6 +86,7 @@ export function WorkflowSteps({ items, currentKey }: {
           status: ANT_STATUS[item.state],
           className: `servora-workflow-step servora-workflow-step--${item.state}`,
           title: item.label,
+          icon: item.state === 'attention' ? attentionIcon() : undefined,
           content: (
             <span className="servora-workflow-step-state">
               {STATE_ICON[item.state]

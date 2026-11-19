@@ -63,6 +63,17 @@ describe('responsive layout CSS contracts (PR B)', () => {
     expect(css).toMatch(
       /\.servora-workflow-steps-summary--attention \.servora-workflow-steps-summary-state\s*\{[^}]*color:\s*var\(--warning\)/s,
     );
+    // The owned attention icon is the amber marker; the primary-blue numeric
+    // icon never renders for that step.
+    expect(css).toMatch(/\.servora-workflow-attention-icon\s*\{[^}]*background:\s*var\(--warning-soft\)/s);
+    expect(css).toMatch(/\.servora-workflow-attention-icon\s*\{[^}]*color:\s*var\(--warning\)/s);
+    expect(css).toMatch(/\.servora-workflow-attention-icon\s*\{[^}]*border:\s*1px solid var\(--warning\)/s);
+  });
+
+  it('keeps the 20rem reflow contract over the narrow lateness two-column facts', () => {
+    expect(css).toMatch(
+      /@media\s*\(max-width:\s*20rem\)[\s\S]*\[data-submission-lateness="open"\]\s*\.job-row-facts\s*\{[^}]*grid-template-columns:\s*1fr/s,
+    );
   });
 
   it('gives the quick-view strip an overflow affordance and the lateness history a disclosure summary', () => {

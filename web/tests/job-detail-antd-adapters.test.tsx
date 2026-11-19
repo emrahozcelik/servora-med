@@ -124,6 +124,19 @@ describe('owned JobDetail Ant adapters', () => {
     expect(html).toContain('servora-workflow-step--attention');
     expect(html).toContain('Dikkat gerekiyor');
     expect(html).toContain('⚠');
+
+    // The attention step owns its icon slot instead of Ant's numeric `process`
+    // icon, so the numbered primary-blue circle cannot render.
+    document.body.innerHTML = html;
+    const attention = document.body.querySelector('.servora-workflow-step--attention')!;
+    expect(attention.querySelector('.servora-workflow-attention-icon')).not.toBeNull();
+    expect(attention.querySelector('.servora-ant-steps-item-icon-number')).toBeNull();
+    expect(attention.classList.contains('servora-ant-steps-item-custom')).toBe(true);
+    for (const step of Array.from(document.body.querySelectorAll('.servora-workflow-step'))) {
+      if (step.classList.contains('servora-workflow-step--attention')) continue;
+      expect(step.querySelector('.servora-workflow-attention-icon')).toBeNull();
+    }
+    document.body.innerHTML = '';
   });
 
   it('collapses the stepper behind a one-line summary on narrow shells', async () => {

@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailPanel } from '../src/JobDetail';
+import { JobWorkflowDialog } from '../src/jobs/JobWorkflowDialog';
+import { deriveJobWorkflowPresentation } from '../src/jobs/job-workflow-presentation';
 import { ServoraAntProvider } from '../src/ui/antd';
 import type {
   JobCard, JobLifecycleFacts, JobWorkflowContext, LifecycleCommand,
@@ -116,6 +118,8 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
 
   async function render(job: JobCard, user: CurrentUser, extra: {
     overdueHistory?: ReactNode;
+    invalidationAction?: ReactNode;
+    children?: ReactNode;
   } = {}) {
     await act(async () => {
       root.render(<ServoraAntProvider>
@@ -127,7 +131,10 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
           message=""
           onCommand={() => {}}
           overdueHistory={extra.overdueHistory}
-        />
+          invalidationAction={extra.invalidationAction}
+        >
+          {extra.children}
+        </JobDetailPanel>
       </ServoraAntProvider>);
     });
   }
@@ -229,5 +236,305 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     expect(precedes(section('lifecycle')!, section('revision')!)).toBe(true);
     expect(host.querySelector('[data-job-decision-panel="true"]')?.textContent)
       .toContain('Düzeltmeye başla');
+  });
+});
+
+const admin: CurrentUser = {
+  ...manager, id: 'a1', name: 'Sistem yöneticisi', role: 'ADMIN',
+};
+
+const submitted: Partial<JobLifecycleFacts> = {
+  submittedAt: '2026-07-17T10:00:00.000Z',
+  submittedBy: { id: 's1', name: 'Ayşe Personel' },
+};
+
+type MatrixRow = {
+  name: string;
+  job: JobCard;
+  user: CurrentUser;
+  /** Commands the backend capability set produces for this role/state today. */
+  anchors: string[];
+  invalidation?: boolean;
+};
+
+const matrixRows: MatrixRow[] = [
+  {
+    name: 'STAFF NEW',
+    job: jobCard('NEW', ['ACCEPT_ASSIGNMENT', 'CANCEL'], { acceptedAt: null, acceptedBy: null, startedAt: null }),
+    user: staff,
+    anchors: ['İşi kabul et', 'İşi iptal et'],
+  },
+  {
+    name: 'STAFF ACCEPTED',
+    job: jobCard('ACCEPTED', ['START', 'CANCEL'], { startedAt: null }),
+    user: staff,
+    anchors: ['İşi başlat', 'İşi iptal et'],
+  },
+  {
+    name: 'STAFF IN_PROGRESS',
+    job: staffInProgress,
+    user: staff,
+    anchors: ['Kontrole gönder', 'İşi iptal et'],
+  },
+  {
+    name: 'STAFF WAITING_APPROVAL withdraw',
+    job: jobCard('WAITING_APPROVAL', ['WITHDRAW_FROM_APPROVAL', 'CANCEL'], submitted),
+    user: staff,
+    anchors: ['Kontrolden geri çek ve düzenle', 'İşi iptal et'],
+  },
+  {
+    name: 'STAFF REVISION_REQUESTED',
+    job: revisionRequested,
+    user: staff,
+    anchors: ['Düzeltmeye başla', 'İşi iptal et'],
+  },
+  {
+    name: 'MANAGER IN_PROGRESS secondary only',
+    job: jobCard('IN_PROGRESS', ['CANCEL'], { startedAt: '2026-07-17T09:00:00.000Z' }),
+    user: manager,
+    anchors: ['İşi iptal et'],
+  },
+  {
+    name: 'MANAGER WAITING_APPROVAL',
+    job: managerWaiting,
+    user: manager,
+    anchors: ['Kontrolü tamamla ve işi kapat', 'Düzeltme için personele geri gönder', 'İşi iptal et'],
+  },
+  {
+    name: 'MANAGER NEW record edit',
+    job: jobCard('NEW', ['CANCEL'], { acceptedAt: null, acceptedBy: null, startedAt: null }),
+    user: manager,
+    anchors: ['Sorumlu personeli değiştir', 'İşi iptal et'],
+  },
+  {
+    name: 'ADMIN WAITING_APPROVAL with invalidation',
+    job: managerWaiting,
+    user: admin,
+    anchors: ['Kontrolü tamamla ve işi kapat', 'Düzeltme için personele geri gönder', 'İşi iptal et'],
+    invalidation: true,
+  },
+  {
+    name: 'MANAGER COMPLETED',
+    job: jobCard('COMPLETED', [], {
+      ...submitted,
+      approvedAt: '2026-07-17T12:00:00.000Z',
+      approvedBy: { id: 'm1', name: 'Murat Yönetici' },
+    }),
+    user: manager,
+    anchors: [],
+  },
+  {
+    name: 'STAFF CANCELLED',
+    job: jobCard('CANCELLED', [], {
+      cancelledAt: '2026-07-17T12:00:00.000Z',
+      cancelReason: 'Müşteri vazgeçti',
+      cancelledFromStatus: 'IN_PROGRESS',
+    }),
+    user: staff,
+    anchors: [],
+  },
+];
+
+function expectedDecisionLabels(job: JobCard, user: CurrentUser): string[] {
+  const presentation = deriveJobWorkflowPresentation({
+    job,
+    user,
+    workflowContext: job.workflowContext,
+    deliveryItems: [],
+    meetingDetails: null,
+  });
+  return [
+    ...(presentation.primaryTransition ? [presentation.primaryTransition.label] : []),
+    ...presentation.secondaryTransitions.map((transition) => transition.label),
+    ...(presentation.recordEditAction ? [presentation.recordEditAction.label] : []),
+  ];
+}
+
+describe.each([
+  { layout: 'narrow', narrow: true },
+  { layout: 'desktop', narrow: false },
+])('lifecycle commands by role and state at $layout width', ({ narrow }) => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function renderRow(row: MatrixRow) {
+    setViewport(narrow);
+    await act(async () => {
+      root.render(<ServoraAntProvider>
+        <JobDetailPanel
+          job={row.job}
+          items={[]}
+          user={row.user}
+          pending={false}
+          message=""
+          onCommand={() => {}}
+          invalidationAction={row.invalidation
+            ? <section data-invalidation-action="true">Geçersiz kılma</section>
+            : undefined}
+        />
+      </ServoraAntProvider>);
+    });
+  }
+
+  it.each(matrixRows)('$name renders exactly the presentation commands', async (row) => {
+    await renderRow(row);
+    const expected = expectedDecisionLabels(row.job, row.user);
+    const panel = host.querySelector<HTMLElement>('[data-job-decision-panel="true"]');
+    const buttonTexts = Array.from(host.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim() ?? '');
+
+    if (expected.length === 0) {
+      expect(panel).toBeNull();
+    } else {
+      expect(panel).not.toBeNull();
+      // Nothing is invented and nothing is lost: the rendered labels are exactly
+      // the capability-derived presentation labels.
+      const labels = Array.from(panel!.querySelectorAll('button'))
+        .map((button) => button.textContent?.trim() ?? '');
+      expect([...labels].sort()).toEqual([...expected].sort());
+      expect(new Set(labels).size).toBe(labels.length);
+      for (const label of expected) {
+        expect(buttonTexts.filter((text) => text === label)).toHaveLength(1);
+      }
+      // Placement follows the viewport contract without duplicating the group.
+      expect(panel!.closest('.job-detail-work-rail') !== null).toBe(!narrow);
+      if (narrow) {
+        expect(panel!.closest('[data-job-detail-section="actions"]')).not.toBeNull();
+      }
+      expect(host.querySelectorAll('[data-job-decision-panel="true"]')).toHaveLength(1);
+    }
+
+    // Anchor commands from the domain capability set (not just self-consistency).
+    for (const anchor of row.anchors) {
+      expect(buttonTexts).toContain(anchor);
+    }
+
+    if (row.invalidation) {
+      expect(host.querySelectorAll('[data-invalidation-action="true"]')).toHaveLength(1);
+      expect(host.querySelector('[data-invalidation-action="true"]')!
+        .closest('[data-job-decision-panel="true"]')).toBeNull();
+    }
+  });
+});
+
+describe('viewport changes while a workflow dialog is open', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  });
+
+  function setControllableViewport(initialNarrow: boolean) {
+    // Listeners are tracked per media query: a breakpoint change must not also
+    // fire the reduced-motion query the Ant provider listens to (that would swap
+    // the theme and remount the subtree for reasons unrelated to this contract).
+    const listeners = new Set<{ query: string; listener: (event: MediaQueryListEvent) => void }>();
+    let desktop = !initialNarrow;
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      get matches() {
+        return query.includes('min-width: 64rem') ? desktop : false;
+      },
+      media: query,
+      onchange: null,
+      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        listeners.add({ query, listener });
+      },
+      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        for (const entry of listeners) {
+          if (entry.listener === listener) listeners.delete(entry);
+        }
+      },
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })));
+    return {
+      setDesktop(next: boolean) {
+        desktop = next;
+        for (const { query, listener } of listeners) {
+          listener({ matches: query.includes('min-width: 64rem') ? next : false } as MediaQueryListEvent);
+        }
+      },
+    };
+  }
+
+  it('keeps an open JobWorkflowDialog and its typed reason across the 64rem breakpoint', async () => {
+    const viewport = setControllableViewport(true);
+    const presentation = deriveJobWorkflowPresentation({
+      job: managerWaiting,
+      user: manager,
+      workflowContext: managerWaiting.workflowContext,
+      deliveryItems: [],
+      meetingDetails: null,
+    });
+    const revision = presentation.secondaryTransitions
+      .find((transition) => transition.command === 'REQUEST_REVISION')!;
+    expect(revision).toBeDefined();
+
+    await act(async () => {
+      root.render(<ServoraAntProvider>
+        <JobDetailPanel
+          job={managerWaiting}
+          items={[]}
+          user={manager}
+          pending={false}
+          message=""
+          onCommand={() => {}}
+        >
+          <JobWorkflowDialog
+            dialog={{ kind: 'revision', presentation: revision }}
+            pending={false}
+            onClose={() => {}}
+            onConfirm={() => {}}
+          />
+        </JobDetailPanel>
+      </ServoraAntProvider>);
+    });
+
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    const reason = dialog!.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Miktarı düzeltin');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Narrow → desktop: the composition flips, the dialog must not remount.
+    await act(async () => { viewport.setDesktop(true); });
+    expect(host.querySelector('[role="dialog"]')).toBe(dialog);
+    expect(host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!.value)
+      .toBe('Miktarı düzeltin');
+    expect(host.querySelector('[data-workflow-compact="true"]')).toBeNull();
+    expect(host.querySelector('[data-job-decision-panel="true"]')!.closest('.job-detail-work-rail'))
+      .not.toBeNull();
+
+    // Desktop → narrow: still the same dialog with the same draft.
+    await act(async () => { viewport.setDesktop(false); });
+    expect(host.querySelector('[role="dialog"]')).toBe(dialog);
+    expect(host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!.value)
+      .toBe('Miktarı düzeltin');
+    expect(host.querySelector('[data-workflow-compact="true"]')).not.toBeNull();
   });
 });

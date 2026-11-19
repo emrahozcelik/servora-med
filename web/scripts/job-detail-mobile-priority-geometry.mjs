@@ -2,7 +2,10 @@
  * UI-005 rendered geometry check: mobile job work priority.
  *
  * Renders the real JobDetailPanel (with the real lateness components) through
- * the production stylesheet and the owned Ant provider in headless Chromium:
+ * the production stylesheet and the owned Ant provider in headless Chromium.
+ * The mount sits in a `.shell-content` wrapper that reproduces the composed
+ * mobile shell spacing (0.5rem top padding, first-child top margin removed), so
+ * the measurements reflect the merged shell contract:
  *
  *  - at 390×844 the primary command of a Staff IN_PROGRESS job and of a Manager
  *    WAITING_APPROVAL job is fully inside the first viewport,
@@ -27,17 +30,28 @@ import { createServer as createViteServer } from 'vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');
+// Composed mobile shell spacing shared with the parallel shell branch:
+// `.shell-content { padding-top: .5rem }` and no top margin on its first child.
+const shellSpacing = `
+@media (width < 64rem) {
+  .shell-content { padding-top: 0.5rem; }
+  .shell-content > :first-child { margin-top: 0; }
+  /* The fixture mounts the panel inside the Ant provider wrapper, which the real
+     shell renders outside .shell-content; zero the page root's top margin the
+     way the shell's first-child rule does in the application. */
+  .shell-content .job-detail { margin-top: 0; }
+}
+`;
 const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/><style>${css}</style></head>
-<body><div id="job-detail-mobile-priority-root"></div>
+<meta name="viewport" content="width=device-width,initial-scale=1"/><style>${css}${shellSpacing}</style></head>
+<body><div id="job-detail-mobile-priority-root" class="shell-content"></div>
 <script type="module" src="/scripts/job-detail-mobile-priority-fixture.tsx"></script></body></html>`;
 
 const MOBILE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
 const MIN_TARGET_PX = 44;
-// The fixture renders the page composition, not the shell. Reserve the sticky
-// mobile top bar (`--control-height` 4.5rem) so the first-viewport budget
-// matches the real application.
+// The fixture reproduces the composed mobile shell spacing above; only the
+// sticky mobile top bar (4.5rem) still sits above the page at 390x844.
 const SHELL_CHROME_ALLOWANCE = 72;
 const captureDir = process.env.JOB_DETAIL_PRIORITY_CAPTURE_DIR;
 
@@ -102,10 +116,15 @@ async function measure(page) {
     const rail = document.querySelector('[data-job-detail-rail="true"]');
     const probe = document.createElement('span');
     probe.style.color = 'var(--warning)';
+    probe.style.backgroundColor = 'var(--warning-soft)';
     probe.style.position = 'absolute';
     document.body.append(probe);
     const warningColor = getComputedStyle(probe).color;
+    const warningSoftColor = getComputedStyle(probe).backgroundColor;
     probe.remove();
+    const attentionStep = document.querySelector('.servora-workflow-step--attention');
+    const attentionIcon = attentionStep?.querySelector('.servora-workflow-attention-icon') ?? null;
+    const latenessFacts = document.querySelector('[data-submission-lateness="open"] .job-row-facts');
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       primary: primary ? {
@@ -128,7 +147,16 @@ async function measure(page) {
       attentionInSummary: attentionSummary !== null,
       attentionSummaryColor: attentionSummary ? getComputedStyle(attentionSummary).color : null,
       attentionTitleColor: attentionTitle ? getComputedStyle(attentionTitle).color : null,
+      attentionIcon: attentionIcon ? {
+        background: getComputedStyle(attentionIcon).backgroundColor,
+        color: getComputedStyle(attentionIcon).color,
+        numericIcon: attentionStep.querySelector('.servora-ant-steps-item-icon-number') !== null,
+        width: Math.round(attentionIcon.getBoundingClientRect().width),
+        height: Math.round(attentionIcon.getBoundingClientRect().height),
+      } : null,
       warningColor,
+      warningSoftColor,
+      latenessFactsColumns: latenessFacts ? getComputedStyle(latenessFacts).gridTemplateColumns : null,
       errorStep: document.querySelector('.servora-ant-steps-item-error') !== null,
       historyDisclosure: historyDisclosure ? {
         open: historyDisclosure.hasAttribute('open'),
@@ -143,6 +171,29 @@ async function measure(page) {
       minTarget: minTarget,
     };
   }, { minTarget: MIN_TARGET_PX });
+}
+
+/**
+ * P0 regression: keyboard paging inside the collapsible history must keep the
+ * disclosure open, keep the pager mounted and return focus to it.
+ */
+async function pageCollapsibleHistory(page) {
+  const details = page.locator('details[data-overdue-history-disclosure="true"]');
+  await details.locator('summary').click();
+  const openAfterClick = await details.evaluate((element) => element.open);
+  await page.locator('.overdue-history .servora-ant-pagination-next').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => {
+    const region = document.querySelector('[data-overdue-history="ready"]');
+    return region?.getAttribute('data-overdue-history-busy') === 'false'
+      && (region.textContent ?? '').includes('Sayfa 2 / 2');
+  }, undefined, { timeout: 10_000 });
+  return page.evaluate(() => ({
+    openAfterClick: null,
+    openAfterPaging: document.querySelector('details[data-overdue-history-disclosure="true"]')?.open ?? null,
+    focusedClass: document.activeElement?.getAttribute('class') ?? null,
+    pageText: document.querySelector('.overdue-history .servora-list-pagination__summary')?.textContent ?? null,
+  })).then((result) => ({ ...result, openAfterClick }));
 }
 
 async function capture(page, name) {
@@ -198,6 +249,15 @@ try {
       invariant(m.attentionInSummary, 'revision@390: compact summary lacks the attention state');
       invariant(m.attentionSummaryColor === m.warningColor,
         `revision@390: attention summary color ${m.attentionSummaryColor} != Delay Amber ${m.warningColor}`);
+      invariant(m.attentionIcon !== null, 'revision@390: owned attention icon missing');
+      if (m.attentionIcon) {
+        invariant(m.attentionIcon.background === m.warningSoftColor,
+          `revision@390: attention icon background ${m.attentionIcon.background} != Delay Amber soft ${m.warningSoftColor}`);
+        invariant(m.attentionIcon.color === m.warningColor,
+          `revision@390: attention icon color ${m.attentionIcon.color} != Delay Amber ${m.warningColor}`);
+        invariant(m.attentionIcon.numericIcon === false,
+          'revision@390: primary numeric step icon still rendered');
+      }
     }
     if (fixtureCase === 'manager-late-history') {
       invariant(m.historyDisclosure !== null, 'manager-late-history@390: history disclosure missing');
@@ -213,9 +273,28 @@ try {
       }
       invariant(m.latenessTop !== null && m.factsTop !== null && m.latenessTop > m.factsTop,
         `manager-late-history@390: lateness history (${m.latenessTop}) is not below the record details (${m.factsTop})`);
+      invariant((m.latenessFactsColumns ?? '').includes(' '),
+        `manager-late-history@390: lateness facts are not two columns (${m.latenessFactsColumns})`);
     } else {
       invariant(m.historyDisclosure === null, `${fixtureCase}@390: unexpected lateness history disclosure`);
     }
+    await page.close();
+  }
+
+  // P0: the collapsible history stays open with the pager focused across paging.
+  {
+    const { page, errors } = await openCase(browser, url, 'manager-late-history', MOBILE);
+    const paging = await pageCollapsibleHistory(page);
+    rows.push({ case: 'manager-late-history', layout: 'mobile-paging', ...paging });
+    await capture(page, 'mobile-manager-late-history-paging');
+    invariant(errors.length === 0, `manager-late-history@390 paging: page errors ${errors.join(' | ')}`);
+    invariant(paging.openAfterClick === true, 'manager-late-history@390 paging: disclosure did not open');
+    invariant(paging.openAfterPaging === true,
+      'manager-late-history@390 paging: disclosure collapsed after paging (P0 regression)');
+    invariant((paging.focusedClass ?? '').includes('servora-list-pagination'),
+      `manager-late-history@390 paging: focus left the pager (${paging.focusedClass})`);
+    invariant((paging.pageText ?? '').includes('Sayfa 2 / 2'),
+      `manager-late-history@390 paging: wrong page (${paging.pageText})`);
     await page.close();
   }
 
@@ -229,6 +308,9 @@ try {
     invariant(m.pageOverflow <= 1, `manager-late-history@320: page overflow ${m.pageOverflow}px`);
     invariant(m.compact !== null && m.compact.open === false, 'manager-late-history@320: compact summary state');
     invariant(m.historyDisclosure !== null, 'manager-late-history@320: history disclosure missing');
+    // The 20rem reflow contract wins over the two-column lateness facts.
+    invariant(m.latenessFactsColumns !== null && !(m.latenessFactsColumns ?? '').includes(' '),
+      `manager-late-history@320: lateness facts are not a single column (${m.latenessFactsColumns})`);
     await page.close();
   }
 
@@ -247,6 +329,19 @@ try {
       `${fixtureCase}@1440: lifecycle (${m.lifecycleTop}) is not above responsibility (${m.responsibilityTop})`,
     );
     invariant(m.errorStep === false, `${fixtureCase}@1440: Ant error step status rendered`);
+    if (fixtureCase === 'revision') {
+      invariant(m.attentionIcon !== null, 'revision@1440: owned attention icon missing');
+      if (m.attentionIcon) {
+        invariant(m.attentionIcon.background === m.warningSoftColor,
+          `revision@1440: attention icon background ${m.attentionIcon.background} != Delay Amber soft`);
+        invariant(m.attentionIcon.color === m.warningColor,
+          `revision@1440: attention icon color ${m.attentionIcon.color} != Delay Amber`);
+        invariant(m.attentionIcon.numericIcon === false,
+          'revision@1440: primary numeric step icon still rendered');
+        invariant(m.attentionIcon.width >= 24 && m.attentionIcon.height >= 24,
+          `revision@1440: attention icon is ${m.attentionIcon.width}x${m.attentionIcon.height}`);
+      }
+    }
     if (fixtureCase === 'manager-late-history') {
       invariant(m.historyDisclosure === null, 'manager-late-history@1440: history collapsed on desktop');
       invariant(m.historyTop !== null && m.lifecycleTop !== null && m.historyTop < m.lifecycleTop,

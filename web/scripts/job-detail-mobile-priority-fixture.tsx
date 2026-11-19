@@ -213,10 +213,22 @@ window.fetch = (async (input: RequestInfo | URL) => {
     return json({ open: hasLateness ? openLateness : null });
   }
   if (url.includes('/overdue-incidents')) {
-    const items = hasHistory
-      ? [historyItem(1, 'LATE_START'), historyItem(2, 'LATE_SUBMISSION'), historyItem(3, 'APPROVAL_WAIT')]
+    // Offset-aware paging mock so the collapsible disclosure can be exercised
+    // past the first page in Chromium.
+    const all = hasHistory
+      ? [
+        historyItem(1, 'LATE_START'),
+        historyItem(2, 'LATE_SUBMISSION'),
+        historyItem(3, 'APPROVAL_WAIT'),
+        historyItem(4, 'LATE_START'),
+        historyItem(5, 'LATE_SUBMISSION'),
+        historyItem(6, 'APPROVAL_WAIT'),
+        historyItem(7, 'LATE_SUBMISSION'),
+      ]
       : [];
-    return json({ items, total: items.length, limit: 25, offset: 0 });
+    const limit = Number(new URL(url, window.location.origin).searchParams.get('limit') ?? 6);
+    const offset = Number(new URL(url, window.location.origin).searchParams.get('offset') ?? 0);
+    return json({ items: all.slice(offset, offset + limit), total: all.length, limit, offset });
   }
   return new Response(JSON.stringify({ message: 'Unexpected fixture request' }), { status: 404 });
 }) as typeof window.fetch;
