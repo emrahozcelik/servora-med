@@ -13,7 +13,7 @@ const { color, control, elevation, typography } = servoraVisualTokens;
  * The owned Select must not read as a lighter, disabled-looking control inside
  * a form that also has native controls (UI audit F-09).
  */
-const controlBorder = color.controlBorder.antValue;
+const controlBorder = color.controlBorder.cssValue;
 
 export const servoraAntTheme: ThemeConfig = {
   token: {
