@@ -365,6 +365,39 @@ test('Azure apt mirror guard rewrites only Ubuntu sources and adds bounded retri
     assert.match(retries, /Acquire::Retries "5";/);
     assert.match(retries, /Acquire::http::Timeout "30";/);
   });
+  // Actual ubuntu-24.04 runner layout (failed release-package job, 2026-11-19):
+  // every stanza is `mirror+file:` and the list starts with the EC2 mirror.
+  withTempDir((root) => {
+    const apt = join(root, 'etc/apt');
+    mkdirSync(join(apt, 'sources.list.d'), { recursive: true });
+    const stanzas = [
+      'Types: deb',
+      'URIs: mirror+file:/etc/apt/apt-mirrors.txt',
+      'Suites: noble noble-updates noble-backports noble-security',
+      'Components: main universe restricted multiverse',
+      'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg',
+      '',
+    ].join('\n');
+    writeFileSync(join(apt, 'sources.list.d/ubuntu.sources'), stanzas);
+    writeFileSync(join(apt, 'apt-mirrors.txt'), [
+      'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:1',
+      'https://archive.ubuntu.com/ubuntu/\tpriority:2',
+      'https://security.ubuntu.com/ubuntu/\tpriority:3',
+      '',
+    ].join('\n'));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = run(root);
+      assert.equal(result.status, 0, result.stderr);
+    }
+    assert.equal(readFileSync(join(apt, 'apt-mirrors.txt'), 'utf8'), 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n');
+    assert.equal(readFileSync(join(apt, 'sources.list.d/ubuntu.sources'), 'utf8'), stanzas);
+    assert.ok(existsSync(join(apt, 'apt.conf.d/80-servora-ci-retries')));
+
+    rmSync(join(apt, 'apt-mirrors.txt'));
+    const missingList = run(root);
+    assert.notEqual(missingList.status, 0);
+    assert.match(missingList.stderr, /APT_MIRROR_LIST_MISSING/);
+  });
   withTempDir((root) => {
     const missing = run(root);
     assert.notEqual(missing.status, 0);
