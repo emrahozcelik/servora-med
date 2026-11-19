@@ -295,6 +295,41 @@ describe('User detail route race protection', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it('claims the permanent delete synchronously so a second activation cannot send twice', async () => {
+    let finish!: (value?: unknown) => void;
+    people.permanentlyDeleteUser.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const eligible = { ...user, role: 'MANAGER' as const, canPermanentlyDelete: true as const, permanentDeleteBlockers: [] as const };
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={eligible}
+      onBack={() => {}} onChanged={() => {}} onDeleted={() => {}} /></MemoryRouter>));
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => { trigger.click(); await Promise.resolve(); });
+    const confirm = container.querySelector<HTMLButtonElement>('[role="dialog"] .destructive-button')!;
+    await act(async () => {
+      // Two activations before the first pending render can land.
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(people.permanentlyDeleteUser).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); await Promise.resolve(); });
+  });
+
+  it('shows a rejected permanent delete in the page alert and closes the dialog', async () => {
+    people.permanentlyDeleteUser.mockRejectedValue(new Error('Kullanıcı silinemedi: kayıt kilitli.'));
+    const eligible = { ...user, role: 'MANAGER' as const, canPermanentlyDelete: true as const, permanentDeleteBlockers: [] as const };
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={eligible}
+      onBack={() => {}} onChanged={() => {}} onDeleted={() => {}} /></MemoryRouter>));
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => { trigger.click(); await Promise.resolve(); });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[role="dialog"] .destructive-button')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Kullanıcı silinemedi: kayıt kilitli.');
+  });
+
   it('resets a password only after the owned confirmation and keeps the pending state', async () => {
     let finish!: (value: ManagedUser) => void;
     people.resetUserPassword.mockImplementation(() => new Promise<ManagedUser>((resolve) => { finish = resolve; }));
@@ -318,6 +353,69 @@ describe('User detail route race protection', () => {
     await act(async () => { finish({ ...user, version: 2 }); await Promise.resolve(); });
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(container.textContent).toContain('Geçici parola kaydedildi.');
+  });
+
+  it('claims the password reset synchronously so a second activation cannot send twice', async () => {
+    let finish!: (value: ManagedUser) => void;
+    people.resetUserPassword.mockImplementation(() => new Promise<ManagedUser>((resolve) => { finish = resolve; }));
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user}
+      onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
+    fill(container.querySelector('#reset-password'), 'Serv1!');
+    const resetForm = Array.from(container.querySelectorAll('form')).find((form) => form.querySelector('#reset-password'))!;
+    await act(async () => {
+      resetForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    const confirm = container.querySelector<HTMLButtonElement>('[role="dialog"] .primary-button')!;
+    await act(async () => {
+      // Two activations before the first pending render can land.
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(people.resetUserPassword).toHaveBeenCalledTimes(1);
+    await act(async () => { finish({ ...user, version: 2 }); await Promise.resolve(); });
+  });
+
+  it('shows a rejected password reset in the page alert and closes the dialog', async () => {
+    people.resetUserPassword.mockRejectedValue(new Error('Parola sıfırlanamadı: sunucu hatası.'));
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user}
+      onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
+    fill(container.querySelector('#reset-password'), 'Serv1!');
+    const resetForm = Array.from(container.querySelectorAll('form')).find((form) => form.querySelector('#reset-password'))!;
+    await act(async () => {
+      resetForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[role="dialog"] .primary-button')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Parola sıfırlanamadı: sunucu hatası.');
+  });
+
+  it('restores focus to the reset trigger when Escape closes the dialog', async () => {
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user}
+      onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
+    fill(container.querySelector('#reset-password'), 'Serv1!');
+    const resetForm = Array.from(container.querySelectorAll('form')).find((form) => form.querySelector('#reset-password'))!;
+    const trigger = resetForm.querySelector<HTMLButtonElement>('button')!;
+    trigger.focus();
+    await act(async () => {
+      resetForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await act(async () => {
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(people.resetUserPassword).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('cancels a password reset without writing', async () => {

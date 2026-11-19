@@ -139,6 +139,10 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
   const [lifecyclePending, setLifecyclePending] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const lifecycleBusy = useRef(false);
+  // Synchronous in-flight guards: two clicks in the same tick both read the
+  // still-false pending state, so the command must claim its work first.
+  const deleteBusy = useRef(false);
+  const resetBusy = useRef(false);
   const deactivateTriggerRef = useRef<HTMLButtonElement>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   const resetTriggerRef = useRef<HTMLButtonElement>(null);
@@ -164,11 +168,12 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
     setDeactivateOpen(false);
   }
   async function permanentlyDelete() {
-    if (user.canPermanentlyDelete !== true || deletePending || !deleteConfirmOpen) return;
+    if (user.canPermanentlyDelete !== true || deleteBusy.current || !deleteConfirmOpen) return;
+    deleteBusy.current = true;
     setError(''); setNotice(''); setDeletePending(true);
     try { await permanentlyDeleteUser(user.id, user.version); setDeleteConfirmOpen(false); onDeleted?.(); if (!onDeleted) setNotice('Kullanıcı kalıcı olarak silindi.'); }
     catch (e) { setError(e instanceof Error ? e.message : 'Kullanıcı silinemedi.'); setDeleteConfirmOpen(false); }
-    finally { setDeletePending(false); }
+    finally { deleteBusy.current = false; setDeletePending(false); }
   }
 
   function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
@@ -180,12 +185,14 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
   }
 
   async function confirmPasswordReset() {
-    if (!resetOpen || resetPending) return;
+    if (!resetOpen || resetBusy.current) return;
+    resetBusy.current = true;
+    setError('');
     setResetPending(true);
     try {
       await run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword: resetDraft }), 'Geçici parola kaydedildi.');
       setResetOpen(false); setResetDraft('');
-    } finally { setResetPending(false); }
+    } finally { resetBusy.current = false; setResetPending(false); }
   }
   const deleteUnavailable = permanentDeleteUnavailableMessage(user);
   const canDeactivate = viewer.role === 'ADMIN' && user.role !== 'STAFF' && user.isActive && viewer.id !== user.id;
