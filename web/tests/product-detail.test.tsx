@@ -57,6 +57,12 @@ describe('Product detail', () => {
     return props;
   }
 
+  it('keeps the optimistic-lock version out of the product detail surface', async () => {
+    await render();
+    expect(container.textContent).toContain('Son güncelleme');
+    expect(container.textContent).not.toContain('Sürüm');
+  });
+
   it('renders loading, not-found, forbidden, and retryable generic error states explicitly', async () => {
     const request = deferred<Product>();
     await render(vi.fn().mockReturnValue(request.promise));
@@ -86,7 +92,7 @@ describe('Product detail', () => {
     for (const label of ['SKU', 'Marka', 'Kategori', 'Model', 'Birim', 'Referans fiyat']) {
       expect(container.textContent).toContain(label);
     }
-    expect(container.querySelectorAll('dd')).toHaveLength(8);
+    expect(container.querySelectorAll('dd')).toHaveLength(7);
     expect(Array.from(container.querySelectorAll('dd')).filter((node) => node.textContent === 'Belirtilmedi')).toHaveLength(6);
     expect(container.textContent).not.toContain('adet');
     expect(container.textContent).not.toContain('₺');
@@ -116,7 +122,9 @@ describe('Product detail', () => {
     const name = container.querySelector<HTMLInputElement>('[name="name"]')!; name.value = updated.name;
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(update).toHaveBeenCalledWith(product.id, expect.objectContaining({ name: updated.name, expectedVersion: 3 }));
-    expect(container.textContent).toContain(updated.name); expect(container.textContent).toContain('Sürüm 4');
+    expect(container.textContent).toContain(updated.name);
+    expect(container.textContent).toContain('Son güncelleme');
+    expect(container.textContent).not.toContain('Sürüm');
     expect(container.querySelector('form')).toBeNull();
   });
 
@@ -130,7 +138,8 @@ describe('Product detail', () => {
     for (const [field, value] of Object.entries(values)) container.querySelector<HTMLInputElement>(`[name="${field}"]`)!.value = value;
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(load).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain('Güncel sürüm: 7');
+    expect(container.textContent).toContain('Ürün sizin düzenlemeye başladığınızdan sonra güncellendi');
+    expect(container.textContent).not.toContain('Sürüm');
     for (const [field, value] of Object.entries(values)) expect(container.querySelector<HTMLInputElement>(`[name="${field}"]`)!.value).toBe(value);
 
     const reload = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Güncel değerleri yükle')!;

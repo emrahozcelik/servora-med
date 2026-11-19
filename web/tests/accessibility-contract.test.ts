@@ -146,10 +146,13 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-row-commands \{[^}]*position:\s*relative;[^}]*z-index:\s*[1-9]/);
     expect(css).toMatch(/\.customer-row\.customer-list-card \{[^}]*position:\s*relative;/);
     expect(css).toMatch(/\.customer-title-link::after \{[^}]*position:\s*absolute;[^}]*inset:\s*0;/);
-    expect(css).toMatch(/\.customer-row-commands \{[^}]*position:\s*relative;[^}]*z-index:\s*[1-9]/);
     expect(css).toMatch(/\.product-row\.product-list-card \{[^}]*position:\s*relative;/);
     expect(css).toMatch(/\.product-title-link::after \{[^}]*position:\s*absolute;[^}]*inset:\s*0;/);
-    expect(css).toMatch(/\.product-row-commands \{[^}]*position:\s*relative;[^}]*z-index:\s*[1-9]/);
+    // F-15: the record commands moved to the detail pages, so the row-level
+    // command groups and their dead layering rules are gone.
+    expect(css).not.toMatch(/\.customer-row-commands\b/);
+    expect(css).not.toMatch(/\.product-row-commands\b/);
+    expect(css).not.toMatch(/\.product-delete-action\b/);
     expect(css).toMatch(/\.job-row-mobile-primary \{[^}]*position:\s*relative;[^}]*z-index:\s*[1-9]/);
     expect(css).toMatch(/\.job-row-facts dt \{[^}]*font-size: 0\.875rem;/);
     expect(css).toMatch(/@media \(max-width: 80rem\)[\s\S]*\.structured-job-row \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto;/);

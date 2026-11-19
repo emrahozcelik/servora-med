@@ -138,6 +138,21 @@ async function measure(page) {
       && personnelFilterFrame && personnelFilterFrame.width > 0
       && personnelFilterFrame.left >= 0
       && personnelFilterFrame.right <= document.documentElement.clientWidth + 1);
+    // C2 follow-up: the filter is a real 44px FormControl whose value text is
+    // not painted against the border.
+    const personnelFilterStyle = personnelFilter ? getComputedStyle(personnelFilter) : null;
+    const personnelFilterHeight = personnelFilterFrame?.height ?? 0;
+    const personnelFilterPaddingInline = personnelFilterStyle
+      ? Math.min(
+        parseFloat(personnelFilterStyle.paddingInlineStart),
+        parseFloat(personnelFilterStyle.paddingInlineEnd),
+      )
+      : 0;
+    const personnelFilterLabel = document.querySelector('label[for="calendar-personnel-filter"]')
+      ?? personnelFilter?.closest('label');
+    const personnelFilterLabelVisible = Boolean(personnelFilterLabel
+      && personnelFilterLabel.getClientRects().length
+      && personnelFilterLabel.textContent?.includes('Personel'));
     const agendaReachable = Boolean(agendaFrame && agendaFrame.width > 0 && agendaFrame.height > 0
       && agendaFrame.top >= 0
       && agendaFrame.bottom <= Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) + 1);
@@ -214,6 +229,9 @@ async function measure(page) {
       headerButtonsInFrame,
       headerButtonMinSize,
       personnelFilterUsable,
+      personnelFilterHeight,
+      personnelFilterPaddingInline,
+      personnelFilterLabelVisible,
       agendaReachable,
       desktopSummaries,
       eventChips,
@@ -247,6 +265,13 @@ function contractFailures(measurement, viewport) {
     failures.push(`calendar header control below 44px target (${measurement.headerButtonMinSize.toFixed(1)}px)`);
   }
   if (!measurement.personnelFilterUsable) failures.push('personnel filter is not usable');
+  if (measurement.personnelFilterHeight < 43.5) {
+    failures.push(`personnel filter below the 44px control height (${measurement.personnelFilterHeight.toFixed(1)}px)`);
+  }
+  if (measurement.personnelFilterPaddingInline < 8) {
+    failures.push(`personnel filter value has no inline inset (${measurement.personnelFilterPaddingInline}px)`);
+  }
+  if (!measurement.personnelFilterLabelVisible) failures.push('personnel filter label is not visible');
   if (!measurement.agendaReachable) failures.push('agenda is not reachable');
 
   if (viewport.compact) {

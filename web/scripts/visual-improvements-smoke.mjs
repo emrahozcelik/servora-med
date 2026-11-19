@@ -142,7 +142,8 @@ async function capture(ctx, suffix = '') {
     headings: [...document.querySelectorAll('main h1,main h2,main h3')].map(el => ({ text: el.textContent, y: Math.round(el.getBoundingClientRect().top) })),
     alerts: [...document.querySelectorAll('[role="alert"]')].filter(el => el.getClientRects().length).map(el => el.textContent),
     commands: [...document.querySelectorAll('[data-job-command]')].filter(el => el.getClientRects().length).map(el => ({ text: el.textContent, height: el.getBoundingClientRect().height })),
-    rowActions: [...document.querySelectorAll('.customer-row-commands a, .product-row-commands a, .product-row-commands button')].filter(el => el.getClientRects().length).map(el => ({ text: el.textContent, width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })),
+    // F-15: list rows are a single navigation target; no row-level commands.
+    rowCommands: document.querySelectorAll('.customer-row-commands, .product-row-commands').length,
   }));
   const file = `${name}-${role.toLowerCase()}-${width}-${scenario}${suffix}`;
   await page.screenshot({ path: resolve(out, `${file}-viewport.png`) });
@@ -152,7 +153,8 @@ async function capture(ctx, suffix = '') {
   if (!['retry', 'conflict', 'save-error'].includes(scenario)) assert.deepEqual(metrics.alerts, [], `${file}: alerts`);
   if (after) {
     assert.equal(metrics.overflow, false, `${file}: overflow`);
-    assert.ok([...metrics.rowActions, ...metrics.commands].every(action => action.height >= 43), `${file}: action target height`);
+    assert.equal(metrics.rowCommands, 0, `${file}: dead row-level command groups`);
+    assert.ok(metrics.commands.every(action => action.height >= 43), `${file}: action target height`);
     if (name === 'staff-profile' && !['retry', 'loading'].includes(scenario)) {
       assert.equal(await page.locator('.staff-current-workload-grid').count(), 0);
       const order = await page.evaluate(() => document.querySelector('.staff-job-history').compareDocumentPosition(document.querySelector('.embedded-staff-report')) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -200,8 +202,10 @@ try {
     }
     const longProduct = await openPage('products', '/products', 'ADMIN', 390, 'long');
     await capture(longProduct); await longProduct.page.close();
-    const edit = await openPage('customers', '/customers', 'MANAGER', 390);
-    await edit.page.getByRole('link', { name: `${customer.name} müşterisini düzenle`, exact: true }).click();
+    // F-15: record commands live on the detail page. The list row is a single
+    // navigation target, and the documented ?edit=1 deep link still opens the
+    // management editor.
+    const edit = await openPage('customer-detail', `/customers/${customerId}?edit=1`, 'MANAGER', 390);
     await edit.page.locator('#detail-customer-name').waitFor();
     assert.equal(await edit.page.locator('.customer-edit-disclosure').evaluate(el => el.open), true);
     await edit.page.close();
@@ -254,8 +258,10 @@ try {
     assert.equal(await enrich.evaluate(el => el === document.activeElement), true);
     assert.equal(await staff.page.locator('#detail-customer-name').count(), 0);
     await staff.page.close();
-    const product = await openPage('products', '/products', 'ADMIN', 390);
-    const remove = product.page.getByRole('button', { name: `${products[0].name} ürününü sil`, exact: true });
+    // F-15: permanent delete is a product-detail command, never a row control.
+    const product = await openPage('product-detail', `/products/${products[0].id}`, 'ADMIN', 390);
+    await product.page.locator('.product-detail-facts').waitFor();
+    const remove = product.page.getByRole('button', { name: 'Kalıcı olarak sil', exact: true });
     await remove.focus(); await product.page.keyboard.press('Enter');
     await product.page.getByRole('dialog').waitFor(); await capture(product, '-confirmation');
     await product.page.keyboard.press('Escape'); await product.page.getByRole('dialog').waitFor({ state: 'hidden' });

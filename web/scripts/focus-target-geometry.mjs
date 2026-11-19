@@ -164,8 +164,8 @@ try {
   }
   assert.deepEqual(errors, [], 'no page/console errors');
 
-  // F-18: Turkish 403/404 headings, one h1 and decorative artwork excluded
-  // from the accessibility tree on both engines.
+  // F-18 + F-12: Turkish 403/404 headings, one h1 and no stock Ant
+  // illustration on both engines.
   for (const [status, title] of [['403', 'Erişim yetkiniz yok'], ['404', 'Sayfa bulunamadı']]) {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'tr-TR', timezoneId: 'Europe/Istanbul' });
     page.on('pageerror', error => errors.push(`${status}: ${error.message}`));
@@ -177,13 +177,14 @@ try {
     const snapshot = await page.locator('body').ariaSnapshot();
     assert.ok(snapshot.includes(`heading "${title}" [level=1]`), `${status}: aria heading (${snapshot})`);
     assert.ok(!/Unauthorized|No Found/.test(snapshot), `${status}: English artwork text must not reach the accessibility tree`);
-    const icon = page.locator('.servora-result-state__icon');
-    assert.equal(await icon.count(), 1, `${status}: artwork slot present`);
-    assert.equal(await icon.getAttribute('aria-hidden'), 'true', `${status}: artwork hidden`);
+    assert.equal(await page.locator('.servora-result-state__icon').count(), 0, `${status}: no artwork slot`);
+    assert.equal(await page.locator('.servora-result-state svg, .servora-result-state img').count(), 0,
+      `${status}: no illustration`);
+    assert.equal(await page.locator(`[data-result-status="${status}"]`).count(), 1, `${status}: status is carried in markup`);
     if (process.env.FOCUS_TARGET_CAPTURE) {
       await page.screenshot({ path: `${process.env.FOCUS_TARGET_CAPTURE}-${status}-${engine}.png` });
     }
-    results.push({ engine, kind: 'result', status, headings, ariaHiddenArtwork: true });
+    results.push({ engine, kind: 'result', status, headings, artwork: 'none' });
     await page.close();
   }
 

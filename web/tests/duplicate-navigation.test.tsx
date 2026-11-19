@@ -68,7 +68,7 @@ it('F09: missing pair renders the 404 not-found state, not a transient read erro
   await settle();
   expect(host.querySelector('.servora-result-state h2')?.textContent).toBe('Karşılaştırılabilir müşteri çifti bulunamadı');
   expect(host.textContent).not.toContain('aday bulunmadığı anlamına gelmez');
-  expect(host.querySelector('.ant-result-404')).not.toBeNull();
+  expect(host.querySelector('[data-servora-result-state][data-result-status="404"]')).not.toBeNull();
   const links = [...host.querySelectorAll('a')].filter((link) => !link.closest('.route-breadcrumb') && link.getAttribute('href')?.startsWith('/customers/duplicate-candidates'));
   expect(links).toHaveLength(1);
   expect(links[0]?.getAttribute('href')).toBe('/customers/duplicate-candidates?cursor=abc&anchorCustomerId=a');
@@ -91,7 +91,7 @@ it('F09: a 404 after a successful comparison clears the old customer and contact
   expect(host.textContent).not.toContain('Sentetik Eski Müşteri');
   expect(host.textContent).not.toContain('Sentetik İlgili Kişi');
   expect(host.querySelector('.servora-result-state h2')?.textContent).toBe('Karşılaştırılabilir müşteri çifti bulunamadı');
-  expect(host.querySelector('.ant-result-404')).not.toBeNull();
+  expect(host.querySelector('[data-servora-result-state][data-result-status="404"]')).not.toBeNull();
 });
 
 it('F13: ALL deep links reach terminal pairs and switching views resets only the cursor', async () => {

@@ -315,4 +315,65 @@ describe('ProductSelect', () => {
     });
     expect(load).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 6, offset: 0 });
   });
+
+  it('searches as the user types after a short pause, without pressing the button', async () => {
+    vi.useFakeTimers();
+    try {
+      const load = vi.fn().mockResolvedValue(page([productOne]));
+      await renderPicker(load);
+      const field = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
+      await act(async () => input(field, 'imp'));
+      expect(load).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(299);
+        await Promise.resolve();
+      });
+      expect(load).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(load).toHaveBeenCalledWith({ status: 'active', q: 'imp', limit: 6, offset: 0 });
+      expect(container.textContent).toContain(productOne.name);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restarts the pause while typing and closes results when the field is cleared', async () => {
+    vi.useFakeTimers();
+    try {
+      const load = vi.fn().mockResolvedValue(page([productTwo]));
+      await renderPicker(load);
+      const field = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
+      await act(async () => input(field, 'vid'));
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+        await Promise.resolve();
+      });
+      await act(async () => input(field, 'vida'));
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+        await Promise.resolve();
+      });
+      expect(load).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(load).toHaveBeenCalledExactlyOnceWith({ status: 'active', q: 'vida', limit: 6, offset: 0 });
+
+      await act(async () => input(field, ''));
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+        await Promise.resolve();
+      });
+      expect(container.querySelector('.product-select-list')).toBeNull();
+      expect(load).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

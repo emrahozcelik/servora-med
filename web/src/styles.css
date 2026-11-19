@@ -3356,22 +3356,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .customer-facts div { display: grid; gap: 0.25rem; }
 .customer-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
 .customer-facts dd { margin: 0; font-size: 0.875rem; }
-.customer-row-commands {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  position: relative;
-  z-index: 1;
-}
-.customer-row-commands .secondary-button,
-.customer-row-commands .destructive-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--control-height);
-  text-decoration: none;
-}
 .customer-create { width: min(100% - 2rem, 48rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .customer-form { margin-top: 1.5rem; }
 .customer-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
@@ -3480,22 +3464,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .product-facts dt, .product-detail-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
 .product-facts dd, .product-detail-facts dd { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
 .product-detail-facts dd { overflow-wrap: anywhere; }
-.product-row-commands {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  position: relative;
-  z-index: 1;
-}
-.product-row-commands .secondary-button,
-.product-row-commands .destructive-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--control-height);
-  text-decoration: none;
-}
 .product-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.5rem; }
 .product-pagination span { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .product-form { margin-top: 1.5rem; }
@@ -3570,9 +3538,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .product-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.75rem;
-  }
-  .product-row-commands {
-    justify-content: flex-start;
   }
 }
 
@@ -3761,8 +3726,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .customer-filters { grid-template-columns: 1fr; gap: 0.75rem; }
   .customer-row { grid-template-columns: 1fr; gap: 1rem; }
   .customer-facts { grid-template-columns: 1fr 1fr; }
-  .customer-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
-  .customer-row-commands > * { width: auto; }
   .customer-form-pair { grid-template-columns: 1fr; gap: 0; }
   .form-actions { align-items: stretch; flex-direction: column-reverse; }
   /* T4A repair: operational forms use column so DOM/tab order matches visual order (Cancel first). */
@@ -3784,8 +3747,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .product-filters { grid-template-columns: 1fr; }
   .product-row { grid-template-columns: 1fr; gap: 0.9rem; padding-block: 1.1rem; }
   .product-form-pair { grid-template-columns: 1fr; }
-  .product-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
-  .product-row-commands > * { width: auto; }
   .product-detail .product-detail-facts { grid-template-columns: 1fr; }
   .product-dialog-actions { align-items: stretch; flex-direction: column-reverse; }
   .product-dialog-actions button { width: 100%; }
@@ -5457,7 +5418,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .customer-detail .operational-summary .record-facts > div { min-width: 0; }
 .customer-detail .operational-summary dd { overflow-wrap: anywhere; }
 .customer-detail .operational-summary dd p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
-.product-row-commands .product-delete-action { color: var(--muted); background: transparent; }
 .job-list-card .job-row-relations dd { color: var(--ink); font-weight: 600; }
 .job-list-card .compact-workflow:not(.compact-workflow--attention) { font-weight: 400; }
 .job-list-card .compact-workflow:not(.compact-workflow--attention) p { color: var(--muted); font-weight: 400; }
@@ -5472,3 +5432,91 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .customer-list-card .customer-facts > div { min-width: 0; overflow-wrap: anywhere; }
 .customer-detail .record-facts > div { min-width: 0; }
 .customer-detail .record-facts dd { overflow-wrap: anywhere; }
+
+/* Phase 2 C2 */
+/* One form-control look for the mixed create and filter controls (UI audit
+   F-09). Native selects join the DESIGN.md FormControl contract with the same
+   44px height, FormControl border, control radius and 16px value text, and the
+   owned Ant Select stops being a visually different outlier in the same form
+   (it keeps its status/error border). Borders use the FormControl tokens
+   `--border-control` / `--border-control-hover`; no new palette value. */
+.field-group select,
+.calendar-toolbar select,
+.report-filters select,
+.staff-performance-mobile-sort select,
+.backup-form-grid select,
+.backup-inline-form select {
+  min-height: var(--control-height);
+  max-width: 100%;
+  /* Same inline inset as the FormControl inputs; a select without inline
+     padding paints its value against the border. */
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  background-color: var(--paper);
+  font-size: 1rem;
+  font-weight: 400;
+}
+.field-group select:hover,
+.calendar-toolbar select:hover,
+.report-filters select:hover,
+.staff-performance-mobile-sort select:hover,
+.backup-form-grid select:hover,
+.backup-inline-form select:hover { border-color: var(--border-control-hover); }
+.field-group select:focus-visible,
+.calendar-toolbar select:focus-visible,
+.report-filters select:focus-visible,
+.staff-performance-mobile-sort select:focus-visible,
+.backup-form-grid select:focus-visible,
+.backup-inline-form select:focus-visible { border-color: var(--accent); }
+.field-group select:disabled,
+.calendar-toolbar select:disabled,
+.report-filters select:disabled,
+.staff-performance-mobile-sort select:disabled,
+.backup-form-grid select:disabled,
+.backup-inline-form select:disabled { background-color: var(--canvas); }
+
+/* The owned Ant Select keeps one border/radius language with those controls.
+   Ant 6.7 draws the Select border/radius on the component root through its own
+   custom properties; the radius var is the only resting visual that still
+   differs from the FormControl control radius. Border colour is mapped in
+   servora-ant-theme.ts so hover/focus/error/warning states stay theirs. */
+html .servora-select { --servora-ant-select-border-radius: var(--radius-control); }
+/* Placeholder text carries the choice instruction, so it must stay readable
+   instead of Ant's low-contrast tertiary text. */
+html .servora-select .servora-ant-select-placeholder { color: var(--muted); opacity: 1; }
+
+/* The calendar personnel filter is a real labelled form control. */
+.calendar-toolbar label { gap: 0.5rem; font-weight: 680; }
+.calendar-toolbar select { width: min(100%, 18rem); }
+
+/* A list row is one navigation target to the record detail (UI audit F-15).
+   The stretched title-link already covers the row; the title itself now reads
+   as a link without hover, and keeps a stronger cue when hovered or focused. */
+.customer-list-card .customer-title-link,
+.product-list-card .product-title-link {
+  text-decoration-line: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+}
+.customer-list-card .customer-title-link:hover,
+.customer-list-card .customer-title-link:focus-visible,
+.product-list-card .product-title-link:hover,
+.product-list-card .product-title-link:focus-visible {
+  color: var(--accent-hover);
+  text-decoration-thickness: 2px;
+}
+.customer-list-card,
+.product-list-card { cursor: pointer; }
+.customer-list-card:hover,
+.product-list-card:hover { background-color: var(--canvas); }
+
+/* Result states use the product's calm empty-state treatment: the adapter's
+   own left alignment and block padding must beat Ant's centred result layout,
+   including the status glyph, so artwork and copy share one left edge. */
+html .servora-result-state .servora-ant-result { padding: 2rem 0; }
+html .servora-result-state .servora-ant-result-title,
+html .servora-result-state .servora-ant-result-subtitle,
+html .servora-result-state .servora-ant-result-extra,
+html .servora-result-state .servora-ant-result-icon { text-align: left; }

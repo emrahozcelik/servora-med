@@ -7,6 +7,14 @@ import {
 
 const { color, control, elevation, typography } = servoraVisualTokens;
 
+/**
+ * FormControl border shared with native inputs/selects/textarea
+ * (`styles.css` `.field-group input, select, textarea, .form-control`).
+ * The owned Select must not read as a lighter, disabled-looking control inside
+ * a form that also has native controls (UI audit F-09).
+ */
+const controlBorder = color.controlBorder.antValue;
+
 export const servoraAntTheme: ThemeConfig = {
   token: {
     borderRadius: control.radiusPx,
@@ -58,6 +66,9 @@ export const servoraAntTheme: ThemeConfig = {
       activeOutlineColor: 'transparent',
       colorErrorOutline: 'transparent',
       colorWarningOutline: 'transparent',
+      // Resting border joins the FormControl contract. Hover/focus/error and
+      // warning borders keep their own tokens, so interaction feedback survives.
+      colorBorder: controlBorder,
     },
   },
 } satisfies ThemeConfig;

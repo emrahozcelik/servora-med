@@ -38,15 +38,12 @@ function ProductLoadError({ state, onRetry }: {
   onRetry: () => void;
 }) {
   if (state.code === 'PRODUCT_NOT_FOUND') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p>
     <ResultState status="404" title="Ürün bulunamadı" description="Bu ürün kaldırılmış veya bağlantı değişmiş olabilir." headingLevel={1} />
   </main>;
   if (state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p>
     <ResultState status="403" title="Bu ürünü görüntüleme yetkiniz yok" description={state.message} headingLevel={1} />
   </main>;
   return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p>
     <ResultState status="error" title="Ürün yüklenemedi" description={state.message} headingLevel={1}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
     />
@@ -62,7 +59,6 @@ function ProductFacts({ product }: { product: Product }) {
     <div><dt>Model</dt><dd>{absent(product.model)}</dd></div>
     <div><dt>Birim</dt><dd>{absent(product.unit)}</dd></div>
     <div><dt>Referans fiyat</dt><dd>{absent(product.referencePrice)}</dd></div>
-    <div><dt>Sürüm</dt><dd>{product.version}</dd></div>
     <div><dt>Son güncelleme</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' }).format(new Date(product.updatedAt))}</dd></div>
   </dl>;
 }
@@ -112,7 +108,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   }, [load, productId, reload]);
 
   if (state.kind === 'loading') return <main className="workspace product-workspace" aria-busy="true" aria-live="polite">
-    <p className="eyebrow">Ürün kataloğu</p><h1>Ürün detayı yükleniyor</h1>
+    <h1>Ürün detayı yükleniyor</h1>
   </main>;
   if (state.kind === 'error') return <ProductLoadError state={state} onRetry={() => setReload((value) => value + 1)} />;
 
@@ -188,8 +184,8 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
 
   if (editing) return <>
     {conflictVersion !== undefined && <div className="conflict-actions product-edit-conflict" role="alert">
-      <p>Ürün başka bir kullanıcı tarafından güncellendi. Formdaki değişiklikleriniz korunuyor.
-        {conflictVersion !== null && <> Güncel sürüm: {conflictVersion}.</>}{error && <> {error}</>}</p>
+      <p>Ürün sizin düzenlemeye başladığınızdan sonra güncellendi. Formdaki değişiklikleriniz korunuyor.
+        {error && <> {error}</>}</p>
       <button className="secondary-button" type="button" onClick={() => void reloadCurrentValues()} disabled={pending}>Güncel değerleri yükle</button>
     </div>}
     <ProductForm key={formKey} pending={pending} fieldErrors={fieldErrors} error={conflictVersion === undefined ? error : ''} errorRef={editErrorRef}
@@ -199,11 +195,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   </>;
 
   return <main className="product-detail">
-    <PageHeader
-      eyebrow="Ürün kataloğu"
-      fallbackTitle={product.name}
-      actions={<span className="product-version">Sürüm {product.version}</span>}
-    />
+    <PageHeader fallbackTitle={product.name} />
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
     {error && <div className="detail-feedback detail-feedback-error" role="alert">{error}</div>}
     <section className="record-section" aria-labelledby="product-info-title"><h2 id="product-info-title">Ürün bilgileri</h2><ProductFacts product={product} /></section>
@@ -231,7 +223,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       open={deleteConfirmOpen}
       title="Ürün kalıcı olarak silinsin mi?"
       description="Bu işlem geri alınamaz. Yalnız kullanılmamış ürünler silinebilir."
-      details={[`Ürün: ${product.name}`, `SKU: ${product.sku ?? '—'}`, `Sürüm: ${product.version}`]}
+      details={[`Ürün: ${product.name}`, `SKU: ${product.sku ?? '—'}`]}
       confirmLabel="Kalıcı olarak sil"
       pending={deletePending}
       pendingLabel="Siliniyor…"

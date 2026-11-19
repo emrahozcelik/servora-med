@@ -6,6 +6,8 @@ import { ServoraListPagination } from './ui/antd/ServoraPagination';
 import { createRequestGate } from './services/request-gate';
 
 const PAGE_SIZE = DEFAULT_LIST_PAGE_SIZE;
+/** Search-as-you-type pause; typing another character restarts the wait. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 type ProductSelectState =
   | { kind: 'idle' }
@@ -109,6 +111,28 @@ export function ProductSelect(props: ProductSelectProps) {
     if (nextQuery === query && offset === 0) setReload((value) => value + 1);
     else setQuery(nextQuery);
   }, [draftQuery, offset, query]);
+
+  // Search-as-you-type (UI audit F-09): the field no longer needs its own
+  // submit step. The button and Enter stay as an immediate explicit search.
+  useEffect(() => {
+    const nextQuery = draftQuery.trim();
+    if (nextQuery === query) return;
+    if (!nextQuery) {
+      requestGate.current.next();
+      setOffset(0);
+      setQuery('');
+      setSearchOpen(false);
+      setState({ kind: 'idle' });
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      requestGate.current.next();
+      setOffset(0);
+      setSearchOpen(true);
+      setQuery(nextQuery);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [draftQuery, query]);
 
   function searchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key !== 'Enter') return;

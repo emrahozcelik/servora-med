@@ -43,7 +43,7 @@ export function UserListView({ users, onCreate, onOpen, notice }: {
   const [pageOffset, setPageOffset] = useState(0);
   const visibleUsers = users.filter((item) => statusFilter === 'all' || item.isActive === (statusFilter === 'active'));
   const boundedOffset = Math.min(pageOffset, lastListPageOffset(visibleUsers.length));
-  return <main className="workspace"><PageHeader eyebrow="Yönetim" fallbackTitle="Kullanıcılar"
+  return <main className="workspace"><PageHeader fallbackTitle="Kullanıcılar"
     actions={<button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button>} />
     {notice && <div className="success-message" role="status">{notice}</div>}
     {users.length > 0 && <PeopleStatusFilterTabs value={statusFilter} onChange={(next) => { setPageOffset(0); setStatusFilter(next); }} label="Kullanıcı durumu" />}
@@ -132,10 +132,20 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
 }) {
   const [user, setUser] = useState<UserDetailRecord>(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [deletePending, setDeletePending] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetDraft, setResetDraft] = useState('');
+  const [resetPending, setResetPending] = useState(false);
   const [lifecyclePending, setLifecyclePending] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const lifecycleBusy = useRef(false);
+  // Synchronous in-flight guards: two clicks in the same tick both read the
+  // still-false pending state, so the command must claim its work first.
+  const deleteBusy = useRef(false);
+  const resetBusy = useRef(false);
   const deactivateTriggerRef = useRef<HTMLButtonElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const resetTriggerRef = useRef<HTMLButtonElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   async function run(action: () => Promise<ManagedUser>, message: string) {
     setError('');
@@ -158,12 +168,31 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
     setDeactivateOpen(false);
   }
   async function permanentlyDelete() {
-    if (user.canPermanentlyDelete !== true || deletePending) return;
-    if (!window.confirm('Bu kullanıcıda operasyon geçmişi bulunmuyor. Kullanıcı kalıcı olarak silinsin mi? Bu işlem geri alınamaz.')) return;
+    if (user.canPermanentlyDelete !== true || deleteBusy.current || !deleteConfirmOpen) return;
+    deleteBusy.current = true;
     setError(''); setNotice(''); setDeletePending(true);
-    try { await permanentlyDeleteUser(user.id, user.version); onDeleted?.(); if (!onDeleted) setNotice('Kullanıcı kalıcı olarak silindi.'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Kullanıcı silinemedi.'); }
-    finally { setDeletePending(false); }
+    try { await permanentlyDeleteUser(user.id, user.version); setDeleteConfirmOpen(false); onDeleted?.(); if (!onDeleted) setNotice('Kullanıcı kalıcı olarak silindi.'); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Kullanıcı silinemedi.'); setDeleteConfirmOpen(false); }
+    finally { deleteBusy.current = false; setDeletePending(false); }
+  }
+
+  function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const temporaryPassword = String(new FormData(event.currentTarget).get('temporaryPassword') ?? '');
+    const policyIssue = validateNewPasswordPolicy(temporaryPassword);
+    if (policyIssue) { setError(newPasswordPolicyMessage(policyIssue)); return; }
+    setError(''); setResetDraft(temporaryPassword); setResetOpen(true);
+  }
+
+  async function confirmPasswordReset() {
+    if (!resetOpen || resetBusy.current) return;
+    resetBusy.current = true;
+    setError('');
+    setResetPending(true);
+    try {
+      await run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword: resetDraft }), 'Geçici parola kaydedildi.');
+      setResetOpen(false); setResetDraft('');
+    } finally { resetBusy.current = false; setResetPending(false); }
   }
   const deleteUnavailable = permanentDeleteUnavailableMessage(user);
   const canDeactivate = viewer.role === 'ADMIN' && user.role !== 'STAFF' && user.isActive && viewer.id !== user.id;
@@ -174,10 +203,10 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
       <Field id="detail-name" label="Ad soyad"><input ref={nameInputRef} id="detail-name" name="name" defaultValue={user.name} required /></Field><button className="primary-button">Bilgileri kaydet</button></form></section>
     <section className="security-section"><h2>Rol ve erişim</h2>{user.role !== 'STAFF' && <form onSubmit={(e) => { e.preventDefault(); const role = String(new FormData(e.currentTarget).get('role')) as 'ADMIN' | 'MANAGER'; void run(() => changeUserRole(user.id, { expectedVersion: user.version, role }), 'Rol güncellendi.'); }}>
       <Field id="detail-role" label="Rol"><select id="detail-role" name="role" defaultValue={user.role}><option value="ADMIN">Sistem yöneticisi</option><option value="MANAGER">Yönetici</option></select></Field><button className="primary-button">Rolü değiştir</button></form>}
-      <form onSubmit={(e) => { e.preventDefault(); const temporaryPassword = String(new FormData(e.currentTarget).get('temporaryPassword') ?? ''); const policyIssue = validateNewPasswordPolicy(temporaryPassword); if (policyIssue) { setError(newPasswordPolicyMessage(policyIssue)); return; } if (window.confirm('Parola sıfırlansın ve tüm oturumlar kapatılsın mı?')) void run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword }), 'Geçici parola kaydedildi.'); }}>
+      <form onSubmit={requestPasswordReset}>
         <Field id="reset-password" label="Geçici parola belirle" hintId="reset-password-hint" hint={PASSWORD_POLICY_HINT_TR}>
           <input id="reset-password" name="temporaryPassword" type="password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required aria-describedby="reset-password-hint" /></Field>
-        <button className="secondary-button command-button">Parolayı sıfırla</button></form>
+        <button ref={resetTriggerRef} className="secondary-button command-button">Parolayı sıfırla</button></form>
       {viewer.role === 'ADMIN' && user.role === 'STAFF' && <StaffOffboardingWorkflow viewer={viewer} target={user}
         startWithFreshPreview={startWithFreshPreview}
         onCompleted={() => {
@@ -206,12 +235,28 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
       {viewer.role === 'ADMIN' && user.canPermanentlyDelete === true && <div className="danger-command-section">
         <h3>Kalıcı kullanıcı silme</h3>
         <p>Bu işlem yalnızca operasyon geçmişi olmayan gerçek kullanıcılar için kullanılabilir. Bu işlem geri alınamaz.</p>
-        <button className="destructive-button command-button" type="button" onClick={() => void permanentlyDelete()} disabled={deletePending}
+        <button ref={deleteTriggerRef} className="destructive-button command-button" type="button" onClick={() => setDeleteConfirmOpen(true)} disabled={deletePending}
           aria-busy={deletePending}>{deletePending ? 'Siliniyor…' : 'Kalıcı olarak sil'}</button>
       </div>}
       {viewer.role === 'ADMIN' && user.canPermanentlyDelete === false && deleteUnavailable && <div className="lifecycle-notice" role="status">
         {deleteUnavailable}
       </div>}
+      <ConfirmationAction open={resetOpen}
+        title="Geçici parola belirlensin mi?"
+        description="Parola sıfırlanacak ve bu kullanıcının tüm açık oturumları kapatılacak."
+        details={[`Kullanıcı: ${user.name}`, `E-posta: ${user.email}`]}
+        confirmLabel="Parolayı sıfırla" pending={resetPending} pendingLabel="Parola sıfırlanıyor…"
+        onConfirm={() => void confirmPasswordReset()}
+        onCancel={() => { if (!resetPending) { setResetOpen(false); setResetDraft(''); } }}
+        returnFocusRef={resetTriggerRef} fallbackFocusRef={nameInputRef} />
+      <ConfirmationAction open={deleteConfirmOpen}
+        title="Kullanıcı kalıcı olarak silinsin mi?"
+        description="Bu kullanıcıda operasyon geçmişi bulunmuyor. Bu işlem geri alınamaz."
+        details={[`Kullanıcı: ${user.name}`, `E-posta: ${user.email}`]}
+        confirmLabel="Kalıcı olarak sil" pending={deletePending} pendingLabel="Siliniyor…" destructive
+        onConfirm={() => void permanentlyDelete()}
+        onCancel={() => { if (!deletePending) setDeleteConfirmOpen(false); }}
+        returnFocusRef={deleteTriggerRef} fallbackFocusRef={nameInputRef} />
     </section></main>;
 }
 
@@ -234,13 +279,22 @@ export function UserCreateScreen() {
   const navigate = useNavigate();
   const [managers, setManagers] = useState<ManagedUser[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [reload, setReload] = useState(0);
   useEffect(() => {
-    listUsers().then((value) => { setManagers(value.filter((u) => u.role === 'MANAGER' && u.isActive)); setState('ready'); })
-      .catch(() => setState('error'));
-  }, []);
+    let active = true;
+    setState('loading');
+    listUsers().then((value) => {
+      if (!active) return;
+      setManagers(value.filter((u) => u.role === 'MANAGER' && u.isActive)); setState('ready');
+    })
+      .catch(() => { if (active) setState('error'); });
+    return () => { active = false; };
+  }, [reload]);
   if (state === 'loading') return <main className="workspace" aria-busy="true"><h1>Kullanıcı formu yükleniyor</h1></main>;
-  if (state === 'error') return <main className="workspace"><ResultState status="error" title="Kullanıcı formu yüklenemedi" headingLevel={1}
-    action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
+  // The hierarchy return is PageHeader's ReturnLink (`‹ Kullanıcılar`); the
+  // former `Listeye dön` button duplicated it (UI audit F-13).
+  if (state === 'error') return <main className="workspace"><PageHeader fallbackTitle="Yeni kullanıcı" /><ResultState status="error" title="Kullanıcı formu yüklenemedi" headingLevel={2}
+    action={<button className="secondary-button" type="button" onClick={() => setReload((value) => value + 1)}>Tekrar dene</button>} /></main>;
   return <UserCreateForm managers={managers} onCancel={() => navigate(paths.users)}
     onCreated={(created) => navigate(paths.user(created.id))} />;
 }
@@ -253,6 +307,7 @@ export function UserDetailScreen({ viewer }: { viewer: Pick<CurrentUser, 'id' | 
   const [user, setUser] = useState<UserDetailRecord | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     setRouteRuntimeLabel(user?.name);
   }, [setRouteRuntimeLabel, user?.name]);
@@ -269,11 +324,12 @@ export function UserDetailScreen({ viewer }: { viewer: Pick<CurrentUser, 'id' | 
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [userId]);
-  if (!userId) return <main className="workspace"><ResultState status="404" title="Kullanıcı bulunamadı" headingLevel={1} /></main>;
+  }, [userId, reload]);
+  if (!userId) return <main className="workspace"><PageHeader fallbackTitle="Kullanıcı" /><ResultState status="404" title="Kullanıcı bulunamadı" headingLevel={2} /></main>;
   if (loading) return <main className="workspace" aria-busy="true"><h1>Kullanıcı yükleniyor</h1></main>;
-  if (!user) return <main className="workspace"><ResultState status="error" title="Kullanıcı yüklenemedi" description={error} headingLevel={1}
-    action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
+  // Removal reason as above: PageHeader owns the hierarchy return (F-13).
+  if (!user) return <main className="workspace"><PageHeader fallbackTitle="Kullanıcı" /><ResultState status="error" title="Kullanıcı yüklenemedi" description={error} headingLevel={2}
+    action={<button className="secondary-button" type="button" onClick={() => setReload((value) => value + 1)}>Tekrar dene</button>} /></main>;
   return <UserDetailView viewer={viewer} user={user}
     startWithFreshPreview={new URLSearchParams(location.search).get('offboarding') === 'refresh'}
     onChanged={(next) => setUser((current) => current ? { ...current, ...next } : next)}

@@ -305,11 +305,12 @@ test('normal route argument rules: a pinned CI run needs its package; no attempt
 
 /**
  * 2026-11-19: security.ubuntu.com and archive.ubuntu.com returned 503 for hours
- * while azure.archive.ubuntu.com stayed up. Every Playwright `--with-deps`
- * install in the deploy path (web -> release-package -> Production Deploy) must
- * first add the Azure mirror as an apt fallback with retries and fail within a bound.
+ * and later crawled at ~143 kB/s while azure.archive.ubuntu.com stayed fast.
+ * Every Playwright `--with-deps` install in the deploy path (web ->
+ * release-package -> Production Deploy) must first make the Azure mirror the
+ * preferred apt source with retries and fail within a bound.
  */
-test('every Playwright --with-deps install first adds the Azure apt fallback under a timeout', () => {
+test('every Playwright --with-deps install first prefers the Azure apt mirror under a timeout', () => {
   const ci = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
   for (const [file, source, expected] of [['deploy-production.yml', workflow, 1], ['ci.yml', ci, 2]]) {
     const installs = [...source.matchAll(/npx playwright install --with-deps chromium webkit/g)];
@@ -329,7 +330,7 @@ test('every Playwright --with-deps install first adds the Azure apt fallback und
 const AZURE = 'http://azure.archive.ubuntu.com/ubuntu/';
 const count = (text, needle) => text.split(needle).length - 1;
 
-test('Azure apt mirror guard adds Azure as a fallback next to existing Ubuntu mirrors', () => {
+test('Azure apt mirror guard makes Azure the first source and keeps existing Ubuntu mirrors as fallbacks', () => {
   const script = resolve(repoRoot, 'ops/ci/use-azure-apt-mirror.sh');
   const run = (root) => spawnSync('/bin/bash', [script], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', APT_ROOT: root } });
   const runTwice = (root) => {
@@ -362,7 +363,14 @@ test('Azure apt mirror guard adds Azure as a fallback next to existing Ubuntu mi
     ].join('\n');
     writeFileSync(join(apt, 'apt-mirrors.txt'), mirrors);
     runTwice(root);
-    assert.equal(readFileSync(join(apt, 'apt-mirrors.txt'), 'utf8'), `${mirrors}${AZURE}\tpriority:4\n`);
+    // apt tries the lowest priority number first: Azure 1, the runner's mirrors shift by one.
+    assert.equal(readFileSync(join(apt, 'apt-mirrors.txt'), 'utf8'), [
+      `${AZURE}\tpriority:1`,
+      'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:2',
+      'https://archive.ubuntu.com/ubuntu/\tpriority:3',
+      'https://security.ubuntu.com/ubuntu/\tpriority:4',
+      '',
+    ].join('\n'));
     assert.equal(readFileSync(join(apt, 'sources.list.d/ubuntu.sources'), 'utf8'), stanzas);
     const retries = readFileSync(join(apt, 'apt.conf.d/80-servora-ci-retries'), 'utf8');
     assert.match(retries, /Acquire::Retries "5";/);
@@ -374,8 +382,9 @@ test('Azure apt mirror guard adds Azure as a fallback next to existing Ubuntu mi
     assert.match(missingList.stderr, /APT_MIRROR_LIST_MISSING/);
   });
 
-  // Direct URIs: deb822 lines gain Azure as an extra URI, one-line entries gain
-  // an Azure duplicate; originals stay first and third-party sources are untouched.
+  // Direct URIs: deb822 lines get Azure prepended as the first URI, one-line
+  // entries get an Azure duplicate before the original; originals stay as
+  // fallbacks and third-party sources are untouched.
   withTempDir((root) => {
     const apt = join(root, 'etc/apt');
     mkdirSync(join(apt, 'sources.list.d'), { recursive: true });
@@ -398,11 +407,11 @@ test('Azure apt mirror guard adds Azure as a fallback next to existing Ubuntu mi
     runTwice(root);
 
     const sources = readFileSync(join(apt, 'sources.list.d/ubuntu.sources'), 'utf8');
-    assert.match(sources, new RegExp(`URIs: http://archive\\.ubuntu\\.com/ubuntu/ ${AZURE}\\nSuites: noble noble-updates`));
-    assert.match(sources, new RegExp(`URIs: http://security\\.ubuntu\\.com/ubuntu/ ${AZURE}\\nSuites: noble-security`));
+    assert.match(sources, new RegExp(`URIs: ${AZURE} http://archive\\.ubuntu\\.com/ubuntu/\\nSuites: noble noble-updates`));
+    assert.match(sources, new RegExp(`URIs: ${AZURE} http://security\\.ubuntu\\.com/ubuntu/\\nSuites: noble-security`));
     assert.equal(count(sources, AZURE), 2);
     assert.equal(readFileSync(join(apt, 'sources.list.d/legacy.list'), 'utf8'),
-      'deb http://us.archive.ubuntu.com/ubuntu noble universe\ndeb http://azure.archive.ubuntu.com/ubuntu noble universe\n');
+      'deb http://azure.archive.ubuntu.com/ubuntu noble universe\ndeb http://us.archive.ubuntu.com/ubuntu noble universe\n');
     assert.equal(readFileSync(join(apt, 'sources.list.d/microsoft-prod.list'), 'utf8'), thirdParty);
     assert.equal(readFileSync(join(apt, 'sources.list'), 'utf8'), '# Ubuntu sources have moved to /etc/apt/sources.list.d/ubuntu.sources\n');
   });
