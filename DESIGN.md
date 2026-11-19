@@ -397,8 +397,16 @@ use the owned Ant Design boundary in later implementation PRs.
   (`Oluşturuldu` → `Planlandı` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
   Current step uses `aria-current="step"`. Complete, current, skipped (`Planlama atlandı`),
   attention (revision loop), and upcoming states use text/icon semantics plus restrained
-  color—never color alone. Mobile: vertical. Desktop: five-column when space permits;
-  fall back to compact vertical without horizontal page scroll.
+  color—never color alone. Attention is Delay Amber with explicit text; it is never
+  Critical Red and never Ant's `error` status. Desktop: five-column when space permits;
+  fall back to compact vertical without horizontal page scroll. Mobile: a one-line
+  compact summary (`3 / 5 · Uygulanıyor`) that expands into the full vertical stepper
+  through a native disclosure (UI-005).
+- **Mobile job detail order** (UI-005, below 1024px): title and status chips →
+  responsibility panel with its primary command(s) → compact lifecycle summary →
+  requirements, record details, notes and history. Manager-only lateness history is a
+  collapsed disclosure below the workflow; the open lateness signal keeps its place.
+  Desktop keeps the stepper above the record and the decision group in the work rail.
 - **Responsibility panel**: calm Surface grouping that states who should act next and what
   consequence follows the primary command. Management intervention outside review stays
   secondary even when allowed.
@@ -416,6 +424,10 @@ use the owned Ant Design boundary in later implementation PRs.
 - **Compact workflow summary** (list/board): ordinal phase string such as
   `3 / 5 · Uygulanıyor` with optional attention flag. Secondary to the technical status
   chip; never replaces board column status labels.
+- **Jobs list control surface** (below 1024px): search stays visible; filters and the
+  Liste/Pano view switch live in the existing filter sheet so the first record is
+  reachable in the first screen. The status quick-view strip never clips without a
+  visible overflow affordance (UI-005).
 - **Accessibility / responsive**: ≥ 44×44 CSS px targets, visible focus, 200% text and 400%
   reflow without clipped meaning or horizontal task scroll, `prefers-reduced-motion`
   disables optional workflow motion, one primary action per responsibility region on mobile.

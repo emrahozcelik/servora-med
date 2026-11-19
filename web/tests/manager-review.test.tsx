@@ -19,11 +19,14 @@ import { workflowContext } from './fixtures/job-workflow';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 beforeEach(() => {
-  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-    matches: false, media: '', onchange: null,
+  // Desktop structure: the decision group stays in the work rail.
+  vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+    matches: query.includes('min-width'),
+    media: query,
+    onchange: null,
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
     addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-  }));
+  })));
 });
 
 function contextWith(

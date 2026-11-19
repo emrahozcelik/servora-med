@@ -205,6 +205,78 @@ This record supersedes the conflicting lines of `DESIGN.md`:
   scrolling on small phones; the desktop sidebar brand and the login hero brand
   are unchanged.
 
+## UI-005: Mobile job work priority
+
+- **Date:** 2026-11-19
+- **Status:** Accepted by the product owner
+- **Scope:** Job detail and jobs list below 1024px (`64rem` shell gate)
+
+### Context
+
+The 2026-11-18 UI audit measured the real application at 390×844. On a job
+detail page the five-step vertical lifecycle stepper consumed about 420px, so the
+responsibility panel ("Şimdi sizden beklenen") and the primary commands
+(**Kontrole gönder**, **Kontrolü tamamla ve işi kapat**, **Düzeltme için personele
+geri gönder**) sat below the first screen. Manager-only overdue history rendered
+as a long paragraph list above the stepper. Page heights reached 3.4k–6.1k px.
+
+The jobs list spent the first screen on chrome: eyebrow, a horizontally clipped
+quick-view strip with no scroll affordance, a search row and a Liste/Pano toggle
+all preceded the first record, which started around 480px.
+
+The revision-loop "attention" step used Ant `status: 'error'`, which renders
+Critical Red and a failure glyph for a revision request. `DESIGN.md` reserves
+Critical Red for errors and destructive outcomes; a revision request is an
+attention state owned by Delay Amber.
+
+### Decision
+
+**Job detail below 1024px** renders in this order:
+
+1. title and status/priority chips,
+2. the responsibility panel together with its primary command(s),
+3. a compact lifecycle summary — one line such as `3 / 5 · Uygulanıyor` — that
+   expands into the full stepper,
+4. requirements, record details, notes and history.
+
+Manager-only lateness history becomes a collapsed disclosure below the workflow
+instead of a paragraph list above it. The open lateness signal (deadline,
+elapsed time, reminder action) keeps its place because it is an active
+operational warning, not history.
+
+**Desktop (≥1024px)** keeps the horizontal five-step stepper above the record and
+keeps the decision group in the work rail; its structure does not change.
+
+**Attention semantics.** The revision/attention step uses Delay Amber with
+explicit text (`Dikkat gerekiyor`) and an icon. It must never use Critical Red or
+the Ant `error` status.
+
+**Jobs list below 1024px** keeps the search field visible and moves the filters
+and the Liste/Pano view switch into the existing filter sheet, so the first
+record is reachable in the first screen. The status quick-view strip must show an
+overflow affordance whenever it can scroll; clipping without an affordance is a
+defect. A single select is an accepted alternative for that strip.
+
+This supersedes the `DESIGN.md` "Job lifecycle guidance (detail-first)" bullet
+`Mobile: vertical` **for the collapsed default only**: the full stepper is still
+vertical when expanded, and the compact summary is the mobile default.
+
+### Consequences
+
+- Backend lifecycle, capability and permission rules remain the only source of
+  the commands, their order and their visibility; this decision changes
+  presentation order only.
+- Accessible semantics stay intact: the ordered phase list with
+  `aria-current="step"`, one primary action per responsibility region, native
+  `<details>/<summary>` disclosure behavior, ≥44×44 CSS px targets, visible
+  focus, and text/icon channels in addition to color.
+- The disclosure must be a native `<details>/<summary>` or an existing owned
+  adapter; no new dependency or motion system is introduced.
+- The mobile create entry (UI-004 bottom-navigation `Yeni iş`), `NewJobMenu`,
+  `AppShell` and shell surfaces are outside this decision.
+- Visual evidence follows UI-003; geometry checks must prove that the primary
+  command and the first job record are inside the first viewport at 390×844.
+
 ## DOM-001: Delivery purpose without financial tracking
 
 - **Date:** 2026-07-10

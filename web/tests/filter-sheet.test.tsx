@@ -141,7 +141,7 @@ describe('filter sheets and active counts', () => {
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
-  it('exposes immediate compact view controls outside the filter sheet', async () => {
+  it('keeps the compact view controls inside the filter sheet', async () => {
     setNarrow(true);
     host = document.createElement('div');
     document.body.append(host);
@@ -160,18 +160,22 @@ describe('filter sheets and active counts', () => {
         />,
       );
     });
-    const switcher = host.querySelector<HTMLElement>('[aria-label="İş görünümü"]')!;
+    // The persistent mobile row keeps search; the view switch no longer
+    // competes with the first record (DECISIONS.md UI-005).
+    expect(host.querySelector('[aria-label="İş görünümü"]')).toBeNull();
+    expect(host.querySelector('#job-search')).not.toBeNull();
+    const trigger = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Filtreler');
+    await act(async () => trigger?.click());
+    const dialog = host.querySelector('[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+    const switcher = dialog.querySelector<HTMLElement>('[aria-label="İş görünümü"]')!;
+    expect(switcher).not.toBeNull();
     const list = Array.from(switcher.querySelectorAll('button')).find((button) => button.textContent === 'Liste')!;
     const board = Array.from(switcher.querySelectorAll('button')).find((button) => button.textContent === 'Pano')!;
     expect(list.getAttribute('aria-pressed')).toBe('true');
     expect(board.getAttribute('aria-pressed')).toBe('false');
     await act(async () => board.click());
     expect(onViewChange).toHaveBeenCalledWith('board');
-
-    const trigger = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Filtreler');
-    await act(async () => trigger?.click());
-    expect(host.querySelector('#job-view-sheet')).toBeNull();
-    expect(host.querySelector('[role="dialog"]')?.contains(switcher)).toBe(false);
   });
 
   it('keeps list view unchanged when the compact filter sheet is cancelled', async () => {
@@ -203,7 +207,8 @@ describe('filter sheets and active counts', () => {
     const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Vazgeç');
     await act(async () => cancel?.click());
     expect(onViewChange).not.toHaveBeenCalled();
-    expect(host.querySelector('[aria-label="İş görünümü"] button[aria-pressed="true"]')?.textContent).toBe('Liste');
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[aria-label="İş görünümü"]')).toBeNull();
   });
 
   it('uses the workflow presentation labels in compact status filters', async () => {
