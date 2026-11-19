@@ -383,7 +383,8 @@ describe('User status filter and activation commands', () => {
     await act(async () => root.render(<MemoryRouter><UserListView users={[...manyActive, inactiveManager]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
     expect(names()).toHaveLength(6);
     expect(container.textContent).toContain('Sayfa 1 / 2');
-    await act(async () => container.querySelector<HTMLElement>('[class*="pagination-next"]')!.click());
+    // Ant 6.7 moved activation to the nested full-size button.
+    await act(async () => container.querySelector<HTMLElement>('[class*="pagination-next"] button')!.click());
     expect(names()).toHaveLength(2);
     expect(container.textContent).toContain('Sayfa 2 / 2');
     await act(async () => tab('Pasif').click());

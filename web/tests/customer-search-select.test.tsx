@@ -157,12 +157,27 @@ describe('CustomerSearchSelect shared remote selector', () => {
 
   function scrollDropdownToBottom() {
     const dropdown = document.querySelector('.ant-select-dropdown') as HTMLElement;
-    const scroller = (dropdown.querySelector('[class*="virtual-list-holder"]') as HTMLElement) ?? dropdown;
-    // jsdom reports zero scroll metrics, so any positive scrollTop reads as "near bottom".
-    scroller.scrollTop = 9999;
+    // Ant Design 6.7 renamed the virtual-list classes (no `rc-virtual-list-*`);
+    // keep the old selector as a fallback for earlier versions.
+    const scroller = dropdown.querySelector<HTMLElement>('.ant-select-dropdown-list-holder')
+      ?? dropdown.querySelector<HTMLElement>('[class*="virtual-list-holder"]')
+      ?? dropdown;
+    // jsdom has no layout, so its scrollTop is never clamped. Keep the offset
+    // inside the rendered content height; an out-of-range value makes the
+    // virtual list fall back to the first rows instead of scrolling.
+    const filler = scroller.firstElementChild as HTMLElement | null;
+    const contentHeight = Number.parseFloat(filler?.style.height ?? '0');
+    const viewportHeight = Number.parseFloat(scroller.style.maxHeight || '0');
+    scroller.scrollTop = Math.max(0, contentHeight - viewportHeight);
     scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
   }
 
+  async function clickLoadMore() {
+    const button = document.querySelector<HTMLButtonElement>('.customer-search-more button');
+    expect(button).not.toBeNull();
+    await act(async () => { button!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await flush();
+  }
   it('loads only a bounded first page on open, without a full-catalog loop', async () => {
     crm.listCustomers.mockResolvedValue(page([makeSummary(1), makeSummary(2)], 2));
     await renderSelector();
@@ -319,20 +334,51 @@ describe('CustomerSearchSelect shared remote selector', () => {
     await open();
     await settleDebounce();
     expect(document.body.textContent ?? '').toContain('Müşteri 1');
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
+    await clickLoadMore();
     expect(crm.listCustomers).toHaveBeenCalledWith(
       expect.objectContaining({ limit: CUSTOMER_SEARCH_PAGE_SIZE, offset: 20 }),
     );
+    // Ant Select virtualizes the appended rows; move the viewport to the
+    // loaded part before checking the new item is actually visible.
+    await act(async () => { scrollDropdownToBottom(); });
+    await flush();
     // Appended page is reachable …
     expect(document.body.textContent ?? '').toContain('Müşteri 21');
     // … while duplicate ids keep their first occurrence (no KOPYA rows rendered).
-    const scroller = document.querySelector('.ant-select-dropdown [class*="virtual-list-holder"]')
+    const scroller = document.querySelector('.ant-select-dropdown .ant-select-dropdown-list-holder')
+      ?? document.querySelector<HTMLElement>('.ant-select-dropdown [class*="virtual-list-holder"]')
       ?? document.querySelector('.ant-select-dropdown') as HTMLElement;
     (scroller as HTMLElement).scrollTop = 0;
     await act(async () => { (scroller as HTMLElement).dispatchEvent(new Event('scroll', { bubbles: true })); });
     await flush();
     expect(document.body.textContent ?? '').not.toContain('KOPYA');
+  });
+
+  it('returns focus to the search input when the focused load-more button is removed', async () => {
+    const first = Array.from({ length: 20 }, (_, index) => makeSummary(index + 1));
+    let resolveNextPage!: (result: ReturnType<typeof page>) => void;
+    const nextPage = new Promise<ReturnType<typeof page>>((resolve) => { resolveNextPage = resolve; });
+    crm.listCustomers.mockImplementation(({ offset }: { offset: number }) =>
+      offset === 0 ? Promise.resolve(page(first, 21)) : nextPage,
+    );
+    await renderSelector();
+    await open();
+    const input = host.querySelector('#customer-search');
+    const loadMore = document.querySelector<HTMLButtonElement>('.customer-search-more button');
+    expect(input).not.toBeNull();
+    expect(loadMore).not.toBeNull();
+
+    await act(async () => {
+      loadMore!.focus();
+      expect(document.activeElement).toBe(loadMore);
+      loadMore!.click();
+    });
+    expect(document.body.textContent).toContain('Daha fazla müşteri yükleniyor…');
+    expect(document.activeElement).toBe(input);
+
+    await act(async () => { resolveNextPage(page([makeSummary(21)], 21, 20)); });
+    expect(document.body.textContent).not.toContain('Daha fazla müşteri yükleniyor…');
+    expect(document.activeElement).toBe(input);
   });
 
   it('resolves an initial customer through direct lookup without a catalog fetch', async () => {
@@ -390,10 +436,8 @@ describe('CustomerSearchSelect shared remote selector', () => {
       return Promise.resolve(page(items, total, filters.offset));
     });
     await search('');
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
+    await clickLoadMore();
+    await clickLoadMore();
     expect(options().length).toBeLessThan(60);
   });
 
