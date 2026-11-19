@@ -391,7 +391,7 @@ describe('CRM detail screen concurrency', () => {
     const city = container.querySelector('[name="city"]') as HTMLInputElement; city.value = 'Draft';
     await act(async () => refresh.resolve({...current, city:'Concurrent update', version:2})); await settle();
     expect(city.value).toBe('Draft'); expect(button('İletişim bilgilerini kaydet').disabled).toBe(true);
-    expect(container.textContent).toContain('Sürüm 1');
+    expect(container.textContent).not.toContain('Sürüm');
     await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})));
     expect(crm.enrichCustomer).not.toHaveBeenCalled();
   });
@@ -408,7 +408,7 @@ describe('CRM detail screen concurrency', () => {
     expect(crm.getCustomer).toHaveBeenCalledTimes(2); expect(crm.enrichCustomer).toHaveBeenCalledTimes(1);
     await act(async () => save.resolve({...current,city:'Saved',version:2})); await settle();
     await act(async () => refresh.resolve(current)); await settle();
-    expect(container.textContent).toContain('Sürüm 2'); expect(container.textContent).toContain('Saved');
+    expect(container.textContent).toContain('Saved'); expect(container.textContent).not.toContain('Sürüm');
   });
   it('preserves a read-only contact draft on scope failure without enabling a contact mutation', async () => {
     crm.getCustomer.mockResolvedValue(customer('customer-1', 'Synthetic'));
@@ -433,7 +433,7 @@ describe('CRM detail screen concurrency', () => {
     await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
     expect(container.textContent).toContain('Concurrent contact');
     expect(container.querySelector('[name="name"]')).toBe(name); expect(name.value).toBe('Unsaved manager draft'); expect(document.activeElement).toBe(name);
-    expect(container.textContent).toContain('Sürüm 1');
+    expect(container.textContent).not.toContain('Sürüm');
     expect(crm.updateCustomer).not.toHaveBeenCalled();
   });
   it('keeps readable customer details when scope fails and retries only the capability', async () => {
@@ -499,6 +499,15 @@ describe('CRM detail screen concurrency', () => {
     expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Demo Klinik');
   });
 
+  it('keeps the optimistic-lock version out of the customer detail surface', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 9));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-1'] });
+    await render(router); await settle();
+    expect(container.textContent).toContain('Genel bilgiler');
+    expect(container.textContent).toContain('Demo Klinik');
+    expect(container.textContent).not.toContain('Sürüm');
+  });
+
   it('keeps a conflicted draft until Cancel, then closes and reloads authoritative values', async () => {
     crm.getCustomer.mockResolvedValueOnce(customer('customer-1', 'Eski Klinik', 3))
       .mockResolvedValueOnce(customer('customer-1', 'Güncel Klinik', 4));
@@ -514,7 +523,7 @@ describe('CRM detail screen concurrency', () => {
     expect(button('Bilgileri kaydet').disabled).toBe(true);
     await act(async () => button('Vazgeç').click()); await settle();
     expect(container.querySelector('.record-form')).toBeNull();
-    expect(container.textContent).toContain('Sürüm 4');
+    expect(container.textContent).not.toContain('Sürüm');
     expect(crm.getCustomer).toHaveBeenCalledTimes(2);
     await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
     expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Güncel Klinik');

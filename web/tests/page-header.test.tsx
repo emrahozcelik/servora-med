@@ -46,7 +46,8 @@ describe('PageHeader contract', () => {
     const headings = container.querySelectorAll('.page-header h1');
     expect(headings).toHaveLength(1);
     expect(headings[0]!.textContent).toBe('Güvenlik');
-    expect(container.querySelector('.page-header-eyebrow')?.textContent).toBe('Hesap');
+    // The registry section is navigation chrome, not an eyebrow (UI audit F-14).
+    expect(container.querySelector('.page-header-eyebrow')).toBeNull();
   });
 
   it('renders description and page-owned actions as supplied', async () => {
@@ -60,6 +61,18 @@ describe('PageHeader contract', () => {
     await render('/jobs', <PageHeader eyebrow="Çalışma alanı" />);
     expect(container.querySelector('.page-header-eyebrow')?.textContent).toBe('Çalışma alanı');
     expect(container.querySelector('.page-header h1')?.textContent).toBe('İşler');
+  });
+
+  it('never derives an eyebrow from the navigation section (UI audit F-14)', async () => {
+    for (const path of ['/jobs', '/calendar', '/customers', '/products', '/reports', '/users', '/staff', '/settings']) {
+      await render(path, <PageHeader />);
+      expect(container.querySelector('.page-header-eyebrow')).toBeNull();
+    }
+  });
+
+  it('keeps an informational eyebrow such as the job type on a job detail', async () => {
+    await render('/jobs/job-1', <PageHeader eyebrow="Genel görev" />);
+    expect(container.querySelector('.page-header-eyebrow')?.textContent).toBe('Genel görev');
   });
 
   it('renders no breadcrumb or ReturnLink on roots', async () => {
@@ -89,6 +102,14 @@ describe('PageHeader contract', () => {
     await render('/jobs/job-1', <PageHeader />, { from: { pathname: '/jobs', search: '', hash: '' } });
     expect(container.querySelector('.route-return-link')?.textContent).toContain('İşler');
     expect(container.querySelector('.route-context-control')).toBeNull();
+  });
+
+  it('keeps a clickable İşler crumb plus the mobile ReturnLink on a job detail', async () => {
+    await render('/jobs/job-1', <PageHeader />);
+    const crumb = Array.from(container.querySelectorAll('.route-breadcrumb a'))
+      .find((link) => link.textContent === 'İşler');
+    expect(crumb?.getAttribute('href')).toBe('/jobs');
+    expect(container.querySelector('.route-return-link')?.textContent).toContain('İşler');
   });
 
   it('computes no title fallback inside PageHeader', async () => {

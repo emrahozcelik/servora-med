@@ -213,7 +213,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <OperationalSummarySection summary={summary} loading={summaryLoading} error={summaryError} />
-    <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
+    <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2></div>
       <CustomerFacts customer={customer} />
       {canManage && <details className="customer-edit-disclosure" open={editOpen}>
         <summary ref={editTriggerRef} onClick={(event) => { event.preventDefault(); onEditOpenChange(!editOpen); }}>Genel bilgileri düzenle</summary>
@@ -246,7 +246,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
       open={deleteConfirmOpen && canDelete}
       title="Müşteri kalıcı olarak silinsin mi?"
       description={customerDeleteDescription(customer)}
-      details={[`Müşteri: ${customer.name}`, `Sürüm: ${customer.version}`]}
+      details={[`Müşteri: ${customer.name}`]}
       confirmLabel="Kalıcı olarak sil"
       pending={deletePending}
       pendingLabel="Siliniyor…"

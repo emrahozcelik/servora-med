@@ -93,18 +93,20 @@ describe('Customer list and creation', () => {
     expect(createHtml).not.toContain('eyebrow">CRM');
   });
 
-  it('allows all roles to create but keeps permanent deletion off the summary list', () => {
+  it('keeps the summary list free of row-level edit and delete commands', () => {
     expect(list({ kind: 'ready', customers: [] }, staffUser)).toContain('Yeni müşteri');
     expect(list({ kind: 'ready', customers: [] }, manager)).toContain('Yeni müşteri');
-    const staffHtml = list({ kind: 'ready', customers: [customer] }, staffUser);
-    expect(staffHtml).not.toContain('müşterisini düzenle');
-    expect(staffHtml).not.toContain('müşterisini sil');
-    const managerHtml = list({ kind: 'ready', customers: [customer] }, manager);
-    expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini düzenle"');
-    expect(managerHtml).toContain('href="/customers/customer-1?edit=1"');
-    expect(managerHtml).toContain('Düzenle');
-    expect(managerHtml).not.toContain('müşterisini sil');
-    expect(list({ kind: 'ready', customers: [customer] }, admin)).not.toContain('müşterisini sil');
+    for (const role of [staffUser, manager, admin]) {
+      const html = list({ kind: 'ready', customers: [customer] }, role);
+      // Every row is a single navigation target to the detail page, where the
+      // record commands live (UI audit F-15).
+      expect(html).not.toContain('müşterisini düzenle');
+      expect(html).not.toContain('müşterisini sil');
+      expect(html).not.toContain('customer-row-commands');
+      expect(html.match(/href="\/customers\/customer-1"/g) ?? []).toHaveLength(1);
+      expect(html).toContain('customer-title-link');
+      expect(html).toContain('customer-list-card');
+    }
   });
 
   it('restores supported URL filters and ignores inactive status', () => {
@@ -254,22 +256,21 @@ describe('Customer list and creation', () => {
     expect(submitIdx).toBeGreaterThan(cancelIdx);
   });
 
-  it('shows stable customer-row information hierarchy: signals → title → location → facts → commands', () => {
+  it('shows stable customer-row information hierarchy: signals → title → location → facts', () => {
     const html = list({ kind: 'ready', customers: [customer] }, manager);
     const row = html.match(/<article[^>]*customer-row[^>]*>[\s\S]*?<\/article>/);
     expect(row).toBeTruthy();
     const rowContent = row![0];
-    // Order within row: signals container → h2 title → location p → facts dl → commands div
+    // Order within row: signals container → h2 title → location p → facts dl.
     const signalsIdx = rowContent.indexOf('customer-signals');
     const titleIdx = rowContent.indexOf('customer-title-link');
     const locationIdx = rowContent.indexOf('İstanbul');
     const factsIdx = rowContent.indexOf('customer-facts');
-    const commandsIdx = rowContent.indexOf('customer-row-commands');
     expect(signalsIdx).toBeGreaterThan(0);
     expect(titleIdx).toBeGreaterThan(signalsIdx);
     expect(locationIdx).toBeGreaterThan(titleIdx);
     expect(factsIdx).toBeGreaterThan(locationIdx);
-    expect(commandsIdx).toBeGreaterThan(factsIdx);
+    expect(rowContent).not.toContain('customer-row-commands');
   });
 
   it('refetches after an unknown create result without claiming a same-name Customer identity', async () => {
@@ -309,6 +310,28 @@ describe('Customer list navigation feedback', () => {
 
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.useRealTimers();
+  });
+
+  it('navigates from the whole row and keeps the title link as the keyboard target', async () => {
+    const onOpen = vi.fn();
+    await act(async () => root.render(
+      <MemoryRouter>
+        <CustomerListView state={{ kind: 'ready', customers: [customer], total: 1, offset: 0 }} user={manager}
+          hasFilters={false} onRetry={() => {}} onCreate={() => {}} onOpenCustomer={onOpen} />
+      </MemoryRouter>,
+    ));
+    const row = container.querySelector('.customer-list-card') as HTMLElement;
+    const title = container.querySelector('.customer-title-link') as HTMLAnchorElement;
+    expect(title.getAttribute('href')).toBe('/customers/customer-1');
+    expect(row.getAttribute('tabindex')).toBeNull();
+    expect(row.getAttribute('role')).toBeNull();
+
+    await act(async () => row.click());
+    expect(onOpen).toHaveBeenCalledWith('customer-1');
+
+    onOpen.mockClear();
+    await act(async () => title.click());
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it('ignores an old response while the next search is being debounced', async () => {

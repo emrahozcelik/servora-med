@@ -124,17 +124,19 @@ describe('application routes', () => {
   });
 
   it.each([
-    ['/unknown', manager, 'Sayfa bulunamadı', 'No Found'],
-    ['/users', staff, 'Erişim yetkiniz yok', 'Unauthorized'],
-  ] as const)('gives the %s result view one Turkish h1 and hides the stock illustration', async (path, user, heading, stockTitle) => {
+    ['/unknown', manager, 'Sayfa bulunamadı', '404'],
+    ['/users', staff, 'Erişim yetkiniz yok', '403'],
+  ] as const)('gives the %s result view one Turkish h1 without stock artwork', async (path, user, heading, status) => {
     const host = document.createElement('div');
     host.innerHTML = await render(path, user);
     const headings = host.querySelectorAll('h1');
     expect(headings).toHaveLength(1);
     expect(headings[0]!.textContent).toBe(heading);
-    const illustration = host.querySelector('.servora-result-state svg');
-    expect(illustration?.querySelector('title')?.textContent).toBe(stockTitle);
-    expect(illustration?.closest('[aria-hidden="true"]')).not.toBeNull();
+    // Ant's multi-colour 403/404 illustrations are not part of the product UI
+    // (UI audit F-12): the calm state carries the meaning through text only.
+    const result = host.querySelector(`[data-result-status="${status}"]`);
+    expect(result).not.toBeNull();
+    expect(result!.querySelectorAll('svg, img')).toHaveLength(0);
   });
 
   it('redirects an authenticated user away from the sign-in route', async () => {

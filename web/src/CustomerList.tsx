@@ -280,10 +280,6 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
           <p>{[customer.city, customer.district].filter(Boolean).join(', ') || 'Konum belirtilmedi'}</p></div>
         <dl className="customer-facts"><div><dt>Sorumlu personel</dt><dd>{customer.assignedStaffName ?? 'Atanmadı'}</dd></div>
           <div><dt>Birincil kişi</dt><dd>{customer.primaryContact?.name ?? 'Belirlenmedi'}</dd></div></dl>
-        {canManage && <div className="customer-row-commands">
-          <Link className="secondary-button" to={`${paths.customer(customer.id)}?edit=1`}
-            aria-label={`${customer.name} müşterisini düzenle`}>Düzenle</Link>
-        </div>}
       </article></li>)}</ul>}
     {state.kind === 'ready' && total > CUSTOMER_PAGE_SIZE && state.customers.length > 0 && (
       <div className="customer-pagination">

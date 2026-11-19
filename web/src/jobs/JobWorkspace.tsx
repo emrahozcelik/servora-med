@@ -311,7 +311,6 @@ function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask
   return <main className="workspace job-workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
     <PageHeader
-      eyebrow="Çalışma alanı"
       actions={<div className="workspace-create-actions workspace-create-actions--toolbar">
         <NewJobMenu
           onCreateMeeting={onCreateMeeting}

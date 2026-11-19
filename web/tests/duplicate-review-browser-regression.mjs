@@ -225,7 +225,8 @@ try {
   });
   await missingPage.goto(`${origin}/duplicate-browser-test?comparison`, { waitUntil: 'domcontentloaded' });
   await missingPage.getByText('Karşılaştırılabilir müşteri çifti bulunamadı').waitFor({ timeout: 10000 });
-  assert.equal(await missingPage.locator('.servora-ant-result-404').count(), 1);
+  assert.equal(await missingPage.locator('[data-servora-result-state][data-result-status="404"]').count(), 1);
+  assert.equal(await missingPage.locator('.servora-result-state svg, .servora-result-state img').count(), 0);
   assert.equal(await missingPage.getByText('aday bulunmadığı anlamına gelmez').count(), 0);
   assert.equal(await missingPage.getByText(customerA.name).count(), 0);
   const missingReturns = await missingPage.locator('a[href*="duplicate-candidates"]').evaluateAll((nodes) => nodes
