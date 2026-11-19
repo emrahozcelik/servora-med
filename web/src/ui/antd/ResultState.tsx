@@ -28,7 +28,7 @@ const alertStatuses: ReadonlySet<ResultStateStatus> = new Set([
  * these are rendered through the calm, icon-free informational variant while
  * the real status stays on `data-result-status` for tests and tooling.
  */
-const calmStatuses: ReadonlySet<ResultStateStatus> = new Set(['403', '404']);
+const calmStatuses: ReadonlySet<ResultStateStatus> = new Set(['403', '404', '500']);
 
 /** Feature owns state and actions; this adapter owns accessible result presentation. */
 export function ResultState({
@@ -40,9 +40,10 @@ export function ResultState({
 }: ResultStateProps): ReactNode {
   const sectionRef = useRef<HTMLElement>(null);
   const calm = calmStatuses.has(status);
-  // A remaining exception illustration (500) embeds English SVG <title>s
-  // ("Sorry, something went wrong.") and Ant forwards no attributes to the
-  // icon slot, so hide that slot from assistive technology here (F-18).
+  // Success/error/info/warning keep Ant's glyph, which carries an English
+  // `aria-label` ("close-circle", …). Ant forwards no attributes to the icon
+  // slot, so hide that decorative slot from assistive technology here (F-18);
+  // the heading already states the outcome.
   useLayoutEffect(() => {
     sectionRef.current?.querySelectorAll('.servora-result-state__icon')
       .forEach((icon) => icon.setAttribute('aria-hidden', 'true'));

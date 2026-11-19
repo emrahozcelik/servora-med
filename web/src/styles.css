@@ -5446,9 +5446,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .staff-performance-mobile-sort select,
 .backup-form-grid select,
 .backup-inline-form select {
-  height: var(--control-height);
+  min-height: var(--control-height);
   max-width: 100%;
-  padding-block: 0;
+  /* Same inline inset as the FormControl inputs; a select without inline
+     padding paints its value against the border. */
+  padding: 0 0.85rem;
   border: 1px solid oklch(72% 0.018 240deg);
   border-radius: var(--radius-control);
   color: var(--ink);
@@ -5510,9 +5512,11 @@ html .servora-select .servora-ant-select-placeholder { color: var(--muted); opac
 .customer-list-card:hover,
 .product-list-card:hover { background-color: var(--canvas); }
 
-/* 403/404 use the product's calm empty-state treatment: the adapter's own
-   left alignment and block padding must beat Ant's centred result layout. */
+/* Result states use the product's calm empty-state treatment: the adapter's
+   own left alignment and block padding must beat Ant's centred result layout,
+   including the status glyph, so artwork and copy share one left edge. */
 html .servora-result-state .servora-ant-result { padding: 2rem 0; }
 html .servora-result-state .servora-ant-result-title,
 html .servora-result-state .servora-ant-result-subtitle,
-html .servora-result-state .servora-ant-result-extra { text-align: left; }
+html .servora-result-state .servora-ant-result-extra,
+html .servora-result-state .servora-ant-result-icon { text-align: left; }

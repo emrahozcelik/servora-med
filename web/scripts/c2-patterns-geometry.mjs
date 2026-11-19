@@ -176,7 +176,7 @@ function pageOf(items, requestUrl) {
   };
 }
 
-async function openSurface(path, role, viewport) {
+async function openSurface(path, role, viewport, scenario = 'baseline') {
   const page = await browser.newPage({
     viewport: { width: viewport.width, height: viewport.height },
     locale: 'tr-TR', timezoneId: 'Europe/Istanbul', reducedMotion: 'reduce',
@@ -203,7 +203,12 @@ async function openSurface(path, role, viewport) {
       if (pathname === '/api/staff') return send([profile]);
       if (pathname === '/api/staff/me' || pathname === `/api/staff/${staffId}`) return send(profile);
       if (/^\/api\/staff\/[^/]+\/(jobs|weekly-reports|notes|confidential-notes)$/.test(pathname)) return send(pageOf([], requestUrl));
-      if (pathname === '/api/customers') return send(pageOf([customer], requestUrl));
+      if (pathname === '/api/customers') {
+        if (scenario === 'error') {
+          return route.fulfill({ status: 503, json: { code: 'SERVICE_UNAVAILABLE', error: 'Müşteriler geçici olarak yüklenemedi.' } });
+        }
+        return send(pageOf([customer], requestUrl));
+      }
       if (pathname === `/api/customers/${customerId}`) return send(customer);
       if (pathname === `/api/customers/${customerId}/operational-summary`) {
         return send({
@@ -236,7 +241,7 @@ async function openSurface(path, role, viewport) {
   target.searchParams.set('reviewRole', role);
   await page.goto(target.href);
   await page.locator('.servora-ant-app').waitFor();
-  return { page, errors, unexpected, role, viewport, path };
+  return { page, errors, unexpected, role, viewport, path, scenario };
 }
 
 async function settle(page) {
@@ -246,7 +251,7 @@ async function settle(page) {
 }
 
 async function capture(context, name, readySelector) {
-  const { page, errors, unexpected, role, viewport } = context;
+  const { page, errors, unexpected, role, viewport, scenario = 'baseline' } = context;
   if (readySelector) {
     try {
       await page.locator(readySelector).first().waitFor();
@@ -259,7 +264,7 @@ async function capture(context, name, readySelector) {
   }
   await settle(page);
   await page.evaluate(() => window.scrollTo(0, 0));
-  const file = `${name}-${role.toLowerCase()}-${viewport.width}x${viewport.height}`;
+  const file = `${name}-${scenario === 'baseline' ? '' : `${scenario}-`}${role.toLowerCase()}-${viewport.width}x${viewport.height}`.replace('--', '-');
   await page.screenshot({ path: resolve(out, `${file}-viewport.png`) });
   await page.screenshot({ path: resolve(out, `${file}-full.png`), fullPage: true });
   assert.deepEqual(errors, [], `${file}: page errors`);
@@ -283,6 +288,8 @@ async function selectGeometry(page) {
         fontSize: style.fontSize,
         color: style.color,
         backgroundColor: style.backgroundColor,
+        paddingInlineStart: parseFloat(style.paddingInlineStart),
+        paddingInlineEnd: parseFloat(style.paddingInlineEnd),
       };
     };
     const antSelect = document.querySelector('main .servora-select .servora-ant-select-selector')
@@ -331,6 +338,10 @@ try {
           JSON.stringify({ ant, mismatch }));
         check(`${file} every select control is at least 44px tall`, geometry.shortControls.length === 0,
           JSON.stringify(geometry.shortControls));
+        const tightInset = geometry.nativeSelects.filter((native) => native.paddingInlineStart < 8
+          || native.paddingInlineEnd < 8);
+        check(`${file} selected text keeps an inline inset`, tightInset.length === 0,
+          JSON.stringify(tightInset));
       }
       await context.page.close();
     }
@@ -356,6 +367,8 @@ try {
           radius: style.borderTopLeftRadius,
           borderColor: style.borderTopColor,
           fontSize: style.fontSize,
+          paddingInlineStart: parseFloat(style.paddingInlineStart),
+          paddingInlineEnd: parseFloat(style.paddingInlineEnd),
           labelText: label?.textContent?.trim() ?? null,
         };
       }, selector);
@@ -365,6 +378,9 @@ try {
         if (geometry) {
           check(`${file} personnel filter is at least 44px tall`, geometry.height >= 43.5, `${geometry.height}px`);
           check(`${file} personnel filter keeps a visible label`, Boolean(geometry.labelText), String(geometry.labelText));
+          check(`${file} personnel filter text keeps an inline inset`,
+            geometry.paddingInlineStart >= 8 && geometry.paddingInlineEnd >= 8,
+            `${geometry.paddingInlineStart}/${geometry.paddingInlineEnd}`);
         }
       }
       await context.page.close();
@@ -484,6 +500,40 @@ try {
       }
       await context.page.close();
     }
+  }
+
+  // ---------------------------------------------- calm error result state
+  for (const viewport of viewports) {
+    const context = await openSurface('/customers', 'MANAGER', viewport, 'error');
+    const file = await capture(context, 'customers', '[data-result-status="error"]');
+    const state = await context.page.evaluate(() => {
+      const result = document.querySelector('[data-result-status="error"]');
+      const slot = result?.querySelector('.servora-result-state__icon');
+      const glyph = slot?.querySelector('svg, span');
+      const title = result?.querySelector('.servora-ant-result-title');
+      const box = (element) => {
+        const rect = element?.getBoundingClientRect();
+        return rect ? { left: Math.round(rect.left), top: Math.round(rect.top) } : null;
+      };
+      return {
+        titleAlign: title ? getComputedStyle(title).textAlign : null,
+        iconAlign: slot ? getComputedStyle(slot).textAlign : null,
+        iconMarginInlineStart: slot ? getComputedStyle(slot).marginInlineStart : null,
+        glyph: box(glyph),
+        title: box(title),
+        retry: [...(result?.querySelectorAll('button') ?? [])].map((button) => button.textContent),
+      };
+    });
+    writeFileSync(resolve(out, `${file}-alignment.json`), JSON.stringify(state, null, 2));
+    if (phase === 'after') {
+      check(`${file} shows the retry command`, state.retry.includes('Tekrar dene'), JSON.stringify(state.retry));
+      check(`${file} copies the left alignment on the artwork`, state.iconAlign === state.titleAlign
+        && state.titleAlign === 'left', `${state.iconAlign}/${state.titleAlign}`);
+      check(`${file} artwork shares the title edge`,
+        Boolean(state.glyph && state.title) && Math.abs(state.glyph.left - state.title.left) <= 1,
+        JSON.stringify({ glyph: state.glyph, title: state.title }));
+    }
+    await context.page.close();
   }
 
   // ---------------------------------------------------------------- F-13

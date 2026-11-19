@@ -7,7 +7,7 @@ import { ResultState, ServoraAntProvider } from '../src/ui/antd';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-describe('403 and 404 result states', () => {
+describe('exception result states', () => {
   let root: Root;
   let host: HTMLDivElement;
 
@@ -22,7 +22,7 @@ describe('403 and 404 result states', () => {
     host.remove();
   });
 
-  async function mount(status: '403' | '404', title: string) {
+  async function mount(status: '403' | '404' | '500', title: string) {
     await act(async () => {
       root.render(
         <ServoraAntProvider>
@@ -35,14 +35,17 @@ describe('403 and 404 result states', () => {
     });
   }
 
+  // UI audit F-12 + C2 follow-up: no exception status prints Ant's stock
+  // multi-colour illustration (403/404/500), and the markup keeps the real
+  // status plus the Turkish h1/description/action.
   it.each([
     ['403', 'Erişim yetkiniz yok'],
     ['404', 'Sayfa bulunamadı'],
+    ['500', 'Sunucu hatası'],
   ] as const)('renders one Turkish h1 and no decorative artwork for %s', async (status, title) => {
     await mount(status, title);
     const headings = Array.from(host.querySelectorAll('h1')).map((heading) => heading.textContent);
     expect(headings).toEqual([title]);
-    // Ant's stock 403/404 cartoons must not appear in the product surface.
     expect(host.querySelector('.servora-result-state__icon')).toBeNull();
     expect(host.querySelector('.servora-result-state svg')).toBeNull();
     expect(host.querySelector('.servora-result-state img')).toBeNull();
@@ -53,12 +56,12 @@ describe('403 and 404 result states', () => {
     expect(host.querySelector('[data-servora-result-state]')?.getAttribute('role')).toBe('alert');
   });
 
-  it('keeps the 500 illustration out of the accessibility tree', async () => {
+  it('keeps the glyph of a non-exception status out of the accessibility tree', async () => {
     await act(async () => {
       root.render(
         <ServoraAntProvider>
           <main className="workspace">
-            <ResultState status="500" title="Sunucu hatası" headingLevel={1} description="Açıklama" />
+            <ResultState status="error" title="Rapor yüklenemedi" headingLevel={2} description="Sunucuya ulaşılamadı." />
           </main>
         </ServoraAntProvider>,
       );
