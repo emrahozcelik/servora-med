@@ -137,6 +137,7 @@ jobs:
             ../ops/ci/verify-env-examples.sh \
             ../ops/ci/verify-systemd-units.sh \
             ../ops/ci/verify-operator-alerting.sh \
+            ../ops/ci/use-azure-apt-mirror.sh \
             ../ops/launchd/start-api.sh.example \
             ../ops/launchd/run-backup.sh.example \
             ../ops/launchd/run-backup-worker.sh.example \
@@ -194,6 +195,7 @@ jobs:
             ../ops/ci/verify-env-examples.sh \
             ../ops/ci/verify-systemd-units.sh \
             ../ops/ci/verify-operator-alerting.sh \
+            ../ops/ci/use-azure-apt-mirror.sh \
             ../ops/launchd/start-api.sh.example \
             ../ops/launchd/run-backup.sh.example \
             ../ops/launchd/run-backup-worker.sh.example \
@@ -306,7 +308,13 @@ jobs:
           VITE_SERVORA_BUILD_SHA: ${{ github.sha }}
       - run: npm run bundle:check
       - run: npm test -- --run
-      - run: npx playwright install --with-deps chromium webkit
+      # release-package needs this job; use the same Azure apt mirror guard.
+      - name: Install Playwright browsers
+        timeout-minutes: 15
+        run: |
+          set -Eeuo pipefail
+          sudo bash ../ops/ci/use-azure-apt-mirror.sh
+          npx playwright install --with-deps chromium webkit
       - run: npm run smoke:production-dist
       - run: npm run smoke:responsive
       - name: Overdue six-row pagination visual acceptance
@@ -360,10 +368,18 @@ jobs:
           cache-dependency-path: |
             server/package-lock.json
             web/package-lock.json
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+      # Same Azure-mirror/retry/timeout guard as the Production Deploy workflow.
       - name: Install browsers for exact-Linux package smoke
         working-directory: web
+        timeout-minutes: 15
         run: |
           set -Eeuo pipefail
+          sudo bash ../ops/ci/use-azure-apt-mirror.sh
           npm ci
           npx playwright install --with-deps chromium webkit
       - name: Package exact-main Linux release without deployment
