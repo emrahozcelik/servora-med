@@ -2581,7 +2581,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   min-width: 0;
   padding: 1rem;
   border: 1px solid var(--border-error);
-  border-left: 4px solid var(--error);
   background: var(--error-soft);
 }
 .job-invalidation-heading {
@@ -2967,7 +2966,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .detail-action > p:first-of-type { margin-top: 0; }
 .detail-action .start-location-notice {
   padding: 0.75rem 0.875rem;
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-control);
   background: var(--accent-soft);
   overflow-wrap: anywhere;
 }
@@ -3109,7 +3109,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .workflow-responsibility-consequence {
   padding: 0.7rem 0.8rem;
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-control);
   background: var(--accent-soft);
 }
 .revision-loop {
@@ -3271,7 +3272,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .reason-dialog h2, .workflow-dialog h2 { margin: 0; }
 .reason-dialog > p, .workflow-dialog > p { color: var(--muted); line-height: 1.5; }
 .reason-dialog .review-buttons, .workflow-dialog .review-buttons { margin-top: 1rem; }
-.follow-up-proposal-card { margin: 1rem 0; padding: 0.9rem; border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 0.6rem; background: var(--accent-soft); }
+.follow-up-proposal-card { margin: 1rem 0; padding: 0.9rem; border: 1px solid var(--border-accent); border-radius: 0.6rem; background: var(--accent-soft); }
 .follow-up-proposal-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .follow-up-proposal-heading h3 { margin: 0; font-size: 1rem; }
 .follow-up-proposal-badge { padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--accent); color: var(--paper); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -3280,9 +3281,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-edit { margin-top: 0.6rem; border-top: 1px dashed var(--rule); padding-top: 0.5rem; }
 .follow-up-edit .field-group { margin-top: 0.5rem; }
 .follow-up-proposal-fields { display: grid; gap: 0.65rem; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--rule); }
-.follow-up-recent-visit { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--border-warning); border-radius: 0.45rem; }
+.follow-up-recent-visit { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--border-warning); border-radius: 0.45rem; }
 .follow-up-recent-visit-title { margin: 0 0 0.25rem; font-weight: 700; }
-.follow-up-frequency-warning { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--error); border-radius: 0.45rem; }
+.follow-up-frequency-warning { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--border-error); border-radius: 0.45rem; }
 .workflow-dialog .review-buttons button, .reason-dialog .review-buttons button { min-height: var(--control-height); }
 .workflow-dialog-details { margin: 0.85rem 0 0; padding-left: 1.2rem; color: var(--ink); line-height: 1.5; }
 .workflow-dialog-details li { margin: 0.25rem 0; }
@@ -3320,7 +3321,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   color: var(--muted);
   font-size: 0.9rem;
 }
-.approval-review-instruction { margin: 0; padding: 0.7rem 0.85rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-weight: 680; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+.approval-review-instruction { margin: 0; padding: 0.7rem 0.85rem; border: 1px solid var(--border-accent); border-radius: var(--radius-control); background: var(--accent-soft); font-weight: 680; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
 
 .customer-workspace { margin-top: 2rem; }
 .customer-filters { display: grid; grid-template-columns: minmax(12rem, 1.5fr) repeat(4, minmax(9rem, 0.75fr)); gap: 0.9rem; align-items: end; margin-bottom: 2rem; padding-block: 1rem 1.25rem; border-block: 1px solid var(--rule); }
@@ -3378,8 +3379,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .start-schedule-reason {
   margin: 0;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--rule);
-  border-inline-start: 3px solid var(--error);
+  border: 1px solid var(--border-error);
   border-radius: 0.375rem;
   background: var(--canvas);
   color: var(--error);
@@ -3519,7 +3519,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .product-select-search input:hover { border-color: var(--border-control-hover); }
 .product-select-search input:focus { border-color: var(--accent); }
 .product-select-search input:disabled { background: var(--canvas); }
-.product-select-current { display: grid; gap: 0.25rem; padding: 0.85rem 1rem; border-left: 3px solid var(--accent); background: var(--accent-soft); min-width: 0; }
+.product-select-current { display: grid; gap: 0.25rem; padding: 0.85rem 1rem; border: 1px solid var(--border-accent); border-radius: var(--radius-control); background: var(--accent-soft); min-width: 0; }
 .product-select-current span, .product-select-current small { color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
 .product-select-current strong { overflow-wrap: anywhere; }
 .product-select-selected { display: grid; gap: 0.65rem; min-width: 0; }
@@ -4607,13 +4607,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .servora-calendar-event-summary--job {
   background: var(--info-soft);
   color: var(--info);
-  border-left: 2px solid var(--info);
+  border: 1px solid var(--border-accent);
 }
 
 .servora-calendar-event-summary--manual {
   background: var(--canvas);
   color: var(--muted);
-  border-left: 2px solid var(--rule);
+  border: 1px solid var(--rule);
 }
 
 .servora-calendar-event-time {
