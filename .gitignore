@@ -25,3 +25,6 @@ dünya-dental.png
 /docs/evidence/job-create-review-20261105/**/*.png
 /docs/evidence/visual-improvements-implementation-20261105/**/*.png
 /docs/evidence/visual-review-20261105/**/*.png
+
+# Local UI-review evidence (screenshots, measurements); never committed.
+/web/.ui-evidence/

@@ -32,6 +32,30 @@ describe('UI audit F-07 side stripes', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it('never fakes a side stripe with a directional inset shadow', () => {
+    // A full ring (`inset 0 0 0 2px`) is allowed; a one-axis offset is a stripe.
+    const directionalInset = /inset\s+(?:-?[2-6]px\s+0(?:\s|,)|0\s+-?[2-6]px(?:\s|,))/;
+    const offenders: string[] = [];
+    for (const file of files) {
+      const css = stripCssComments(readFileSync(file, 'utf8'));
+      for (const match of css.matchAll(/box-shadow:[^;]+;/g)) {
+        if (directionalInset.test(match[0])) {
+          offenders.push(`${file.replace(srcRoot, 'src')}: ${match[0].trim()}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('detects a directional inset-shadow stripe in a sample declaration', () => {
+    const directionalInset = /inset\s+(?:-?[2-6]px\s+0(?:\s|,)|0\s+-?[2-6]px(?:\s|,))/;
+    expect(directionalInset.test('box-shadow: inset 3px 0 0 var(--accent);')).toBe(true);
+    expect(directionalInset.test('box-shadow: inset -4px 0 0 var(--error);')).toBe(true);
+    expect(directionalInset.test('box-shadow: inset 0 2px 0 var(--rule);')).toBe(true);
+    expect(directionalInset.test('box-shadow: inset 0 0 0 2px var(--accent);')).toBe(false);
+    expect(directionalInset.test('box-shadow: 0 8px 24px rgba(30, 37, 43, 0.12);')).toBe(false);
+  });
 });
 
 describe('UI audit F-07 raw color literals', () => {

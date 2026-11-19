@@ -113,6 +113,12 @@ export const servoraVisualTokens = {
       cssValue: 'oklch(94% 0.028 78deg)',
       antValue: '#F4E9D5',
     },
+    /** Large warning surfaces (banners, advisory cards) stay lighter than chips. */
+    warningWash: {
+      cssVariable: '--warning-wash',
+      cssValue: 'oklch(97% 0.02 85deg)',
+      antValue: '#FBF4E6',
+    },
     error: {
       cssVariable: '--error',
       cssValue: 'oklch(36% 0.16 28deg)',
@@ -122,6 +128,12 @@ export const servoraVisualTokens = {
       cssVariable: '--error-soft',
       cssValue: 'oklch(94% 0.028 28deg)',
       antValue: '#F5E4E2',
+    },
+    /** Resting fill for large destructive surfaces; hover lifts to --error-soft. */
+    errorWash: {
+      cssVariable: '--error-wash',
+      cssValue: 'oklch(97% 0.012 28deg)',
+      antValue: '#FDF2F1',
     },
 
     // Interactive-control boundaries. Passive grouping stays on --rule; a
@@ -295,8 +307,10 @@ export const SERVORA_REQUIRED_CSS_VARIABLES = [
   '--success-soft',
   '--warning',
   '--warning-soft',
+  '--warning-wash',
   '--error',
   '--error-soft',
+  '--error-wash',
   '--border-control',
   '--border-control-hover',
   '--border-accent',
