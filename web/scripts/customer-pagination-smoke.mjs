@@ -98,7 +98,10 @@ try {
       await goto('/customers'); await ready(page);
       assert.equal(calls.length - before, 1, 'one initial customer request');
       assert.match(await page.locator('.customer-pagination').innerText(), /Sayfa 1 \/ 2.*Toplam 12/);
-      assert.equal(await page.getByRole('link', { name: /müşterisini düzenle/ }).count(), role === 'STAFF' ? 0 : 6);
+      // F-15: a row is one navigation target; record commands live on detail.
+      assert.equal(await page.getByRole('link', { name: /müşterisini düzenle/ }).count(), 0, 'no row-level edit command');
+      assert.equal(await page.locator('.customer-row-commands').count(), 0, 'no row-level command group');
+      assert.equal(await page.locator('.customer-title-link').count(), 6, 'one title link per row');
       await inspect(page, `customers-${role}-${width}`);
       await page.locator('.customer-pagination .servora-ant-pagination-next button').click();
       await page.getByRole('link', { name: fixture.customers[6].name, exact: true }).waitFor();

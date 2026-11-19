@@ -5431,3 +5431,86 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .customer-list-card .customer-facts > div { min-width: 0; overflow-wrap: anywhere; }
 .customer-detail .record-facts > div { min-width: 0; }
 .customer-detail .record-facts dd { overflow-wrap: anywhere; }
+
+/* Phase 2 C2 */
+/* One form-control look for the mixed create and filter controls (UI audit
+   F-09). Native selects join the DESIGN.md FormControl contract with the same
+   44px height, FormControl border, control radius and 16px value text, and the
+   owned Ant Select stops being a visually different outlier in the same form
+   (it keeps its status/error border). Tokens only: no raw colours. */
+.field-group select,
+.calendar-toolbar select,
+.report-filters select,
+.staff-performance-mobile-sort select,
+.backup-form-grid select,
+.backup-inline-form select {
+  height: var(--control-height);
+  max-width: 100%;
+  padding-block: 0;
+  border: 1px solid oklch(72% 0.018 240deg);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  background-color: var(--paper);
+  font-size: 1rem;
+  font-weight: 400;
+}
+.field-group select:hover,
+.calendar-toolbar select:hover,
+.report-filters select:hover,
+.staff-performance-mobile-sort select:hover,
+.backup-form-grid select:hover,
+.backup-inline-form select:hover { border-color: oklch(60% 0.03 240deg); }
+.field-group select:focus-visible,
+.calendar-toolbar select:focus-visible,
+.report-filters select:focus-visible,
+.staff-performance-mobile-sort select:focus-visible,
+.backup-form-grid select:focus-visible,
+.backup-inline-form select:focus-visible { border-color: var(--accent); }
+.field-group select:disabled,
+.calendar-toolbar select:disabled,
+.report-filters select:disabled,
+.staff-performance-mobile-sort select:disabled,
+.backup-form-grid select:disabled,
+.backup-inline-form select:disabled { background-color: var(--canvas); }
+
+/* The owned Ant Select keeps one border/radius language with those controls.
+   Ant 6.7 draws the Select border/radius on the component root through its own
+   custom properties; the radius var is the only resting visual that still
+   differs from the FormControl control radius. Border colour is mapped in
+   servora-ant-theme.ts so hover/focus/error/warning states stay theirs. */
+html .servora-select { --servora-ant-select-border-radius: var(--radius-control); }
+/* Placeholder text carries the choice instruction, so it must stay readable
+   instead of Ant's low-contrast tertiary text. */
+html .servora-select .servora-ant-select-placeholder { color: var(--muted); opacity: 1; }
+
+/* The calendar personnel filter is a real labelled form control. */
+.calendar-toolbar label { gap: 0.5rem; font-weight: 680; }
+.calendar-toolbar select { width: min(100%, 18rem); }
+
+/* A list row is one navigation target to the record detail (UI audit F-15).
+   The stretched title-link already covers the row; the title itself now reads
+   as a link without hover, and keeps a stronger cue when hovered or focused. */
+.customer-list-card .customer-title-link,
+.product-list-card .product-title-link {
+  text-decoration-line: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+}
+.customer-list-card .customer-title-link:hover,
+.customer-list-card .customer-title-link:focus-visible,
+.product-list-card .product-title-link:hover,
+.product-list-card .product-title-link:focus-visible {
+  color: var(--accent-hover);
+  text-decoration-thickness: 2px;
+}
+.customer-list-card,
+.product-list-card { cursor: pointer; }
+.customer-list-card:hover,
+.product-list-card:hover { background-color: var(--canvas); }
+
+/* 403/404 use the product's calm empty-state treatment: the adapter's own
+   left alignment and block padding must beat Ant's centred result layout. */
+html .servora-result-state .servora-ant-result { padding: 2rem 0; }
+html .servora-result-state .servora-ant-result-title,
+html .servora-result-state .servora-ant-result-subtitle,
+html .servora-result-state .servora-ant-result-extra { text-align: left; }

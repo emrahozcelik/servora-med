@@ -200,8 +200,10 @@ try {
     }
     const longProduct = await openPage('products', '/products', 'ADMIN', 390, 'long');
     await capture(longProduct); await longProduct.page.close();
-    const edit = await openPage('customers', '/customers', 'MANAGER', 390);
-    await edit.page.getByRole('link', { name: `${customer.name} müşterisini düzenle`, exact: true }).click();
+    // F-15: record commands live on the detail page. The list row is a single
+    // navigation target, and the documented ?edit=1 deep link still opens the
+    // management editor.
+    const edit = await openPage('customer-detail', `/customers/${customerId}?edit=1`, 'MANAGER', 390);
     await edit.page.locator('#detail-customer-name').waitFor();
     assert.equal(await edit.page.locator('.customer-edit-disclosure').evaluate(el => el.open), true);
     await edit.page.close();
@@ -254,8 +256,10 @@ try {
     assert.equal(await enrich.evaluate(el => el === document.activeElement), true);
     assert.equal(await staff.page.locator('#detail-customer-name').count(), 0);
     await staff.page.close();
-    const product = await openPage('products', '/products', 'ADMIN', 390);
-    const remove = product.page.getByRole('button', { name: `${products[0].name} ürününü sil`, exact: true });
+    // F-15: permanent delete is a product-detail command, never a row control.
+    const product = await openPage('product-detail', `/products/${products[0].id}`, 'ADMIN', 390);
+    await product.page.locator('.product-detail-facts').waitFor();
+    const remove = product.page.getByRole('button', { name: 'Kalıcı olarak sil', exact: true });
     await remove.focus(); await product.page.keyboard.press('Enter');
     await product.page.getByRole('dialog').waitFor(); await capture(product, '-confirmation');
     await product.page.keyboard.press('Escape'); await product.page.getByRole('dialog').waitFor({ state: 'hidden' });
