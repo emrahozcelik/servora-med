@@ -106,6 +106,52 @@ describe('owned JobDetail Ant adapters', () => {
     document.body.innerHTML = '';
   });
 
+  it('renders revision attention without the Ant error status or Critical Red semantics', async () => {
+    const { WorkflowSteps } = await boundary();
+    if (!WorkflowSteps) return;
+    const html = renderToStaticMarkup(<ServoraAntProvider><WorkflowSteps
+      currentKey="EXECUTION"
+      items={[
+        { key: 'CREATED', label: 'Atandı', state: 'complete' as const },
+        { key: 'ACCEPTANCE', label: 'Kabul edildi', state: 'complete' as const },
+        { key: 'EXECUTION', label: 'Uygulanıyor', state: 'attention' as const },
+        { key: 'REVIEW', label: 'Yönetici kontrolü', state: 'upcoming' as const },
+        { key: 'COMPLETION', label: 'Tamamlandı', state: 'upcoming' as const },
+      ]}
+    /></ServoraAntProvider>);
+    // Attention is Delay Amber plus text/icon — never Ant's error status.
+    expect(html).not.toContain('servora-ant-steps-item-error');
+    expect(html).toContain('servora-workflow-step--attention');
+    expect(html).toContain('Dikkat gerekiyor');
+    expect(html).toContain('⚠');
+  });
+
+  it('collapses the stepper behind a one-line summary on narrow shells', async () => {
+    const { WorkflowSteps } = await boundary();
+    if (!WorkflowSteps) return;
+    // jsdom has no matchMedia, which the adapter treats as a narrow shell.
+    const html = renderToStaticMarkup(<ServoraAntProvider><WorkflowSteps
+      currentKey="EXECUTION"
+      items={[
+        { key: 'CREATED', label: 'Atandı', state: 'complete' as const },
+        { key: 'ACCEPTANCE', label: 'Kabul edildi', state: 'complete' as const },
+        { key: 'EXECUTION', label: 'Uygulanıyor', state: 'current' as const },
+        { key: 'REVIEW', label: 'Yönetici kontrolü', state: 'upcoming' as const },
+        { key: 'COMPLETION', label: 'Tamamlandı', state: 'upcoming' as const },
+      ]}
+    /></ServoraAntProvider>);
+    expect(html).toContain('data-workflow-compact="true"');
+    expect(html).toContain('<details');
+    expect(html).toContain('<summary');
+    expect(html).toContain('3 / 5');
+    expect(html).toContain('Uygulanıyor');
+    // The screen-reader ordered list stays outside the disclosure.
+    const detailsAt = html.indexOf('<details');
+    const listAt = html.indexOf('aria-label="İş süreci"');
+    expect(listAt).toBeGreaterThan(-1);
+    expect(listAt).toBeLessThan(detailsAt);
+  });
+
   it('renders prepared read-only description items without domain knowledge', async () => {
     const { RecordDescriptions } = await boundary();
     expect(RecordDescriptions).toBeTypeOf('function');

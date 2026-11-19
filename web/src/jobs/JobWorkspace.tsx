@@ -167,14 +167,29 @@ function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask
   }
 
   // Keep the current membership visible inside the horizontally scrolling
-  // quick-view strip without ever scrolling the page itself.
+  // quick-view strip without ever scrolling the page itself, and expose whether
+  // more memberships sit beyond the right edge so the strip never clips without
+  // an affordance (DECISIONS.md UI-005).
   const quickViewsRef = useRef<HTMLElement | null>(null);
+  const [quickViewsOverflow, setQuickViewsOverflow] = useState(false);
   useEffect(() => {
     const strip = quickViewsRef.current;
-    const current = strip?.querySelector<HTMLElement>('[data-state="current"]');
-    if (!strip || !current) return;
-    const target = current.offsetLeft - (strip.clientWidth - current.offsetWidth) / 2;
-    strip.scrollLeft = Math.max(0, target);
+    if (!strip) return;
+    const updateOverflow = () => {
+      setQuickViewsOverflow(strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);
+    };
+    const current = strip.querySelector<HTMLElement>('[data-state="current"]');
+    if (current) {
+      const target = current.offsetLeft - (strip.clientWidth - current.offsetWidth) / 2;
+      strip.scrollLeft = Math.max(0, target);
+    }
+    updateOverflow();
+    strip.addEventListener('scroll', updateOverflow, { passive: true });
+    window.addEventListener('resize', updateOverflow);
+    return () => {
+      strip.removeEventListener('scroll', updateOverflow);
+      window.removeEventListener('resize', updateOverflow);
+    };
   }, [canonicalKey]);
 
   useRealtimeInvalidation(['job-list', 'job-board'], () => {
@@ -306,26 +321,31 @@ function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask
         />
       </div>}
     />
-    <nav ref={quickViewsRef} className="job-quick-views" aria-label="Hızlı iş görünümleri" data-job-quick-views="true">
-      {quickViews.map((view) => {
-        // Entering a list-only membership while the board was effective is a
-        // user-triggered coercion: the destination announces it once.
-        const target = parseJobSearch(new URLSearchParams(view.href));
-        const coerces = filters.view === 'board' && !supportsBoard(target);
-        return (
-          <Link
-            key={view.key}
-            className="job-quick-view"
-            to={{ search: view.href }}
-            state={coerces ? { jobsViewNotice: listOnlyNotice(target) } : undefined}
-            aria-current={view.current ? 'page' : undefined}
-            data-state={view.current ? 'current' : 'idle'}
-          >
-            <span className="job-quick-view-label">{view.label}</span>
-          </Link>
-        );
-      })}
-    </nav>
+    <div
+      className="job-quick-views-shell"
+      data-quick-views-overflow={quickViewsOverflow ? 'true' : 'false'}
+    >
+      <nav ref={quickViewsRef} className="job-quick-views" aria-label="Hızlı iş görünümleri" data-job-quick-views="true">
+        {quickViews.map((view) => {
+          // Entering a list-only membership while the board was effective is a
+          // user-triggered coercion: the destination announces it once.
+          const target = parseJobSearch(new URLSearchParams(view.href));
+          const coerces = filters.view === 'board' && !supportsBoard(target);
+          return (
+            <Link
+              key={view.key}
+              className="job-quick-view"
+              to={{ search: view.href }}
+              state={coerces ? { jobsViewNotice: listOnlyNotice(target) } : undefined}
+              aria-current={view.current ? 'page' : undefined}
+              data-state={view.current ? 'current' : 'idle'}
+            >
+              <span className="job-quick-view-label">{view.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
     {filters.status === 'WAITING_APPROVAL' && (
       <p className="job-order-note">En uzun süredir onay bekleyen işler önce gösterilir.</p>
     )}

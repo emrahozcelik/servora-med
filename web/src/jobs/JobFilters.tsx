@@ -284,7 +284,6 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
               </button>
             </div>
           </form>
-          {modeRegion}
           <FilterSheet
             open={sheetOpen}
             title="İş filtreleri"
@@ -302,6 +301,12 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
               >
                 <JobStatusOptions />
               </select>
+            </div>
+            {/* The Liste/Pano switch lives in the sheet on narrow shells so the
+                first record stays in the first screen (DECISIONS.md UI-005). */}
+            <div className="field-group job-filter-view">
+              <span className="job-filter-view-label">Görünüm</span>
+              {modeRegion}
             </div>
             {advancedFields}
           </FilterSheet>

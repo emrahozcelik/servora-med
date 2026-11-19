@@ -216,10 +216,13 @@ export function historyDetail(item: OverdueIncidentHistoryItem): string {
  * timing and post-reminder delay appear only when proven (never guessed for
  * legacy history).
  */
-export function OverdueIncidentHistorySection({ jobId, load = listOverdueIncidents }: {
+export function OverdueIncidentHistorySection({ jobId, load = listOverdueIncidents, collapsible = false }: {
   jobId: string;
   load?: typeof listOverdueIncidents;
+  /** Collapsed disclosure presentation; the job detail opts in below 1024px (UI-005). */
+  collapsible?: boolean;
 }) {
+  const asDisclosure = collapsible;
   const [state, setState] = useState<HistoryState>({ kind: 'loading' });
   const [offset, setOffset] = useState(0);
   const requestId = useRef(0);
@@ -274,31 +277,51 @@ export function OverdueIncidentHistorySection({ jobId, load = listOverdueInciden
   }
   if (state.items.length === 0) return null;
 
+  const historyList = (
+    <ul>
+      {state.items.map((item) => (
+        <li key={item.id} data-overdue-history-item={item.delayType}>
+          <strong>{DELAY_TYPE_LABELS[item.delayType]}</strong>
+          {' '}
+          <span>{historyDetail(item)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+  const pager = (
+    <ServoraListPagination
+      total={state.total}
+      offset={offset}
+      label="Gecikme geçmişi sayfaları"
+      itemName="gecikme kaydı"
+      onOffsetChange={(nextOffset) => {
+        // Hide the focused pager in the same event as the offset change.
+        // Otherwise an intermediate render consumes its keyboard-focus ticket
+        // before the async page arrives and focus falls back to document.body.
+        setState({ kind: 'loading' });
+        setOffset(nextOffset);
+      }}
+    />
+  );
+
   return (
     <section aria-label="Gecikme geçmişi" data-overdue-history="ready">
-      <h2>Gecikme geçmişi</h2>
-      <ul>
-        {state.items.map((item) => (
-          <li key={item.id} data-overdue-history-item={item.delayType}>
-            <strong>{DELAY_TYPE_LABELS[item.delayType]}</strong>
-            {' '}
-            <span>{historyDetail(item)}</span>
-          </li>
-        ))}
-      </ul>
-      <ServoraListPagination
-        total={state.total}
-        offset={offset}
-        label="Gecikme geçmişi sayfaları"
-        itemName="gecikme kaydı"
-        onOffsetChange={(nextOffset) => {
-          // Hide the focused pager in the same event as the offset change.
-          // Otherwise an intermediate render consumes its keyboard-focus ticket
-          // before the async page arrives and focus falls back to document.body.
-          setState({ kind: 'loading' });
-          setOffset(nextOffset);
-        }}
-      />
+      {asDisclosure ? (
+        <details className="overdue-history" data-overdue-history-disclosure="true">
+          <summary className="overdue-history-summary">
+            <span className="overdue-history-title">Gecikme geçmişi</span>
+            <span className="overdue-history-count">{state.total} kayıt</span>
+          </summary>
+          {historyList}
+          {pager}
+        </details>
+      ) : (
+        <>
+          <h2>Gecikme geçmişi</h2>
+          {historyList}
+          {pager}
+        </>
+      )}
     </section>
   );
 }

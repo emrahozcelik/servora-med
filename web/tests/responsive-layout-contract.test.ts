@@ -44,6 +44,35 @@ describe('responsive layout CSS contracts (PR B)', () => {
     expect(css).not.toMatch(/\.job-lifecycle-step(?:-|\s|\{)/);
   });
 
+  it('collapses the mobile lifecycle stepper into a 44px disclosure summary (UI-005)', () => {
+    expect(css).toMatch(/\.servora-workflow-steps-summary\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
+    expect(css).toMatch(/\.servora-workflow-steps-summary\s*\{[^}]*cursor:\s*pointer/s);
+    expect(css).toMatch(/\.servora-workflow-steps--compact\s*\{/);
+  });
+
+  it('renders revision attention with Delay Amber instead of Critical Red (UI-005)', () => {
+    expect(css).toMatch(
+      /\.servora-workflow-step--attention \.servora-ant-steps-item-title\s*\{[^}]*color:\s*var\(--warning\)/s,
+    );
+    expect(css).not.toMatch(
+      /\.servora-workflow-step--attention[^{]*\{[^}]*color:\s*var\(--error\)/s,
+    );
+    expect(css).toMatch(
+      /\.servora-workflow-step-state-icon\s*\{[^}]*color:\s*var\(--warning\)/s,
+    );
+    expect(css).toMatch(
+      /\.servora-workflow-steps-summary--attention \.servora-workflow-steps-summary-state\s*\{[^}]*color:\s*var\(--warning\)/s,
+    );
+  });
+
+  it('gives the quick-view strip an overflow affordance and the lateness history a disclosure summary', () => {
+    expect(css).toMatch(/\.job-quick-views-shell\s*\{[^}]*position:\s*relative/s);
+    expect(css).toMatch(
+      /\.job-quick-views-shell\[data-quick-views-overflow="true"\]::after\s*\{[^}]*background:\s*linear-gradient/s,
+    );
+    expect(css).toMatch(/\.overdue-history-summary\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
+  });
+
   it('places the work rail beside the main record area on desktop without a phantom column', () => {
     expect(css).toMatch(
       /@media\s*\(\s*min-width:\s*64rem\s*\)[\s\S]*\.job-detail-content--rail\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*2fr\)\s*minmax\(17rem,\s*1fr\)/s,

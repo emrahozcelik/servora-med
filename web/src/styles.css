@@ -991,6 +991,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 /* Mode region is always rendered so list-only memberships do not collapse the
    control stack; the list-only state is deliberately non-interactive. */
 .job-view-mode { min-width: 0; }
+.job-filter-view-label { font-size: 0.9rem; font-weight: 680; }
 .job-view-list-only {
   display: flex;
   align-items: center;
@@ -1509,6 +1510,22 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overscroll-behavior-inline: contain;
   scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
+}
+.job-quick-views-shell { position: relative; min-width: 0; }
+/* Overflow affordance: a paper-toned fade over the right edge marks more
+   memberships beyond the viewport, and disappears at the end of the strip
+   (DECISIONS.md UI-005 — never clip without an affordance). */
+@media (width < 64rem) {
+  .job-quick-views-shell[data-quick-views-overflow="true"]::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 1px;
+    inset-inline-end: 0;
+    width: 2.75rem;
+    background: linear-gradient(to right, transparent, var(--paper) 65%);
+    pointer-events: none;
+  }
 }
 .job-quick-views a, .job-filter-disclosure summary { min-height: var(--control-height); }
 .job-quick-views a {
@@ -2405,6 +2422,15 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin: clamp(2rem, 6vh, 4rem) auto;
   min-width: 0;
 }
+/* Narrow shells: the job-detail page starts closer to the shell chrome so the
+   responsibility panel and its primary command reach the first screen
+   (DECISIONS.md UI-005). */
+@media (width < 64rem) {
+  .job-detail {
+    margin-top: 1rem;
+    margin-bottom: 2rem;
+  }
+}
 .job-detail-workflow-layout {
   display: grid;
   grid-template-columns: 1fr;
@@ -2546,14 +2572,90 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--canvas);
 }
 .servora-workflow-steps .servora-ant-steps { min-width: 0; }
+.servora-workflow-steps.servora-workflow-steps--compact {
+  padding: 0.3rem 0.85rem;
+  margin-bottom: 1rem;
+}
+.servora-workflow-steps-disclosure { min-width: 0; }
+/* Native <details> summary keeps the list-item marker as the disclosure
+   affordance; the row itself is the >=44px touch target (UI-005). */
+.servora-workflow-steps-summary {
+  min-height: var(--control-height);
+  padding: 0.5rem 0.15rem;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.servora-workflow-steps-summary-phase strong { font-variant-numeric: tabular-nums; }
+.servora-workflow-steps-summary-state {
+  margin-inline-start: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.servora-workflow-steps-summary--attention,
+.servora-workflow-steps-summary--attention .servora-workflow-steps-summary-state {
+  color: var(--warning);
+}
+.servora-workflow-steps-disclosure[open] .servora-workflow-steps-summary {
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--rule);
+}
 .servora-workflow-step-state {
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 650;
 }
+.servora-workflow-step-state-icon {
+  margin-inline-end: 0.25rem;
+  color: var(--warning);
+}
 .servora-workflow-step--skipped .servora-ant-steps-item-title,
 .servora-workflow-step--upcoming .servora-ant-steps-item-title { color: var(--muted); }
-.servora-workflow-step--attention .servora-ant-steps-item-title { color: var(--error); }
+/* Revision-loop attention: Delay Amber title plus the ⚠ state text, never
+   Critical Red and never Ant's `error` status (DESIGN.md semantic colors,
+   DECISIONS.md UI-005). */
+.servora-workflow-step--attention .servora-ant-steps-item-title { color: var(--warning); }
+/* Manager-only lateness history: expanded above the workflow on desktop, a
+   native collapsed disclosure below the record details on mobile (UI-005). */
+.overdue-history { min-width: 0; }
+.overdue-history-summary {
+  min-height: var(--control-height);
+  padding: 0.5rem 0.15rem;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.overdue-history-count {
+  margin-inline-start: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.job-detail-lateness-history {
+  min-width: 0;
+  margin-top: 1.15rem;
+}
+/* Narrow shells: the open lateness signal keeps two fact columns instead of
+   four stacked rows so the responsibility command stays in the first screen
+   (DECISIONS.md UI-005). */
+@media (width < 64rem) {
+  [data-submission-lateness="open"] .job-row-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* Narrow shells: the job-detail command group is the first-screen action, so it
+   keeps the full 44px touch target instead of the compact 40px button floor
+   (DESIGN.md accessibility, DECISIONS.md UI-005). */
+@media (width < 64rem) {
+  .job-detail [data-job-decision-panel="true"] .primary-button,
+  .job-detail [data-job-decision-panel="true"] .secondary-button,
+  .job-detail [data-job-decision-panel="true"] .destructive-button {
+    min-height: var(--control-height);
+  }
+}
 .detail-summary .servora-record-descriptions-host,
 .detail-summary .servora-record-descriptions {
   width: 100%;

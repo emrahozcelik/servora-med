@@ -311,11 +311,15 @@ describe('Staff JobCard detail', () => {
   let root: Root;
 
   beforeEach(() => {
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
+    // This suite describes the desktop job-detail structure: the 64rem shell
+    // gate resolves to desktop so the work rail keeps the decision group.
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('min-width'),
+      media: query,
+      onchange: null,
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
       addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    })));
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
