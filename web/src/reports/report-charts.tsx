@@ -232,10 +232,9 @@ export function TrendBars({
       <p className="report-trend-range">
         <span className="sr-only">Gösterilen aralık: </span>
         <span>{formatRangeDate(points[0]?.date)}</span>
-        <span>
-          <span aria-hidden="true">– </span>
-          {formatRangeDate(points[points.length - 1]?.date)}
-        </span>
+        {/* Axis-style start/end labels; the dash exists for screen readers only. */}
+        <span className="sr-only"> – </span>
+        <span>{formatRangeDate(points[points.length - 1]?.date)}</span>
       </p>
     </div>
   );
