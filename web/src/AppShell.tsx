@@ -160,6 +160,17 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
     if (desktop && drawerOpen) closeDrawer(false);
   }, [desktop, drawerOpen]);
 
+  // Back/Forward or programmatic navigation while the panel is open must close
+  // it and release the scroll lock. Focus is not pushed back to the stale
+  // trigger: the new route owns the page.
+  const routeKey = `${location.pathname}${location.search}`;
+  const previousRouteKeyRef = useRef(routeKey);
+  useEffect(() => {
+    if (previousRouteKeyRef.current === routeKey) return;
+    previousRouteKeyRef.current = routeKey;
+    if (drawerOpen) closeDrawer(false);
+  }, [routeKey, drawerOpen]);
+
   useEffect(() => {
     if (!drawerOpen) {
       if (restoreFocusRef.current) drawerOpenerRef.current?.focus();

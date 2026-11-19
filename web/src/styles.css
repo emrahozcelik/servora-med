@@ -800,7 +800,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   padding-top: 0.5rem;
   padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
 }
-.authenticated-shell--mobile .shell-content > :first-child {
+/* The page container owns no mobile top margin: a leading banner (for example
+   the offboarding return nav) must not push a blank band above the PageHeader,
+   and the shell content owns the single top rhythm instead (audit F-14). */
+.authenticated-shell--mobile .shell-content > :first-child,
+.authenticated-shell--mobile .shell-content > main {
   margin-top: 0;
 }
 .mobile-bottom-nav {
