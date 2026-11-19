@@ -239,8 +239,10 @@ test('separate release authority publishes RELEASED last while attempts and disa
   assert.equal(result.status, 'RELEASED_APPROVAL_GATES_REMAIN');
   assert.deepEqual(f.events.slice(-3), ['reserve-release', 'release-evidence', 'released']);
   assert.equal(createBootstrapFenceGuard(f.io)('forward').state, 'RELEASED');
-  assert.throws(() => createBootstrapFenceGuard(f.io)('deploy'), /ATTEMPT_REQUIRED/);
-  for (const op of ['legacy-deploy', 'legacy-restore', 'rollback']) {
+  // OPS-DEPLOY-002: the normal route needs no attempt; recovery still does.
+  assert.equal(createBootstrapFenceGuard(f.io)('deploy').state, 'RELEASED');
+  assert.throws(() => createBootstrapFenceGuard(f.io)('forward-recovery'), /ATTEMPT_REQUIRED/);
+  for (const op of ['legacy-deploy', 'legacy-restore']) {
     assert.throws(() => createBootstrapFenceGuard(f.io)(op), /LEGACY_MUTATION_DISABLED/);
   }
 });

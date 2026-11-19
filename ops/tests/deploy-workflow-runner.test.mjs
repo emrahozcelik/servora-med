@@ -10,7 +10,6 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = readFileSync(resolve(repoRoot, '.github/workflows/deploy-production.yml'), 'utf8');
 
 const DEPLOY_SHA = 'a'.repeat(40);
-const ATTEMPT_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const CI_RUN_ID = '123456789';
 
 /**
@@ -105,60 +104,64 @@ test('deploy-production.yml stays on the Playwright-supported Ubuntu runner', ()
   assert.doesNotMatch(workflow, /runs-on:\s*ubuntu-latest/);
 });
 
-test('workflow advertises no migration-disable mode and requires the approved attempt for every deployment', () => {
-  assert.doesNotMatch(workflow, /allow_migrations/i);
-  assert.doesNotMatch(workflow, /ALLOW_MIGRATIONS/);
-
-  assert.match(workflow, /deploy_sha:\n\s+description: Deploy this exact canonical main SHA\n\s+required: true\n\s+type: string/);
-  assert.match(workflow, /attempt_id:\n\s+description: [^\n]*root-owned approval UUID[^\n]*\n\s+required: true\n\s+type: string/);
-  assert.match(workflow, /ci_run_id:\n\s+description: [^\n]*exact-main push CI run[^\n]*\n\s+required: true\n\s+type: string/);
-
-  // No step may be conditionally skipped: every workflow deployment performs
-  // the same validation, artifact download, and guarded runner invocation.
+test('one operator action: the only input is the optional migration checkbox', () => {
+  assert.match(workflow, /allow_migrations:\n\s+description: [^\n]+\n\s+required: false\n\s+default: false\n\s+type: boolean/);
+  for (const removed of ['deploy_sha:', 'attempt_id:', 'ci_run_id:', 'inputs.attempt_id', 'inputs.ci_run_id', 'inputs.deploy_sha']) {
+    assert.doesNotMatch(workflow, new RegExp(removed.replace('.', '\\.')), removed);
+  }
+  assert.doesNotMatch(workflow, /--attempt-id/);
+  // No step may be conditionally skipped: every deployment runs the same gates.
   assert.doesNotMatch(workflow, /^\s+if:\s*inputs\./m);
 });
 
-test('identity gate accepts only an exact-main SHA, UUID v4 attempt and positive CI run id', () => {
-  const validation = stepScript('Validate immutable deployment identity');
-  const baseEnvironment = {
-    DEPLOY_SHA,
-    GITHUB_REF: 'refs/heads/main',
-    GITHUB_SHA: DEPLOY_SHA,
-    ATTEMPT_ID,
-    CI_RUN_ID,
-  };
-
-  const accepted = runWorkflowStep(validation, baseEnvironment);
-  assert.equal(accepted.status, 0, accepted.stderr);
-
+test('identity gate binds the deployment to the dispatched exact main SHA', () => {
+  const validation = stepScript('Validate deployment identity');
+  withTempDir((directory) => {
+    const githubEnv = join(directory, 'github-env');
+    writeFileSync(githubEnv, '');
+    const accepted = runWorkflowStep(validation, { GITHUB_REF: 'refs/heads/main', GITHUB_SHA: DEPLOY_SHA, GITHUB_ENV: githubEnv });
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.equal(readFileSync(githubEnv, 'utf8'), `DEPLOY_SHA=${DEPLOY_SHA}\n`);
+  });
   const rejected = [
-    [{ DEPLOY_SHA: '', GITHUB_SHA: '' }, 'INVALID_DEPLOY_SHA'],
-    [{ DEPLOY_SHA: 'A'.repeat(40), GITHUB_SHA: 'A'.repeat(40) }, 'INVALID_DEPLOY_SHA'],
-    [{ DEPLOY_SHA: 'a'.repeat(39), GITHUB_SHA: 'a'.repeat(39) }, 'INVALID_DEPLOY_SHA'],
     [{ GITHUB_REF: 'refs/heads/feature/example' }, 'NON_MAIN_WORKFLOW_REF'],
     [{ GITHUB_REF: '' }, 'NON_MAIN_WORKFLOW_REF'],
-    [{ GITHUB_SHA: 'b'.repeat(40) }, 'DEPLOY_SHA_EVENT_MISMATCH'],
-    [{ ATTEMPT_ID: '' }, 'ATTEMPT_ID_REQUIRED'],
-    [{ ATTEMPT_ID: 'not-a-uuid' }, 'ATTEMPT_ID_REQUIRED'],
-    [{ ATTEMPT_ID: '01234567-89ab-3cde-8f01-23456789abcd' }, 'ATTEMPT_ID_REQUIRED'],
-    [{ ATTEMPT_ID: '01234567-89ab-4cde-7f01-23456789abcd' }, 'ATTEMPT_ID_REQUIRED'],
-    [{ ATTEMPT_ID: ATTEMPT_ID.toUpperCase() }, 'ATTEMPT_ID_REQUIRED'],
-    [{ CI_RUN_ID: '' }, 'CI_RUN_ID_REQUIRED'],
-    [{ CI_RUN_ID: '0' }, 'CI_RUN_ID_REQUIRED'],
-    [{ CI_RUN_ID: '-1' }, 'CI_RUN_ID_REQUIRED'],
-    [{ CI_RUN_ID: '12a' }, 'CI_RUN_ID_REQUIRED'],
+    [{ GITHUB_SHA: '' }, 'INVALID_DEPLOY_SHA'],
+    [{ GITHUB_SHA: 'A'.repeat(40) }, 'INVALID_DEPLOY_SHA'],
+    [{ GITHUB_SHA: 'a'.repeat(39) }, 'INVALID_DEPLOY_SHA'],
   ];
-
   for (const [override, reason] of rejected) {
-    const result = runWorkflowStep(validation, { ...baseEnvironment, ...override });
+    const result = runWorkflowStep(validation, { GITHUB_REF: 'refs/heads/main', GITHUB_SHA: DEPLOY_SHA, GITHUB_ENV: '/dev/null', ...override });
     assert.notEqual(result.status, 0, reason);
     assert.match(result.stderr, new RegExp(reason), reason);
   }
 });
 
+test('the exact green push CI run is resolved automatically and an absent run fails closed', () => {
+  const script = stepScript('Resolve exact-main CI run for this SHA');
+  assert.match(script, /--workflow ci\.yml --branch main --event push --commit "\$DEPLOY_SHA"/);
+  assert.match(script, /\.conclusion == \\"success\\"/);
+  withTempDir((directory) => {
+    const bin = join(directory, 'bin');
+    mkdirSync(bin);
+    writeStub(bin, 'gh', '#!/bin/bash\nprintf \'%s\\n\' "$@" >"$GH_CAPTURE"\nprintf \'%s\' "${GH_RUN_ID:-}"\n');
+    const githubEnv = join(directory, 'github-env');
+    writeFileSync(githubEnv, '');
+    const base = { PATH: `${bin}:/usr/bin:/bin`, GH_CAPTURE: join(directory, 'gh-args'), DEPLOY_SHA, GITHUB_ENV: githubEnv };
+    const found = runWorkflowStep(script, { ...base, GH_RUN_ID: CI_RUN_ID });
+    assert.equal(found.status, 0, found.stderr);
+    assert.equal(readFileSync(githubEnv, 'utf8'), `CI_RUN_ID=${CI_RUN_ID}\n`);
+    for (const value of ['', 'null', '0', '12a']) {
+      const missing = runWorkflowStep(script, { ...base, GH_RUN_ID: value, GITHUB_ENV: '/dev/null' });
+      assert.notEqual(missing.status, 0, `run id ${JSON.stringify(value)} must fail`);
+      assert.match(missing.stderr, /EXACT_MAIN_CI_NOT_GREEN/);
+    }
+  });
+});
+
 test('every release downloads and verifies the exact-main artifact and its sidecar', () => {
-  const script = stepScript('Download exact-main release artifact for approved deployment');
-  const block = stepBlock('Download exact-main release artifact for approved deployment');
+  const script = stepScript('Download exact-main release artifact');
+  const block = stepBlock('Download exact-main release artifact');
   assert.doesNotMatch(block, /^\s+if:/m);
 
   withTempDir((directory) => {
@@ -203,46 +206,37 @@ test('every release downloads and verifies the exact-main artifact and its sidec
   });
 });
 
-test('the single workflow path always invokes the guarded attempt-bound runner with the exact artifact', () => {
-  const step = 'Build, transfer, activate, smoke, and back up exact main SHA';
+test('the runner gets the exact artifact and pinned CI run, never an attempt; migrations only when checked', () => {
+  const step = 'Transfer, activate, smoke, back up and observe exact main SHA';
   const script = stepScript(step);
   const block = stepBlock(step);
-
-  assert.match(block, /ATTEMPT_ID: \$\{\{ inputs\.attempt_id \}\}/);
-  assert.match(block, /CI_RUN_ID: \$\{\{ inputs\.ci_run_id \}\}/);
-  assert.doesNotMatch(script, /if \[\[|if !|else/);
+  assert.match(block, /ALLOW_MIGRATIONS: \$\{\{ inputs\.allow_migrations \}\}/);
 
   withTempDir((directory) => {
     const bin = join(directory, 'bin');
     mkdirSync(bin);
     writeStub(bin, 'bash', BASH_CAPTURE_STUB);
-
-    const capture = join(directory, 'bash-args');
     const runnerTemp = join(directory, 'runner');
     mkdirSync(runnerTemp);
-    const result = runWorkflowStep(script, {
-      PATH: `${bin}:/usr/bin:/bin`,
-      CAPTURE: capture,
-      DEPLOY_SHA,
-      ATTEMPT_ID,
-      CI_RUN_ID,
-      RUNNER_TEMP: runnerTemp,
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(readFileSync(capture, 'utf8').trim().split('\n'), [
+    const expected = [
       'ops/deploy-production.sh',
       '--sha',
       DEPLOY_SHA,
-      '--allow-migrations',
-      '--attempt-id',
-      ATTEMPT_ID,
       '--ci-mode',
       'github',
       '--ci-run-id',
       CI_RUN_ID,
       '--artifact',
       join(runnerTemp, 'servora-release', `servora-med-${DEPLOY_SHA}.tar.gz`),
-    ]);
+    ];
+    for (const [allow, extra] of [['false', []], ['', []], ['true', ['--allow-migrations']]]) {
+      const capture = join(directory, `bash-args-${allow || 'empty'}`);
+      const result = runWorkflowStep(script, {
+        PATH: `${bin}:/usr/bin:/bin`, CAPTURE: capture, DEPLOY_SHA, CI_RUN_ID, RUNNER_TEMP: runnerTemp, ALLOW_MIGRATIONS: allow,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(readFileSync(capture, 'utf8').trim().split('\n'), [...expected, ...extra], `allow=${allow}`);
+    }
   });
 });
 
@@ -255,6 +249,8 @@ test('workflow keeps the existing production protection bindings', () => {
   assert.match(workflow, /environment:\n {6}name: production/);
   assert.match(workflow, /node-version: 22/);
   assert.match(workflow, /npx playwright install --with-deps chromium webkit/);
+  assert.match(workflow, /path: ~\/\.cache\/ms-playwright/);
+  assert.match(workflow, /timeout-minutes: 60/);
   assert.match(workflow, /bash ops\/deploy-production\.sh/);
   assert.doesNotMatch(workflow, /StrictHostKeyChecking=no/);
 
@@ -269,7 +265,7 @@ test('workflow keeps the existing production protection bindings', () => {
   }
 });
 
-test('attempt-bound release still requires the hosted CI receipt and a prebuilt package', () => {
+test('a prebuilt release always requires the hosted CI receipt including release-package', () => {
   const ci = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
   const deploy = readFileSync(resolve(repoRoot, 'ops/deploy-production.sh'), 'utf8');
 
@@ -280,6 +276,29 @@ test('attempt-bound release still requires the hosted CI receipt and a prebuilt 
   assert.match(ci, /actions\/upload-artifact@v4/);
   assert.match(deploy, /CI_MANIFEST_SHA=.*github-ci-evidence/);
   assert.match(deploy, /--require-package/);
+  assert.match(deploy, /if \[\[ -n "\$ATTEMPT_ID" \|\| -n "\$ARTIFACT_INPUT" \]\]; then proof_args=\(--require-package\)/);
   assert.match(deploy, /ATTEMPT_ARGUMENTS_INVALID/);
-  assert.match(deploy, /ATTEMPT_REQUIRED_FOR_MIGRATIONS/);
+  assert.match(deploy, /NORMAL_ARGUMENTS_INVALID/);
+  assert.doesNotMatch(deploy, /ATTEMPT_REQUIRED_FOR_MIGRATIONS/);
+});
+
+test('normal route argument rules: a pinned CI run needs its package; no attempt is required', () => {
+  const runner = resolve(repoRoot, 'ops/deploy-production.sh');
+  const run = (args) => spawnSync('/bin/bash', [runner, ...args], { cwd: repoRoot, encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } });
+  const artifact = `/tmp/servora-med-${DEPLOY_SHA}.tar.gz`;
+  for (const args of [
+    ['--sha', DEPLOY_SHA, '--ci-run-id', CI_RUN_ID],
+    ['--sha', DEPLOY_SHA, '--ci-run-id', '0', '--artifact', artifact],
+    ['--sha', DEPLOY_SHA, '--ci-mode', 'local', '--ci-run-id', CI_RUN_ID, '--artifact', artifact],
+  ]) {
+    const result = run(args);
+    assert.notEqual(result.status, 0, args.join(' '));
+    assert.match(result.stderr, /reason=NORMAL_ARGUMENTS_INVALID/, args.join(' '));
+  }
+  const recovery = run(['--sha', DEPLOY_SHA, '--ci-run-id', CI_RUN_ID, '--artifact', artifact, '--forward-recovery']);
+  assert.match(recovery.stderr, /reason=RECOVERY_ARGUMENTS_INVALID/, 'forward recovery still needs an attempt');
+  const source = readFileSync(runner, 'utf8');
+  assert.doesNotMatch(source, /ATTEMPT_REQUIRED_FOR_MIGRATIONS|CI_RUN_ID_REQUIRES_ATTEMPT/);
+  assert.match(source, /REMOTE_MIGRATION_COUNT_INVALID/, 'an unknown migration count never enables rollback');
+  assert.match(source, /observe_public_health \|\| fail LIVE_BUT_OBSERVATION_FAILED/);
 });

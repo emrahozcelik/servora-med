@@ -36,16 +36,21 @@ test('release needs a separate owner authorization, verified closure and unchang
   assert.throws(() => guard('deploy', ID), /BOOTSTRAP_FENCE_PROFILE_DRIFT/);
 });
 
-test('RELEASED never opens attempt-less deploy, postdeploy, rollback, restore or legacy deploy', () => {
+test('RELEASED opens the normal deploy route without an attempt but keeps recovery and legacy gates', () => {
   const f = fixture(), guard = createBootstrapFenceGuard(f.io);
   f.releaseFence();
-  for (const operation of ['deploy', 'postdeploy', 'forward-recovery', 'pre-migration-abort', 'attempt-preflight']) {
+  // OPS-DEPLOY-002: ordinary deploy/postdeploy/rollback need no attempt UUID.
+  for (const operation of ['deploy', 'postdeploy', 'rollback']) {
+    for (const id of ['', undefined, ID]) assert.equal(guard(operation, id).state, 'RELEASED');
+    assert.throws(() => guard(operation, 'not-a-uuid'), /BOOTSTRAP_FENCE_ATTEMPT_REQUIRED/);
+  }
+  for (const operation of ['forward-recovery', 'pre-migration-abort', 'attempt-preflight', 'controller']) {
     for (const id of ['', undefined, 'not-a-uuid']) {
       assert.throws(() => guard(operation, id), /BOOTSTRAP_FENCE_ATTEMPT_REQUIRED/);
     }
     assert.equal(guard(operation, ID).state, 'RELEASED');
   }
-  for (const operation of ['legacy-deploy', 'rollback', 'legacy-restore']) {
+  for (const operation of ['legacy-deploy', 'legacy-restore']) {
     assert.throws(() => guard(operation, ID), /BOOTSTRAP_FENCE_LEGACY_MUTATION_DISABLED/);
   }
   assert.throws(() => guard('arbitrary-operation', ID), /BOOTSTRAP_FENCE_OPERATION_INVALID/);

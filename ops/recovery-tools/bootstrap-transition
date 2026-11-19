@@ -37,9 +37,9 @@ pin "$BASE/ops/recovery-tools/bootstrap-delegation-quarantine.mjs" e78448ce582e5
 pin "$BASE/ops/recovery-tools/bootstrap-transition-host.mjs" 473c7025c448817fd79d2fb3aae22f93188784eeb32ced3949ca46fc66ed6fb4
 pin "$BASE/ops/recovery-tools/bootstrap-transition.mjs" 3221f4f3fc9f55a386509d2f379301032ef6bbc9612bf33e129782c884cb7a81
 pin "$BASE/ops/recovery-tools/profile-reseal.mjs" c069b9ebdb695987f99525ec481830a1fb5de0c068137053af64c13583f4ca2f
-pin "$BASE/ops/scripts/bootstrap-fence.mjs" 068ea5157b89fd2dc3303acd1343b22a57c71b2bcd79ec3d3a42ee6c18174f31
-pin "$BASE/ops/scripts/bootstrap-fence.sh" d3e6195035aacd70c46504e5728fe12647272272dfe29c0aa16e352a23b9b761
-pin "$BASE/ops/scripts/deploy-production-host.sh" 615fecec455ca105e461e4a7ec1822e84886e378a7e7a22ff98245b0c155a4ad
+pin "$BASE/ops/scripts/bootstrap-fence.mjs" 7142119e49d25b8b28050dab9251879353ad4da40b37292556272f860d682926
+pin "$BASE/ops/scripts/bootstrap-fence.sh" ffa7f31281f70a8c770eb54e2e59bf5e81929e8db5b62e03bbad086c5d8781df
+pin "$BASE/ops/scripts/deploy-production-host.sh" 7a728ab1174a6ad9b3bc1550c4602fa013720d0199ea56d50e3a89200150a483
 pin "$BASE/ops/scripts/deployment-attempt.mjs" 955034ccb742efd1a20dd688a5bc62ddff82f8cb68c38d7aee20a9df51f67676
 pin "$BASE/ops/scripts/deployment-controller.mjs" 46e2f41bf2bea67979e5ba485027375eff2a69c853cc35951f2dc6c983d3124d
 pin "$BASE/ops/scripts/deployment-db-guard.mjs" 3ea5931537ff6d1cb71bf02633ca77ae66ba1aa4aafabb16943c062648284552

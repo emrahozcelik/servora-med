@@ -1,20 +1,16 @@
 name: Production Deploy
 
+# OPS-DEPLOY-002: one operator action. Run workflow on `main`; the exact main
+# SHA, its green push CI run and that run's release package are resolved here.
+# No attempt UUID, root approval or hash is entered by hand.
 on:
   workflow_dispatch:
     inputs:
-      deploy_sha:
-        description: Deploy this exact canonical main SHA
-        required: true
-        type: string
-      attempt_id:
-        description: Previously issued root-owned approval UUID for this exact release
-        required: true
-        type: string
-      ci_run_id:
-        description: Successful exact-main push CI run with release-package for this SHA
-        required: true
-        type: string
+      allow_migrations:
+        description: Apply pending migrations shipped in this release (predeploy backup and ordered-prefix check stay mandatory)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -29,7 +25,7 @@ jobs:
     name: Controlled production deployment
     # Playwright 1.55.1 supports Ubuntu 24.04; keep this aligned with the web CI job.
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     environment:
       name: production
     env:
@@ -41,38 +37,35 @@ jobs:
       SERVORA_PROD_KNOWN_HOSTS: ${{ secrets.SERVORA_PROD_KNOWN_HOSTS }}
       SERVORA_PROD_FQDN: ${{ vars.SERVORA_PROD_FQDN }}
     steps:
-      - name: Validate immutable deployment identity
-        env:
-          DEPLOY_SHA: ${{ inputs.deploy_sha }}
-          ATTEMPT_ID: ${{ inputs.attempt_id }}
-          CI_RUN_ID: ${{ inputs.ci_run_id }}
+      - name: Validate deployment identity
         run: |
           set -Eeuo pipefail
-          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "INVALID_DEPLOY_SHA" >&2; exit 1; }
           [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "NON_MAIN_WORKFLOW_REF" >&2; exit 1; }
-          [[ "$GITHUB_SHA" == "$DEPLOY_SHA" ]] || { echo "DEPLOY_SHA_EVENT_MISMATCH" >&2; exit 1; }
-          [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
-            || { echo "ATTEMPT_ID_REQUIRED" >&2; exit 1; }
-          [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "CI_RUN_ID_REQUIRED" >&2; exit 1; }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "INVALID_DEPLOY_SHA" >&2; exit 1; }
+          echo "DEPLOY_SHA=$GITHUB_SHA" >>"$GITHUB_ENV"
 
       - name: Checkout exact deployment SHA
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.deploy_sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Verify checked out deployment SHA
-        env:
-          DEPLOY_SHA: ${{ inputs.deploy_sha }}
         run: |
           set -Eeuo pipefail
           CHECKED_OUT_SHA="$(git rev-parse --verify HEAD)"
           [[ "$CHECKED_OUT_SHA" == "$DEPLOY_SHA" ]] || { echo "CHECKED_OUT_SHA_MISMATCH" >&2; exit 1; }
 
-      - name: Download exact-main release artifact for approved deployment
-        env:
-          DEPLOY_SHA: ${{ inputs.deploy_sha }}
-          CI_RUN_ID: ${{ inputs.ci_run_id }}
+      - name: Resolve exact-main CI run for this SHA
+        run: |
+          set -Eeuo pipefail
+          CI_RUN_ID="$(gh run list --workflow ci.yml --branch main --event push --commit "$DEPLOY_SHA" \
+            --limit 20 --json databaseId,headSha,status,conclusion \
+            --jq "[.[] | select(.headSha == \"$DEPLOY_SHA\" and .status == \"completed\" and .conclusion == \"success\")][0].databaseId // empty")"
+          [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "EXACT_MAIN_CI_NOT_GREEN" >&2; exit 1; }
+          echo "CI_RUN_ID=$CI_RUN_ID" >>"$GITHUB_ENV"
+
+      - name: Download exact-main release artifact
         run: |
           set -Eeuo pipefail
           mkdir -m 700 "$RUNNER_TEMP/servora-release"
@@ -90,6 +83,12 @@ jobs:
             server/package-lock.json
             web/package-lock.json
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+
       - name: Install browsers for production smoke
         working-directory: web
         run: |
@@ -97,20 +96,16 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium webkit
 
-      # --allow-migrations selects the existing guarded attempt-bound host route;
-      # it is not an approval. The genuine root grant must already carry the
-      # exact scope/catalog (including migration permission) and the CI/artifact
-      # for this SHA. An identical catalog applies zero SQL. There is no
-      # workflow branch that omits the attempt, CI run, or prebuilt artifact.
-      - name: Build, transfer, activate, smoke, and back up exact main SHA
+      # The runner re-verifies the exact green push CI run, its release-package
+      # job and the artifact hash/sidecar before any SSH. The host keeps the
+      # pending-attempt refusal, predeploy backup, migration-history gate,
+      # health, rollback-on-zero-migration and postdeploy backup.
+      - name: Transfer, activate, smoke, back up and observe exact main SHA
         env:
-          DEPLOY_SHA: ${{ inputs.deploy_sha }}
-          ATTEMPT_ID: ${{ inputs.attempt_id }}
-          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}
         run: |
           set -Eeuo pipefail
-          deploy_args=(--sha "$DEPLOY_SHA" \
-            --allow-migrations --attempt-id "$ATTEMPT_ID" \
-            --ci-mode github --ci-run-id "$CI_RUN_ID" \
+          deploy_args=(--sha "$DEPLOY_SHA" --ci-mode github --ci-run-id "$CI_RUN_ID" \
             --artifact "$RUNNER_TEMP/servora-release/servora-med-$DEPLOY_SHA.tar.gz")
+          [[ "$ALLOW_MIGRATIONS" != true ]] || deploy_args+=(--allow-migrations)
           bash ops/deploy-production.sh "${deploy_args[@]}"
