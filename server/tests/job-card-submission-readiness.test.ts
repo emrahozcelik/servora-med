@@ -190,4 +190,61 @@ describe('structured submission readiness', () => {
       code: 'DELIVERY_ITEMS_VALID', state: 'met', field: 'deliveryItems',
     });
   });
+
+  it('accepts a not-held visit with FOLLOW_UP_REQUIRED, a reason and no meeting time', async () => {
+    // JOB-010 release 2a (D1 §4): a visit that did not take place is submitted
+    // truthfully; no meeting time is ever fabricated.
+    const notHeld = await evaluateSubmission(reader({
+      meetingDetails: {
+        meetingAt: null,
+        outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: 'CONTACT_NOT_AVAILABLE',
+        meetingSummary: 'Klinikte ilgili kişi yoktu, yeniden ziyaret gerekiyor.',
+        nextFollowUpAt: null,
+      },
+    }), staff, meetingJob, now);
+    expect(notHeld.readiness.items).toContainEqual({
+      code: 'MEETING_TIME_VALID', state: 'met', field: 'meetingAt',
+    });
+    expect(notHeld.readiness.items).toContainEqual({
+      code: 'UNSUCCESSFUL_REASON_PRESENT', state: 'met', field: 'unsuccessfulReason',
+    });
+    expect(notHeld.readiness.ready).toBe(true);
+    expect(notHeld.failure).toBeNull();
+
+    // Without the structured reason the empty time stays unprovable.
+    const noReason = await evaluateSubmission(reader({
+      meetingDetails: {
+        meetingAt: null,
+        outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: null,
+        meetingSummary: 'Klinikte kimse yoktu.',
+        nextFollowUpAt: null,
+      },
+    }), staff, meetingJob, now);
+    expect(noReason.readiness.items).toContainEqual({
+      code: 'MEETING_TIME_VALID', state: 'missing', field: 'meetingAt',
+    });
+    expect(() => assertSubmissionReady(noReason)).toThrowError(expect.objectContaining({
+      code: 'MEETING_NOT_READY',
+      details: { fieldErrors: {
+        meetingAt: 'Gerçekleşen görüşme zamanı zorunludur.',
+        unsuccessfulReason: 'Takip gereken başarısız görüşme nedeni zorunludur.',
+      } },
+    }));
+
+    // Every other outcome still requires the real meeting time.
+    const otherOutcome = await evaluateSubmission(reader({
+      meetingDetails: {
+        meetingAt: null,
+        outcome: 'POSITIVE',
+        unsuccessfulReason: null,
+        meetingSummary: 'Görüşme olumlu geçti.',
+        nextFollowUpAt: null,
+      },
+    }), staff, meetingJob, now);
+    expect(otherOutcome.readiness.items).toContainEqual({
+      code: 'MEETING_TIME_VALID', state: 'missing', field: 'meetingAt',
+    });
+  });
 });

@@ -62,6 +62,42 @@ export const UNSUCCESSFUL_VISIT_REASON_CODES = [
 ] as const;
 export type UnsuccessfulVisitReasonCode = (typeof UNSUCCESSFUL_VISIT_REASON_CODES)[number];
 
+/**
+ * JOB-010 release 2a (D1): a Staff change/termination request never changes
+ * the JobCard. These codes carry the operational reason; the free text stays
+ * mandatory so a code alone is never the whole story.
+ */
+export const JOB_CHANGE_REQUEST_REASON_CODES = [
+  'CUSTOMER_CHANGED_MIND',
+  'CUSTOMER_POSTPONED',
+  'CUSTOMER_ABSENT',
+  'WRONG_PRODUCT',
+  'MISSING_STOCK_OR_EQUIPMENT',
+  'VISIT_NOT_POSSIBLE',
+  'OTHER',
+] as const;
+export type JobChangeRequestReasonCode = (typeof JOB_CHANGE_REQUEST_REASON_CODES)[number];
+
+/** Every close fact a request can carry; CANCELLED/SUPERSEDED are not decisions. */
+export const JOB_CHANGE_REQUEST_RESOLUTIONS = [
+  'CANCELLED',
+  'CORRECTED',
+  'RESCHEDULED',
+  'LINKED_JOB_CREATED',
+  'REJECTED',
+  'SUPERSEDED',
+] as const;
+export type JobChangeRequestResolution = (typeof JOB_CHANGE_REQUEST_RESOLUTIONS)[number];
+
+/** The subset the management resolve command accepts (other paths own the rest). */
+export const JOB_CHANGE_REQUEST_DECISIONS = [
+  'CORRECTED',
+  'RESCHEDULED',
+  'LINKED_JOB_CREATED',
+  'REJECTED',
+] as const;
+export type JobChangeRequestDecision = (typeof JOB_CHANGE_REQUEST_DECISIONS)[number];
+
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 
@@ -79,6 +115,8 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_SUBMISSION_REMINDER_SENT', 'JOB_SUBMISSION_AUTO_REMINDER_SENT',
   'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
   'JOB_EARLY_START_AUTHORIZED',
+  'JOB_CHANGE_REQUESTED',
+  'JOB_CHANGE_REQUEST_RESOLVED',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -335,6 +373,61 @@ export type PersistedJobCardDetail = JobCard & {
    * so an absent value means "no authorization", never "unknown".
    */
   earlyStartAuthorization: EarlyStartAuthorizationView | null;
+  /**
+   * JOB-010 release 2a: the request that is OPEN right now, or null. Closed
+   * requests stay in the append-only table and never surface here.
+   */
+  changeRequest: ChangeRequestView | null;
+};
+
+/** JOB-010 release 2a: the open request a job detail exposes. */
+export type ChangeRequestView = {
+  id: string;
+  reasonCode: JobChangeRequestReasonCode;
+  reasonText: string;
+  requestedAt: string;
+  requestedBy: { id: string; name: string | null };
+};
+
+export type CreateChangeRequestInput = {
+  clientActionId: string;
+  reasonCode: JobChangeRequestReasonCode;
+  reasonText: string;
+};
+
+export type CreateChangeRequestReceipt = {
+  jobCardId: string;
+  changeRequestId: string;
+  requestedAt: string;
+};
+
+export type ResolveChangeRequestInput = {
+  clientActionId: string;
+  resolution: JobChangeRequestDecision;
+  note?: string | null;
+  linkedJobCardId?: string | null;
+};
+
+export type ResolveChangeRequestReceipt = {
+  jobCardId: string;
+  changeRequestId: string;
+  resolution: JobChangeRequestDecision;
+  resolvedAt: string;
+};
+
+/** One row of the management open-request list, oldest first. */
+export type OpenChangeRequestItem = {
+  changeRequestId: string;
+  jobCardId: string;
+  jobTitle: string;
+  jobType: JobCardType;
+  jobStatus: JobCardStatus;
+  reasonCode: JobChangeRequestReasonCode;
+  reasonText: string;
+  requestedAt: string;
+  requestedBy: { id: string; name: string | null };
+  customer: { id: string; name: string } | null;
+  jobPath: string;
 };
 
 export type EarlyStartAuthorizationView = {
@@ -451,11 +544,22 @@ export type JobCardActivityStatus = JobCardStatus | 'PLANNED';
 export type JobPermissionSubject = Pick<
   JobCard,
   'organizationId' | 'type' | 'status' | 'assignedTo'
-> & Partial<Pick<JobCard, 'scheduledAt' | 'earlyStartAuthorized'>>;
+> & Partial<Pick<
+  JobCard,
+  'scheduledAt' | 'earlyStartAuthorized'
+>> & {
+  /**
+   * JOB-010 release 2a: true only when a request is OPEN right now. Absent
+   * means "no open request", so every caller that cannot prove it keeps the
+   * pre-2a action set.
+   */
+  hasOpenChangeRequest?: boolean;
+};
 
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
   'EDIT_MEETING_RESULT', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE',
+  'REQUEST_CHANGE', 'RESOLVE_CHANGE_REQUEST',
 ] as const;
 export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
 
@@ -620,6 +724,13 @@ export type SubmissionLatenessSnapshot = {
     escalationSentAt: string | null;
     manualReminderSentAt: string | null;
     manualReminderCount: number;
+    /**
+     * JOB-010 release 2a (D1 §5): while a change/termination request is open,
+     * automatic OVR-4 Staff reminders stop and the wait until the management
+     * decision is management time. Null means no open request; the incident
+     * itself is never closed or rewritten by a request.
+     */
+    changeRequestOpenSince: string | null;
   };
 };
 

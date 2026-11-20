@@ -52,7 +52,9 @@ export type OverdueReminderCandidateOutcome =
   | { kind: 'skipped-not-due' }
   | { kind: 'skipped-no-open-incident' }
   | { kind: 'skipped-state-changed' }
-  | { kind: 'skipped-recipient-unprovable' };
+  | { kind: 'skipped-recipient-unprovable' }
+  /** JOB-010 release 2a: an OPEN change/termination request pauses OVR-4. */
+  | { kind: 'skipped-change-request-open' };
 
 /** Bounded operational visibility for one worker iteration. */
 export type OverdueReminderIterationReport = {
@@ -64,6 +66,7 @@ export type OverdueReminderIterationReport = {
   skippedNoOpenIncident: number;
   skippedStateChanged: number;
   skippedRecipientUnprovable: number;
+  skippedChangeRequestOpen: number;
   failed: number;
   byKind: Readonly<Record<OverdueReminderKind, number>>;
 };
@@ -115,6 +118,14 @@ implements OverdueReminderWorkerRepository {
       if (job === null
         || !(SUBMITTABLE_STATUSES as readonly string[]).includes(job.status)) {
         return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
+      }
+      // JOB-010 release 2a (D1 §5): re-check the OPEN change/termination
+      // request under the JobCard lock. The discovery prefilter already
+      // excluded it, but a request raised after discovery must still pause
+      // the automatic reminders in this tick.
+      const openChangeRequest = await tx.getOpenChangeRequest(organizationId, jobCardId);
+      if (openChangeRequest !== null) {
+        return { outcome: { kind: 'skipped-change-request-open' }, realtimeEvents: [] };
       }
       const open = await tx.listOpenLateSubmissionIncidents(organizationId, jobCardId);
       if (open.length === 0) {
@@ -364,6 +375,7 @@ export function createOverdueReminderWorker(
       skippedNoOpenIncident: 0,
       skippedStateChanged: 0,
       skippedRecipientUnprovable: 0,
+      skippedChangeRequestOpen: 0,
       failed: 0,
     };
     const candidates = await repository.listCandidates({ scanTime, timing, limit: batchSize });
@@ -385,6 +397,7 @@ export function createOverdueReminderWorker(
           case 'skipped-no-open-incident': counts.skippedNoOpenIncident += 1; break;
           case 'skipped-state-changed': counts.skippedStateChanged += 1; break;
           case 'skipped-recipient-unprovable': counts.skippedRecipientUnprovable += 1; break;
+          case 'skipped-change-request-open': counts.skippedChangeRequestOpen += 1; break;
         }
         for (const event of realtimeEvents) publisher.publish(event);
       } catch (error) {
@@ -435,6 +448,7 @@ function runOnceFailedReport(scanTime: Date): OverdueReminderIterationReport {
     skippedNoOpenIncident: 0,
     skippedStateChanged: 0,
     skippedRecipientUnprovable: 0,
+    skippedChangeRequestOpen: 0,
     failed: 1,
     byKind: { STAFF_REMINDER: 0, MANAGEMENT_ESCALATION: 0 },
   };

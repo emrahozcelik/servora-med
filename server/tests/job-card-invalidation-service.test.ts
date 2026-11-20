@@ -36,6 +36,8 @@ function makeRepository() {
     customer: { id: 'customer-1', name: 'Demo Klinik' },
     contact: null,
     proposer: null,
+    earlyStartAuthorization: null,
+    changeRequest: null,
     lifecycle: {
       createdAt: '2026-01-01T10:00:00.000Z', acceptedAt: null, acceptedBy: null,
       startedAt: '2026-01-01T10:05:00.000Z', submittedAt: '2026-01-01T10:10:00.000Z',
@@ -70,6 +72,8 @@ function makeRepository() {
     getNextSubmittedSeqNo: async () => 1,
     appendAccountabilityFact: async () => ({ id: 'fact-1' }),
     appendAudit: async (input: JobCardAuditInput) => { audits.push(input); },
+    // JOB-010 release 2a: invalidation supersedes an OPEN change request.
+    closeOpenChangeRequest: async () => {},
     synchronizeCalendarReminder: async (input: unknown) => { reminders.push(input); },
     appendRealtimeEvent: async (input: unknown) => {
       realtime.push(input);
