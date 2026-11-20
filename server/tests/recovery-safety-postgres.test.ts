@@ -139,13 +139,25 @@ beforeAll(async () => {
     } finally { await pool.end(); }
   }
 }, 60_000);
+// Drops every database this file created (~40), so it gets the same budget as setup.
 afterAll(async () => {
   if (admin) { for (const name of created.reverse()) await admin.query(`DROP DATABASE IF EXISTS ${name}`); await admin.end(); }
   vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
-});
+}, 60_000);
 
-describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery paths', () => {
+// Every test here drives real PostgreSQL work: template database copies,
+// pg_dump/pg_restore subprocesses and the production recovery script (scratch
+// preflight restore, single-transaction restore and Node probe verifications).
+// Hosted server jobs 2026-11-05..19 (n=169): R2 legacy cases p50 3.9 s, p90
+// 4.4 s, max 5.3 s; R1 late-failure max 5.7 s; the two tests that already had
+// 30 s reached 9.7 s. That ran at 80-90% of Vitest's 5 s default and timed out
+// in 2 jobs. Locally the same tests take 0.1-1.9 s. 30 s is about 3x the
+// observed hosted maximum. It is a suite-level budget for real work, not a
+// retry, and every assertion is unchanged.
+const REAL_POSTGRES_RECOVERY_TIMEOUT_MS = 30_000;
+
+describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery paths', { timeout: REAL_POSTGRES_RECOVERY_TIMEOUT_MS }, () => {
   it('R1 rejects a 055 dump over a 056 target before any target mutation', async () => {
     const target = await createDatabase(seed56);
     await withPool(target, async (pool) => {
@@ -198,7 +210,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       expect(result.env).toContain(`HEALTH_SCHEMA_VERSION=${oldCatalog.head!.version}`);
       await withPool(target, async (pool) => { expect(await snapshot(pool)).toEqual(expected); });
     });
-  }, 30_000);
+  });
   it('R1 rolls back every clean/drop operation on a controlled mid-restore failure', async () => {
     const target = await createDatabase(seed55); const file = dump(seed55, 'atomic-failure');
     await withPool(target, async (pool) => {
@@ -286,8 +298,6 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       expect(await snapshot(pool)).toEqual(before);
     });
   });
-  // A real dump, new database, restore and two catalog checks need the same
-  // emulated-CI allowance as the same-schema restore above; assertions stay intact.
   it('R1/R3 new-target restore validates full history while the live database stays unchanged', async () => {
     const file = dump(seed55, 'new-target');
     const name = `servora_med_test_restore_${randomUUID().replaceAll('-', '')}`;
@@ -302,7 +312,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
         expect(await snapshot(live)).toEqual(before);
       } finally { await dropRestoreTargetIfCreated(url!, name); }
     });
-  }, 30_000);
+  });
   it('R3 accepts exact 055 and 056 catalogs instead of trusting a matching manifest head alone', async () => {
     for (const [seed, expectedCatalog] of [[seed55, oldCatalog], [seed56, catalog]] as const) {
       await withPool(seed, async (pool) => { await pool.query("UPDATE schema_migrations SET applied_at='2020-01-01'::timestamptz"); });

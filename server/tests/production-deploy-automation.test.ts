@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import {
   classifyMigrationState,
@@ -675,6 +675,24 @@ deploy_phase
   const envAfter = readFileSync(envFile, 'utf8');
   return { result, events, envAfter, envFile, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
+
+// The host helper pins PATH to its SAFE_PATH, so the `node` it runs is the
+// host/runner-image binary, not the Node that runs Vitest. On GitHub-hosted
+// runners the first exec of that (cold, not-yet-cached) binary landed inside
+// the first fixture that runs it, the stale-predeploy observation test: 0.3-5.2 s
+// in 34 of 169 hosted server jobs (2026-11-05..19, two 5 s timeouts), while the
+// next test, which execs the same node five times, stayed <= 0.37 s; ~30 ms locally.
+// Pay that one-time environmental cost in setup, with an explicit budget, so
+// per-test durations measure only the fixture. Assertions are unchanged and a
+// missing SAFE_PATH node still fails the fixtures that need it.
+const HOST_SAFE_PATH = /^readonly SAFE_PATH="([^"]+)"$/m.exec(readFileSync(hostHelper, 'utf8'))?.[1];
+beforeAll(() => {
+  expect(HOST_SAFE_PATH).toBeTruthy();
+  const started = performance.now();
+  const warmup = spawnSync('/usr/bin/env', ['-i', `PATH=${HOST_SAFE_PATH}`, 'node', '--version'], { encoding: 'utf8' });
+  console.log(`HOST_SAFE_PATH_NODE_WARMUP status=${warmup.status} version=${warmup.stdout.trim() || 'none'} `
+    + `ms=${Math.round(performance.now() - started)}`);
+}, 60_000);
 
 describe('controlled production deployment automation contract', () => {
   it('keeps shell and Node helpers syntactically valid', () => {
