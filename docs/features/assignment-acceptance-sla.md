@@ -2,17 +2,22 @@
 
 - **Status:** Accepted product contract — `DECISIONS.md` JOB-010
   (2026-11-20). Owner answered Q1–Q9 with the draft defaults ("Evet, kabul
-  et") and accepted the record ("Evet, kayda taşı"). Implementation pending;
-  each delivery slice below needs its own PR.
+  et"), accepted the record ("Evet, kayda taşı") and added the pre-merge
+  decisions P1-A/B/C, early START and outcome rules (PR #470 review). D1 stays
+  open. Implementation pending; each delivery slice below needs its own PR.
 - **Date:** 2026-11-20
 - **Scope:** Management-assigned `PRODUCT_DELIVERY` and `SALES_MEETING`
   JobCards before work starts: when Staff may accept, how long they have, how
-  they decline or release the job, what happens when nobody answers, and how
-  management recovers the customer commitment.
+  they decline or release the job, what happens when nobody answers, how
+  management recovers the customer commitment, and how early a
+  `PRODUCT_DELIVERY` / `SALES_MEETING` may start.
 - **Extends:** JOB-006 (acceptance), JOB-008 / JOB-009 (follow-up visit
   creation paths), Staff offboarding transfer. **Amends:** the
-  `PRODUCT_REQUIREMENTS.md` Staff-cancellation invariant for jobs in the acceptance window, in
-  `NEW` and `ACCEPTED` only. Earlier records are not rewritten.
+  `PRODUCT_REQUIREMENTS.md` Staff-cancellation invariant and JOB-006 §5 Staff
+  schedule edits for jobs in the acceptance window, in `NEW` and `ACCEPTED`
+  only; replaces the unrecorded not-before `scheduledAt` `START` gate for
+  `PRODUCT_DELIVERY` and `SALES_MEETING` with a 30-minute tolerance. Earlier
+  records are not rewritten.
 
 ## Context
 
@@ -57,14 +62,58 @@ Staff member at 12:00. Today:
   grants Staff `ADD_NOTE` only in `ACCEPTED`, `IN_PROGRESS` and
   `REVISION_REQUESTED`. Reported for a separate decision.
 
-## Decision (proposed)
+## Decision
 
 ### 1. Acceptance and start are separate time rules
 
 - `ACCEPT_ASSIGNMENT` is no longer gated by `scheduledAt`, for every JobCard
   type *(Q7)*. It removes an unrecorded restriction and adds no rule.
-- `START` keeps the existing not-before `scheduledAt` gate, the planned
-  interval requirement and location rules.
+- The acceptance deadline (§4) and the early-start tolerance (§1a) are
+  independent: neither moves the other.
+
+### 1a. Early START
+
+Staff may arrive before the planned time; if the customer is ready, the visit
+or delivery may start early. No separate "arrived" command, arrival state or
+button is introduced.
+
+- **Who:** only the assigned Staff member, from `ACCEPTED` (unchanged).
+- **Tolerance:** for every `PRODUCT_DELIVERY` and `SALES_MEETING` (in or out of
+  the acceptance window), `START` is allowed from `scheduledAt − 30 min`.
+  The current not-before rule (`requestTime >= scheduledAt`) is replaced by
+  `requestTime >= scheduledAt − 30 min`. Other types keep today's rule.
+- **Earlier than 30 minutes** needs either a valid reschedule (defined below) or an
+  **early-start authorization** granted by MANAGER/ADMIN beforehand.
+  - Granted only while the job is `NEW` or `ACCEPTED`, by a management command
+    with `clientActionId` and `expectedVersion`, under the JobCard row lock; it
+    increments `job_cards.version` and appends its own activity event in the
+    same transaction.
+  - Durable record: job, assignee, current schedule revision number, the
+    planned `scheduledAt` / `scheduledEndsAt` it was granted for, granting
+    actor and instant.
+  - Valid only while the assignee and the planned interval are unchanged. A
+    reassignment or a change of `scheduledAt` / `scheduledEndsAt` voids it; a
+    `dueDate`-only revision does not. Voiding is recorded when it happens: a
+    later return to the same assignee or planned interval does not revive it.
+    No revocation or earliest-instant field in V1.
+  - With a valid authorization, `START` is allowed any time before the
+    tolerance boundary.
+  - A "valid reschedule" means a new planned time set by whoever may change it:
+    management for jobs in the window (§4); Staff too for jobs outside it,
+    where JOB-006 §5 still applies. The tolerance then follows the new time.
+- **Planned values stay as planned.** Early `START` never changes
+  `scheduledAt` or `scheduledEndsAt`; the actual start instant is the existing
+  `startedAt` (049 reservation time) and the existing START location-evidence
+  policy applies.
+- **No negative event.** An early start creates no `LATE_START` or other
+  lateness incident. Role, location, planned-interval and lifecycle-safety
+  checks are unchanged.
+- **Boundary:** `requestTime = scheduledAt − 30 min` is allowed; one
+  millisecond earlier needs the authorization.
+
+Example: a meeting planned for 14:00 may start at 13:30 or 13:40; if the
+customer is not ready, Staff wait. Starting at 13:15 needs a management
+authorization or a reschedule.
 
 ### 2. Scope of the acceptance window
 
@@ -93,19 +142,23 @@ offers over time; at most one is `OPEN`.
   `createFollowUp`), management reassignment, management reschedule (including
   the JOB-006 `ACCEPTED -> NEW` reset), a JOB-008 approval-created follow-up
   that starts in `NEW`, a JOB-009 `RESCHEDULE` replacement that starts in `NEW`,
-  offboarding transfer, and management re-offer (§8).
+  offboarding transfer of a `NEW` or `ACCEPTED` job (started jobs never get an
+  offer), and management re-offer (§8).
 - **Fields:** job, assignee, `opened_at`, `opened_reason` (one of the producers
   above), opening actor (always the authenticated management actor;
-  offboarding runs as an ADMIN), `acceptance_due_at`, `urgent` flag, state,
-  closing instant, closing actor, closing reason. An optional link to the assignment-history row exists only
+  offboarding runs as an ADMIN), `acceptance_due_at`, `urgent_reason`
+  (`null`, `SHORT_NOTICE` or `START_PASSED`; see §4 and below), optional
+  past-start acknowledgement (code and text), state, closing instant, closing
+  actor, closing reason. An optional link to the assignment-history row exists only
   when the producer wrote one; an offer is not required to have one.
 - **States:** `OPEN`, `ACCEPTED`, `DECLINED`, `RELEASED`, `EXPIRED`,
   `WITHDRAWN`. At most one `OPEN` offer per job (database-enforced). Closed
   offers are never reopened or edited; the single exception is the one-way
   `ACCEPTED -> RELEASED` step in §5.
 - **Closers:** accept → `ACCEPTED`; decline → `DECLINED`; release (§5) →
-  `RELEASED`; expiry (§6) → `EXPIRED`; management reassign, reschedule, cancel,
-  ADMIN invalidation and offboarding transfer → `WITHDRAWN`.
+  `RELEASED`; expiry (§6) or a management producer meeting an overdue `OPEN`
+  offer → `EXPIRED`; management reassign, reschedule, cancel, ADMIN
+  invalidation and offboarding transfer of a live `OPEN` offer → `WITHDRAWN`.
 - The JobCard lifecycle status stays `NEW` while no offer is `OPEN`. No new
   `JobCardStatus` is introduced.
 - For a job in the window, `ACCEPT_ASSIGNMENT` requires an `OPEN` offer for the
@@ -119,6 +172,20 @@ offers over time; at most one is `OPEN`.
     replacement, offboarding transfer) record the offer and close it at once as
     `WITHDRAWN` with reason `PLANNED_WINDOW_PASSED`. The job lands in the
     management list (§8); Staff cannot accept it until management reschedules.
+- **Planned start already passed.** When `opened_at >= scheduledAt` (the
+  window still fits by the rule above), the offer is never treated as an
+  ordinary assignment:
+  - The offer's `urgent_reason` is `START_PASSED` for every producer.
+  - Direct management actions also require an explicit acknowledgement in the
+    same request — code `CUSTOMER_CONFIRMED_LATER_TIME`, `CUSTOMER_WAITING` or
+    `OTHER`, plus mandatory text — or a reschedule; without either the request
+    is rejected with 409.
+  - Compound producers cannot ask; in current code only offboarding transfer
+    can reach this case (JOB-008 and JOB-009 already reject a past
+    `scheduledAt`). The offer has no acknowledgement and appears in the
+    management list (§8).
+  - The offer stores `urgent_reason`, the acknowledgement (if any), actor and
+    instant.
 
 ### 4. Acceptance deadline
 
@@ -126,25 +193,40 @@ One rule, computed by the server at offer open:
 
 ```
 acceptance_due_at = max(scheduledAt − 60 min, opened_at + minimum window)
-urgent            = acceptance_due_at > scheduledAt − 60 min
+urgent_reason     = START_PASSED   if opened_at >= scheduledAt
+                    SHORT_NOTICE   else if acceptance_due_at > scheduledAt − 60 min
+                    null           otherwise
 ```
 
 - Minimum window *(Q1)* keeps every deadline answerable, including system
   producers (JOB-008 approval, JOB-009 replacement, offboarding) that cannot
   ask anyone for a value, and late re-offers.
-- `urgent` offers are shown to management as "customer time at risk".
+- Offers with an `urgent_reason` are shown to management as "customer time at
+  risk".
 - No manual deadline override in V1.
 - **Boundary:** a reservation with `reserved_at < acceptance_due_at` is on
   time; `reserved_at >= acceptance_due_at` is late (same equality rule as
   `LATE_START`).
-- **Staff schedule edits never move a deadline or open, withdraw or reopen an
-  offer.** Only management actions and the producers above do. *(Q9: whether
-  Staff may still edit `scheduledAt` of a job in the window while it is `NEW`.)*
+- **The server enforces the deadline, not the worker.** `ACCEPT_ASSIGNMENT`
+  and `DECLINE_ASSIGNMENT` compare the canonical 049 reservation instant with
+  `acceptance_due_at` in the reservation preflight and again in the finalize
+  transaction. A late request is rejected with 409
+  (`ACCEPTANCE_WINDOW_CLOSED`) and writes nothing, whether or not the expiry
+  worker has run. A late decline is rejected the same way: the job is already
+  in the management list (§8). Reads present such an offer as expired. To let
+  the same Staff member accept again, management re-offers (§8).
+- **Only management changes the customer time.** For jobs in the window, in
+  `NEW` and `ACCEPTED`, `scheduledAt`, `scheduledEndsAt` and `dueDate` may be
+  changed only by MANAGER/ADMIN; a Staff patch of these fields is rejected with
+  403. This amends JOB-006 §5 ("Staff schedule edits do not clear their own
+  acceptance") for these jobs only; jobs outside the window keep it. Staff
+  edits therefore never move a deadline or open, withdraw or reopen an offer.
+  An early `START` (§1a) is not a schedule change *(Q9)*.
 
 ### 5. Staff answers
 
 - **Accept:** `ACCEPT_ASSIGNMENT`, now allowed before `scheduledAt`, only on an
-  `OPEN` offer.
+  `OPEN` offer and only before `acceptance_due_at` (§4).
 - **Decline (new command `DECLINE_ASSIGNMENT`):** assigned Staff only, job in
   the window, in `NEW` with an `OPEN` offer. Structured reason code *(Q5)* plus
   mandatory text. Closes the offer as `DECLINED`; the job stays `NEW` and
@@ -166,13 +248,15 @@ urgent            = acceptance_due_at > scheduledAt − 60 min
 - **No Staff cancel for jobs in the window in `NEW` and `ACCEPTED`.** Staff decline or
   release instead; management keeps reasoned cancellation. This closes the
   "accept, then cancel" path. Staff cancellation in `IN_PROGRESS` and later is
-  unchanged *(Q3)*.
+  **not changed by this record**; it is an open product decision (D1 below).
 
 ### 6. Expiry
 
 - A clock-only worker (OVR-3 conventions: bounded batch, per-job row lock,
   injected clock, opt-in env flag defaulting to off) closes an `OPEN` offer as
-  `EXPIRED` once `acceptance_due_at` has passed.
+  `EXPIRED` once `acceptance_due_at` has passed and produces the expiry
+  notifications. It is not what blocks a late accept; §4 does that on every
+  request.
 - An `ACCEPT_ASSIGNMENT` or `DECLINE_ASSIGNMENT` reservation reserved before
   `acceptance_due_at` and still in flight wins over expiry (049 ordering, as in
   OVR-3).
@@ -199,14 +283,17 @@ urgent            = acceptance_due_at > scheduledAt − 60 min
 
 A management "needs action" list shows jobs in the window whose latest offer
 is `DECLINED`, `RELEASED`, `EXPIRED` or `WITHDRAWN` (`PLANNED_WINDOW_PASSED`),
-`OPEN` offers marked `urgent`, and `OPEN` offers whose `acceptance_due_at` has
+`OPEN` offers with an `urgent_reason`, and `OPEN` offers whose `acceptance_due_at` has
 passed (computed at read time, so the list stays correct while the expiry
 worker is off). Management may:
 
 - **reassign** to another active Staff member (opens a new offer);
 - **re-offer to the same Staff member** (new management action with
-  `clientActionId` and `expectedVersion`; rejected with 409 while an offer is
-  `OPEN`). Allowed on any `NEW` `PRODUCT_DELIVERY` / `SALES_MEETING` with a
+  `clientActionId` and `expectedVersion`). Rejected with 409 only while an
+  `OPEN` offer is still live (`requestTime < acceptance_due_at`). An `OPEN`
+  offer whose deadline has passed (expiry worker off or not yet run) is closed
+  as `EXPIRED` in the same transaction that opens the new offer, so recovery
+  never waits for the worker. Allowed on any `NEW` `PRODUCT_DELIVERY` / `SALES_MEETING` with a
   `scheduledAt`, including a pre-rollout job with no offer, which it brings
   into the window as an explicit management choice;
 - **reschedule** (opens a new offer);
@@ -244,9 +331,60 @@ schedule revision.
 
 ### 11. Existing jobs at rollout
 
-`NEW` jobs that exist before the migration get no offer and no deadline; none
-is fabricated. They keep pre-JOB-010 rules until a management producer (§3)
-opens an offer for them *(Q4)*.
+`NEW` and `ACCEPTED` jobs that exist before the migration get no offer and no
+deadline; none is fabricated. They keep pre-JOB-010 rules until a management
+producer (§3) opens an offer for them *(Q4)*. The early-start tolerance (§1a) applies to
+them from slice 1.
+
+### 12. Started work that cannot be completed
+
+An early or on-time `START` does not mean the visit or delivery succeeded.
+After `START`, Staff record what actually happened inside the existing JobCard:
+
+- the customer was available: the visit or delivery proceeds as today;
+- the customer is not ready: Staff wait; nothing is recorded;
+- the contact is absent, refuses or asks for later: Staff record that outcome
+  and use the existing follow-up / reschedule paths;
+- a delivery happened early: the real `deliveredAt` is recorded.
+
+**No fabricated actual times.** A visit that did not happen never gets a
+`meetingAt`, and an item that was not delivered never gets a `deliveredAt`.
+No separate arrival workflow is created.
+
+**Known gap (slice 5).** Today a Sales Meeting cannot be submitted without a
+valid `meetingAt`, even with outcome `FOLLOW_UP_REQUIRED` and an
+`unsuccessfulReason` (`CONTACT_NOT_AVAILABLE`, `CONTACT_BUSY`,
+`CUSTOMER_UNREACHABLE`, `REQUESTED_LATER`, `OTHER`) —
+`server/src/modules/job-cards/submission-policy.ts:120-171`. Delivery
+submission likewise requires a valid `deliveredAt` on every item. A visit
+that did not happen therefore cannot be closed truthfully except by `CANCEL`.
+Slice 5 must define a not-held / not-delivered outcome that is submitted for
+management approval without an actual time.
+
+## Open product decision D1 — Staff cancel after START
+
+Not decided by this record; today's behavior (assigned Staff may cancel with
+a reason in any active state) stays until a separate decision is accepted.
+
+Questions: may Staff unilaterally cancel a started delivery or visit? Should a
+reasoned failure go to management instead? How are safety emergencies and
+impossible jobs ended?
+
+**Recommendation (for that decision, not adopted here):**
+
+1. For jobs in the window, replace Staff `CANCEL` after `START` with the
+   slice 5 not-held / not-delivered outcome: Staff submit the structured
+   reason; management approves it, reschedules, reassigns or cancels. The
+   customer commitment is closed only by management, and the record shows
+   whether the visit failed or was abandoned.
+2. Safety or impossibility needs no Staff cancel command: Staff stop work and
+   submit the not-held outcome (or add a note). Nothing in the system forces
+   them to continue, and management is notified through the existing approval
+   path. If a faster signal is needed, add a management notification on that
+   submission, not a Staff cancel.
+3. Change this only together with slice 5. Removing Staff cancel before a
+   truthful not-held outcome exists would force Staff to invent a `meetingAt`
+   or `deliveredAt`, which §12 forbids.
 
 ## Owner answers (2026-11-20)
 
@@ -257,25 +395,88 @@ decision point to these answers.
 | - | -------- | ------------- |
 | Q1 | Minimum response window | 10 minutes |
 | Q2 | Staff reminder in V1, and when | Yes, once, halfway between open and deadline |
-| Q3 | Staff cancellation for jobs in the window in `IN_PROGRESS` and later | Unchanged |
+| Q3 | Staff cancellation for jobs in the window in `IN_PROGRESS` and later | Not changed here; reopened as open decision D1 (2026-11-20 pre-merge review) |
 | Q4 | Pre-rollout `NEW` jobs | No offer until the next management producer |
 | Q5 | Decline/release reason codes | `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER` |
 | Q6 | Who receives management notifications; notify on accept? | All active MANAGER/ADMIN (as OVR-4); no accept notification |
 | Q7 | Remove the acceptance not-before gate for all types | Yes |
 | Q8 | Include `GENERAL_TASK` with `scheduledAt` | No |
-| Q9 | May Staff edit `scheduledAt` of a job in the window while `NEW`? | No — the time is a customer commitment set by management |
+| Q9 | May Staff change the customer time of a job in the window? | No — `scheduledAt`, `scheduledEndsAt` and `dueDate` in `NEW` and `ACCEPTED` are management-only (widened from `NEW` only in the 2026-11-20 pre-merge review) |
+
+### Pre-merge owner decisions (2026-11-20)
+
+Recorded from the owner's PR #470 review, before merge:
+
+- **P1-A:** late accept/decline is blocked by the server against
+  `acceptance_due_at` on every request, independent of the expiry worker (§4).
+- **P1-B:** customer-time fields are management-only in `NEW` and `ACCEPTED`
+  for jobs in the window (§4, Q9).
+- **P1-C:** an offer opened after the planned start needs an explicit
+  management acknowledgement or a reschedule; compound producers mark it
+  `START_PASSED` (§3).
+- **Early START:** 30-minute tolerance for `PRODUCT_DELIVERY` and
+  `SALES_MEETING`; earlier only with a management authorization or reschedule;
+  no arrival workflow (§1a).
+- **Outcomes:** no fabricated `meetingAt` / `deliveredAt`; failed-visit
+  submission is slice 5 (§12).
+- **D1** stays open.
 
 ## Delivery slices (each its own PR, in order)
 
-1. **Acceptance gate removal (§1).** Policy and tests only; no schema change.
-2. **Offer model, decline/release, cancel restriction (§3, §5, §9, §11).**
-3. **Deadline and expiry worker (§4, §6).**
-4. **Notifications and management list (§7, §8).**
+1. **Accept before start and early START (§1, §1a).** Remove the acceptance
+   gate; 30-minute start tolerance; early-start authorization (migration for
+   its table and activity event type).
+2. **Offer model, deadline and Staff limits (§3, §4, §5, §9, §11).** Offers,
+   deadline computation, the "window too short" rule, server-side deadline
+   check on accept/decline, re-offer, decline/release, Staff cancel
+   restriction in `NEW`/`ACCEPTED`, management-only customer-time fields.
+3. **Urgency and expiry (§3, §4, §6).** `SHORT_NOTICE` / `START_PASSED`
+   marking, past-start acknowledgement, expiry worker (off by default).
+4. **Management list, notifications and UI (§7, §8).**
+5. **Separate acceptance:** truthful not-held / not-delivered outcome (§12) and
+   decision D1.
+
+Every slice ships with PostgreSQL integration tests for its server rules and
+UI regression tests for the screens it changes.
+
+## Acceptance scenarios
+
+Times use one organization timezone; the job is planned 14:00–15:00 and
+assigned at 12:00 unless stated.
+
+| # | Scenario | Expected | Slice |
+| - | -------- | -------- | ----- |
+| A1 | Staff accepts at 12:30 | Accepted; no lateness incident | 1–2 |
+| A2 | Staff accepts at 12:59:59.999 | Accepted (deadline 13:00) | 2 |
+| A3 | Staff accepts at 13:00, expiry worker off | 409 `ACCEPTANCE_WINDOW_CLOSED`; nothing written; job in management list (list itself: slice 4) | 2 |
+| A4 | Staff declines at 13:05, worker off | Same 409; job stays `NEW`, not cancelled | 2 |
+| A5 | Accept reserved 12:59:59, finalized after 13:00 | Accepted (reservation instant wins) | 2–3 |
+| A6 | Management re-offers the same Staff at 13:10, expiry worker off | Overdue offer closed as `EXPIRED`; new offer, deadline 13:20; Staff can accept; both offers kept in history | 2 |
+| A7 | Staff patches `scheduledAt`, `scheduledEndsAt` or `dueDate` in `NEW` or `ACCEPTED` | 403; nothing written | 2 |
+| A8 | Accepted job, Staff starts at 13:30 | `IN_PROGRESS`; `scheduledAt`/`scheduledEndsAt` unchanged; `startedAt` 13:30; START location policy applied | 1 |
+| A9 | Accepted job, Staff starts at 13:29:59.999 without authorization | Rejected; nothing written | 1 |
+| A10 | Management authorizes early start, Staff starts at 13:15 | `IN_PROGRESS`; `scheduledAt`/`scheduledEndsAt` unchanged; `startedAt` 13:15; authorization recorded with actor, instant, revision | 1 |
+| A11 | Authorization granted, then management reschedules or reassigns | Authorization void; tolerance applies to the new time; a `dueDate`-only change keeps it | 1 |
+| A12 | Early start never produces `LATE_START` | No incident | 1 |
+| A13 | Management assigns at 14:10 (start passed, end 15:00) without acknowledgement | 409; with acknowledgement: offer `urgent_reason = START_PASSED`, acknowledgement stored, deadline 14:20 | 3 |
+| A14 | Management assigns at 14:55 (window does not fit before 15:00) | 409; must reschedule | 2 |
+| A14b | Management assigns at 13:30 (start not passed) | Offer `urgent_reason = SHORT_NOTICE`, deadline 13:40 | 3 |
+| A15 | Offer expires | JobCard stays `NEW` and assigned; management can reassign, re-offer, reschedule or cancel | 3–4 |
+| A16 | Started visit, contact absent | Outcome recorded without a `meetingAt`; submitted for approval | 5 |
+| A17 | Started delivery, nothing handed over | Outcome recorded without a `deliveredAt`; submitted for approval | 5 |
+| A18 | Offboarding transfers an `IN_PROGRESS` job | No offer opened; job not in the management list | 2 |
 
 ## Consequences
 
-- New migration: offer table; widened 049 lifecycle-intent command CHECK;
-  activity event types; notification kinds. `JobCardStatus` is unchanged.
+- New migrations: early-start authorization table and its activity event type
+  (slice 1); offer table, widened 049 lifecycle-intent command CHECK, further
+  activity event types and notification kinds (slices 2–4). `JobCardStatus` is
+  unchanged.
+- The `START` tolerance and the authorization check change `policy.ts`
+  (`timeEligible`) and `JobPermissionSubject`: the permission subject must carry
+  whether a valid authorization exists, so the lifecycle reservation/finalize
+  checks and every read that computes `allowedCommands` (detail, list, board)
+  load it.
 - Producers to update: job create paths, patch (reassign/reschedule), JOB-008
   approval, JOB-009 replacement, offboarding transfer (which also starts
   sending `job.reassigned`), ADMIN invalidation (withdraws the offer).

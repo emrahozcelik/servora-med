@@ -3014,65 +3014,106 @@ still be visited.
 
 - **Date:** 2026-11-20
 - **Status:** Accepted product contract (owner: "Evet, kayda taşı", 2026-11-20;
-  Q1–Q9 answered with the draft defaults); implementation pending in four
-  slices. No runtime behavior changes until each slice ships.
+  Q1–Q9 answered with the draft defaults; pre-merge decisions P1-A, P1-B,
+  P1-C, early START and outcome rules added in the PR #470 review).
+  Implementation pending in five slices. No runtime behavior changes until
+  each slice ships. Decision D1 (Staff cancel after `START`) stays open.
 - **Owner:** [Assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
-  The contract holds the full rules, producers, edge cases and slice order.
+  The contract holds the full rules, producers, edge cases, acceptance
+  scenarios and slice order.
 - **Extends:** JOB-006, JOB-008, JOB-009 and the Staff offboarding transfer.
-- **Amends:** the `PRODUCT_REQUIREMENTS.md` Staff-cancellation invariant for
-  jobs in the acceptance window while `NEW` or `ACCEPTED`. Earlier records are
-  not rewritten.
+- **Amends:** for jobs in the acceptance window while `NEW` or `ACCEPTED`, the
+  `PRODUCT_REQUIREMENTS.md` Staff-cancellation invariant and JOB-006 §5 Staff
+  schedule edits. Replaces the unrecorded not-before `scheduledAt` `START` gate
+  for `PRODUCT_DELIVERY` and `SALES_MEETING`. Earlier records are not
+  rewritten.
 
 ### Context
 
 Staff could not accept an assigned job before its planned start: the
-not-before `scheduledAt` filter on `ACCEPT_ASSIGNMENT` (`policy.ts`) came from
-commit `87074ab` without a decision record and contradicts JOB-006's intent
-that acceptance is a commitment made before work. There was no acceptance
-deadline, no decline path, no management signal when nobody answered, and a
-Staff member could cancel a customer's job instead of handing it back.
+not-before `scheduledAt` filter on `ACCEPT_ASSIGNMENT` and `START`
+(`policy.ts`) came from commit `87074ab` without a decision record and
+contradicts JOB-006's intent that acceptance is a commitment made before work.
+There was no acceptance deadline, no decline path, no management signal when
+nobody answered, and a Staff member could cancel a customer's job instead of
+handing it back.
 
 ### Decision
 
 1. **Acceptance and start are separate.** `ACCEPT_ASSIGNMENT` is not gated by
-   `scheduledAt` for any JobCard type; `START` keeps its existing gates.
-2. **Acceptance window.** A `PRODUCT_DELIVERY` or `SALES_MEETING` with a
+   `scheduledAt` for any JobCard type. The acceptance deadline and the
+   early-start tolerance are independent.
+2. **Early START.** For `PRODUCT_DELIVERY` and `SALES_MEETING`, the accepted
+   assignee may `START` from `scheduledAt − 30 min`. Earlier needs a valid
+   reschedule or a durable early-start authorization (management, `NEW` or
+   `ACCEPTED`, versioned and audited), valid while the assignee and planned
+   interval are unchanged. Early `START` never changes the planned
+   times, keeps the START location-evidence policy and creates no lateness
+   incident. No separate arrival command or state.
+3. **Acceptance window.** A `PRODUCT_DELIVERY` or `SALES_MEETING` with a
    `scheduledAt` enters the window when a management producer (create,
    reassignment, reschedule, re-offer, JOB-008 approval, JOB-009 replacement,
    offboarding transfer) records an **assignment offer**. Jobs outside the
-   window, including pre-rollout jobs, keep today's rules.
-3. **Deadline.** `acceptance_due_at = max(scheduledAt − 60 min, opened_at +
-   10 min)`; later than `scheduledAt − 60 min` marks the offer urgent. An offer
-   opens only if `opened_at + 10 min < scheduled_ends_at`; otherwise direct
+   window, including pre-rollout jobs, keep today's acceptance and cancel
+   rules.
+4. **Deadline.** `acceptance_due_at = max(scheduledAt − 60 min, opened_at +
+   10 min)`; a later deadline marks the offer `SHORT_NOTICE`. An offer opens
+   only if `opened_at + 10 min < scheduled_ends_at`; otherwise direct
    management actions are rejected and compound producers close the offer at
-   once as `WITHDRAWN` (`PLANNED_WINDOW_PASSED`). On-time acceptance therefore
-   never creates OVR-2 `LATE_START`.
-4. **Staff answers.** Accept; `DECLINE_ASSIGNMENT` from `NEW`;
+   once as `WITHDRAWN` (`PLANNED_WINDOW_PASSED`). If the planned start already
+   passed, the offer is marked `START_PASSED`, and direct management actions
+   also need a coded acknowledgement with text or a reschedule. Offboarding
+   opens offers only for `NEW` and `ACCEPTED` jobs. On-time
+   acceptance never creates OVR-2 `LATE_START`.
+5. **Server-enforced deadline.** Accept and decline compare the canonical 049
+   reservation instant with `acceptance_due_at`; at or after it they are
+   rejected and write nothing, whether or not the expiry worker has run.
+   Management re-offers to let the same Staff member accept again; an overdue
+   `OPEN` offer is closed as `EXPIRED` in that same transaction.
+6. **Staff answers and limits.** Accept; `DECLINE_ASSIGNMENT` from `NEW`;
    `RELEASE_ASSIGNMENT` from `ACCEPTED` before `START` (materializes
    `LATE_START` before clearing acceptance). Both need a structured reason and
-   text. Staff `CANCEL` is removed for jobs in the window while `NEW` or
-   `ACCEPTED`; later states are unchanged. Staff schedule edits never move a
-   deadline and are not allowed for jobs in the window while `NEW`.
-5. **Expiry.** An opt-in clock-only worker expires overdue offers with OVR-3
-   request-time ordering. The JobCard is never cancelled automatically.
-6. **Notifications.** The assignee gets the assignment notification (now also
+   text. For jobs in the window in `NEW` and `ACCEPTED`, Staff can no longer
+   `CANCEL`, and `scheduledAt`, `scheduledEndsAt` and `dueDate` are
+   management-only.
+7. **Expiry.** An opt-in clock-only worker marks overdue offers `EXPIRED` and
+   sends the expiry notifications. The JobCard is never cancelled
+   automatically.
+8. **Notifications.** The assignee gets the assignment notification (now also
    on offboarding transfer) and one reminder halfway to the deadline; all active
    MANAGER/ADMIN users are notified on decline, release and expiry. No
    notification on acceptance.
-7. **Recovery.** Management reassigns, re-offers to the same Staff member,
+9. **Recovery.** Management reassigns, re-offers to the same Staff member,
    reschedules or cancels with a reason, from a "needs action" list.
-8. **Evidence and reports.** Offer changes and their activity commit together;
-   expiry is "not answered in time", never Staff fault. Offer outcomes are not
-   added to Staff performance metrics; any future report follows REPORT-001.
+10. **Evidence and reports.** Offer changes and their activity commit together;
+    expiry is "not answered in time", never Staff fault. Offer outcomes are not
+    added to Staff performance metrics; any future report follows REPORT-001.
+11. **Truthful outcomes.** A started visit or delivery that did not happen
+    never gets a fabricated `meetingAt` or `deliveredAt`. Today's submission
+    rules require them, so a truthful not-held / not-delivered outcome is a
+    separate slice (5).
+
+### Open decision D1
+
+Whether Staff may still cancel a job in the window after `START` is not
+decided here; today's rule stays. The contract records a recommendation: tie
+any change to the slice 5 not-held outcome so Staff never have to invent
+actual times.
 
 ### Consequences
 
-- New migration (offer table, widened 049 lifecycle-intent command CHECK,
-  activity event types, notification kinds); `JobCardStatus` is unchanged.
-- Delivery slices: (1) acceptance gate removal, no schema change; (2) offer
-  model, decline/release and cancel restriction; (3) deadline and expiry
-  worker, off by default; (4) notifications and the management list.
-  `SERVORA_MED_API_DRAFT.md` gains the new endpoints in the slice that adds
-  them.
+- Migrations: early-start authorization table and its activity event type
+  (slice 1); offer table, widened 049 lifecycle-intent command CHECK, further
+  activity event types and notification kinds (slices 2–4). `JobCardStatus` is
+  unchanged. The permission subject used for `allowedCommands` gains the
+  early-start authorization fact.
+- Delivery slices: (1) accept before start and early START; (2) offer model,
+  deadline computation and server-side check, re-offer, decline/release and
+  Staff limits; (3) urgency marking, past-start acknowledgement and expiry
+  worker, off by default; (4) management list,
+  notifications and UI; (5) truthful not-held outcome and D1, accepted
+  separately. Each slice ships PostgreSQL and UI regression tests; the
+  contract lists the acceptance scenarios. `SERVORA_MED_API_DRAFT.md` gains
+  the new endpoints in the slice that adds them.
 - Drift reported separately, not changed here: JOB-006 §6 allows Staff
   `ADD_NOTE` in `NEW`, but `policy.ts` does not.

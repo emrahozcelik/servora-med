@@ -189,16 +189,22 @@ OF-02 stays open. See the [accepted SOF-2 contract](docs/features/staff-offboard
 Accepted product contract; implementation pending. Until each slice ships, the
 invariants above describe runtime behavior.
 
-- Assigned Staff may accept before the planned start; `START` keeps its
-  planned-start gate.
+- Assigned Staff may accept before the planned start. For `PRODUCT_DELIVERY`
+  and `SALES_MEETING`, accepted Staff may `START` from 30 minutes before the
+  planned start; earlier needs a management authorization or a reschedule.
+  Early start never changes the planned times.
 - A management-assigned `PRODUCT_DELIVERY` or `SALES_MEETING` with a planned
-  time carries an assignment offer with a server-computed acceptance deadline.
-  Staff accept, decline (`NEW`) or release (`ACCEPTED`, before `START`) with a
-  reason; they no longer cancel these jobs in `NEW` or `ACCEPTED`. Management
-  keeps reasoned cancellation and recovers declined, released or expired
-  offers by reassigning, re-offering, rescheduling or cancelling.
+  time carries an assignment offer with a server-computed acceptance deadline
+  that the server enforces on every request. Staff accept, decline (`NEW`) or
+  release (`ACCEPTED`, before `START`) with a reason. For these jobs in `NEW`
+  and `ACCEPTED`, Staff no longer cancel and no longer change `scheduledAt`,
+  `scheduledEndsAt` or `dueDate`. Management keeps reasoned cancellation and
+  recovers declined, released or expired offers by reassigning, re-offering,
+  rescheduling or cancelling.
 - An expired offer never cancels the JobCard and is not recorded as Staff
-  fault. See [DECISIONS.md JOB-010](DECISIONS.md) and the
+  fault. A visit or delivery that did not happen never gets a fabricated
+  actual time. Staff cancellation after `START` is an open decision (D1). See
+  [DECISIONS.md JOB-010](DECISIONS.md) and the
   [assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
 
 ### Lifecycle visibility and responsibility
