@@ -6,6 +6,7 @@ import type {
   PatchMeetingDetailsInput,
 } from './types.js';
 import type { StartLocationCapture } from './start-location-input.js';
+import type { FollowUpCancelContinuity } from './follow-up-policy.js';
 import type { JobActionLocationCapture } from './location-types.js';
 import { normalizeExpiryDate } from './delivery-input.js';
 
@@ -131,6 +132,8 @@ export type LifecycleRequestIdentity = {
   followUpProposal?: FollowUpProposalInput | null;
   approveFollowUp?: ApproveFollowUpInput | null;
   locationCapture?: LifecycleLocationCapture | null;
+  /** JOB-009; omitted when absent so existing request hashes stay stable. */
+  cancelContinuity?: FollowUpCancelContinuity | null;
 };
 
 export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string {
@@ -145,6 +148,13 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
     followUpProposal: normalizedProposalIntent(identity.followUpProposal),
     approveFollowUp: normalizedApproveIntent(identity.approveFollowUp),
     location: normalizedLocationIntent(identity.locationCapture),
+    ...(identity.cancelContinuity
+      ? {
+        cancelContinuity: identity.cancelContinuity.decision === 'RESCHEDULE'
+          ? { decision: 'RESCHEDULE', scheduledAt: identity.cancelContinuity.scheduledAt }
+          : { decision: 'END_CYCLE', endReason: identity.cancelContinuity.endReason },
+      }
+      : {}),
   });
 }
 

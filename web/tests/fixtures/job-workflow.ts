@@ -13,7 +13,7 @@ export const workflowContext: JobWorkflowContext = {
     submittedBy: null, submissionNote: null, approvedAt: null, approvedBy: null,
     approvalNote: null, revisionRequestedAt: null, revisionRequestedBy: null,
     revisionReason: null, cancelledAt: null, cancelledBy: null,
-    cancelReason: null, cancelledFromStatus: null,
+    cancelReason: null, cancelledFromStatus: null, followUpCycleEndReason: null,
     invalidatedAt: null, invalidatedBy: null,
     invalidationReasonCode: null, invalidatedFromStatus: null,
   },

@@ -213,6 +213,12 @@ export function TerminalJobBanner(props: {
           <dt>İptal nedeni</dt>
           <dd>{details.reason ?? 'Bilgi kaydedilmemiş'}</dd>
         </div>
+        {details.cycleEndReasonLabel && (
+          <div>
+            <dt>Takip döngüsü</dt>
+            <dd>Sonlandırıldı: {details.cycleEndReasonLabel}</dd>
+          </div>
+        )}
       </dl>
     </section>
   );

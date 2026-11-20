@@ -6,6 +6,10 @@ import type {
   TransitionPresentation,
 } from './job-workflow-presentation';
 import {
+  FollowUpCancelContinuitySection,
+  type FollowUpCancelContinuitySectionProps,
+} from './FollowUpCancelContinuitySection';
+import {
   FollowUpProposalSection,
   type FollowUpDraft,
   type FollowUpProposalSectionProps,
@@ -29,12 +33,16 @@ export function JobWorkflowDialog(props: {
   onClose: () => void;
   onConfirm: (reason: string) => void;
   followUp?: FollowUpProposalSectionProps;
+  /** JOB-009: present only when cancelling a follow-up visit. */
+  cancelContinuity?: FollowUpCancelContinuitySectionProps;
   returnFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusEnabledRef?: RefObject<boolean>;
 }): ReactNode {
   const {
-    dialog, pending, uncertain = false, onClose, onConfirm, followUp, returnFocusRef, restoreFocusEnabledRef,
+    dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
+    returnFocusRef, restoreFocusEnabledRef,
   } = props;
+  const continuity = dialog.kind === 'cancel' ? cancelContinuity : undefined;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
 
   if (dialog.kind === 'withdraw-edit') {
@@ -69,7 +77,9 @@ export function JobWorkflowDialog(props: {
         ].join(' ')
       : dialog.kind === 'revision'
         ? 'Personelin neyi düzeltmesi gerektiğini açıklayın.'
-        : 'Bu işlem terminaldir; iptal edilen iş yeniden açılamaz. İptal nedenini iş geçmişine ekleyin.';
+        : continuity?.draft.decision === 'RESCHEDULE'
+          ? 'İptal edilen iş yeniden açılamaz; seçtiğiniz zamana yeni bir takip ziyareti oluşturulur. İptal nedenini iş geçmişine ekleyin.'
+          : 'Bu işlem terminaldir; iptal edilen iş yeniden açılamaz. İptal nedenini iş geçmişine ekleyin.';
   const reasonLabel = dialog.kind === 'submit'
     ? 'Tamamlanma sonucu'
     : dialog.kind === 'approve'
@@ -83,11 +93,18 @@ export function JobWorkflowDialog(props: {
       ? (dialog.presentation.confirmation?.confirmLabel ?? 'İşi tamamla')
       : dialog.kind === 'revision'
         ? 'Düzeltme için geri gönder'
-        : 'İşi iptal et';
+        : continuity?.draft.decision === 'RESCHEDULE'
+          ? 'İptal et ve yeniden planla'
+          : continuity?.draft.decision === 'END_CYCLE'
+            ? 'İptal et ve döngüyü sonlandır'
+            : 'İşi iptal et';
 
   const prelude = (dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
     ? <fieldset disabled={pending || uncertain}><FollowUpProposalSection {...followUp} initialFocusRef={followUpInitialFocusRef} /></fieldset>
-    : undefined;
+    : continuity
+      ? <fieldset disabled={pending || uncertain}><FollowUpCancelContinuitySection {...continuity} initialFocusRef={followUpInitialFocusRef} /></fieldset>
+      : undefined;
+  const hasPreludeFocus = followUp !== undefined || continuity !== undefined;
 
   return (
     <ReasonDialog
@@ -108,8 +125,8 @@ export function JobWorkflowDialog(props: {
       inputsDisabled={uncertain}
       destructive={dialog.kind === 'cancel'}
       prelude={prelude}
-      initialFocusRef={followUp ? followUpInitialFocusRef : undefined}
-      initialFocusReady={followUp !== undefined}
+      initialFocusRef={hasPreludeFocus ? followUpInitialFocusRef : undefined}
+      initialFocusReady={hasPreludeFocus}
       returnFocusRef={returnFocusRef}
       restoreFocusEnabledRef={restoreFocusEnabledRef}
       onCancel={onClose}

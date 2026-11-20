@@ -4,8 +4,10 @@ import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type Cust
 import { canonicalScheduledDurationMs, JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from './job-card-duration.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
+  FOLLOW_UP_CYCLE_END_REASONS,
   JOB_CARD_STATUSES,
   type DeliveryItem,
+  type FollowUpCycleEndReason,
   type JobCard,
   type JobCardActivityEvent,
   type JobCardAssignee,
@@ -220,6 +222,7 @@ export type TransitionInput = {
   note?: string | null;
   revisionReason?: string | null;
   cancelReason?: string | null;
+  followUpCycleEndReason?: FollowUpCycleEndReason | null;
   followUpProposal?: {
     scheduledAt: Date;
     type: JobCardType;
@@ -1192,6 +1195,7 @@ type JobCardDetailRow = JobCardRow & {
   revision_actor_name: string | null;
   cancelled_at: Date | null;
   cancel_reason: string | null;
+  follow_up_cycle_end_reason: string | null;
   cancellation_actor_id: string | null;
   cancellation_actor_name: string | null;
   cancelled_from_status: string | null;
@@ -1690,7 +1694,7 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
         j.staff_completed_at, j.staff_completion_note,
        j.manager_approved_at, j.manager_approval_note,
        j.revision_requested_at, j.revision_reason,
-       j.cancelled_at, j.cancel_reason,
+       j.cancelled_at, j.cancel_reason, j.follow_up_cycle_end_reason,
        j.invalidated_at, j.invalidated_by, j.invalidation_reason_code,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
        customer.id AS customer_id_join, customer.name AS customer_name,
@@ -1780,6 +1784,11 @@ function mapCancelledFromStatus(value: string | null): JobCardStatus | null {
   return status;
 }
 
+function mapFollowUpCycleEndReason(value: string | null): FollowUpCycleEndReason | null {
+  if (value === null || !(FOLLOW_UP_CYCLE_END_REASONS as readonly string[]).includes(value)) return null;
+  return value as FollowUpCycleEndReason;
+}
+
 function mapActivityStatus(value: string | null): JobCardStatus | null {
   if (value === null || !(JOB_CARD_STATUSES as readonly string[]).includes(value)) return null;
   return value as JobCardStatus;
@@ -1804,6 +1813,7 @@ function mapLifecycleFacts(row: JobCardDetailRow): JobLifecycleFacts {
     cancelledBy: mapRelatedIdentity(row.cancellation_actor_id, row.cancellation_actor_name),
     cancelReason: row.cancel_reason,
     cancelledFromStatus: mapCancelledFromStatus(row.cancelled_from_status),
+    followUpCycleEndReason: mapFollowUpCycleEndReason(row.follow_up_cycle_end_reason),
     invalidatedAt: mapInstant(row.invalidated_at),
     invalidatedBy: mapRelatedIdentity(row.invalidated_actor_id, row.invalidated_actor_name),
     invalidationReasonCode: row.invalidation_reason_code,
@@ -2212,6 +2222,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
             cancelled_at = CASE WHEN $10 = 'CANCEL' THEN $5 ELSE cancelled_at END,
             cancelled_by = CASE WHEN $10 = 'CANCEL' THEN $6 ELSE cancelled_by END,
             cancel_reason = CASE WHEN $10 = 'CANCEL' THEN $9 ELSE cancel_reason END,
+            follow_up_cycle_end_reason = CASE WHEN $10 = 'CANCEL' THEN $17::varchar(40) ELSE follow_up_cycle_end_reason END,
             follow_up_proposed_at = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $11::timestamptz ELSE follow_up_proposed_at END,
             follow_up_proposed_type = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $12::varchar(40) ELSE follow_up_proposed_type END,
             follow_up_proposed_assignee = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $13::uuid ELSE follow_up_proposed_assignee END,
@@ -2229,7 +2240,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
         input.followUpProposal?.assignedTo ?? null,
         input.followUpProposal?.instructions ?? null,
         input.followUpProposal?.origin ?? null,
-        input.followUpProposal?.proposedBy ?? null],
+        input.followUpProposal?.proposedBy ?? null,
+        input.followUpCycleEndReason ?? null],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }

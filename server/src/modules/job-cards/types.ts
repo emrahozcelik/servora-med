@@ -38,6 +38,16 @@ export const JOB_CARD_ENGAGEMENT_KINDS = [
 ] as const;
 export type JobCardEngagementKind = (typeof JOB_CARD_ENGAGEMENT_KINDS)[number];
 
+/** JOB-009: why a cancelled follow-up visit ends the customer's visit cycle. */
+export const FOLLOW_UP_CYCLE_END_REASONS = [
+  'NOT_INTERESTED',
+  'WORKS_WITH_COMPETITOR',
+  'CUSTOMER_INACTIVE',
+  'DUPLICATE_RECORD',
+  'OTHER',
+] as const;
+export type FollowUpCycleEndReason = (typeof FOLLOW_UP_CYCLE_END_REASONS)[number];
+
 export const MEETING_OUTCOMES = [
   'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
 ] as const;
@@ -297,6 +307,7 @@ export type JobLifecycleFacts = {
   cancelledBy: RelatedIdentity | null;
   cancelReason: string | null;
   cancelledFromStatus: JobCardStatus | null;
+  followUpCycleEndReason: FollowUpCycleEndReason | null;
   invalidatedAt: string | null;
   invalidatedBy: RelatedIdentity | null;
   invalidationReasonCode: JobCardInvalidationReasonCode | null;

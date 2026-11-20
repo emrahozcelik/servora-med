@@ -16,6 +16,7 @@ import {
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
   type ApproveFollowUpInput, type CustomerScheduleEvaluation, type DeliveryItem, type FollowUpProposalInput,
+  type FollowUpCancelContinuity,
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
   type JobCardInvalidationInput,
   type PatchJobCardInput, type PatchMeetingDetailsInput, type RelatedName,
@@ -32,6 +33,7 @@ import {
 } from './jobs/start-location-capture';
 import {
   deriveJobWorkflowPresentation,
+  isFollowUpVisit,
   requiresMandatoryFollowUpProposal,
   type JobWorkflowPresentation,
   type RecordEditPresentation,
@@ -57,6 +59,10 @@ import {
   JobWorkflowDialog,
   type JobWorkflowDialogKind,
 } from './jobs/JobWorkflowDialog';
+import {
+  EMPTY_FOLLOW_UP_CANCEL_CONTINUITY,
+  type FollowUpCancelContinuityDraft,
+} from './jobs/FollowUpCancelContinuitySection';
 import {
   type FollowUpDraft,
 } from './jobs/FollowUpProposalSection';
@@ -955,11 +961,40 @@ async function loadJobDetail(jobId: string) {
   return detail;
 }
 
+/**
+ * JOB-009: turn the cancel continuity draft into the request field, or the
+ * inline message that keeps the dialog open. The server re-validates.
+ */
+export function resolveCancelContinuity(
+  draft: FollowUpCancelContinuityDraft,
+  now: Date = new Date(),
+): { continuity: FollowUpCancelContinuity } | { error: string } {
+  if (draft.decision === null) {
+    return { error: 'Yeniden planlamayı ya da döngüyü sonlandırmayı seçin.' };
+  }
+  if (draft.decision === 'END_CYCLE') {
+    if (draft.endReason === '') return { error: 'Sonlandırma nedenini seçin.' };
+    return { continuity: { decision: 'END_CYCLE', endReason: draft.endReason } };
+  }
+  if (!draft.scheduledLocal.trim()) return { error: 'Yeni ziyaret tarihi ve saatini seçin.' };
+  let scheduledAt: string;
+  try {
+    scheduledAt = localDateTimeToIso(draft.scheduledLocal);
+  } catch {
+    return { error: 'Yeni ziyaret tarihi ve saatini seçin.' };
+  }
+  if (Date.parse(scheduledAt) <= now.valueOf()) {
+    return { error: 'Yeni ziyaret zamanı gelecekte olmalıdır.' };
+  }
+  return { continuity: { decision: 'RESCHEDULE', scheduledAt } };
+}
+
 async function executeLifecycleCommand(
   jobId: string,
   command: LifecycleCommand,
   input: StartJobCardInput & {
     followUpProposal?: FollowUpProposalInput;
+    followUpContinuity?: FollowUpCancelContinuity;
     followUp?: ApproveFollowUpInput;
   },
   reason: string,
@@ -1039,6 +1074,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [followUpChildrenCount, setFollowUpChildrenCount] = useState<number | null>(null);
   const [invalidationMutation, setInvalidationMutation] = useState<JobInvalidationMutationState>({ kind: 'idle' });
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
+  /** JOB-009: continuity draft, present only while cancelling a follow-up visit. */
+  const [cancelContinuity, setCancelContinuity] = useState<{
+    draft: FollowUpCancelContinuityDraft;
+    inlineError: string | null;
+  } | null>(null);
   const [followUp, setFollowUp] = useState<{
     draft: FollowUpDraft | null;
     origin: FollowUpProposalOrigin | null;
@@ -1068,7 +1108,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const mutationInFlight = useRef(false);
   const lifecycleAttempt = useRef<{
     command: LifecycleCommand;
-    input: StartJobCardInput & { followUpProposal?: FollowUpProposalInput; followUp?: ApproveFollowUpInput };
+    input: StartJobCardInput & {
+      followUpProposal?: FollowUpProposalInput;
+      followUp?: ApproveFollowUpInput;
+      followUpContinuity?: FollowUpCancelContinuity;
+    };
     reason: string;
   } | null>(null);
   const withdrawEditAttempt = useRef<{ job: JobCard & { type: 'SALES_MEETING' }; clientActionId: string } | null>(null);
@@ -1231,6 +1275,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     dialogFocusRestoreEnabledRef.current = true;
     setDialog(null);
     setFollowUp(null);
+    setCancelContinuity(null);
   }
   async function refreshTruth(): Promise<boolean> {
     const operationJobId = jobId;
@@ -1538,6 +1583,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     extra?: {
       followUpProposal?: FollowUpProposalInput;
       followUp?: ApproveFollowUpInput;
+      followUpContinuity?: FollowUpCancelContinuity;
     },
   ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
@@ -1554,6 +1600,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       let commandInput: StartJobCardInput & {
         followUpProposal?: FollowUpProposalInput;
         followUp?: ApproveFollowUpInput;
+        followUpContinuity?: FollowUpCancelContinuity;
       } = input;
       if (!retained && command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
@@ -1583,6 +1630,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!retained) {
         if (extra?.followUpProposal) commandInput = { ...commandInput, followUpProposal: extra.followUpProposal };
         if (extra?.followUp) commandInput = { ...commandInput, followUp: extra.followUp };
+        if (extra?.followUpContinuity) {
+          commandInput = { ...commandInput, followUpContinuity: extra.followUpContinuity };
+        }
         lifecycleAttempt.current = { command, input: structuredClone(commandInput), reason };
       }
       const attempt = lifecycleAttempt.current;
@@ -1620,9 +1670,18 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (completedDialogCommand) {
         setDialog(null);
         setFollowUp(null);
+        setCancelContinuity(null);
       }
       const transition = findTransition(presentation, command);
       if (transition) setMessage(transition.successMessage);
+      const continuity = attempt.input.followUpContinuity;
+      if (command === 'CANCEL' && continuity?.decision === 'RESCHEDULE') {
+        setMessage(`İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
+          dateStyle: 'medium', timeStyle: 'short',
+        }).format(new Date(continuity.scheduledAt))} için planlandı.`);
+      } else if (command === 'CANCEL' && continuity?.decision === 'END_CYCLE') {
+        setMessage('İş iptal edildi ve takip döngüsü sonlandırıldı.');
+      }
       // #347: location is advisory at both checkpoints. Precedence is
       // deterministic: the lifecycle already succeeded, an unavailable local
       // snapshot yields enablement guidance, a captured SUBMIT keeps the
@@ -2025,6 +2084,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!transition) return;
       dialogTriggerRef.current = trigger;
       dialogFocusRestoreEnabledRef.current = true;
+      setCancelContinuity(state.kind === 'ready' && isFollowUpVisit(state.detail.job)
+        ? { draft: EMPTY_FOLLOW_UP_CANCEL_CONTINUITY, inlineError: null }
+        : null);
       setDialog({ kind: 'cancel', presentation: transition });
       return;
     }
@@ -2229,6 +2291,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       return;
     }
     if (dialog.kind === 'cancel') {
+      if (cancelContinuity && !lifecycleAttempt.current) {
+        const resolved = resolveCancelContinuity(cancelContinuity.draft);
+        if ('error' in resolved) {
+          setCancelContinuity({ ...cancelContinuity, inlineError: resolved.error });
+          return;
+        }
+        void execute('CANCEL', reason, { followUpContinuity: resolved.continuity });
+        return;
+      }
       void execute('CANCEL', reason);
       return;
     }
@@ -2432,6 +2503,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             onRetrySuggestion: () => { void retrySubmitFollowUp(); },
             expandInstructions: followUp.expandInstructions,
             onChange: updateFollowUpDraft,
+          }
+        : undefined}
+      cancelContinuity={dialog.kind === 'cancel' && cancelContinuity
+        ? {
+            draft: cancelContinuity.draft,
+            inlineError: cancelContinuity.inlineError,
+            onChange: (patch) => setCancelContinuity((current) => current
+              ? { draft: { ...current.draft, ...patch }, inlineError: null }
+              : current),
           }
         : undefined}
       returnFocusRef={dialogTriggerRef}

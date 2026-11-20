@@ -331,7 +331,7 @@ export function createJobCardHandlers(service: JobCardService) {
     resume: async (request: FastifyRequest<{ Params: Params }>) =>
       service.resume(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     cancel: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.cancel(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'cancelReason']) as never),
+      service.cancel(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'cancelReason', 'followUpContinuity']) as never),
     invalidate: async (request: FastifyRequest<{ Params: Params }>) =>
       service.invalidate(
         actor(request),

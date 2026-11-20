@@ -3532,6 +3532,142 @@ describe('Staff JobCard detail', () => {
     });
   });
 
+  it('JOB-009: cancelling a follow-up visit requires a continuity decision', async () => {
+    const followUpVisit: JobCard = { ...inProgressMeeting(), engagementKind: 'FOLLOW_UP' };
+    const cancelled: JobCard = {
+      ...followUpVisit,
+      status: 'CANCELLED',
+      version: 4,
+      workflowContext: staffContext('CANCELLED', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        cancelledAt: '2026-07-17T12:00:00.000Z',
+        cancelReason: 'Müşteri başka firmayla çalışıyor',
+        cancelledFromStatus: 'IN_PROGRESS',
+        followUpCycleEndReason: 'WORKS_WITH_COMPETITOR',
+      }, { allowedActions: [] }),
+    };
+    const base = mockDetailFetch(followUpVisit);
+    const cancelBodies: unknown[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.split('?')[0]!.endsWith('/cancel') && init?.method === 'POST') {
+        cancelBodies.push(JSON.parse(String(init.body)));
+        return Response.json(cancelled);
+      }
+      return base(input);
+    });
+    await renderScreen(followUpVisit, staffUser, fetch);
+    await act(async () => {
+      buttonByName(host, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.querySelector('legend')?.textContent).toBe('Takip döngüsü');
+    const reason = Array.from(dialog.querySelectorAll<HTMLTextAreaElement>('textarea')).at(-1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Müşteri başka firmayla çalışıyor');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(cancelBodies).toHaveLength(0);
+    expect(dialog.querySelector('[role="alert"]')?.textContent)
+      .toBe('Yeniden planlamayı ya da döngüyü sonlandırmayı seçin.');
+
+    await act(async () => {
+      dialog.querySelector<HTMLInputElement>('input[value="END_CYCLE"]')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const select = dialog.querySelector<HTMLSelectElement>('#follow-up-cancel-end-reason')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')
+        ?.set?.call(select, 'WORKS_WITH_COMPETITOR');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'İptal et ve döngüyü sonlandır')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(cancelBodies).toEqual([expect.objectContaining({
+      expectedVersion: followUpVisit.version,
+      cancelReason: 'Müşteri başka firmayla çalışıyor',
+      followUpContinuity: { decision: 'END_CYCLE', endReason: 'WORKS_WITH_COMPETITOR' },
+    })]);
+    expect(host.textContent).toContain('İş iptal edildi ve takip döngüsü sonlandırıldı.');
+    expect(host.textContent).toContain('Sonlandırıldı: Başka firmayla çalışıyor');
+  });
+
+  it('JOB-009: rescheduling a cancelled follow-up visit sends the new future time', async () => {
+    const followUpVisit: JobCard = { ...inProgressMeeting(), engagementKind: 'FOLLOW_UP' };
+    const base = mockDetailFetch(followUpVisit);
+    const cancelBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.split('?')[0]!.endsWith('/cancel') && init?.method === 'POST') {
+        cancelBodies.push(JSON.parse(String(init.body)));
+        return Response.json({
+          ...followUpVisit,
+          status: 'CANCELLED',
+          version: 4,
+          followUpJobCardId: 'job-replacement',
+          workflowContext: staffContext('CANCELLED', {
+            startedAt: '2026-07-17T09:00:00.000Z',
+            cancelledAt: '2026-07-17T12:00:00.000Z',
+            cancelReason: 'Doktor kongrede',
+            cancelledFromStatus: 'IN_PROGRESS',
+          }, { allowedActions: [] }),
+        });
+      }
+      return base(input);
+    });
+    await renderScreen(followUpVisit, staffUser, fetch);
+    await act(async () => {
+      buttonByName(host, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => {
+      dialog.querySelector<HTMLInputElement>('input[value="RESCHEDULE"]')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const when = dialog.querySelector<HTMLInputElement>('#follow-up-cancel-scheduled-at')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(when, '2099-01-02T10:30');
+      when.dispatchEvent(new Event('input', { bubbles: true }));
+      const reason = Array.from(dialog.querySelectorAll<HTMLTextAreaElement>('textarea')).at(-1)!;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(reason, 'Doktor kongrede');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'İptal et ve yeniden planla')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(cancelBodies).toHaveLength(1);
+    expect(cancelBodies[0]!.followUpContinuity).toEqual({
+      decision: 'RESCHEDULE',
+      scheduledAt: new Date(2099, 0, 2, 10, 30).toISOString(),
+    });
+    expect(host.textContent).toContain('Yeni takip ziyareti');
+  });
+
+  it('JOB-009: other JobCards cancel without the continuity choice', async () => {
+    const visit: JobCard = { ...inProgressMeeting(), engagementKind: 'CUSTOMER_VISIT' };
+    await renderScreen(visit);
+    await act(async () => {
+      buttonByName(host, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.textContent).not.toContain('Takip döngüsü');
+    expect(buttonByName(dialog, 'İşi iptal et')).not.toBeNull();
+  });
+
   it('retains the SUBMIT capability across START so the same-screen SUBMIT captures location', async () => {
     // P2 regression: the START response replaces local state. The mock below
     // models the server faithfully: without the reader gate the response

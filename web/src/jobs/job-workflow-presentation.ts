@@ -2,6 +2,7 @@ import type { CurrentUser } from '../services/api';
 import { jobStatusLabels } from './job-labels';
 import type {
   DeliveryItem,
+  FollowUpCycleEndReason,
   JobCard,
   JobCardInvalidationReasonCode,
   JobCardStatus,
@@ -67,6 +68,7 @@ export type JobWorkflowPresentation = {
     | {
       kind: 'CANCELLED'; actorName: string | null; at: string | null; reason: string | null;
       sourceStatus: JobCardStatus | null; sourceLabel: string | null;
+      cycleEndReasonLabel?: string | null;
     }
     | {
       kind: 'INVALIDATED'; actorName: string | null; at: string | null;
@@ -176,6 +178,19 @@ export function requiresMandatoryFollowUpProposal(
     && meetingDetails.unsuccessfulReason !== null
     && meetingDetails.unsuccessfulReason !== undefined;
 }
+
+/** Mirrors server JOB-009: only SALES_MEETING / FOLLOW_UP JobCards. */
+export function isFollowUpVisit(job: Pick<JobCard, 'type' | 'engagementKind'>): boolean {
+  return job.type === 'SALES_MEETING' && job.engagementKind === 'FOLLOW_UP';
+}
+
+export const followUpCycleEndReasonLabels: Record<FollowUpCycleEndReason, string> = {
+  NOT_INTERESTED: 'Müşteri ilgilenmiyor',
+  WORKS_WITH_COMPETITOR: 'Başka firmayla çalışıyor',
+  CUSTOMER_INACTIVE: 'Müşteri kapandı veya pasif',
+  DUPLICATE_RECORD: 'Mükerrer kayıt',
+  OTHER: 'Diğer',
+};
 
 function isRevisionActive(lifecycle: JobLifecycleFacts): boolean {
   return lifecycle.revisionRequestedAt !== null
@@ -704,6 +719,9 @@ export function deriveJobWorkflowPresentation(
       sourceStatus: lifecycle.cancelledFromStatus,
       sourceLabel: lifecycle.cancelledFromStatus
         ? jobStatusLabels[lifecycle.cancelledFromStatus]
+        : null,
+      cycleEndReasonLabel: lifecycle.followUpCycleEndReason
+        ? followUpCycleEndReasonLabels[lifecycle.followUpCycleEndReason]
         : null,
     };
   }

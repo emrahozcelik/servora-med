@@ -905,6 +905,7 @@ describe('deriveJobWorkflowPresentation', () => {
     expect(model.terminalState).toBe('CANCELLED');
     expect(model.terminalDetails).toEqual({
       kind: 'CANCELLED', actorName: 'Mehmet Yönetici', at: '2026-07-17T12:00:00.000Z',
+      cycleEndReasonLabel: null,
       reason: 'Müşteri erteledi', sourceStatus: 'IN_PROGRESS', sourceLabel: 'Uygulanıyor',
     });
     expect(model.currentPhase).toBe('EXECUTION');
@@ -938,6 +939,7 @@ describe('deriveJobWorkflowPresentation', () => {
     expect(model.terminalState).toBe('CANCELLED');
     expect(model.terminalDetails).toEqual({
       kind: 'CANCELLED', actorName: null, at: '2026-07-17T12:00:00.000Z',
+      cycleEndReasonLabel: null,
       reason: 'İptal', sourceStatus: null, sourceLabel: null,
     });
     expect(model.currentPhase).toBeNull();

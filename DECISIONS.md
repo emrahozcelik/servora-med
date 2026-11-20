@@ -2957,3 +2957,55 @@ Supersedes SEC-2026-11-18; that record stays as history.
   workspaces stay.
 - A future exception for any advisory again requires a separate explicit
   owner decision.
+
+## JOB-009 — Cancelling a follow-up visit keeps or explicitly ends the cycle
+
+- **Date:** 2026-11-18
+- **Status:** Accepted (owner decisions in the follow-up cycle review, 2026-11-18:
+  scope "Sadece takip ziyaretleri", "İptal + yeni ziyaret", "Personel ve
+  yönetici", "Standart liste + açıklama")
+- **Scope:** `CANCEL` command for follow-up visits only
+- **Extends:** JOB-008; earlier records are not rewritten.
+
+### Context
+
+JOB-008 keeps a customer in a continuous visit cycle through completed visits.
+Cancelling the planned follow-up visit still ended the cycle silently: the
+cancel reason is free text and nothing records whether the customer should
+still be visited.
+
+### Decision
+
+1. **Scope.** The rule applies to cancelling a JobCard with `type =
+   SALES_MEETING` and `engagementKind = FOLLOW_UP`, from any active status
+   (including `WAITING_APPROVAL`). Other JobCards cancel exactly as before and
+   must not send a continuity choice.
+2. **Mandatory choice.** Cancelling a follow-up visit requires exactly one
+   continuity decision in the same request, in addition to the existing
+   mandatory cancel reason:
+   - `RESCHEDULE` with a new future `scheduledAt`: the cancel and the creation
+     of a replacement follow-up visit commit atomically and idempotently. The
+     replacement keeps the customer, contact, assignee, title, priority, the
+     data class and demo dataset (a DEMO visit's replacement stays DEMO), the
+     source link to the completed visit it follows up (a follow-up source is
+     always an approved JobCard, never the cancelled one) and the follow-up
+     instructions, stays `SALES_MEETING` / `FOLLOW_UP`, is accepted when the actor is the
+     assignee, and passes the normal calendar availability and customer
+     frequency checks. The human-chosen time is not limited to the JOB-008
+     automatic working window.
+   - `END_CYCLE` with a structured end reason: `NOT_INTERESTED`,
+     `WORKS_WITH_COMPETITOR`, `CUSTOMER_INACTIVE`, `DUPLICATE_RECORD` or
+     `OTHER`. The cancel reason text is the explanation (always required). The
+     end reason is persisted on the cancelled JobCard.
+3. **Authorization unchanged.** Whoever may cancel the JobCard today (assigned
+   Staff and managers) may choose either decision. Managers see ended cycles
+   through the planned "customers outside the cycle" view.
+4. **Audit.** The `JOB_CANCELLED` activity records the decision and end reason
+   or replacement time; the replacement's `JOB_CREATED` activity records which
+   visit it replaces (`replacesJobCardId`). The decision is part of the idempotent request identity.
+
+### Consequences
+
+- Migration `062` adds the nullable, vocabulary-checked end-reason column; it is
+  only set by this command on a cancelled follow-up visit.
+- No change to approval, revision, invalidation, reports or calendar display.
