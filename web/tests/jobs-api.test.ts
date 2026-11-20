@@ -8,6 +8,7 @@ import {
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
   getSubmissionLateness, listOverdueIncidents, sendSubmissionReminder,
+  grantEarlyStartAuthorization,
 } from '../src/jobs/jobs-api';
 import { jobActivityLabel } from '../src/jobs/job-labels';
 import { workflowContext } from './fixtures/job-workflow';
@@ -38,6 +39,7 @@ const job = {
   workflowContext,
   followUpContext: null,
   followUpProposal: null,
+  earlyStartAuthorization: null,
   submitLocationComparison: null,
 };
 const note = {
@@ -324,6 +326,43 @@ describe('JobCard workspace transport', () => {
       .resolves.toMatchObject({ submitLocationComparison: comparison });
     await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('parses the early-start authorization strictly and defaults it to null', async () => {
+    const authorization = {
+      grantedAt: '2026-07-20T08:00:00.000Z',
+      grantedBy: related('m1', 'Müdür'),
+    };
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(json(job))
+      .mockResolvedValueOnce(json({ ...job, earlyStartAuthorization: authorization }))
+      .mockResolvedValueOnce(json({ ...job, earlyStartAuthorization: { grantedAt: authorization.grantedAt } }))
+      .mockResolvedValueOnce(json({
+        ...job,
+        earlyStartAuthorization: { ...authorization, grantedBy: { id: 'm1' } },
+      })));
+
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ earlyStartAuthorization: null });
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ earlyStartAuthorization: authorization });
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('posts the early-start authorization and returns the strict receipt', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(json({
+      jobCardId: 'job-1', authorizationId: 'auth-1', grantedAt: '2026-07-20T08:00:00.000Z',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(grantEarlyStartAuthorization('job-1', {
+      clientActionId: 'early-1', expectedVersion: 7,
+    })).resolves.toEqual({
+      jobCardId: 'job-1', authorizationId: 'auth-1', grantedAt: '2026-07-20T08:00:00.000Z',
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/job-cards/job-1/early-start-authorization',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 
   it('requests gated activity evidence and parses the SUBMIT comparison tolerantly', async () => {

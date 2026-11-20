@@ -199,6 +199,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       assignee_id: 'staff-1',
       assignee_name: 'Ayşe Personel',
       delivery_item_count: 2,
+      has_early_start_authorization: false,
     }], 7);
 
     const page = await new PostgresJobCardRepository(pool as never).listJobCards(
@@ -217,6 +218,7 @@ describe('PostgresJobCardRepository workspace list', () => {
         customer: { id: 'customer-1', name: 'ABC Klinik' },
         contact: { id: 'contact-1', name: 'Dr. Deniz' },
         assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 2,
+        earlyStartAuthorized: false,
       }],
       total: 7,
       limit: 1,

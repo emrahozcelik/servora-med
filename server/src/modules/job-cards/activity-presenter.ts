@@ -285,6 +285,9 @@ function details(
     case 'JOB_SUBMISSION_REMINDER_SENT':
     case 'JOB_SUBMISSION_AUTO_REMINDER_SENT':
     case 'JOB_SUBMISSION_AUTO_ESCALATION_SENT':
+    // JOB-010 §1a: the grant is a standalone fact (authorization id, instant,
+    // revision, planned interval); the timeline renders it as a plain fact.
+    case 'JOB_EARLY_START_AUTHORIZED':
       return { kind: 'NONE' };
     case 'JOB_ASSIGNED':
     case 'JOB_FIELDS_UPDATED':

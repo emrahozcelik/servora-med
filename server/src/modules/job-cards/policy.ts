@@ -41,6 +41,37 @@ export function isTerminalJobStatus(status: JobCardStatus): boolean {
   return status === 'COMPLETED' || status === 'CANCELLED' || status === 'INVALIDATED';
 }
 
+/**
+ * JOB-010 §1a: `PRODUCT_DELIVERY` and `SALES_MEETING` may START this long
+ * before their planned instant. Earlier needs a valid management early-start
+ * authorization (or a reschedule). Other types keep the plain
+ * `requestTime >= scheduledAt` rule.
+ */
+export const EARLY_START_TOLERANCE_MS = 30 * 60 * 1000;
+
+function acceptsEarlyStart(type: JobCard['type']): boolean {
+  return type === 'PRODUCT_DELIVERY' || type === 'SALES_MEETING';
+}
+
+/**
+ * JOB-010 §1: acceptance is a commitment made before work, so it is no longer
+ * gated by `scheduledAt`. JOB-010 §1a: START keeps a planned-time floor that is
+ * widened by the 30-minute tolerance for interval jobs and bypassed entirely
+ * by a valid early-start authorization.
+ */
+function timeEligible(
+  command: LifecycleCommand,
+  job: JobPermissionSubject,
+  requestTime: Date,
+): boolean {
+  if (command !== 'START' || job.scheduledAt == null) return true;
+  if (job.earlyStartAuthorized === true && acceptsEarlyStart(job.type)) return true;
+  const earliest = acceptsEarlyStart(job.type)
+    ? Date.parse(job.scheduledAt) - EARLY_START_TOLERANCE_MS
+    : Date.parse(job.scheduledAt);
+  return requestTime.getTime() >= earliest;
+}
+
 export function getAllowedLifecycleCommands(
   actor: JobCardActor,
   job: JobPermissionSubject,
@@ -48,12 +79,6 @@ export function getAllowedLifecycleCommands(
 ): LifecycleCommand[] {
   if (!actorCanReachJob(actor, job)
     || isTerminalJobStatus(job.status)) return [];
-  const timeEligible = (command: LifecycleCommand) => {
-    if (!['ACCEPT_ASSIGNMENT', 'START'].includes(command) || job.scheduledAt == null) {
-      return true;
-    }
-    return requestTime.getTime() >= Date.parse(job.scheduledAt);
-  };
   const commands = (() => {
     if (job.status === 'NEW') {
       return actor.role === 'STAFF' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['CANCEL'];
@@ -69,7 +94,7 @@ export function getAllowedLifecycleCommands(
       ? ['WITHDRAW_FROM_APPROVAL', 'CANCEL']
       : ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'];
   })() as LifecycleCommand[];
-  return commands.filter((command) => timeEligible(command)
+  return commands.filter((command) => timeEligible(command, job, requestTime)
     && !(command === 'CANCEL' && actor.role === 'STAFF' && job.type === 'WEEKLY_REPORT'));
 }
 
@@ -161,6 +186,15 @@ export function assertCanReadOverdueIncidentHistory(actor: JobCardActor) {
  * concealed as 404 by the service lookup, exactly like the history surface.
  */
 export function assertCanSendSubmissionReminder(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+/**
+ * JOB-010 §1a: granting an early-start authorization is a management power.
+ * STAFF callers are rejected with 403 before any lookup; cross-org jobs stay
+ * concealed as 404 by the service lookup.
+ */
+export function assertCanGrantEarlyStartAuthorization(actor: JobCardActor) {
   if (actor.role === 'STAFF') forbidden();
 }
 

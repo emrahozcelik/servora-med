@@ -7,6 +7,8 @@ import {
   FOLLOW_UP_CYCLE_END_REASONS,
   JOB_CARD_STATUSES,
   type DeliveryItem,
+  type EarlyStartAuthorizationRecord,
+  type EarlyStartVoidReason,
   type FollowUpCycleEndReason,
   type JobCard,
   type JobCardActivityEvent,
@@ -764,6 +766,34 @@ export interface JobCardTransaction extends SubmissionReader {
   ): Promise<JobLifecycleInstants>;
   /** Next SUBMITTED seq_no for the JobCard, serialized under the caller's job lock. */
   getNextSubmittedSeqNo(organizationId: string, jobCardId: string): Promise<number>;
+  /**
+   * JOB-010 §1a: the live (non-voided) early-start authorization of one job.
+   * Read under the caller's job lock; validity still depends on the locked
+   * job's current assignee and planned interval.
+   */
+  getLiveEarlyStartAuthorization(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<EarlyStartAuthorizationRecord | null>;
+  /** JOB-010 §1a: durable authorization row; caller holds the job lock. */
+  insertEarlyStartAuthorization(input: {
+    organizationId: string;
+    jobCardId: string;
+    assigneeUserId: string;
+    scheduleRevisionNo: number;
+    scheduledAt: Date;
+    scheduledEndsAt: Date | null;
+    grantedBy: string;
+    grantedAt: Date;
+    clientActionId: string;
+  }): Promise<{ id: string; grantedAt: Date }>;
+  /** JOB-010 §1a: one-way void of every live authorization of one job. */
+  voidEarlyStartAuthorizations(input: {
+    organizationId: string;
+    jobCardId: string;
+    voidedAt: Date;
+    voidReason: EarlyStartVoidReason;
+  }): Promise<void>;
   appendAccountabilityFact(input: AppendAccountabilityFactInput): Promise<{ id: string }>;
   /**
    * OVR-2: idempotent breach materialization. The UNIQUE incident identity
@@ -1204,6 +1234,9 @@ type JobCardDetailRow = JobCardRow & {
   invalidated_from_status: string | null;
   proposer_id: string | null;
   proposer_name: string | null;
+  early_start_granted_at: Date | null;
+  early_start_granted_by_id: string | null;
+  early_start_granted_by_name: string | null;
 };
 type JobCardListRow = {
   id: string;
@@ -1230,6 +1263,8 @@ type JobCardListRow = {
   /** Selected only by the overdue list projection (see `listJobCards`). */
   overdue_since?: Date | null;
   lateness_seconds?: number | null;
+  /** JOB-010 §1a permission fact, selected by every job list projection. */
+  has_early_start_authorization: boolean;
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
@@ -1652,6 +1687,33 @@ const SCHEDULE_REVISION_COLUMNS = `id, organization_id, job_card_id, revision_no
 const ASSIGNMENT_HISTORY_COLUMNS = `id, organization_id, job_card_id,
   from_user_id, to_user_id, changed_by, source, changed_at, activity_id`;
 
+/**
+ * JOB-010 §1a validity predicate. A stored authorization is valid only while
+ * it is not voided and the job still carries the same assignee and the same
+ * planned interval it was granted for. Identity comparisons use
+ * `IS NOT DISTINCT FROM` so a NULL planned end still matches itself.
+ */
+function validEarlyStartAuthorizationPredicate(
+  authorization: string,
+  job: string,
+): string {
+  return `${authorization}.organization_id = ${job}.organization_id
+    AND ${authorization}.job_card_id = ${job}.id
+    AND ${authorization}.voided_at IS NULL
+    AND ${authorization}.assignee_user_id = ${job}.assigned_to
+    AND ${authorization}.scheduled_at = ${job}.scheduled_at
+    AND ${authorization}.scheduled_ends_at IS NOT DISTINCT FROM ${job}.scheduled_ends_at`;
+}
+
+/** Column projection of the same validity rule (single query, no N+1). */
+function earlyStartAuthorizationExistsSql(job: string): string {
+  return `EXISTS (
+    SELECT 1
+      FROM job_card_early_start_authorizations esa
+     WHERE ${validEarlyStartAuthorizationPredicate('esa', job)}
+  )`;
+}
+
 function mapScheduleRevision(row: ScheduleRevisionRow): ScheduleRevisionRecord {
   return {
     id: row.id,
@@ -1696,6 +1758,9 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        j.revision_requested_at, j.revision_reason,
        j.cancelled_at, j.cancel_reason, j.follow_up_cycle_end_reason,
        j.invalidated_at, j.invalidated_by, j.invalidation_reason_code,
+       early_start.granted_at AS early_start_granted_at,
+       early_start.granted_by_id AS early_start_granted_by_id,
+       early_start.granted_by_name AS early_start_granted_by_name,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
        customer.id AS customer_id_join, customer.name AS customer_name,
        contact.id AS contact_id_join, contact.name AS contact_name,
@@ -1737,6 +1802,17 @@ LEFT JOIN users invalidated_actor
 LEFT JOIN users proposer
   ON proposer.organization_id = j.organization_id
   AND proposer.id = j.follow_up_proposed_by
+LEFT JOIN LATERAL (
+  SELECT esa.granted_at,
+         grantor.id AS granted_by_id,
+         grantor.name AS granted_by_name
+  FROM job_card_early_start_authorizations esa
+  JOIN users grantor
+    ON grantor.organization_id = esa.organization_id AND grantor.id = esa.granted_by
+  WHERE ${validEarlyStartAuthorizationPredicate('esa', 'j')}
+  ORDER BY esa.granted_at DESC, esa.id DESC
+  LIMIT 1
+) early_start ON TRUE
 LEFT JOIN LATERAL (
   SELECT a.old_value->>'status' AS cancelled_from_status
   FROM job_card_activity_logs a
@@ -1834,6 +1910,12 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
       : { id: row.contact_id_join, name: row.contact_name! },
     lifecycle: mapLifecycleFacts(row),
     proposer: mapRelatedIdentity(row.proposer_id, row.proposer_name),
+    earlyStartAuthorization: row.early_start_granted_at == null
+      ? null
+      : {
+          grantedAt: row.early_start_granted_at.toISOString(),
+          grantedBy: { id: row.early_start_granted_by_id!, name: row.early_start_granted_by_name },
+        },
   };
 }
 
@@ -1878,6 +1960,28 @@ function mapOverdueJobCardListItem(row: JobCardListRow): PersistedJobCardListIte
   };
 }
 
+/**
+ * JOB-010 §1a: the list/board/follow-up projections carry the early-start
+ * permission fact so `allowedCommands` is computed without per-row queries.
+ * The presenter strips it before serialization; approval-queue items keep
+ * the plain projection because they never expose lifecycle commands.
+ */
+function mapJobCardListItemWithAuthorization(row: JobCardListRow): PersistedJobCardListItem {
+  return {
+    ...mapJobCardListItem(row),
+    earlyStartAuthorized: row.has_early_start_authorization === true,
+  };
+}
+
+function mapOverdueJobCardListItemWithAuthorization(
+  row: JobCardListRow,
+): PersistedJobCardListItem {
+  return {
+    ...mapOverdueJobCardListItem(row),
+    earlyStartAuthorized: row.has_early_start_authorization === true,
+  };
+}
+
 type SqlFilter = { clause: string; values: unknown[] };
 
 const WORKSPACE_JOINS = `FROM job_cards j
@@ -1892,7 +1996,8 @@ const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.pri
   c.id AS customer_id, c.name AS customer_name,
   ct.id AS contact_id, ct.name AS contact_name,
   u.id AS assignee_id, u.name AS assignee_name,
-  COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count`;
+  COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count,
+  ${earlyStartAuthorizationExistsSql('j')} AS has_early_start_authorization`;
 
 const WORKSPACE_ITEM_JOINS = `${WORKSPACE_JOINS}
   JOIN users u
@@ -2157,12 +2262,15 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async getJobForUpdate(organizationId: string, jobCardId: string) {
-    const result = await this.client.query<JobCardRow>(
-      `SELECT ${JOB_CARD_BASE_COLUMNS}
-       FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
+    const result = await this.client.query<JobCardRow & { early_start_authorized: boolean }>(
+      `SELECT ${JOB_CARD_BASE_COLUMNS},
+              ${earlyStartAuthorizationExistsSql('j')} AS early_start_authorized
+       FROM job_cards j
+       WHERE j.organization_id = $1 AND j.id = $2 FOR UPDATE`,
       [organizationId, jobCardId],
     );
-    return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+    const row = result.rows[0];
+    return row ? { ...mapJobCard(row), earlyStartAuthorized: row.early_start_authorized === true } : null;
   }
 
   async getJobDetail(organizationId: string, jobCardId: string) {
@@ -2815,6 +2923,85 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       [organizationId, jobCardId],
     );
     return Number(result.rows[0]?.seq_no ?? 1);
+  }
+
+  /**
+   * JOB-010 §1a: the live (non-voided) early-start authorization of one job.
+   * Callers hold the JobCard row lock and compare the returned assignee and
+   * planned interval against the locked job; the partial unique index allows
+   * at most one such row.
+   */
+  async getLiveEarlyStartAuthorization(organizationId: string, jobCardId: string) {
+    const result = await this.client.query<{
+      id: string;
+      assignee_user_id: string;
+      scheduled_at: Date;
+      scheduled_ends_at: Date | null;
+      granted_at: Date;
+      granted_by: string;
+    }>(
+      `SELECT id, assignee_user_id, scheduled_at, scheduled_ends_at, granted_at, granted_by
+         FROM job_card_early_start_authorizations
+        WHERE organization_id = $1 AND job_card_id = $2 AND voided_at IS NULL
+        ORDER BY granted_at DESC, id DESC
+        LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      assigneeUserId: row.assignee_user_id,
+      scheduledAt: row.scheduled_at,
+      scheduledEndsAt: row.scheduled_ends_at,
+      grantedAt: row.granted_at,
+      grantedBy: row.granted_by,
+    } satisfies EarlyStartAuthorizationRecord;
+  }
+
+  async insertEarlyStartAuthorization(input: {
+    organizationId: string;
+    jobCardId: string;
+    assigneeUserId: string;
+    scheduleRevisionNo: number;
+    scheduledAt: Date;
+    scheduledEndsAt: Date | null;
+    grantedBy: string;
+    grantedAt: Date;
+    clientActionId: string;
+  }) {
+    const result = await this.client.query<{ id: string; granted_at: Date }>(
+      `INSERT INTO job_card_early_start_authorizations
+          (organization_id, job_card_id, assignee_user_id, schedule_revision_no,
+           scheduled_at, scheduled_ends_at, granted_by, granted_at, client_action_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, granted_at`,
+      [input.organizationId, input.jobCardId, input.assigneeUserId, input.scheduleRevisionNo,
+        input.scheduledAt, input.scheduledEndsAt, input.grantedBy, input.grantedAt,
+        input.clientActionId],
+    );
+    const row = result.rows[0]!;
+    return { id: row.id, grantedAt: row.granted_at };
+  }
+
+  /**
+   * JOB-010 §1a: one-way void of every live authorization of one job. Called
+   * in the same transaction as a reassignment or a planned-interval change
+   * (and the offboarding transfer), so the durable record never outlives the
+   * facts it was granted for.
+   */
+  async voidEarlyStartAuthorizations(input: {
+    organizationId: string;
+    jobCardId: string;
+    voidedAt: Date;
+    voidReason: EarlyStartVoidReason;
+  }) {
+    await this.client.query(
+      `UPDATE job_card_early_start_authorizations
+          SET voided_at = $3, void_reason = $4
+        WHERE organization_id = $1 AND job_card_id = $2 AND voided_at IS NULL`,
+      [input.organizationId, input.jobCardId, input.voidedAt, input.voidReason],
+    );
   }
 
   async appendAccountabilityFact(input: AppendAccountabilityFactInput) {
@@ -3856,8 +4043,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     );
     return {
       items: query.overdue
-        ? items.rows.map(mapOverdueJobCardListItem)
-        : items.rows.map(mapJobCardListItem),
+        ? items.rows.map(mapOverdueJobCardListItemWithAuthorization)
+        : items.rows.map(mapJobCardListItemWithAuthorization),
       total: Number(count.rows[0]?.total ?? 0),
       limit: query.limit,
       offset: query.offset,
@@ -3911,7 +4098,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     }
     for (const row of items.rows) {
       if (row.status in columns) {
-        columns[row.status as keyof typeof columns].items.push(mapJobCardListItem(row));
+        columns[row.status as keyof typeof columns].items.push(mapJobCardListItemWithAuthorization(row));
       }
     }
     return { columns, closedCounts };
@@ -4093,7 +4280,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     );
     return {
       items: items.rows.map((row) => ({
-        ...mapJobCardListItem(row),
+        ...mapJobCardListItemWithAuthorization(row),
         sourceJobCardId: row.source_job_card_id!,
       })),
       total: Number(count.rows[0]?.total ?? 0),

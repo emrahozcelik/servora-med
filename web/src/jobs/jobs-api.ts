@@ -243,10 +243,19 @@ export type JobCard = {
   followUpContext: JobCardFollowUpContext | null;
   followUpProposal: FollowUpProposal | null;
   /**
+   * JOB-010 §1a: the currently valid early-start authorization, or null. Only
+   * a row that still matches the job's assignee and planned interval is sent.
+   */
+  earlyStartAuthorization: EarlyStartAuthorization | null;
+  /**
    * Slice 2 advisory SUBMIT comparison of the just-completed submission.
    * Reader-gated server-side; absent (null) on plain reads. No coordinates.
    */
   submitLocationComparison: JobCardSubmitLocationComparison | null;
+};
+export type EarlyStartAuthorization = {
+  grantedAt: string;
+  grantedBy: { id: string; name: string | null };
 };
 /**
  * Slice 2 safe comparison projection. Reference activity identity stays
@@ -646,6 +655,24 @@ function parseWorkflowContext(value: unknown): JobWorkflowContext {
   };
 }
 /**
+ * JOB-010 §1a early-start authorization. Strictly shaped when present; absent
+ * or null means "no valid authorization" (fail-closed for the UI).
+ */
+function parseEarlyStartAuthorization(value: unknown): EarlyStartAuthorization | null {
+  if (value === undefined || value === null) return null;
+  const v = exactObject(value, 'earlyStartAuthorization', ['grantedAt', 'grantedBy']);
+  const grantedBy = exactObject(v.grantedBy, 'earlyStartAuthorization.grantedBy', ['id', 'name']);
+  return {
+    grantedAt: canonicalInstant(v.grantedAt, 'earlyStartAuthorization.grantedAt'),
+    grantedBy: {
+      id: string(grantedBy.id, 'earlyStartAuthorization.grantedBy.id'),
+      name: grantedBy.name === null
+        ? null
+        : string(grantedBy.name, 'earlyStartAuthorization.grantedBy.name'),
+    },
+  };
+}
+/**
  * Slice 2 advisory comparison. Tolerantly absent (null) on plain reads and
  * for previous backends; strictly validated when present. Distance may be
  * exactly 0 (identical snapshots), so non-negativity — not positivity — is
@@ -815,6 +842,7 @@ function parseJobCard(value: unknown): JobCard {
     followUpProposal: 'followUpProposal' in v
       ? parseFollowUpProposal(v.followUpProposal)
       : null,
+    earlyStartAuthorization: parseEarlyStartAuthorization(v.earlyStartAuthorization),
     submitLocationComparison: parseSubmitLocationComparison(v.submitLocationComparison),
   };
 }
@@ -1230,6 +1258,32 @@ export const sendSubmissionReminder = async (
     reminderId: string(v.reminderId, 'reminderId'),
     sentAt: canonicalInstant(v.sentAt, 'sentAt'),
   } satisfies SubmissionReminderReceipt;
+};
+
+export type EarlyStartAuthorizationReceipt = {
+  jobCardId: string;
+  authorizationId: string;
+  grantedAt: string;
+};
+
+/**
+ * JOB-010 §1a manager-only early-start authorization. Version-checked and
+ * idempotent server-side; the caller refreshes the detail afterwards.
+ */
+export const grantEarlyStartAuthorization = async (
+  id: string,
+  input: { clientActionId: string; expectedVersion: number },
+) => {
+  const v = exactObject(
+    await request(`${jobPath(id)}/early-start-authorization`, json('POST', input)),
+    'earlyStartAuthorization',
+    ['jobCardId', 'authorizationId', 'grantedAt'],
+  );
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    authorizationId: string(v.authorizationId, 'authorizationId'),
+    grantedAt: canonicalInstant(v.grantedAt, 'grantedAt'),
+  } satisfies EarlyStartAuthorizationReceipt;
 };
 
 export type OpenSubmissionLateItem = {

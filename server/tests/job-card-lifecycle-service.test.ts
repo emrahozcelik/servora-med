@@ -122,6 +122,9 @@ class LifecycleRepository implements JobCardRepository {
       customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
       contact: null,
       lifecycle: this.lifecycle,
+      earlyStartAuthorization: this.job.earlyStartAuthorized === true
+        ? { grantedAt: '2026-07-13T11:00:00.000Z', grantedBy: { id: 'manager-1', name: 'Manager One' } }
+        : null,
     };
   }
 
@@ -666,25 +669,28 @@ describe('JobCard lifecycle commands', () => {
     });
   });
 
-  it('projects ACCEPT and START from the server evaluation instant', async () => {
+  it('projects ACCEPT always and START from the tolerance and authorization facts', async () => {
     const repo = new LifecycleRepository();
-    repo.job.scheduledAt = '2026-07-13T12:00:00.001Z';
+    repo.job.scheduledAt = '2026-07-13T13:00:00.000Z';
+    repo.job.scheduledEndsAt = '2026-07-13T14:00:00.000Z';
+    const commands = async (at: Date) => (await new JobCardService(repo, () => at)
+      .detail(staff, 'job-1')).workflowContext.allowedCommands;
 
+    // JOB-010 §1: acceptance is never gated by the planned instant.
     repo.job.status = 'NEW';
-    expect((await new JobCardService(repo, () => time).detail(staff, 'job-1'))
-      .workflowContext.allowedCommands).not.toContain('ACCEPT_ASSIGNMENT');
+    expect(await commands(time)).toContain('ACCEPT_ASSIGNMENT');
 
+    // JOB-010 §1a: 60 minutes early is outside the 30-minute tolerance.
     repo.job.status = 'ACCEPTED';
-    expect((await new JobCardService(repo, () => time).detail(staff, 'job-1'))
-      .workflowContext.allowedCommands).not.toContain('START');
-
-    const atScheduledTime = new Date('2026-07-13T12:00:00.001Z');
-    repo.job.status = 'NEW';
-    expect((await new JobCardService(repo, () => atScheduledTime).detail(staff, 'job-1'))
-      .workflowContext.allowedCommands).toContain('ACCEPT_ASSIGNMENT');
-    repo.job.status = 'ACCEPTED';
-    expect((await new JobCardService(repo, () => atScheduledTime).detail(staff, 'job-1'))
-      .workflowContext.allowedCommands).toContain('START');
+    expect(await commands(time)).not.toContain('START');
+    // Equality at scheduledAt - 30 minutes is allowed.
+    expect(await commands(new Date('2026-07-13T12:30:00.000Z'))).toContain('START');
+    // A valid authorization widens it back to any instant.
+    repo.job.earlyStartAuthorized = true;
+    expect(await commands(time)).toContain('START');
+    // ...but only for the planned interval types.
+    repo.job.type = 'GENERAL_TASK';
+    expect(await commands(time)).not.toContain('START');
   });
 
   it('returns null readiness outside execution, correction, and review', async () => {
@@ -940,20 +946,20 @@ describe('JobCard lifecycle commands', () => {
     });
   });
 
-  it('rejects ACCEPT_ASSIGNMENT before the server scheduled instant without mutation', async () => {
+  it('allows ACCEPT_ASSIGNMENT before the server scheduled instant', async () => {
     const repo = new LifecycleRepository();
     repo.job.status = 'NEW';
     repo.job.version = 1;
     repo.job.scheduledAt = '2026-07-13T12:00:00.001Z';
 
+    // JOB-010 §1: acceptance is no longer gated by scheduledAt.
     await expect(new JobCardService(repo, () => time).acceptAssignment(
       staff,
       'job-1',
-      input('accept-too-early', 1),
-    )).rejects.toMatchObject({ code: 'INVALID_TRANSITION', statusCode: 409 });
-    expect(repo.job).toMatchObject({ status: 'NEW', version: 1 });
-    expect(repo.transitions).toHaveLength(0);
-    expect(repo.events).toHaveLength(0);
+      input('accept-before-schedule', 1),
+    )).resolves.toMatchObject({ status: 'ACCEPTED', version: 2 });
+    expect(repo.transitions).toHaveLength(1);
+    expect(repo.events).toHaveLength(1);
   });
 
   it.each([
@@ -974,11 +980,13 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.transitions).toHaveLength(1);
   });
 
-  it('rejects START before scheduledAt for any otherwise eligible ACCEPTED job', async () => {
+  it('rejects START before scheduledAt for a non-interval type without mutation', async () => {
     const repo = new LifecycleRepository();
+    repo.job.type = 'GENERAL_TASK';
     repo.job.status = 'ACCEPTED';
     repo.job.version = 2;
     repo.job.scheduledAt = '2026-07-13T12:00:00.001Z';
+    repo.job.scheduledEndsAt = null;
 
     await expect(new JobCardService(repo, () => time).start(
       staff,
@@ -988,6 +996,38 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.job).toMatchObject({ status: 'ACCEPTED', version: 2 });
     expect(repo.transitions).toHaveLength(0);
     expect(repo.events).toHaveLength(0);
+  });
+
+  it.each([
+    ['exactly 30 minutes before', '2026-07-13T12:30:00.000Z', '2026-07-13T13:30:00.000Z', false, true],
+    ['one millisecond earlier than the tolerance', '2026-07-13T12:30:00.001Z', '2026-07-13T13:30:00.000Z', false, false],
+    ['earlier with an early-start authorization', '2026-07-13T13:00:00.000Z', '2026-07-13T14:00:00.000Z', true, true],
+  ] as const)('START %s for a planned interval job', async (
+    _case, scheduledAt, scheduledEndsAt, authorized, allowed,
+  ) => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'ACCEPTED';
+    repo.job.version = 2;
+    repo.job.scheduledAt = scheduledAt;
+    repo.job.scheduledEndsAt = scheduledEndsAt;
+    repo.job.earlyStartAuthorized = authorized;
+
+    const attempt = new JobCardService(repo, () => time).start(
+      staff,
+      'job-1',
+      input(`start-${_case}`, 2),
+    );
+    if (allowed) {
+      await expect(attempt).resolves.toMatchObject({ status: 'IN_PROGRESS', version: 3 });
+      expect(repo.transitions).toHaveLength(1);
+      // JOB-010 §1a: an early start never rewrites the planned interval.
+      expect(repo.job).toMatchObject({ scheduledAt, scheduledEndsAt });
+    } else {
+      await expect(attempt).rejects.toMatchObject({ code: 'INVALID_TRANSITION', statusCode: 409 });
+      expect(repo.job).toMatchObject({ status: 'ACCEPTED', version: 2 });
+      expect(repo.transitions).toHaveLength(0);
+      expect(repo.events).toHaveLength(0);
+    }
   });
 
   it.each([

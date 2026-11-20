@@ -68,6 +68,12 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.get('/submission-late/open', secured, h.listOpenSubmissionLate);
   app.get<{ Params: { id: string } }>('/:id/submission-lateness', secured, h.submissionLateness);
   app.post<{ Params: { id: string } }>('/:id/submission-reminder', secured, h.sendSubmissionReminder);
+  // JOB-010 §1a manager-only early-start authorization (release 1).
+  app.post<{ Params: { id: string } }>(
+    '/:id/early-start-authorization',
+    secured,
+    h.grantEarlyStartAuthorization,
+  );
   app.get<{ Params: { id: string } }>('/:id/notes', secured, h.listNotes);
   app.post<{ Params: { id: string } }>('/:id/notes', secured, h.addNote);
 };

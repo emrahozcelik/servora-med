@@ -5,6 +5,7 @@ import {
   assertCreateAssignmentRequest,
   assertCanCreateForAssignee,
   assertCanCreateFollowUp,
+  assertCanGrantEarlyStartAuthorization,
   assertCanListFollowUps,
   assertCanInvalidate,
   assertCanEdit,
@@ -162,7 +163,7 @@ describe('JobCard policy', () => {
     expect(getAllowedLifecycleCommands(admin, accepted)).toEqual(['CANCEL']);
   });
 
-  it('hides time-gated acceptance and start commands before scheduledAt', () => {
+  it('allows acceptance before scheduledAt and keeps the planned-time START floor', () => {
     const requestTime = new Date('2026-07-20T09:59:59.999Z');
     const scheduledAt = '2026-07-20T10:00:00.000Z';
     const futureNew = {
@@ -172,16 +173,86 @@ describe('JobCard policy', () => {
     };
     const futureAccepted = { ...futureNew, status: 'ACCEPTED' as const };
 
-    expect(getAllowedLifecycleCommands(staff, futureNew as never, requestTime as never))
-      .not.toContain('ACCEPT_ASSIGNMENT');
-    expect(getAllowedLifecycleCommands(staff, futureAccepted as never, requestTime as never))
-      .not.toContain('START');
+    // JOB-010 §1: ACCEPT_ASSIGNMENT is no longer gated by scheduledAt.
+    expect(getAllowedLifecycleCommands(staff, futureNew, requestTime))
+      .toContain('ACCEPT_ASSIGNMENT');
+
+    // GENERAL_TASK keeps the plain requestTime >= scheduledAt START rule.
+    const generalTask = {
+      ...futureAccepted,
+      type: 'GENERAL_TASK' as const,
+      scheduledAt,
+    };
+    expect(getAllowedLifecycleCommands(staff, generalTask, requestTime)).not.toContain('START');
 
     const atScheduledTime = new Date(scheduledAt);
-    expect(getAllowedLifecycleCommands(staff, futureNew as never, atScheduledTime))
-      .toContain('ACCEPT_ASSIGNMENT');
-    expect(getAllowedLifecycleCommands(staff, futureAccepted as never, atScheduledTime))
-      .toContain('START');
+    expect(getAllowedLifecycleCommands(staff, generalTask, atScheduledTime)).toContain('START');
+  });
+
+  it('widens the interval-job START floor by 30 minutes with the exact boundary', () => {
+    const scheduledAt = '2026-07-20T14:00:00.000Z';
+    const accepted = { ...job, status: 'ACCEPTED' as const, scheduledAt };
+    const at = (iso: string) => getAllowedLifecycleCommands(staff, accepted, new Date(iso));
+
+    // One millisecond before scheduledAt - 30min needs an authorization.
+    expect(at('2026-07-20T13:29:59.999Z')).not.toContain('START');
+    // Equality is allowed for both interval types.
+    expect(at('2026-07-20T13:30:00.000Z')).toContain('START');
+    expect(getAllowedLifecycleCommands(
+      staff,
+      { ...accepted, type: 'SALES_MEETING' as const },
+      new Date('2026-07-20T13:30:00.000Z'),
+    )).toContain('START');
+    expect(at('2026-07-20T13:45:00.000Z')).toContain('START');
+    expect(at(scheduledAt)).toContain('START');
+  });
+
+  it('keeps early-start authorization management-only', () => {
+    for (const actor of [manager, admin]) {
+      expect(() => assertCanGrantEarlyStartAuthorization(actor)).not.toThrow();
+    }
+    expect(() => assertCanGrantEarlyStartAuthorization(staff))
+      .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+  });
+
+  it('allows an earlier START only with a valid early-start authorization', () => {
+    const scheduledAt = '2026-07-20T14:00:00.000Z';
+    const accepted = { ...job, status: 'ACCEPTED' as const, scheduledAt };
+    const early = new Date('2026-07-20T13:15:00.000Z');
+
+    expect(getAllowedLifecycleCommands(staff, accepted, early)).not.toContain('START');
+    expect(getAllowedLifecycleCommands(
+      staff,
+      { ...accepted, earlyStartAuthorized: true },
+      early,
+    )).toContain('START');
+    // Absence defaults to false; an explicit false stays closed.
+    expect(getAllowedLifecycleCommands(
+      staff,
+      { ...accepted, earlyStartAuthorized: false },
+      early,
+    )).not.toContain('START');
+    // The authorization never widens a non-interval type.
+    expect(getAllowedLifecycleCommands(
+      staff,
+      { ...accepted, type: 'GENERAL_TASK' as const, earlyStartAuthorized: true },
+      early,
+    )).not.toContain('START');
+    // assertCanTransition reads the same fact.
+    expect(() => assertCanTransition(
+      staff,
+      { ...accepted, earlyStartAuthorized: true } as JobCard,
+      'START',
+      undefined,
+      early,
+    )).not.toThrow();
+    expect(() => assertCanTransition(
+      staff,
+      accepted as JobCard,
+      'START',
+      undefined,
+      early,
+    )).toThrowError(expect.objectContaining({ code: 'INVALID_TRANSITION', statusCode: 409 }));
   });
 
   it('returns neutral actions without treating waiting edits as direct mutation', () => {

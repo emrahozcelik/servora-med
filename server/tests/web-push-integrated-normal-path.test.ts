@@ -59,7 +59,7 @@ const MIGRATIONS = [
   '044_job_card_accountability_facts.sql',
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
-  '049_job_card_lifecycle_intents.sql', '062_follow_up_cycle_end_reason.sql',
+  '049_job_card_lifecycle_intents.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql',
 
 ] as const;
 

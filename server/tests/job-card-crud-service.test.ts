@@ -161,6 +161,7 @@ class CrudMemoryRepository implements JobCardRepository {
       appendScheduleRevision: async (input) => { this.scheduleRevisions.push(input); return { id: 'revision-memory', revisionNo: 1 }; },
       appendAssignmentHistory: async () => {},
       getCurrentScheduleRevisionNo: async () => 1,
+      voidEarlyStartAuthorizations: async () => {},
       getScheduleRevision: async () => ({
         revisionNo: 1, scheduledAt: null, scheduledEndsAt: null,
         dueDate: null, createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -248,6 +249,7 @@ class CrudMemoryRepository implements JobCardRepository {
       appendScheduleRevision: async (input) => { this.scheduleRevisions.push(input); return { id: 'revision-memory', revisionNo: 1 }; },
       appendAssignmentHistory: async () => {},
       getCurrentScheduleRevisionNo: async () => 1,
+      voidEarlyStartAuthorizations: async () => {},
       getScheduleRevision: async () => ({
         revisionNo: 1, scheduledAt: null, scheduledEndsAt: null,
         dueDate: null, createdAt: new Date('2026-01-01T00:00:00.000Z'),

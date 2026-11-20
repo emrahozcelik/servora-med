@@ -104,6 +104,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_APPROVAL_WITHDRAWN',
   'JOB_SUBMISSION_REMINDER_SENT', 'JOB_SUBMISSION_AUTO_REMINDER_SENT',
   'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
+  'JOB_EARLY_START_AUTHORIZED',
 ] as const;
 
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
@@ -136,6 +137,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_SUBMISSION_REMINDER_SENT: 'Onaya gönderme hatırlatması gönderildi',
   JOB_SUBMISSION_AUTO_REMINDER_SENT: 'Otomatik onaya gönderme hatırlatması',
   JOB_SUBMISSION_AUTO_ESCALATION_SENT: 'Yöneticiye gecikme bildirimi',
+  JOB_EARLY_START_AUTHORIZED: 'Erken başlama izni verildi',
 };
 
 export function isKnownJobCardActivityEvent(value: string): value is KnownJobCardActivityEvent {

@@ -79,6 +79,7 @@ beforeAll(async () => {
   await rm(path.join(previousRelease, 'server/dist/db/migrations/060_crm_duplicate_review_decisions.sql'));
   await rm(path.join(previousRelease, 'server/dist/db/migrations/061_weekly_report_removal.sql'));
   await rm(path.join(previousRelease, 'server/dist/db/migrations/062_follow_up_cycle_end_reason.sql'));
+  await rm(path.join(previousRelease, 'server/dist/db/migrations/063_job_card_early_start_authorizations.sql'));
 });
 
 beforeEach(async () => {
@@ -121,24 +122,24 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
     expect(deploy.error).toBeUndefined();
     expect(deploy.status).toBe(0);
     expect(deploy.stdout).toContain('migration_status=EXACT\n');
-    expect(deploy.stdout).toContain('applied_count=62\n');
+    expect(deploy.stdout).toContain('applied_count=63\n');
     expect(deploy.stdout).toContain('pending_count=0\n');
     expect(deploy.stdout).toContain('unexpected_count=0\n');
     expect(await history()).toEqual(before);
   });
 
-  it('reports 061 as BEHIND with only 062 pending despite interleaved timestamps', async () => {
+  it('reports 062 as BEHIND with only 063 pending despite interleaved timestamps', async () => {
     await pool!.query('DELETE FROM schema_migrations WHERE version = $1', [catalog.head!.version]);
     const output = await expectIncompatibleReaders('BEHIND', 'PREFIX_WITH_PENDING');
     expect(output).toContain('pending_count=1\n');
-    expect(output).toContain('pending_versions=062_follow_up_cycle_end_reason\n');
-    expect(output).toContain('applied_head=061_weekly_report_removal\n');
+    expect(output).toContain('pending_versions=063_job_card_early_start_authorizations\n');
+    expect(output).toContain('applied_head=062_follow_up_cycle_end_reason\n');
   });
 
   it('reports a synthetic future canonical version as AHEAD in all readers', async () => {
-    await pool!.query("INSERT INTO schema_migrations (version, applied_at) VALUES ('063_future_feature', '2000-01-01')");
+    await pool!.query("INSERT INTO schema_migrations (version, applied_at) VALUES ('064_future_feature', '2000-01-01')");
     const output = await expectIncompatibleReaders('AHEAD', 'DATABASE_AHEAD');
-    expect(output).toContain('unexpected_versions=063_future_feature\n');
+    expect(output).toContain('unexpected_versions=064_future_feature\n');
   });
 
   it('keeps a missing middle migration DIVERGED', async () => {
@@ -147,7 +148,7 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
   });
 
   it('keeps an alternative branch migration DIVERGED', async () => {
-    await pool!.query("UPDATE schema_migrations SET version = '062_alternative_branch' WHERE version = $1", [catalog.head!.version]);
+    await pool!.query("UPDATE schema_migrations SET version = '063_alternative_branch' WHERE version = $1", [catalog.head!.version]);
     await expectIncompatibleReaders('DIVERGED', 'DIVERGENT');
   });
 
@@ -166,13 +167,13 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
   it('keeps empty history incompatible and reports every version pending', async () => {
     await pool!.query('DELETE FROM schema_migrations');
     const output = await expectIncompatibleReaders('EMPTY', 'PREFIX_WITH_PENDING');
-    expect(output).toContain('pending_count=62\n');
+    expect(output).toContain('pending_count=63\n');
   });
 
-  it('keeps the pre-056 release catalog AHEAD fail-closed against a 062 database', async () => {
+  it('keeps the pre-056 release catalog AHEAD fail-closed against a 063 database', async () => {
     const previousCatalog = await loadMigrationCatalog(path.join(previousRelease, 'server/dist/db/migrations'));
     expect(previousCatalog.head!.version).toBe('055_job_submit_location_comparison');
     const output = await expectIncompatibleReaders('AHEAD', 'DATABASE_AHEAD', previousCatalog, previousRelease);
-    expect(output).toContain('unexpected_versions=056_meeting_met_contact,057_sale_from_visit,058_sale_integer_quantity,059_crm_duplicate_read_indexes,060_crm_duplicate_review_decisions,061_weekly_report_removal,062_follow_up_cycle_end_reason\n');
+    expect(output).toContain('unexpected_versions=056_meeting_met_contact,057_sale_from_visit,058_sale_integer_quantity,059_crm_duplicate_read_indexes,060_crm_duplicate_review_decisions,061_weekly_report_removal,062_follow_up_cycle_end_reason,063_job_card_early_start_authorizations\n');
   });
 });

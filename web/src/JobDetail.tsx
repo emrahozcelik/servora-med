@@ -84,6 +84,7 @@ import {
   OverdueIncidentHistorySection,
   SubmissionLatenessSection,
 } from './jobs/SubmissionLateness';
+import { EarlyStartAuthorizationSection } from './jobs/EarlyStartAuthorization';
 import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
@@ -507,7 +508,7 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, submissionLateness, overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
+  pendingLabel, continuity, submissionLateness, earlyStart, overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
 }: {
   job: JobCard;
@@ -536,6 +537,8 @@ export function JobDetailPanel({
   children?: ReactNode;
   continuity?: ReactNode;
   submissionLateness?: ReactNode;
+  /** JOB-010 §1a early-start authorization action/status. */
+  earlyStart?: ReactNode;
   /** Manager-only lateness history: above the workflow on desktop, a collapsed
    *  disclosure below the record details on mobile (DECISIONS.md UI-005). */
   overdueHistory?: ReactNode;
@@ -751,6 +754,7 @@ export function JobDetailPanel({
       {realtimeStaleNotice}
       {continuity}
       {submissionLateness}
+      {earlyStart}
       {!narrow && overdueHistory}
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
@@ -2418,6 +2422,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           />
         )
         : undefined
+    }
+    earlyStart={
+      <EarlyStartAuthorizationSection
+        job={detail.job}
+        user={user}
+        onGranted={() => {
+          setTimelineKey((value) => value + 1);
+          void refreshTruth();
+        }}
+      />
     }
     overdueHistory={isManagementUser(user) ? (
       <OverdueIncidentHistorySection jobId={jobId} collapsible={narrowDetail} />

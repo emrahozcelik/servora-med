@@ -161,6 +161,7 @@ async function deleteJobHistoryRows(
     | 'job_card_lifecycle_intents'
     | 'job_card_schedule_revisions'
     | 'job_card_assignment_history'
+    | 'job_card_early_start_authorizations'
     | 'job_card_accountability_facts',
   organizationId: string,
   jobCardIds: readonly string[],
@@ -381,6 +382,7 @@ async function lockPlan(client: PoolClient, organizationId: string, plan: DemoDa
   await lockUuidRows(client, 'job_card_submission_episode_activations', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_lifecycle_intents', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_accountability_facts', organizationId, plan.jobCards, 'job_card_id');
+  await lockUuidRows(client, 'job_card_early_start_authorizations', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_assignment_history', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_action_locations', organizationId, plan.jobActionLocations);
@@ -429,6 +431,9 @@ async function executePlan(client: PoolClient, organizationId: string, plan: Dem
   await deleteJobHistoryRows(client, 'job_card_accountability_facts', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_assignment_history', organizationId, plan.jobCards);
+  // JOB-010 §1a: the early-start authorization is a child of the JobCard and
+  // must be removed before it, like the other history tables.
+  await deleteJobHistoryRows(client, 'job_card_early_start_authorizations', organizationId, plan.jobCards);
   await deleteUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
   await deleteRootRows(client, 'calendar_events', organizationId, plan.datasetId, plan.calendarEvents);
   for (const jobCardId of plan.jobCardDeleteOrder) {

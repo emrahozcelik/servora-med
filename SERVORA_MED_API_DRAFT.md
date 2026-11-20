@@ -834,6 +834,42 @@ Base lifecycle command body:
 
 `request-revision` requires `revisionReason`; `cancel` requires `cancelReason` according to cancellation policy.
 
+`ACCEPT_ASSIGNMENT` is not gated by `scheduledAt`; the acceptance deadline belongs to
+JOB-010 release 2b. `START` for `PRODUCT_DELIVERY` and `SALES_MEETING` is allowed from
+`scheduledAt − 30 minutes` (inclusive); earlier needs a reschedule or a valid management
+early-start authorization. Every other type keeps `requestTime >= scheduledAt`. See
+[assignment acceptance and SLA](docs/features/assignment-acceptance-sla.md) §1 and §1a.
+
+### Early-start authorization (JOB-010 release 1)
+
+`POST /api/job-cards/:id/early-start-authorization`
+
+```json
+{ "clientActionId": "uuid", "expectedVersion": 6 }
+```
+
+MANAGER/ADMIN only (STAFF is rejected with `403 FORBIDDEN` before any lookup; unknown and
+cross-org jobs stay `404 JOB_CARD_NOT_FOUND`). The JobCard row is locked, the version is
+checked, `job_cards.version` increments and a `JOB_EARLY_START_AUTHORIZED` activity plus
+its realtime `job.updated` event commit in the same transaction. The job must be
+`PRODUCT_DELIVERY` or `SALES_MEETING`, in `NEW` or `ACCEPTED`, with a `scheduledAt`; otherwise
+`409 EARLY_START_NOT_APPLICABLE`. A still-valid authorization returns
+`409 EARLY_START_ALREADY_AUTHORIZED`; a stale version returns `409 VERSION_CONFLICT`; a replay
+of the same `clientActionId` returns the stored receipt.
+
+Response `200`:
+
+```json
+{ "jobCardId": "uuid", "authorizationId": "uuid", "grantedAt": "2026-11-20T08:00:00.000Z" }
+```
+
+The row records the assignee, the current schedule revision number and the planned interval
+it was granted for. It stays valid only while that assignee and planned interval are
+unchanged; a management reassignment or reschedule (and the Staff offboarding transfer)
+voids it one-way in the same transaction with `REASSIGNED`, `RESCHEDULED` or
+`OFFBOARDING_TRANSFER`. A `dueDate`-only change keeps it. The job detail exposes the
+currently valid grant as `earlyStartAuthorization: { grantedAt, grantedBy: { id, name } } | null`.
+
 Cancelling a follow-up visit (`type = SALES_MEETING` with `engagementKind = FOLLOW_UP`) also
 requires `followUpContinuity` ([JOB-009](DECISIONS.md)); every other JobCard must omit it:
 
@@ -1025,6 +1061,11 @@ type JobCardDetail = {
   assignee: { id: string; name: string }
   customer: { id: string; name: string } | null
   contact: { id: string; name: string } | null
+  // JOB-010 §1a: the currently valid early-start authorization, or null.
+  earlyStartAuthorization: {
+    grantedAt: string
+    grantedBy: { id: string; name: string | null }
+  } | null
 }
 ```
 

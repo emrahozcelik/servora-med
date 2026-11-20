@@ -41,6 +41,7 @@ export const MEETING_DETAILS_UPDATE_REQUEST_VERSION = 'MEETING_DETAILS_UPDATE:v1
 export const DELIVERY_ITEM_CREATE_REQUEST_VERSION = 'DELIVERY_ITEM_CREATE:v1';
 export const JOB_NOTE_ADD_REQUEST_VERSION = 'JOB_NOTE_ADD:v1';
 export const JOB_CARD_LIFECYCLE_REQUEST_VERSION = 'JOB_CARD_LIFECYCLE:v1';
+export const EARLY_START_AUTHORIZATION_REQUEST_VERSION = 'EARLY_START_AUTHORIZATION:v1';
 
 /** Deterministic one-way digest of an explicitly ordered identity object. */
 export function hashRequestIdentity(identity: Readonly<Record<string, unknown>>): string {
@@ -278,5 +279,17 @@ export function deliveryItemCreateRequestHash(
     serialNo: trimmedTextOrNull(input.serialNo),
     expiryDate: normalizeExpiryDate(input.expiryDate),
     deliveryNote: trimmedTextOrNull(input.deliveryNote),
+  });
+}
+
+/** JOB-010 §1a early-start grant: the job and the version it was granted against. */
+export function earlyStartAuthorizationRequestHash(
+  jobCardId: string,
+  expectedVersion: number,
+): string {
+  return hashRequestIdentity({
+    operation: EARLY_START_AUTHORIZATION_REQUEST_VERSION,
+    jobCardId,
+    expectedVersion,
   });
 }
