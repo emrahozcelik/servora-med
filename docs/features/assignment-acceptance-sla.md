@@ -743,7 +743,8 @@ MANAGER/ADMIN only (STAFF 403 before lookup), job `NEW`, `PRODUCT_DELIVERY` /
 `SALES_MEETING` with `scheduledAt`, flag on (else 409 `ASSIGNMENT_WINDOW_DISABLED`).
 A live `OPEN` offer (`now < due`) → 409 `ASSIGNMENT_OFFER_ALREADY_OPEN`; an
 overdue `OPEN` offer is closed `EXPIRED` (closed_by NULL) in the same
-transaction. Opens a new offer (`REOFFER`) to the current assignee with the
+transaction, with its activity but no expiry notification (the acting manager
+is handling it). Opens a new offer (`REOFFER`) to the current assignee with the
 rules above; version +1; idempotent with request hash; assignee locked before
 the job. Response 201 `{ jobCardId, offerId, acceptanceDueAt, urgentReason }`.
 
