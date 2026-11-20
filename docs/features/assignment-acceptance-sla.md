@@ -3,8 +3,9 @@
 - **Status:** Accepted product contract — `DECISIONS.md` JOB-010
   (2026-11-20). Owner answered Q1–Q9 with the draft defaults ("Evet, kabul
   et"), accepted the record ("Evet, kayda taşı") and added the pre-merge
-  decisions P1-A/B/C, early START and outcome rules (PR #470 review). D1 stays
-  open. Implementation pending; each delivery slice below needs its own PR.
+  decisions P1-A/B/C, early START and outcome rules (PR #470 review), then
+  decided D1 (2026-11-20: Staff never cancel; reasoned request to management).
+  Implementation pending; ships with the code, release plan below.
 - **Date:** 2026-11-20
 - **Scope:** Management-assigned `PRODUCT_DELIVERY` and `SALES_MEETING`
   JobCards before work starts: when Staff may accept, how long they have, how
@@ -248,7 +249,7 @@ urgent_reason     = START_PASSED   if opened_at >= scheduledAt
 - **No Staff cancel for jobs in the window in `NEW` and `ACCEPTED`.** Staff decline or
   release instead; management keeps reasoned cancellation. This closes the
   "accept, then cancel" path. Staff cancellation in `IN_PROGRESS` and later is
-  **not changed by this record**; it is an open product decision (D1 below).
+  covered by decision D1 below: Staff never cancel any JobCard.
 
 ### 6. Expiry
 
@@ -334,7 +335,7 @@ schedule revision.
 `NEW` and `ACCEPTED` jobs that exist before the migration get no offer and no
 deadline; none is fabricated. They keep pre-JOB-010 rules until a management
 producer (§3) opens an offer for them *(Q4)*. The early-start tolerance (§1a) applies to
-them from slice 1.
+them from release 1.
 
 ### 12. Started work that cannot be completed
 
@@ -351,40 +352,67 @@ After `START`, Staff record what actually happened inside the existing JobCard:
 `meetingAt`, and an item that was not delivered never gets a `deliveredAt`.
 No separate arrival workflow is created.
 
-**Known gap (slice 5).** Today a Sales Meeting cannot be submitted without a
+**Known gap (closed by D1, release 2a).** Today a Sales Meeting cannot be submitted without a
 valid `meetingAt`, even with outcome `FOLLOW_UP_REQUIRED` and an
 `unsuccessfulReason` (`CONTACT_NOT_AVAILABLE`, `CONTACT_BUSY`,
 `CUSTOMER_UNREACHABLE`, `REQUESTED_LATER`, `OTHER`) —
 `server/src/modules/job-cards/submission-policy.ts:120-171`. Delivery
 submission likewise requires a valid `deliveredAt` on every item. A visit
 that did not happen therefore cannot be closed truthfully except by `CANCEL`.
-Slice 5 must define a not-held / not-delivered outcome that is submitted for
-management approval without an actual time.
+Decision D1 closes it: an empty `meetingAt` for a visit that did not happen,
+and a change/termination request for a delivery that could not be handed
+over.
 
-## Open product decision D1 — Staff cancel after START
+## Decision D1 — cancellation is a management power (2026-11-20)
 
-Not decided by this record; today's behavior (assigned Staff may cancel with
-a reason in any active state) stays until a separate decision is accepted.
+Accepted by the owner. It replaces the earlier open question and applies to
+**every JobCard type**, not only jobs in the acceptance window.
 
-Questions: may Staff unilaterally cancel a started delivery or visit? Should a
-reasoned failure go to management instead? How are safety emergencies and
-impossible jobs ended?
-
-**Recommendation (for that decision, not adopted here):**
-
-1. For jobs in the window, replace Staff `CANCEL` after `START` with the
-   slice 5 not-held / not-delivered outcome: Staff submit the structured
-   reason; management approves it, reschedules, reassigns or cancels. The
-   customer commitment is closed only by management, and the record shows
-   whether the visit failed or was abandoned.
-2. Safety or impossibility needs no Staff cancel command: Staff stop work and
-   submit the not-held outcome (or add a note). Nothing in the system forces
-   them to continue, and management is notified through the existing approval
-   path. If a faster signal is needed, add a management notification on that
-   submission, not a Staff cancel.
-3. Change this only together with slice 5. Removing Staff cancel before a
-   truthful not-held outcome exists would force Staff to invent a `meetingAt`
-   or `deliveredAt`, which §12 forbids.
+1. **STAFF never execute `CANCEL`.** MANAGER/ADMIN keep reasoned cancellation
+   in every active status. This supersedes the `PRODUCT_REQUIREMENTS.md`
+   Staff-cancellation invariant and, for Staff, the JOB-009 statement that
+   assigned Staff may choose the follow-up continuity decision (management
+   chooses it when cancelling). `WEEKLY_REPORT` was already manager-only.
+2. **Before `START`:** Staff use `DECLINE_ASSIGNMENT` / `RELEASE_ASSIGNMENT`
+   (§5) for jobs in the window. For jobs outside the window, Staff use the
+   change/termination request below.
+3. **Change/termination request** (Staff, any active status, own job):
+   structured reason (customer changed their mind, wrong product, missing
+   stock or equipment, visit could not happen, other) plus mandatory text.
+   - It never changes the JobCard status and deletes nothing. At most one open
+     request per job; idempotent through `clientActionId`; activity row in the
+     same transaction; all active MANAGER/ADMIN are notified.
+   - Management resolves it: correct the job, reschedule (only where the
+     lifecycle still allows it), create a linked new job, cancel with a
+     reason, or reject and ask for more information. Request, decision, actor,
+     reason and instants are kept in history.
+   - A started job is never rescheduled by erasing `startedAt` or
+     responsibility facts: management closes it with its real outcome (or
+     cancels it) and creates a linked new job when the work must happen again.
+4. **Truthful outcomes first.** A Sales Meeting that did not take place
+   (contact absent, unreachable, asked for later) can be submitted through the
+   existing approval path with `meetingAt` empty, using outcome
+   `FOLLOW_UP_REQUIRED` and an `unsuccessfulReason`. A delivery that could not
+   be handed over goes through the change/termination request. No
+   `meetingAt` / `deliveredAt` is ever fabricated.
+5. **Lateness while a request is open.** Existing incidents are never closed
+   or rewritten by a request. While a request is open, OVR-4 automatic Staff
+   reminders for that job stop, and the time from the request to the
+   management decision is measured as management wait, separately from Staff
+   lateness.
+6. **Staff self-created jobs are included** (no exception); the management
+   load is reviewed after rollout.
+7. **Performance.** Management-approved operational reasons (customer
+   withdrew or postponed, customer absent, wrong product, stock or equipment
+   problem) and a management cancellation on a Staff request are never Staff
+   fault: they stay visible with their reasons in activity and operational
+   reports but never lower a performance score, failed-completion count or
+   lateness KPI. Previously recorded, provable lateness incidents are kept;
+   evidence and fault remain separate concepts. REPORT-001 attribution rules
+   apply.
+8. **Never strand Staff.** Staff `CANCEL` is removed only in the same
+   activation that makes the request path, the empty-`meetingAt` submission and
+   the management decision list available.
 
 ## Owner answers (2026-11-20)
 
@@ -395,7 +423,7 @@ decision point to these answers.
 | - | -------- | ------------- |
 | Q1 | Minimum response window | 10 minutes |
 | Q2 | Staff reminder in V1, and when | Yes, once, halfway between open and deadline |
-| Q3 | Staff cancellation for jobs in the window in `IN_PROGRESS` and later | Not changed here; reopened as open decision D1 (2026-11-20 pre-merge review) |
+| Q3 | Staff cancellation for jobs in the window in `IN_PROGRESS` and later | Superseded by decision D1: Staff never cancel any JobCard |
 | Q4 | Pre-rollout `NEW` jobs | No offer until the next management producer |
 | Q5 | Decline/release reason codes | `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER` |
 | Q6 | Who receives management notifications; notify on accept? | All active MANAGER/ADMIN (as OVR-4); no accept notification |
@@ -418,59 +446,62 @@ Recorded from the owner's PR #470 review, before merge:
   `SALES_MEETING`; earlier only with a management authorization or reschedule;
   no arrival workflow (§1a).
 - **Outcomes:** no fabricated `meetingAt` / `deliveredAt`; failed-visit
-  submission is slice 5 (§12).
-- **D1** stays open.
+  submission is resolved by D1 (§12).
+- **D1** decided later the same day (see "Decision D1").
 
-## Delivery slices (each its own PR, in order)
+## Release plan
 
-1. **Accept before start and early START (§1, §1a).** Remove the acceptance
-   gate; 30-minute start tolerance; early-start authorization (migration for
-   its table and activity event type).
-2. **Offer model, deadline and Staff limits (§3, §4, §5, §9, §11).** Offers,
-   deadline computation, the "window too short" rule, server-side deadline
-   check on accept/decline, re-offer, decline/release, Staff cancel
-   restriction in `NEW`/`ACCEPTED`, management-only customer-time fields.
-3. **Urgency and expiry (§3, §4, §6).** `SHORT_NOTICE` / `START_PASSED`
-   marking, past-start acknowledgement, expiry worker (off by default).
-4. **Management list, notifications and UI (§7, §8).**
-5. **Separate acceptance:** truthful not-held / not-delivered outcome (§12) and
-   decision D1.
+Documentation ships with the code PR that implements it (no documentation-only
+PRs). Powers are removed from Staff only behind an activation flag that stays
+off until every replacement path is merged; turning it on in production is a
+separate, explicitly approved step.
 
-Every slice ships with PostgreSQL integration tests for its server rules and
-UI regression tests for the screens it changes.
+| Release | Content | Effect on Staff |
+| ------- | ------- | --------------- |
+| **1** | Accept before start (§1); 30-minute early START and early-start authorization (§1a) | Only widens; ships alone |
+| **2a** | Change/termination request, management decision list and notifications, empty `meetingAt` for a visit that did not happen (D1) | Unchanged; Staff `CANCEL` still available |
+| **2b** | Assignment offers, deadline, server-side deadline check, decline/release, re-offer, urgency, management-only customer time, expiry worker (§3–§9) | Behind the activation flag, off |
+| **2c** | Activation: Staff `CANCEL` removed for every type; deadline and window rules enforced | Only after 2a and 2b are merged and the owner approves |
+
+Every release ships PostgreSQL integration tests for its server rules and UI
+regression tests for the screens it changes.
 
 ## Acceptance scenarios
 
 Times use one organization timezone; the job is planned 14:00–15:00 and
 assigned at 12:00 unless stated.
 
-| # | Scenario | Expected | Slice |
-| - | -------- | -------- | ----- |
-| A1 | Staff accepts at 12:30 | Accepted; no lateness incident | 1–2 |
-| A2 | Staff accepts at 12:59:59.999 | Accepted (deadline 13:00) | 2 |
-| A3 | Staff accepts at 13:00, expiry worker off | 409 `ACCEPTANCE_WINDOW_CLOSED`; nothing written; job in management list (list itself: slice 4) | 2 |
-| A4 | Staff declines at 13:05, worker off | Same 409; job stays `NEW`, not cancelled | 2 |
+| # | Scenario | Expected | Release |
+| - | -------- | -------- | ------- |
+| A1 | Staff accepts at 12:30 | Accepted; no lateness incident | 1, 2b |
+| A2 | Staff accepts at 12:59:59.999 | Accepted (deadline 13:00) | 2b |
+| A3 | Staff accepts at 13:00, expiry worker off | 409 `ACCEPTANCE_WINDOW_CLOSED`; nothing written; job in management list | 2b |
+| A4 | Staff declines at 13:05, worker off | Same 409; job stays `NEW`, not cancelled | 2b |
 | A5 | Accept reserved 12:59:59, finalized after 13:00 | Accepted (reservation instant wins) | 2–3 |
-| A6 | Management re-offers the same Staff at 13:10, expiry worker off | Overdue offer closed as `EXPIRED`; new offer, deadline 13:20; Staff can accept; both offers kept in history | 2 |
-| A7 | Staff patches `scheduledAt`, `scheduledEndsAt` or `dueDate` in `NEW` or `ACCEPTED` | 403; nothing written | 2 |
+| A6 | Management re-offers the same Staff at 13:10, expiry worker off | Overdue offer closed as `EXPIRED`; new offer, deadline 13:20; Staff can accept; both offers kept in history | 2b |
+| A7 | Staff patches `scheduledAt`, `scheduledEndsAt` or `dueDate` in `NEW` or `ACCEPTED` | 403; nothing written | 2b |
 | A8 | Accepted job, Staff starts at 13:30 | `IN_PROGRESS`; `scheduledAt`/`scheduledEndsAt` unchanged; `startedAt` 13:30; START location policy applied | 1 |
 | A9 | Accepted job, Staff starts at 13:29:59.999 without authorization | Rejected; nothing written | 1 |
 | A10 | Management authorizes early start, Staff starts at 13:15 | `IN_PROGRESS`; `scheduledAt`/`scheduledEndsAt` unchanged; `startedAt` 13:15; authorization recorded with actor, instant, revision | 1 |
 | A11 | Authorization granted, then management reschedules or reassigns | Authorization void; tolerance applies to the new time; a `dueDate`-only change keeps it | 1 |
 | A12 | Early start never produces `LATE_START` | No incident | 1 |
-| A13 | Management assigns at 14:10 (start passed, end 15:00) without acknowledgement | 409; with acknowledgement: offer `urgent_reason = START_PASSED`, acknowledgement stored, deadline 14:20 | 3 |
-| A14 | Management assigns at 14:55 (window does not fit before 15:00) | 409; must reschedule | 2 |
-| A14b | Management assigns at 13:30 (start not passed) | Offer `urgent_reason = SHORT_NOTICE`, deadline 13:40 | 3 |
-| A15 | Offer expires | JobCard stays `NEW` and assigned; management can reassign, re-offer, reschedule or cancel | 3–4 |
-| A16 | Started visit, contact absent | Outcome recorded without a `meetingAt`; submitted for approval | 5 |
-| A17 | Started delivery, nothing handed over | Outcome recorded without a `deliveredAt`; submitted for approval | 5 |
-| A18 | Offboarding transfers an `IN_PROGRESS` job | No offer opened; job not in the management list | 2 |
+| A13 | Management assigns at 14:10 (start passed, end 15:00) without acknowledgement | 409; with acknowledgement: offer `urgent_reason = START_PASSED`, acknowledgement stored, deadline 14:20 | 2b |
+| A14 | Management assigns at 14:55 (window does not fit before 15:00) | 409; must reschedule | 2b |
+| A14b | Management assigns at 13:30 (start not passed) | Offer `urgent_reason = SHORT_NOTICE`, deadline 13:40 | 2b |
+| A15 | Offer expires | JobCard stays `NEW` and assigned; management can reassign, re-offer, reschedule or cancel | 2b |
+| A16 | Started visit, contact absent | Submitted with `FOLLOW_UP_REQUIRED`, `unsuccessfulReason`, empty `meetingAt`; approved by management | 2a |
+| A17 | Started delivery, nothing handed over | Staff send a termination request; status unchanged; management cancels with a reason; `startedAt` kept; no `deliveredAt` | 2a |
+| A19 | Staff try `CANCEL` on any JobCard type and status after activation | Rejected; nothing written | 2c |
+| A20 | Request open on a late job | No further OVR-4 Staff reminder; incident kept; request→decision time reported as management wait | 2a |
+| A21 | Management cancels on a Staff request | Staff performance metrics unchanged by it | 2a |
+| A18 | Offboarding transfers an `IN_PROGRESS` job | No offer opened; job not in the management list | 2b |
 
 ## Consequences
 
 - New migrations: early-start authorization table and its activity event type
-  (slice 1); offer table, widened 049 lifecycle-intent command CHECK, further
-  activity event types and notification kinds (slices 2–4). `JobCardStatus` is
+  (release 1); change/termination request table (2a); offer table, widened 049
+  lifecycle-intent command CHECK, further activity event types and
+  notification kinds (2a–2b). `JobCardStatus` is
   unchanged.
 - The `START` tolerance and the authorization check change `policy.ts`
   (`timeEligible`) and `JobPermissionSubject`: the permission subject must carry
@@ -483,6 +514,6 @@ assigned at 12:00 unless stated.
 - Demo-data purge order includes the new tables.
 - `PRODUCT_REQUIREMENTS.md` lifecycle invariants are amended with this
   acceptance; `SERVORA_MED_API_DRAFT.md` gains the decline/release and re-offer
-  endpoints in the slice that adds them.
+  endpoints in the release that adds them.
 - New env flag for the expiry worker, off by default; production activation is
   a separate, explicit step.

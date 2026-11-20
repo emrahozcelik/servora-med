@@ -203,7 +203,13 @@ invariants above describe runtime behavior.
   rescheduling or cancelling.
 - An expired offer never cancels the JobCard and is not recorded as Staff
   fault. A visit or delivery that did not happen never gets a fabricated
-  actual time. Staff cancellation after `START` is an open decision (D1). See
+  actual time.
+- **D1:** STAFF never cancel any JobCard (this supersedes the Staff
+  cancellation invariant above once release 2c is activated). Staff send a
+  reasoned change/termination request instead; it never changes the status;
+  management decides. A visit that did not happen is submitted with an empty
+  `meetingAt`. Management-approved operational reasons are never Staff fault
+  in performance metrics. See
   [DECISIONS.md JOB-010](DECISIONS.md) and the
   [assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
 

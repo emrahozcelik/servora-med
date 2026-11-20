@@ -3016,8 +3016,9 @@ still be visited.
 - **Status:** Accepted product contract (owner: "Evet, kayda taşı", 2026-11-20;
   Q1–Q9 answered with the draft defaults; pre-merge decisions P1-A, P1-B,
   P1-C, early START and outcome rules added in the PR #470 review).
-  Implementation pending in five slices. No runtime behavior changes until
-  each slice ships. Decision D1 (Staff cancel after `START`) stays open.
+  D1 decided the same day: cancellation is a management power. Implementation
+  pending; the docs ship with the code (release plan below). No runtime
+  behavior changes until each release ships.
 - **Owner:** [Assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
   The contract holds the full rules, producers, edge cases, acceptance
   scenarios and slice order.
@@ -3093,12 +3094,23 @@ handing it back.
     rules require them, so a truthful not-held / not-delivered outcome is a
     separate slice (5).
 
-### Open decision D1
+### Decision D1 — cancellation is a management power
 
-Whether Staff may still cancel a job in the window after `START` is not
-decided here; today's rule stays. The contract records a recommendation: tie
-any change to the slice 5 not-held outcome so Staff never have to invent
-actual times.
+STAFF never execute `CANCEL` on any JobCard type; MANAGER/ADMIN keep reasoned
+cancellation (this supersedes the `PRODUCT_REQUIREMENTS.md` Staff-cancellation
+invariant, and the JOB-009 Staff continuity choice passes to management).
+Before `START` Staff decline or release (jobs in the window) or send a
+change/termination request; after `START` they send that request. A request
+never changes the status or deletes history; management corrects,
+reschedules where the lifecycle allows, creates a linked new job, cancels with
+a reason or rejects. A started job keeps `startedAt` and responsibility facts.
+A visit that did not happen is submitted with an empty `meetingAt`
+(`FOLLOW_UP_REQUIRED` + `unsuccessfulReason`). While a request is open,
+automatic OVR-4 Staff reminders stop and the wait until the decision is
+management time. Management-approved operational reasons are never Staff
+fault in performance metrics; recorded lateness evidence is kept. Staff
+`CANCEL` is removed only in the activation that ships the request path and the
+management decision list.
 
 ### Consequences
 
@@ -3107,13 +3119,13 @@ actual times.
   activity event types and notification kinds (slices 2–4). `JobCardStatus` is
   unchanged. The permission subject used for `allowedCommands` gains the
   early-start authorization fact.
-- Delivery slices: (1) accept before start and early START; (2) offer model,
-  deadline computation and server-side check, re-offer, decline/release and
-  Staff limits; (3) urgency marking, past-start acknowledgement and expiry
-  worker, off by default; (4) management list,
-  notifications and UI; (5) truthful not-held outcome and D1, accepted
-  separately. Each slice ships PostgreSQL and UI regression tests; the
+- Releases: (1) accept before start and early START; (2a) change/termination
+  request, management decision list, notifications, empty `meetingAt` for a
+  visit that did not happen; (2b) offers, deadline, decline/release, re-offer,
+  urgency, management-only customer time and expiry worker, behind an
+  activation flag; (2c) owner-approved activation that removes Staff `CANCEL`
+  and enforces the window. Each release ships PostgreSQL and UI regression tests; the
   contract lists the acceptance scenarios. `SERVORA_MED_API_DRAFT.md` gains
-  the new endpoints in the slice that adds them.
+  the new endpoints in the release that adds them.
 - Drift reported separately, not changed here: JOB-006 §6 allows Staff
   `ADD_NOTE` in `NEW`, but `policy.ts` does not.
