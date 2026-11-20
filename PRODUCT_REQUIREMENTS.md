@@ -184,6 +184,23 @@ manager instructions/questions may be supplied, but the former owner's content
 and history are not copied. SOF-2C/closure verification remain separate and
 OF-02 stays open. See the [accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-ownership.md).
 
+### Assignment acceptance window amendment — JOB-010, 2026-11-20
+
+Accepted product contract; implementation pending. Until each slice ships, the
+invariants above describe runtime behavior.
+
+- Assigned Staff may accept before the planned start; `START` keeps its
+  planned-start gate.
+- A management-assigned `PRODUCT_DELIVERY` or `SALES_MEETING` with a planned
+  time carries an assignment offer with a server-computed acceptance deadline.
+  Staff accept, decline (`NEW`) or release (`ACCEPTED`, before `START`) with a
+  reason; they no longer cancel these jobs in `NEW` or `ACCEPTED`. Management
+  keeps reasoned cancellation and recovers declined, released or expired
+  offers by reassigning, re-offering, rescheduling or cancelling.
+- An expired offer never cancels the JobCard and is not recorded as Staff
+  fault. See [DECISIONS.md JOB-010](DECISIONS.md) and the
+  [assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
+
 ### Lifecycle visibility and responsibility
 
 The product must make the current JobCard phase, expected actor, and transition consequence

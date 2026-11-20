@@ -1,9 +1,9 @@
 # Assignment acceptance window and delivery rescue (JOB-010)
 
-- **Status:** DRAFT r4 — owner answered Q1–Q9 with the draft defaults
-  (2026-11-20, "Evet, kabul et"). The record itself is not yet accepted and
-  grants no implementation permission. On owner acceptance, the decision
-  section moves into `DECISIONS.md` as `JOB-010`.
+- **Status:** Accepted product contract — `DECISIONS.md` JOB-010
+  (2026-11-20). Owner answered Q1–Q9 with the draft defaults ("Evet, kabul
+  et") and accepted the record ("Evet, kayda taşı"). Implementation pending;
+  each delivery slice below needs its own PR.
 - **Date:** 2026-11-20
 - **Scope:** Management-assigned `PRODUCT_DELIVERY` and `SALES_MEETING`
   JobCards before work starts: when Staff may accept, how long they have, how
@@ -280,7 +280,8 @@ decision point to these answers.
   approval, JOB-009 replacement, offboarding transfer (which also starts
   sending `job.reassigned`), ADMIN invalidation (withdraws the offer).
 - Demo-data purge order includes the new tables.
-- `PRODUCT_REQUIREMENTS.md` lifecycle invariants and `SERVORA_MED_API_DRAFT.md`
-  (decline/release and re-offer endpoints) are amended on acceptance.
+- `PRODUCT_REQUIREMENTS.md` lifecycle invariants are amended with this
+  acceptance; `SERVORA_MED_API_DRAFT.md` gains the decline/release and re-offer
+  endpoints in the slice that adds them.
 - New env flag for the expiry worker, off by default; production activation is
   a separate, explicit step.

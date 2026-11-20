@@ -3009,3 +3009,70 @@ still be visited.
 - Migration `062` adds the nullable, vocabulary-checked end-reason column; it is
   only set by this command on a cancelled follow-up visit.
 - No change to approval, revision, invalidation, reports or calendar display.
+
+## JOB-010 — Assignment acceptance window and delivery rescue
+
+- **Date:** 2026-11-20
+- **Status:** Accepted product contract (owner: "Evet, kayda taşı", 2026-11-20;
+  Q1–Q9 answered with the draft defaults); implementation pending in four
+  slices. No runtime behavior changes until each slice ships.
+- **Owner:** [Assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
+  The contract holds the full rules, producers, edge cases and slice order.
+- **Extends:** JOB-006, JOB-008, JOB-009 and the Staff offboarding transfer.
+- **Amends:** the `PRODUCT_REQUIREMENTS.md` Staff-cancellation invariant for
+  jobs in the acceptance window while `NEW` or `ACCEPTED`. Earlier records are
+  not rewritten.
+
+### Context
+
+Staff could not accept an assigned job before its planned start: the
+not-before `scheduledAt` filter on `ACCEPT_ASSIGNMENT` (`policy.ts`) came from
+commit `87074ab` without a decision record and contradicts JOB-006's intent
+that acceptance is a commitment made before work. There was no acceptance
+deadline, no decline path, no management signal when nobody answered, and a
+Staff member could cancel a customer's job instead of handing it back.
+
+### Decision
+
+1. **Acceptance and start are separate.** `ACCEPT_ASSIGNMENT` is not gated by
+   `scheduledAt` for any JobCard type; `START` keeps its existing gates.
+2. **Acceptance window.** A `PRODUCT_DELIVERY` or `SALES_MEETING` with a
+   `scheduledAt` enters the window when a management producer (create,
+   reassignment, reschedule, re-offer, JOB-008 approval, JOB-009 replacement,
+   offboarding transfer) records an **assignment offer**. Jobs outside the
+   window, including pre-rollout jobs, keep today's rules.
+3. **Deadline.** `acceptance_due_at = max(scheduledAt − 60 min, opened_at +
+   10 min)`; later than `scheduledAt − 60 min` marks the offer urgent. An offer
+   opens only if `opened_at + 10 min < scheduled_ends_at`; otherwise direct
+   management actions are rejected and compound producers close the offer at
+   once as `WITHDRAWN` (`PLANNED_WINDOW_PASSED`). On-time acceptance therefore
+   never creates OVR-2 `LATE_START`.
+4. **Staff answers.** Accept; `DECLINE_ASSIGNMENT` from `NEW`;
+   `RELEASE_ASSIGNMENT` from `ACCEPTED` before `START` (materializes
+   `LATE_START` before clearing acceptance). Both need a structured reason and
+   text. Staff `CANCEL` is removed for jobs in the window while `NEW` or
+   `ACCEPTED`; later states are unchanged. Staff schedule edits never move a
+   deadline and are not allowed for jobs in the window while `NEW`.
+5. **Expiry.** An opt-in clock-only worker expires overdue offers with OVR-3
+   request-time ordering. The JobCard is never cancelled automatically.
+6. **Notifications.** The assignee gets the assignment notification (now also
+   on offboarding transfer) and one reminder halfway to the deadline; all active
+   MANAGER/ADMIN users are notified on decline, release and expiry. No
+   notification on acceptance.
+7. **Recovery.** Management reassigns, re-offers to the same Staff member,
+   reschedules or cancels with a reason, from a "needs action" list.
+8. **Evidence and reports.** Offer changes and their activity commit together;
+   expiry is "not answered in time", never Staff fault. Offer outcomes are not
+   added to Staff performance metrics; any future report follows REPORT-001.
+
+### Consequences
+
+- New migration (offer table, widened 049 lifecycle-intent command CHECK,
+  activity event types, notification kinds); `JobCardStatus` is unchanged.
+- Delivery slices: (1) acceptance gate removal, no schema change; (2) offer
+  model, decline/release and cancel restriction; (3) deadline and expiry
+  worker, off by default; (4) notifications and the management list.
+  `SERVORA_MED_API_DRAFT.md` gains the new endpoints in the slice that adds
+  them.
+- Drift reported separately, not changed here: JOB-006 §6 allows Staff
+  `ADD_NOTE` in `NEW`, but `policy.ts` does not.
