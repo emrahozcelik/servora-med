@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { OpenSubmissionLateSection } from '../jobs/SubmissionLateness';
+import { OpenChangeRequestsSection } from '../jobs/ChangeRequests';
 import { jobTypeLabel } from '../jobs/job-labels';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
@@ -255,6 +256,7 @@ export function OverviewPage({
           </section>
         )}
         {!isStaff && <OpenSubmissionLateSection />}
+        {!isStaff && <OpenChangeRequestsSection />}
         {!isStaff && (
           <section className="overview-section" aria-labelledby="completion-trend-title">
             <h2 id="completion-trend-title">Tamamlanma eğilimi</h2>
