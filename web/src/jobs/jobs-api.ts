@@ -94,8 +94,24 @@ export type JobCardOperationalNoteContext = (typeof JOB_CARD_OPERATIONAL_NOTE_CO
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
   'EDIT_MEETING_RESULT', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE',
+  'REQUEST_CHANGE', 'RESOLVE_CHANGE_REQUEST',
 ] as const;
 export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
+/**
+ * JOB-010 release 2a: Staff reasons for asking management to correct or
+ * terminate an assigned job. Codes and Turkish copy mirror the accepted
+ * contract; the server re-validates every value and stays authoritative.
+ */
+export const CHANGE_REQUEST_REASON_CODES = [
+  'CUSTOMER_CHANGED_MIND', 'CUSTOMER_POSTPONED', 'CUSTOMER_ABSENT', 'WRONG_PRODUCT',
+  'MISSING_STOCK_OR_EQUIPMENT', 'VISIT_NOT_POSSIBLE', 'OTHER',
+] as const;
+export type ChangeRequestReasonCode = (typeof CHANGE_REQUEST_REASON_CODES)[number];
+/** The management decisions release 2a lets a manager record right now. */
+export const CHANGE_REQUEST_RESOLUTIONS = [
+  'CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED', 'REJECTED',
+] as const;
+export type ChangeRequestResolution = (typeof CHANGE_REQUEST_RESOLUTIONS)[number];
 export const SUBMISSION_REQUIREMENT_CODES = [
   'CUSTOMER_ELIGIBLE', 'ASSIGNEE_ELIGIBLE', 'DELIVERY_ITEM_PRESENT',
   'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
@@ -252,6 +268,19 @@ export type JobCard = {
    * Reader-gated server-side; absent (null) on plain reads. No coordinates.
    */
   submitLocationComparison: JobCardSubmitLocationComparison | null;
+  /**
+   * JOB-010 release 2a: the OPEN Staff change/termination request, or null.
+   * Visible to management and to the assigned Staff member.
+   */
+  changeRequest: JobChangeRequest | null;
+};
+/** JOB-010 release 2a: one open Staff change/termination request of a job. */
+export type JobChangeRequest = {
+  id: string;
+  reasonCode: ChangeRequestReasonCode;
+  reasonText: string;
+  requestedAt: string;
+  requestedBy: RelatedName;
 };
 export type EarlyStartAuthorization = {
   grantedAt: string;
@@ -540,6 +569,11 @@ function related(value: unknown, field: string): RelatedName {
 function nullableRelated(value: unknown, field: string) {
   return value === null ? null : related(value, field);
 }
+/** Strict identity shape for DTOs whose contract pins exactly `{ id, name }`. */
+function exactRelated(value: unknown, field: string): RelatedName {
+  const v = exactObject(value, field, ['id', 'name']);
+  return { id: string(v.id, `${field}.id`), name: string(v.name, `${field}.name`) };
+}
 function canonicalInstant(value: unknown, field: string) {
   const parsed = string(value, field);
   const instant = new Date(parsed);
@@ -687,6 +721,24 @@ function parseSubmitLocationComparison(value: unknown): JobCardSubmitLocationCom
     invalid('submitLocationComparison.distanceMeters');
   }
   return { outcome, distanceMeters };
+}
+/**
+ * JOB-010 release 2a change/termination request. Tolerant of an absent field
+ * (previous backends keep their old shape) but strictly shaped when present;
+ * null means "no open request".
+ */
+function parseChangeRequest(value: unknown): JobChangeRequest | null {
+  if (value === undefined || value === null) return null;
+  const v = exactObject(value, 'changeRequest', [
+    'id', 'reasonCode', 'reasonText', 'requestedAt', 'requestedBy',
+  ]);
+  return {
+    id: string(v.id, 'changeRequest.id'),
+    reasonCode: oneOf(v.reasonCode, 'changeRequest.reasonCode', CHANGE_REQUEST_REASON_CODES),
+    reasonText: string(v.reasonText, 'changeRequest.reasonText'),
+    requestedAt: canonicalInstant(v.requestedAt, 'changeRequest.requestedAt'),
+    requestedBy: exactRelated(v.requestedBy, 'changeRequest.requestedBy'),
+  };
 }
 function parseEngagementKind(value: unknown, type: JobCardType): JobCardEngagementKind | null {
   if (type === 'SALES_MEETING') {
@@ -844,6 +896,7 @@ function parseJobCard(value: unknown): JobCard {
       : null,
     earlyStartAuthorization: parseEarlyStartAuthorization(v.earlyStartAuthorization),
     submitLocationComparison: parseSubmitLocationComparison(v.submitLocationComparison),
+    changeRequest: parseChangeRequest(v.changeRequest),
   };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
@@ -1204,6 +1257,11 @@ export type SubmissionLatenessSnapshot = {
     escalationSentAt: string | null;
     manualReminderSentAt: string | null;
     manualReminderCount: number;
+    /**
+     * JOB-010 release 2a: when the job's OPEN change request started, so the
+     * management wait is visible on the lateness snapshot. Null when none.
+     */
+    changeRequestOpenSince: string | null;
   };
 };
 
@@ -1214,7 +1272,7 @@ function parseSubmissionLateness(value: unknown): SubmissionLatenessSnapshot {
     'incidentId', 'delayType', 'episodeNo', 'scheduleRevisionNo', 'deadlineAt',
     'breachedAt', 'elapsedSeconds', 'accountableUser', 'accountableRole',
     'staffReminderSentAt', 'escalationSentAt', 'manualReminderSentAt',
-    'manualReminderCount',
+    'manualReminderCount', 'changeRequestOpenSince',
   ]);
   return {
     open: {
@@ -1231,6 +1289,9 @@ function parseSubmissionLateness(value: unknown): SubmissionLatenessSnapshot {
       escalationSentAt: nullableCanonicalInstant(item.escalationSentAt, 'open.escalationSentAt'),
       manualReminderSentAt: nullableCanonicalInstant(item.manualReminderSentAt, 'open.manualReminderSentAt'),
       manualReminderCount: count(item.manualReminderCount, 'open.manualReminderCount'),
+      changeRequestOpenSince: item.changeRequestOpenSince === undefined
+        ? null
+        : nullableCanonicalInstant(item.changeRequestOpenSince, 'open.changeRequestOpenSince'),
     },
   };
 }
@@ -1285,6 +1346,113 @@ export const grantEarlyStartAuthorization = async (
     grantedAt: canonicalInstant(v.grantedAt, 'grantedAt'),
   } satisfies EarlyStartAuthorizationReceipt;
 };
+
+/**
+ * JOB-010 release 2a: Staff change/termination request lifecycle on a job.
+ * The server owns authorization, idempotency and every state rule; these
+ * functions only shape the transport and reject non-contract responses.
+ */
+export type CreateChangeRequestInput = {
+  clientActionId: string;
+  reasonCode: ChangeRequestReasonCode;
+  reasonText: string;
+};
+export type CreateChangeRequestReceipt = {
+  jobCardId: string;
+  changeRequestId: string;
+  requestedAt: string;
+};
+export const createChangeRequest = async (id: string, input: CreateChangeRequestInput) => {
+  const v = exactObject(
+    await request(`${jobPath(id)}/change-requests`, json('POST', input)),
+    'changeRequest',
+    ['jobCardId', 'changeRequestId', 'requestedAt'],
+  );
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    changeRequestId: string(v.changeRequestId, 'changeRequestId'),
+    requestedAt: canonicalInstant(v.requestedAt, 'requestedAt'),
+  } satisfies CreateChangeRequestReceipt;
+};
+
+export type ResolveChangeRequestInput = {
+  clientActionId: string;
+  resolution: ChangeRequestResolution;
+  /** Required by the server for REJECTED. */
+  note?: string | null;
+  /** Required by the server for LINKED_JOB_CREATED. */
+  linkedJobCardId?: string | null;
+};
+export type ResolveChangeRequestReceipt = {
+  jobCardId: string;
+  changeRequestId: string;
+  resolution: ChangeRequestResolution;
+  resolvedAt: string;
+};
+export const resolveChangeRequest = async (
+  id: string,
+  requestId: string,
+  input: ResolveChangeRequestInput,
+) => {
+  const v = exactObject(
+    await request(
+      `${jobPath(id)}/change-requests/${segment(requestId)}/resolve`,
+      json('POST', input),
+    ),
+    'changeRequest',
+    ['jobCardId', 'changeRequestId', 'resolution', 'resolvedAt'],
+  );
+  const receipt = {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    changeRequestId: string(v.changeRequestId, 'changeRequestId'),
+    resolution: oneOf(v.resolution, 'resolution', CHANGE_REQUEST_RESOLUTIONS),
+    resolvedAt: canonicalInstant(v.resolvedAt, 'resolvedAt'),
+  } satisfies ResolveChangeRequestReceipt;
+  if (receipt.jobCardId !== id
+    || receipt.changeRequestId !== requestId
+    || receipt.resolution !== input.resolution) invalid('changeRequest');
+  return receipt;
+};
+
+/** Management list item: one OPEN Staff request, oldest first. */
+export type OpenChangeRequestItem = {
+  changeRequestId: string;
+  jobCardId: string;
+  jobTitle: string;
+  jobType: JobCardType;
+  jobStatus: JobCardStatus;
+  reasonCode: ChangeRequestReasonCode;
+  reasonText: string;
+  requestedAt: string;
+  requestedBy: RelatedName;
+  customer: RelatedName | null;
+  jobPath: string;
+};
+function parseOpenChangeRequestItem(value: unknown): OpenChangeRequestItem {
+  const v = exactObject(value, 'changeRequest', [
+    'changeRequestId', 'jobCardId', 'jobTitle', 'jobType', 'jobStatus', 'reasonCode',
+    'reasonText', 'requestedAt', 'requestedBy', 'customer', 'jobPath',
+  ]);
+  return {
+    changeRequestId: string(v.changeRequestId, 'changeRequestId'),
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    jobTitle: string(v.jobTitle, 'jobTitle'),
+    jobType: oneOf(v.jobType, 'jobType', JOB_CARD_TYPES),
+    jobStatus: oneOf(v.jobStatus, 'jobStatus', JOB_CARD_STATUSES),
+    reasonCode: oneOf(v.reasonCode, 'reasonCode', CHANGE_REQUEST_REASON_CODES),
+    reasonText: string(v.reasonText, 'reasonText'),
+    requestedAt: canonicalInstant(v.requestedAt, 'requestedAt'),
+    requestedBy: exactRelated(v.requestedBy, 'requestedBy'),
+    customer: nullableRelated(v.customer, 'customer'),
+    jobPath: string(v.jobPath, 'jobPath'),
+  };
+}
+export const listOpenChangeRequests = async (
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`/api/job-cards/change-requests/open${query(page)}`),
+  parseOpenChangeRequestItem,
+);
 
 export type OpenSubmissionLateItem = {
   jobCardId: string;

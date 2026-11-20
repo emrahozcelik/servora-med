@@ -243,14 +243,17 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       setError('Görüşme sonucunu kaydetmeden önce işaretli alanı düzeltin.');
       return;
     }
+    const meetingAtValue = instant(meetingAt);
     const candidate = {
-      meetingAt: instant(meetingAt), outcome: outcome || null,
+      meetingAt: meetingAtValue, outcome: outcome || null,
       unsuccessfulReason: outcome === 'FOLLOW_UP_REQUIRED' ? (unsuccessfulReason || null) : null,
       meetingSummary: normalizedSummary || null,
       metContactId: metContactId || null,
       // Legacy follow-up time stays historical/API compatible; the mandatory
-      // follow-up proposal is planned in the completion dialog instead.
-      nextFollowUpAt: details.nextFollowUpAt,
+      // follow-up proposal is planned in the completion dialog instead. A
+      // not-held visit has no meeting instant, and DB CHECK 007 requires an
+      // empty follow-up time in that case.
+      nextFollowUpAt: meetingAtValue === null ? null : details.nextFollowUpAt,
     };
     if (candidate.meetingAt === details.meetingAt && candidate.outcome === details.outcome
       && candidate.unsuccessfulReason === (details.unsuccessfulReason ?? null)
@@ -279,17 +282,34 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt.input); }}>Özgün isteği tekrar dene</button>}</section>;
 
   const followUpHint = 'Takip işi planı, işi kontrole gönderirken oluşturulur.';
+  /**
+   * JOB-010 release 2a: a not-held visit (FOLLOW_UP_REQUIRED + an unsuccessful
+   * reason) has no meeting instant, so the time is optional only for that
+   * combination. Every other outcome keeps the time required-looking; the
+   * server stays authoritative.
+   */
+  const meetingOptional = outcome === 'FOLLOW_UP_REQUIRED' && unsuccessfulReason !== '';
   return <section className="meeting-details" aria-labelledby="meeting-details-title">
     <h2 id="meeting-details-title">Görüşme sonucu</h2>
     {(feedback || error) && <div ref={feedbackRef} className={`detail-feedback${error ? ' detail-feedback-error' : ''}`}
       role={error ? 'alert' : 'status'} tabIndex={-1}>{error || feedback}</div>}
     <form className="meeting-result-form" onSubmit={submit} noValidate><fieldset disabled={mutationPending || ambiguous}>
-      <div className="field-group"><label htmlFor="meeting-actual-at">Gerçekleşme zamanı</label>
+      <div className="field-group"><label htmlFor="meeting-actual-at">
+        Gerçekleşme zamanı{meetingOptional ? ' (isteğe bağlı)' : ''}
+      </label>
         <input id="meeting-actual-at" type="datetime-local" value={meetingAt}
+          required={!meetingOptional}
           aria-invalid={fieldErrors.meetingAt ? true : undefined}
-          aria-describedby={describedBy('meeting-timezone-help', fieldErrors.meetingAt && 'meeting-actual-at-error')}
+          aria-describedby={describedBy(
+            'meeting-timezone-help',
+            meetingOptional && 'meeting-time-optional-help',
+            fieldErrors.meetingAt && 'meeting-actual-at-error',
+          )}
           onChange={(event) => setMeetingAt(event.target.value)} />
         <span id="meeting-timezone-help" className="field-status">Saat dilimi: {timezoneLabel()}</span>
+        {meetingOptional && <span id="meeting-time-optional-help" className="field-status">
+          Görüşme gerçekleşmediyse bu alanı boş bırakabilirsiniz.
+        </span>}
         {fieldErrors.meetingAt && <span id="meeting-actual-at-error" className="field-error">{fieldErrors.meetingAt}</span>}</div>
       <div className="field-group"><label htmlFor="meeting-outcome">Sonuç</label>
         <select id="meeting-outcome" value={outcome} aria-invalid={fieldErrors.outcome ? true : undefined}

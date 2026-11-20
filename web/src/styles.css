@@ -2629,6 +2629,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-invalidation-recovery .field-status { margin: 0; }
 .job-invalidation-recovery .review-buttons { justify-content: flex-start; }
 .job-invalidation-action > .detail-feedback { margin: 0; }
+/* JOB-010 release 2a: the change-request decision row is a left-aligned
+   action group inside the job summary, not a dialog footer. */
+.change-request-actions { justify-content: flex-start; }
 .job-notes-help,
 .workflow-requirements-help {
   margin: 0 0 0.85rem;
