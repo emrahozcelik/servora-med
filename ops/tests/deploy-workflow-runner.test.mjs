@@ -431,14 +431,18 @@ test('Azure apt mirror guard makes Azure the first source and keeps existing Ubu
   });
 });
 
-const hasTimeout = spawnSync('/bin/sh', ['-c', 'command -v timeout'], { env: { PATH: '/usr/bin:/bin' } }).status === 0;
+const hasTimeout = spawnSync('/bin/sh', ['-c', 'command -v timeout && command -v setsid'], { env: { PATH: '/usr/bin:/bin' } }).status === 0;
 
 /**
  * 2026-11-20: apt fetched 126 MB from the Azure mirror at ~60 kB/s for the
  * whole 15-minute step while a concurrent job got it in 5 s. The prefetch
  * bounds each download-only attempt, demotes Azure once, then fails closed.
+ * PR #469 run 44727908366: the timeout ended npx but its apt-get survived and
+ * kept the archives lock, so the retry failed at once. The stub `npx` starts a
+ * real child process standing in for apt-get; the stub `pgrep`/`pkill` watch
+ * and kill only that process.
  */
-test('bounded Playwright apt prefetch retries a stalled download on the runner mirrors', { skip: !hasTimeout && 'GNU timeout is not installed' }, () => {
+test('bounded Playwright apt prefetch retries a stalled download on the runner mirrors', { skip: !hasTimeout && 'GNU timeout or setsid is not installed' }, () => {
   const script = resolve(repoRoot, 'ops/ci/prefetch-playwright-apt-deps.sh');
   const guarded = [
     `${AZURE}\tpriority:1`,
@@ -454,6 +458,10 @@ test('bounded Playwright apt prefetch retries a stalled download on the runner m
     `${AZURE}\tpriority:5`,
     '',
   ].join('\n');
+  const stub = (dir, name, lines) => {
+    writeFileSync(join(dir, name), ['#!/bin/sh', ...lines, ''].join('\n'));
+    chmodSync(join(dir, name), 0o755);
+  };
   const run = (plan, check) => withTempDir((root) => {
     const apt = join(root, 'etc/apt');
     const stubs = join(root, 'stubs');
@@ -462,27 +470,37 @@ test('bounded Playwright apt prefetch retries a stalled download on the runner m
     mkdirSync(stubs);
     writeFileSync(join(apt, 'sources.list.d/ubuntu.sources'), 'Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\nSuites: noble\n');
     writeFileSync(join(apt, 'apt-mirrors.txt'), guarded);
-    writeFileSync(join(stubs, 'sudo'), '#!/bin/sh\nexec "$@"\n');
-    // Records each call and the download-only config it saw; `hang` stalls past the bound.
-    writeFileSync(join(stubs, 'npx'), [
-      '#!/bin/sh',
+    stub(stubs, 'sudo', ['exec "$@"']);
+    const alive = 'kill -0 "$(cat "$STUB_DIR/apt.pid" 2>/dev/null)" 2>/dev/null';
+    stub(stubs, 'pgrep', [`${alive}`]);
+    stub(stubs, 'pkill', ['echo "$*" >>"$STUB_DIR/pkill-calls"', 'kill -9 "$(cat "$STUB_DIR/apt.pid")"']);
+    // hang: the apt-get stand-in is a child in the attempt's process group.
+    // escape: it runs in its own session, as Playwright's own sudo (use_pty) did.
+    // ok: fails like apt-get on a held lock if the stand-in is still alive.
+    stub(stubs, 'npx', [
       'n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 ))',
       'echo "$n" >"$STUB_DIR/count"',
       'echo "$*" >>"$STUB_DIR/calls"',
       'cat "$APT_ROOT/etc/apt/apt.conf.d/81-servora-ci-download-only" >>"$STUB_DIR/conf-seen"',
       'head -n 1 "$APT_ROOT/etc/apt/apt-mirrors.txt" >>"$STUB_DIR/first-mirror"',
-      '[ "$(echo "$NPX_PLAN" | cut -d, -f"$n")" = hang ] && exec sleep 30',
-      'exit 0',
-      '',
-    ].join('\n'));
-    chmodSync(join(stubs, 'sudo'), 0o755);
-    chmodSync(join(stubs, 'npx'), 0o755);
+      'case "$(echo "$NPX_PLAN" | cut -d, -f"$n")" in',
+      '  hang) sleep 60 >/dev/null 2>&1 & echo $! >"$STUB_DIR/apt.pid"; wait ;;',
+      '  escape) setsid sleep 60 >/dev/null 2>&1 & echo $! >"$STUB_DIR/apt.pid"; wait ;;',
+      `  *) if ${alive}; then echo "E: Could not get lock /var/cache/apt/archives/lock" >&2; exit 100; fi ;;`,
+      'esac',
+    ]);
     const result = spawnSync('/bin/bash', [script], {
       encoding: 'utf8',
-      env: { PATH: `${stubs}:/usr/bin:/bin`, APT_ROOT: root, PLAYWRIGHT_APT_ATTEMPT_SECONDS: '1', STUB_DIR: stubs, NPX_PLAN: plan },
+      env: {
+        PATH: `${stubs}:/usr/bin:/bin`, APT_ROOT: root, STUB_DIR: stubs, NPX_PLAN: plan,
+        PLAYWRIGHT_APT_ATTEMPT_SECONDS: '1', PLAYWRIGHT_APT_EXIT_WAIT_SECONDS: '2',
+      },
     });
-    const read = (name) => readFileSync(join(stubs, name), 'utf8');
-    // The download-only config never outlives the prefetch.
+    const read = (name) => (existsSync(join(stubs, name)) ? readFileSync(join(stubs, name), 'utf8') : '');
+    const leftover = spawnSync('/bin/sh', ['-c', alive], { env: { PATH: '/usr/bin:/bin', STUB_DIR: stubs } }).status === 0;
+    if (leftover) spawnSync('/bin/sh', ['-c', `kill -9 "$(cat "${stubs}/apt.pid")"`]);
+    // No apt-get stand-in outlives the prefetch, and neither does the download-only config.
+    assert.equal(leftover, false, 'apt-get stand-in survived the prefetch');
     assert.equal(existsSync(join(apt, 'apt.conf.d/81-servora-ci-download-only')), false);
     check(result, { mirrors: readFileSync(join(apt, 'apt-mirrors.txt'), 'utf8'), read });
   });
@@ -491,20 +509,33 @@ test('bounded Playwright apt prefetch retries a stalled download on the runner m
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /PLAYWRIGHT_APT_PREFETCH_READY attempt=1/);
     assert.equal(read('calls'), 'playwright install-deps chromium webkit\n');
-    assert.equal(read('conf-seen'), 'APT::Get::Download-Only "true";\nDPkg::Lock::Timeout "120";\n');
+    assert.equal(read('conf-seen'), 'APT::Get::Download-Only "true";\n');
     assert.equal(mirrors, guarded);
   });
 
+  // The timeout ends the whole attempt tree, so no kill is needed before the retry.
   run('hang,ok', (result, { mirrors, read }) => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stderr, /PLAYWRIGHT_APT_PREFETCH_ATTEMPT_FAILED attempt=1 status=124 limit=1s/);
     assert.match(result.stdout, /APT_AZURE_MIRROR_DEMOTED \/etc\/apt\/apt-mirrors\.txt/);
     assert.match(result.stdout, /PLAYWRIGHT_APT_PREFETCH_READY attempt=2/);
+    assert.doesNotMatch(result.stderr, /APT_GET_STILL_RUNNING/);
+    assert.equal(read('pkill-calls'), '');
     assert.equal(read('calls'), 'playwright install-deps chromium webkit\n'.repeat(2));
     assert.equal(count(read('conf-seen'), 'APT::Get::Download-Only "true";'), 2);
     // The retry starts on the runner's own mirror; Azure stays as the last fallback.
     assert.equal(read('first-mirror'), `${AZURE}\tpriority:1\nhttp://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:2\n`);
     assert.equal(mirrors, demoted);
+  });
+
+  // Run 44727908366: an apt-get outside the process group survives the timeout.
+  // It is killed before the retry, so the retry does not hit the held lock.
+  run('escape,ok', (result, { read }) => {
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /APT_GET_STILL_RUNNING_KILLED after 2s/);
+    assert.equal(read('pkill-calls'), '-KILL -x apt-get\n');
+    assert.doesNotMatch(result.stderr, /Could not get lock/);
+    assert.match(result.stdout, /PLAYWRIGHT_APT_PREFETCH_READY attempt=2/);
   });
 
   run('hang,hang,ok', (result, { mirrors, read }) => {

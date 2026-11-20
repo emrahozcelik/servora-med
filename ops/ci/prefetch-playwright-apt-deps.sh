@@ -14,12 +14,22 @@
 # was the reverse case). Both attempts failing fails the step early with
 # PLAYWRIGHT_APT_PREFETCH_FAILED instead of hanging.
 #
+# The attempt runs as root inside sudo, so Playwright starts apt-get with
+# `sh -c` in timeout's own process group and the timeout ends the whole tree.
+# Run as a normal user, Playwright starts apt-get through its own sudo, which
+# on Ubuntu (use_pty) puts it in a separate session. A timeout then ended only
+# npx while apt-get kept /var/cache/apt/archives/lock (PR #469, run
+# 44727908366). Before a retry the script also waits a bounded time for every
+# apt-get to exit, SIGKILLs any that remain (download-only, so dpkg state
+# cannot be left half-configured), and fails closed if one still survives.
+#
 # Run from web/ after use-azure-apt-mirror.sh and npm ci. APT_ROOT and the
-# attempt length exist for tests; CI uses the defaults.
+# time limits exist for tests; CI uses the defaults.
 set -Eeuo pipefail
 
 APT_ROOT="${APT_ROOT:-}"
 ATTEMPT_SECONDS="${PLAYWRIGHT_APT_ATTEMPT_SECONDS:-240}"
+EXIT_WAIT_SECONDS="${PLAYWRIGHT_APT_EXIT_WAIT_SECONDS:-30}"
 MIRROR="http://azure.archive.ubuntu.com/ubuntu/"
 apt_dir="$APT_ROOT/etc/apt"
 conf="$apt_dir/apt.conf.d/81-servora-ci-download-only"
@@ -45,18 +55,35 @@ demote_azure() {
     | grep -Eo 'mirror\+file:/[^[:space:]]+' | sed 's#^mirror+file:##' | sort -u)
 }
 
+# A timed-out attempt must not leave an apt-get holding the apt locks.
+# The runner is a disposable VM where only this step runs apt.
+wait_for_apt_exit() {
+  local waited=0
+  while pgrep -x apt-get >/dev/null; do
+    if ((waited == EXIT_WAIT_SECONDS)); then
+      echo "APT_GET_STILL_RUNNING_KILLED after ${EXIT_WAIT_SECONDS}s" >&2
+      sudo pkill -KILL -x apt-get || true
+    elif ((waited > EXIT_WAIT_SECONDS + 10)); then
+      echo "APT_GET_STILL_RUNNING" >&2
+      exit 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
 trap 'sudo rm -f "$conf"' EXIT
-# The lock timeout covers an apt-get that is still exiting after a timeout.
-printf '%s\n' 'APT::Get::Download-Only "true";' 'DPkg::Lock::Timeout "120";' | sudo tee "$conf" >/dev/null
+printf '%s\n' 'APT::Get::Download-Only "true";' | sudo tee "$conf" >/dev/null
 
 for attempt in 1 2; do
   status=0
-  timeout -k 30 "$ATTEMPT_SECONDS" npx playwright install-deps chromium webkit || status=$?
+  sudo env "PATH=$PATH" timeout -k 15 "$ATTEMPT_SECONDS" npx playwright install-deps chromium webkit || status=$?
   if ((status == 0)); then
     echo "PLAYWRIGHT_APT_PREFETCH_READY attempt=$attempt"
     exit 0
   fi
   echo "PLAYWRIGHT_APT_PREFETCH_ATTEMPT_FAILED attempt=$attempt status=$status limit=${ATTEMPT_SECONDS}s" >&2
+  wait_for_apt_exit
   if ((attempt == 1)); then demote_azure; fi
 done
 
