@@ -9,6 +9,7 @@ import { MobileBottomNav } from './shell/MobileBottomNav';
 import { MobileTopBar } from './shell/MobileTopBar';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { NotificationCenter } from './notifications/NotificationCenter';
+import { DrawerCloseButton } from './ui/DrawerCloseButton';
 import { UserAvatar } from './ui/antd/UserAvatar';
 import { AppleInstallGuidance } from './install/AppleInstallGuidance';
 import { useInstallOpportunity } from './install/InstallOpportunity';
@@ -268,7 +269,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
             aria-labelledby="app-navigation-title" onKeyDown={handleDrawerKeyDown}>
             <div className="drawer-heading">
               <h2 id="app-navigation-title">Menü</h2>
-              <button className="drawer-close" type="button" aria-label="Menüyü kapat" onClick={() => closeDrawer(true)}>Kapat</button>
+              <DrawerCloseButton label="Menüyü kapat" onClick={() => closeDrawer(true)} />
             </div>
             <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
             <DestinationNav

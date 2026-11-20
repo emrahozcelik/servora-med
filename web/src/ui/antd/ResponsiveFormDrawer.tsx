@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from 'react';
 
+import { DrawerCloseButton } from '../DrawerCloseButton';
 import { restoreFocus, trapTabKey } from './overlay-focus';
 
 export type ResponsiveFormDrawerProps = {
@@ -95,17 +96,12 @@ export function ResponsiveFormDrawer({
       >
         <div className="form-drawer-header">
           <h2 id={titleId}>{title}</h2>
-          <button
+          <DrawerCloseButton
             ref={closeRef}
-            type="button"
-            className="secondary-button compact-button"
+            label="Formu kapat"
             disabled={dismissDisabled}
-            aria-disabled={dismissDisabled}
             onClick={() => { if (!dismissDisabled) onDismiss(); }}
-            aria-label="Formu kapat"
-          >
-            ✕
-          </button>
+          />
         </div>
         <div className="form-drawer-body">{children}</div>
       </div>

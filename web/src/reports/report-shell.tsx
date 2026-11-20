@@ -1,4 +1,4 @@
-import type { FormEvent, ReactNode, RefObject } from 'react';
+import { useEffect, useRef, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
 import { PageHeader } from '../ui/PageHeader';
@@ -33,8 +33,21 @@ export function ReportNavigation({
   current: ReportNavSection;
   range?: ReportRangeContext | null;
 }) {
+  const navRef = useRef<HTMLElement>(null);
+  // On narrow screens the section row scrolls horizontally; keep the current
+  // section visible without moving the page vertically.
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
+    const start = active.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+    const end = start + active.getBoundingClientRect().width;
+    if (start < nav.scrollLeft || end > nav.scrollLeft + nav.clientWidth) {
+      nav.scrollLeft = Math.max(0, start - 8);
+    }
+  }, [current]);
   return (
-    <nav className="report-nav" aria-label="Rapor bölümleri">
+    <nav ref={navRef} className="report-nav" aria-label="Rapor bölümleri">
       {NAV.map((item) => (
         <Link
           key={item.id}

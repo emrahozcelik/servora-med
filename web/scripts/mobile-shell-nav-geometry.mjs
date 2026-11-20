@@ -5,6 +5,9 @@
  * deterministic synthetic users, and no backend: every `/api/` call is stubbed.
  * It measures the single Menü entry, the right-anchored grouped menu panel, the
  * bottom-navigation targets, the create sheet, and the page-header top gap.
+ * It also pins the fixed bars across page scroll, the square overlay dismiss
+ * control (DESIGN.md "Overlay dismiss control") and the single-row mobile
+ * report-section navigation.
  *
  * Usage (from web/):
  *   node scripts/mobile-shell-nav-geometry.mjs
@@ -52,6 +55,7 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { AppShell } from '/src/AppShell';
 import { PageHeader } from '/src/ui/PageHeader';
+import { ReportNavigation } from '/src/reports/report-shell';
 import { ServoraAntProvider } from '/src/ui/antd/ServoraAntProvider';
 import '/src/styles.css';
 
@@ -60,6 +64,7 @@ const params = new URLSearchParams(location.search);
 const role = params.get('role') || 'MANAGER';
 const path = params.get('path') || '/jobs';
 const banner = params.get('banner') === '1';
+const report = params.get('report');
 Object.defineProperty(window, 'EventSource', { configurable: true, value: undefined });
 createRoot(document.getElementById('root')).render(
   <ServoraAntProvider>
@@ -71,7 +76,10 @@ createRoot(document.getElementById('root')).render(
           </nav>
         ) : null}
         <main className="workspace" data-fixture-main>
-          <PageHeader description="Yerel geometri fixture'ı; gerçek bileşenler ve üretim CSS'i." />
+          <PageHeader
+            description="Yerel geometri fixture'ı; gerçek bileşenler ve üretim CSS'i."
+            actions={report ? <ReportNavigation current={report} /> : undefined}
+          />
           <section className="surface" style={{ minHeight: '140vh', padding: '1rem' }}>
             <h2>Operasyon içeriği</h2>
             <p>Yerel sentetik veri.</p>
@@ -141,6 +149,10 @@ async function measure(page) {
       };
     };
     const topbar = document.querySelector('.mobile-top-bar');
+    const reportNav = document.querySelector('.report-nav');
+    const reportLinks = reportNav ? [...reportNav.querySelectorAll('a')] : [];
+    const reportActive = reportNav?.querySelector('[aria-current="page"]');
+    const notificationClose = document.querySelector('.notification-center-heading .drawer-close');
     const bottomNav = document.querySelector('.mobile-bottom-nav');
     const drawer = document.querySelector('.shell-drawer');
     const account = drawer?.querySelector('.shell-account');
@@ -164,6 +176,15 @@ async function measure(page) {
       account: rect(account),
       signOut: rect(signOut),
       signOutText: signOut?.textContent ?? null,
+      drawerClose: rect(drawer?.querySelector('.drawer-close')),
+      drawerCloseText: drawer?.querySelector('.drawer-close')?.textContent ?? null,
+      notificationClose: rect(notificationClose),
+      notificationCloseText: notificationClose?.textContent ?? null,
+      reportNav: rect(reportNav),
+      reportNavScrollable: reportNav ? reportNav.scrollWidth > reportNav.clientWidth + 1 : null,
+      reportLinkTops: [...new Set(reportLinks.map((link) => Math.round(link.getBoundingClientRect().top)))],
+      reportActive: rect(reportActive),
+      scrollY: window.scrollY,
       nav: rect(nav),
       drawerIsLast: drawer ? drawer === drawer.parentElement?.lastElementChild : false,
       drawerBrandCount: drawer ? drawer.querySelectorAll('.dunya-dental-brand').length : 0,
@@ -213,7 +234,7 @@ async function measure(page) {
 const browser = await chromium.launch({ headless: true });
 const rows = [];
 
-async function open({ role, path, width, height, banner = false }) {
+async function open({ role, path, width, height, banner = false, report = null }) {
   const page = await browser.newPage({
     viewport: { width, height },
     locale: 'tr-TR',
@@ -227,7 +248,7 @@ async function open({ role, path, width, height, banner = false }) {
     contentType: 'application/json',
     body: JSON.stringify({ items: [], total: 0, limit: 20, offset: 0, unreadCount: 0 }),
   }));
-  await page.goto(`${url}?role=${role}&path=${encodeURIComponent(path)}${banner ? '&banner=1' : ''}`, { waitUntil: 'load' });
+  await page.goto(`${url}?role=${role}&path=${encodeURIComponent(path)}${banner ? '&banner=1' : ''}${report ? `&report=${report}` : ''}`, { waitUntil: 'load' });
   await page.locator('.authenticated-shell').waitFor();
   await page.evaluate(() => document.fonts.ready);
   return page;
@@ -264,6 +285,66 @@ try {
     }
   }
 
+  // 1b. The top bar stays pinned and compact, and the bottom navigation stays
+  //     anchored to the viewport bottom, after the page scrolls.
+  for (const [width, height] of [[320, 568], [390, 844], [768, 1024]]) {
+    const page = await open({ role: 'MANAGER', path: '/jobs', width, height });
+    const before = await measure(page);
+    await page.evaluate(() => window.scrollTo(0, 600));
+    await page.waitForFunction(() => window.scrollY > 0);
+    const after = await measure(page);
+    const tag = `scroll ${width}x${height}`;
+    check(after.scrollY > 0, `${tag}: the fixture page did not scroll`);
+    for (const [label, m] of [['before', before], ['after', after]]) {
+      check(Boolean(m.topbar) && Math.abs(m.topbar.top) <= 1,
+        `${tag} ${label}: the top bar left the viewport top (${JSON.stringify(m.topbar)})`);
+      check(Boolean(m.bottomNav) && Math.abs(m.bottomNav.bottom - m.innerHeight) <= 1,
+        `${tag} ${label}: the bottom navigation left the viewport bottom (${JSON.stringify(m.bottomNav)})`);
+    }
+    check(Boolean(before.topbar) && before.topbar.height <= 61,
+      `${tag}: the top bar is taller than 3.75rem at default text size (${before.topbar?.height})`);
+    checks.push({ tag, topbarHeight: before.topbar?.height, bottomNavHeight: before.bottomNav?.height, scrollY: after.scrollY });
+    await page.close();
+  }
+
+  // 1c. Notification center dismiss control: one square icon-only target.
+  for (const [width, height] of [[320, 568], [390, 844], [768, 1024]]) {
+    const page = await open({ role: 'MANAGER', path: '/jobs', width, height });
+    await page.locator('.mobile-top-bar [aria-label="Bildirimler"]').click();
+    await page.locator('.notification-center-heading .drawer-close').waitFor();
+    const m = await measure(page);
+    const tag = `notification close ${width}x${height}`;
+    check(
+      Boolean(m.notificationClose)
+        && Math.abs(m.notificationClose.width - 44) <= 1 && Math.abs(m.notificationClose.height - 44) <= 1,
+      `${tag}: the close control must be a 44x44 square (${JSON.stringify(m.notificationClose)})`,
+    );
+    check(m.notificationCloseText === '', `${tag}: the close control must be icon-only`);
+    checks.push({ tag, close: m.notificationClose });
+    if (width === 390) await capture(page, 'MANAGER-notifications');
+    await page.close();
+  }
+
+  // 1d. Report sections: one horizontally scrollable row with the current
+  //     section visible, and no page overflow.
+  for (const [width, height] of [[320, 568], [390, 844], [768, 1024]]) {
+    const page = await open({ role: 'MANAGER', path: '/reports/sales-follow-up', width, height, report: 'salesFollowUp' });
+    await page.locator('.report-nav').waitFor();
+    const m = await measure(page);
+    const tag = `report nav ${width}x${height}`;
+    check(m.overflow <= 1, `${tag}: horizontal page overflow ${m.overflow}px`);
+    check(m.reportLinkTops.length === 1, `${tag}: report sections wrap to ${m.reportLinkTops.length} rows`);
+    check(Boolean(m.reportNav) && m.reportNav.height <= 50, `${tag}: report nav is ${m.reportNav?.height}px tall`);
+    check(
+      Boolean(m.reportNav && m.reportActive)
+        && m.reportActive.left >= m.reportNav.left - 1 && m.reportActive.right <= m.reportNav.right + 1,
+      `${tag}: the current section is scrolled out of view (${JSON.stringify(m.reportActive)})`,
+    );
+    checks.push({ tag, reportNav: m.reportNav, scrollable: m.reportNavScrollable, active: m.reportActive });
+    if (width === 390) await capture(page, 'MANAGER-report-nav');
+    await page.close();
+  }
+
   // 2. Menu panel: right-anchored, account first, two groups, focus contract.
   for (const role of ['STAFF', 'MANAGER', 'ADMIN']) {
     for (const [width, height] of [[320, 568], [390, 844], [768, 1024]]) {
@@ -289,6 +370,11 @@ try {
         `${tag}: the account row must come before the destinations`,
       );
       check(m.signOutText === 'Oturumu kapat', `${tag}: sign-out label missing (${m.signOutText})`);
+      check(
+        Boolean(m.drawerClose) && Math.abs(m.drawerClose.width - 44) <= 1 && Math.abs(m.drawerClose.height - 44) <= 1,
+        `${tag}: the menu close control must be a 44x44 square (${JSON.stringify(m.drawerClose)})`,
+      );
+      check(m.drawerCloseText === '', `${tag}: the menu close control must be icon-only (${m.drawerCloseText})`);
       check(
         Boolean(m.account && m.signOut)
           && m.account.top >= -1 && m.account.bottom <= m.innerHeight + 1
