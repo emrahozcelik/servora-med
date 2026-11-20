@@ -12,7 +12,13 @@ import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
 import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
-import type { AvailableSlot } from './jobs/jobs-api';
+import {
+  pastStartAcknowledgementPayload,
+  type AvailableSlot,
+  type PastStartAcknowledgement,
+} from './jobs/jobs-api';
+import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
+import { assignmentWindowErrorMessage } from './jobs/assignment-window-errors';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
@@ -32,6 +38,8 @@ export type DeliveryFormValues = {
   scheduledAt: string;
   deliveryNote?: string;
   overrideReason?: string | null;
+  /** JOB-010 release 2b: present only after the user answered the past-start dialog. */
+  pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 
 type FlowDependencies = {
@@ -68,6 +76,7 @@ export function buildProductDeliveryRequest(
     deliveryNote: values.deliveryNote?.trim() || null,
     items: values.items,
     ...(values.overrideReason?.trim() ? { overrideReason: values.overrideReason.trim() } : {}),
+    ...pastStartAcknowledgementPayload(values.pastStartAcknowledgement),
   };
 }
 
@@ -102,6 +111,14 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const errorRef = useRef<HTMLDivElement>(null);
   const attemptRef = useRef<ProductDeliveryCreateRequest | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
+  /**
+   * JOB-010 release 2b: the frozen create request the server rejected with
+   * PAST_START_ACKNOWLEDGEMENT_REQUIRED. Nothing was written, so the same
+   * values are resent with the acknowledgement the user fills in.
+   */
+  const [ackRequest, setAckRequest] = useState<ProductDeliveryCreateRequest | null>(null);
+  const [ackPending, setAckPending] = useState(false);
+  const [ackError, setAckError] = useState('');
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
   const activeStaffIds = useRef(new Set<string>());
@@ -214,7 +231,17 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
           ? []
           : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
       }
-      setError(caught instanceof Error ? caught.message : 'Teslim kaydı oluşturulamadı. Tekrar deneyin.');
+      if (!request.pastStartAcknowledgement && isPastStartAcknowledgementRequired(caught)) {
+        // The planned start already passed: the server needs the explicit
+        // customer acknowledgement before it can record the delivery.
+        setAckRequest(request);
+        setError('');
+        return;
+      }
+      setError(assignmentWindowErrorMessage(
+        caught,
+        caught instanceof Error ? caught.message : 'Teslim kaydı oluşturulamadı. Tekrar deneyin.',
+      ));
     } finally {
       setPending(false);
     }
@@ -269,6 +296,28 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const submitDisabled = pending || ambiguous || !customerReady || selectedProducts.length === 0
     || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   const semanticInputsDisabled = pending || ambiguous;
+
+  async function confirmAcknowledgement(acknowledgement: PastStartAcknowledgement) {
+    const request = ackRequest;
+    if (!request) return;
+    setAckPending(true);
+    setAckError('');
+    try {
+      const result = await createProductDeliveryRequest({
+        ...request,
+        ...pastStartAcknowledgementPayload(acknowledgement),
+      });
+      setAckRequest(null);
+      onCreated(result);
+    } catch (caught) {
+      setAckError(assignmentWindowErrorMessage(
+        caught,
+        'Teslim kaydı oluşturulamadı. Tekrar deneyin.',
+      ));
+    } finally {
+      setAckPending(false);
+    }
+  }
   return <main className="delivery-create job-create">
     <PageHeader eyebrow="" fallbackTitle="Yeni ürün teslimi"
       description="Müşteriyi, ürünleri ve teslimat planını belirleyin. Tamamlanan teslimat yönetici onayına gönderilir." />
@@ -358,6 +407,14 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       returnFocusRef={customerCreateTriggerRef}
       onCancel={() => setCustomerCreateOpen(false)}
       onCreated={addCreatedCustomer}
+    />
+    <PastStartAcknowledgementDrawer
+      open={ackRequest !== null}
+      description="Planlanan teslim zamanı geçti. Teslimi kaydetmek için müşterinin güncel durumunu onaylayın."
+      pending={ackPending}
+      error={ackError}
+      onDismiss={() => { if (!ackPending) { setAckRequest(null); setAckError(''); } }}
+      onConfirm={(acknowledgement) => { void confirmAcknowledgement(acknowledgement); }}
     />
   </main>;
 }

@@ -1,10 +1,15 @@
 import type {
+  AssignmentOfferCloseReason,
+  AssignmentOfferState,
+  AssignmentOfferUrgentReason,
+  AssignmentReasonCode,
   ChangeRequestReasonCode,
   JobCardActivityStatus,
   JobCardEngagementKind,
   JobCardInvalidationReasonCode,
   JobCardStatus,
   JobCardType,
+  PastStartAcknowledgementCode,
 } from './jobs-api';
 import { activeWorkflowPresentation } from './job-status-presentation';
 
@@ -128,6 +133,85 @@ export function changeRequestResolutionLabel(resolution: string): string {
   return changeRequestResolutionLabels[resolution] ?? 'İşlemle kapatıldı';
 }
 
+/**
+ * JOB-010 release 2b assignment offer copy. The codes live in `jobs-api`; these
+ * labels are the only place the offer vocabulary becomes Turkish.
+ */
+export const assignmentOfferStateLabels: Record<AssignmentOfferState, string> = {
+  OPEN: 'Yanıt bekliyor',
+  ACCEPTED: 'Kabul edildi',
+  DECLINED: 'Reddedildi',
+  RELEASED: 'Geri bırakıldı',
+  EXPIRED: 'Yanıtlanmadı',
+  WITHDRAWN: 'Geri çekildi',
+};
+
+export function assignmentOfferStateLabel(state: AssignmentOfferState): string {
+  return assignmentOfferStateLabels[state];
+}
+
+/** Urgent reasons: the customer commitment is at risk. */
+export const assignmentOfferUrgentReasonLabels: Record<AssignmentOfferUrgentReason, string> = {
+  SHORT_NOTICE: 'Kısa süre',
+  START_PASSED: 'Başlangıç geçti',
+};
+
+export function assignmentOfferUrgentReasonLabel(
+  reason: AssignmentOfferUrgentReason | null | undefined,
+): string | null {
+  return reason ? assignmentOfferUrgentReasonLabels[reason] : null;
+}
+
+/** Staff decline/release reasons. */
+export const assignmentReasonLabels: Record<AssignmentReasonCode, string> = {
+  SCHEDULE_CONFLICT: 'Plan çakışması',
+  ON_LEAVE: 'İzinli / müsait değilim',
+  TOO_FAR: 'Konum çok uzak',
+  MISSING_STOCK_OR_EQUIPMENT: 'Stok veya ekipman eksik',
+  OTHER: 'Diğer',
+};
+
+export function assignmentReasonLabel(code: AssignmentReasonCode | null | undefined): string {
+  return code ? assignmentReasonLabels[code] : 'Neden belirtilmedi';
+}
+
+/**
+ * Recorded offer close reasons: the Staff answers above plus every management
+ * closer the server can store on a withdrawn offer.
+ */
+export const assignmentOfferCloseReasonLabels: Record<AssignmentOfferCloseReason, string> = {
+  SCHEDULE_CONFLICT: 'Plan çakışması',
+  ON_LEAVE: 'İzinli / müsait değil',
+  TOO_FAR: 'Konum çok uzak',
+  MISSING_STOCK_OR_EQUIPMENT: 'Stok veya ekipman eksik',
+  OTHER: 'Diğer',
+  REASSIGNED: 'Sorumlu personel değiştirildi',
+  RESCHEDULED: 'Yeniden planlandı',
+  CANCELLED: 'İş iptal edildi',
+  INVALIDATED: 'İş geçersiz kılındı',
+  OFFBOARDING_TRANSFER: 'Personel devri',
+  PLANNED_WINDOW_PASSED: 'Planlanan zaman penceresi geçti',
+};
+
+export function assignmentOfferCloseReasonLabel(
+  reason: AssignmentOfferCloseReason | null | undefined,
+): string | null {
+  return reason ? assignmentOfferCloseReasonLabels[reason] : null;
+}
+
+/** Management acknowledgement codes for an already-passed planned start. */
+export const pastStartAcknowledgementLabels: Record<PastStartAcknowledgementCode, string> = {
+  CUSTOMER_CONFIRMED_LATER_TIME: 'Müşteri daha ileri bir saati onayladı',
+  CUSTOMER_WAITING: 'Müşteri bekliyor',
+  OTHER: 'Diğer',
+};
+
+export function pastStartAcknowledgementLabel(
+  code: PastStartAcknowledgementCode | null | undefined,
+): string {
+  return code ? pastStartAcknowledgementLabels[code] : 'Onay nedeni belirtilmedi';
+}
+
 export const JOB_CARD_ACTIVITY_EVENTS = [
   'WEEKLY_REPORT_REMOVED',
   'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
@@ -141,6 +225,8 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
   'JOB_EARLY_START_AUTHORIZED',
   'JOB_CHANGE_REQUESTED', 'JOB_CHANGE_REQUEST_RESOLVED',
+  'JOB_ASSIGNMENT_OFFER_OPENED', 'JOB_ASSIGNMENT_DECLINED', 'JOB_ASSIGNMENT_RELEASED',
+  'JOB_ASSIGNMENT_OFFER_EXPIRED', 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
 ] as const;
 
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
@@ -176,6 +262,11 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_EARLY_START_AUTHORIZED: 'Erken başlama izni verildi',
   JOB_CHANGE_REQUESTED: 'Personel düzenleme / sonlandırma önerisi gönderdi',
   JOB_CHANGE_REQUEST_RESOLVED: 'Personel önerisi karara bağlandı',
+  JOB_ASSIGNMENT_OFFER_OPENED: 'Görev için kabul teklifi açıldı',
+  JOB_ASSIGNMENT_DECLINED: 'Personel görevi reddetti',
+  JOB_ASSIGNMENT_RELEASED: 'Personel görevi geri bıraktı',
+  JOB_ASSIGNMENT_OFFER_EXPIRED: 'Kabul süresi yanıtsız geçti',
+  JOB_ASSIGNMENT_OFFER_WITHDRAWN: 'Kabul teklifi geri çekildi',
 };
 
 export function isKnownJobCardActivityEvent(value: string): value is KnownJobCardActivityEvent {

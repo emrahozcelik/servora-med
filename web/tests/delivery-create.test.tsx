@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DeliveryCreateView, createProductDelivery } from '../src/DeliveryCreate';
+import { DeliveryCreateView, buildProductDeliveryRequest, createProductDelivery } from '../src/DeliveryCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 
@@ -36,6 +36,25 @@ describe('Product Delivery creation', () => {
       customerId: 'c1', assignedTo: 'staff-1', priority: 'normal',
       scheduledAt: localDateTimeToIso('2026-07-11T10:30'),
       deliveryPurpose: 'SALE', deliveryNote: 'Ortak not', items: values.items,
+    });
+  });
+
+  it('JOB-010 2b: sends the past-start acknowledgement only when the user filled it', () => {
+    const values = {
+      customerId: 'c1', customerName: 'ABC Klinik', assignedTo: 'staff-1',
+      deliveryPurpose: 'SALE' as const, scheduledAt: '2026-07-11T10:30',
+      items: [{ productId: 'p1', quantity: 2 }],
+    };
+    expect(buildProductDeliveryRequest(user, values, () => 'action-id'))
+      .not.toHaveProperty('pastStartAcknowledgement');
+    expect(buildProductDeliveryRequest(user, {
+      ...values,
+      pastStartAcknowledgement: { code: 'CUSTOMER_CONFIRMED_LATER_TIME', text: '  Klinik 15:00 dedi.  ' },
+    }, () => 'action-id')).toMatchObject({
+      pastStartAcknowledgement: {
+        code: 'CUSTOMER_CONFIRMED_LATER_TIME',
+        text: 'Klinik 15:00 dedi.',
+      },
     });
   });
 

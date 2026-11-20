@@ -11,7 +11,7 @@ const request: typeof apiRequest = (path, options) => {
     && !['board', 'product-deliveries', 'weekly-reports', 'available-slots', 'customer-schedule'].includes(pathname.split('/').at(-1)!);
   const gated = (pathname === '/api/job-cards' || pathname === '/api/job-cards/board') && method === 'GET'
     || root || /\/(activity|notes|submission-lateness|submission-reminder|overdue-incidents)$/.test(pathname)
-    || /\/(accept|start|submit-for-approval|approve|request-revision|withdraw-from-approval|resume|cancel|invalidate)$/.test(pathname);
+    || /\/(accept|decline|release|start|submit-for-approval|approve|request-revision|withdraw-from-approval|resume|cancel|invalidate)$/.test(pathname);
   return apiRequest(gated ? path + (path.includes('?') ? '&' : '?') + 'includeSaleCapability=true' : path, options);
 };
 
@@ -82,7 +82,8 @@ export const JOB_CARD_STATUS_FILTERS = [
   'active', 'closed', 'all', ...JOB_CARD_STATUSES,
 ] as const;
 export const LIFECYCLE_COMMANDS = [
-  'ACCEPT_ASSIGNMENT', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
+  'ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT', 'RELEASE_ASSIGNMENT', 'START',
+  'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
   'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
 ] as const;
 export const USER_ROLES = ['ADMIN', 'MANAGER', 'STAFF'] as const;
@@ -112,6 +113,39 @@ export const CHANGE_REQUEST_RESOLUTIONS = [
   'CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED', 'REJECTED',
 ] as const;
 export type ChangeRequestResolution = (typeof CHANGE_REQUEST_RESOLUTIONS)[number];
+/**
+ * JOB-010 release 2b: the server-owned assignment offer of a job in the
+ * acceptance window. The web renders this vocabulary; it never derives an
+ * offer, a deadline or an urgency from its own clock.
+ */
+export const ASSIGNMENT_OFFER_STATES = [
+  'OPEN', 'ACCEPTED', 'DECLINED', 'RELEASED', 'EXPIRED', 'WITHDRAWN',
+] as const;
+export type AssignmentOfferState = (typeof ASSIGNMENT_OFFER_STATES)[number];
+export const ASSIGNMENT_OFFER_URGENT_REASONS = ['SHORT_NOTICE', 'START_PASSED'] as const;
+export type AssignmentOfferUrgentReason = (typeof ASSIGNMENT_OFFER_URGENT_REASONS)[number];
+/** Staff reasons for declining or releasing an assigned job. */
+export const ASSIGNMENT_REASON_CODES = [
+  'SCHEDULE_CONFLICT', 'ON_LEAVE', 'TOO_FAR', 'MISSING_STOCK_OR_EQUIPMENT', 'OTHER',
+] as const;
+export type AssignmentReasonCode = (typeof ASSIGNMENT_REASON_CODES)[number];
+/** Every recorded offer close reason: Staff answers plus management closers. */
+export const ASSIGNMENT_OFFER_CLOSE_REASONS = [
+  ...ASSIGNMENT_REASON_CODES,
+  'REASSIGNED', 'RESCHEDULED', 'CANCELLED', 'INVALIDATED', 'OFFBOARDING_TRANSFER',
+  'PLANNED_WINDOW_PASSED',
+] as const;
+export type AssignmentOfferCloseReason = (typeof ASSIGNMENT_OFFER_CLOSE_REASONS)[number];
+/** Explicit management acknowledgement when the planned start already passed. */
+export const PAST_START_ACKNOWLEDGEMENT_CODES = [
+  'CUSTOMER_CONFIRMED_LATER_TIME', 'CUSTOMER_WAITING', 'OTHER',
+] as const;
+export type PastStartAcknowledgementCode = (typeof PAST_START_ACKNOWLEDGEMENT_CODES)[number];
+export type PastStartAcknowledgement = {
+  code: PastStartAcknowledgementCode;
+  text: string;
+};
+
 export const SUBMISSION_REQUIREMENT_CODES = [
   'CUSTOMER_ELIGIBLE', 'ASSIGNEE_ELIGIBLE', 'DELIVERY_ITEM_PRESENT',
   'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
@@ -273,6 +307,24 @@ export type JobCard = {
    * Visible to management and to the assigned Staff member.
    */
   changeRequest: JobChangeRequest | null;
+  /**
+   * JOB-010 release 2b: the latest assignment offer of a job in the acceptance
+   * window, or null. Visible to management and to the assigned Staff member.
+   */
+  assignmentOffer: AssignmentOffer | null;
+};
+/**
+ * JOB-010 release 2b: one assignment offer as the server presents it. An OPEN
+ * offer past its deadline arrives with `state: 'EXPIRED'`; the web never
+ * compares `acceptanceDueAt` with a local clock.
+ */
+export type AssignmentOffer = {
+  id: string;
+  state: AssignmentOfferState;
+  openedAt: string;
+  acceptanceDueAt: string;
+  urgentReason: AssignmentOfferUrgentReason | null;
+  assignee: RelatedName;
 };
 /** JOB-010 release 2a: one open Staff change/termination request of a job. */
 export type JobChangeRequest = {
@@ -304,6 +356,8 @@ type FollowUpCreateCommon = {
   dueDate: string | null;
   contactId: string | null;
   overrideReason?: string | null;
+  /** JOB-010 release 2b: sent only when the planned start already passed. */
+  pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 export type FollowUpCreateInput = FollowUpCreateCommon & (
   | { type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' }
@@ -313,7 +367,8 @@ export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
     assignedTo: string; scheduledAt: string; scheduledEndsAt?: string;
     description?: string | null;
-    priority?: JobCardPriority; dueDate?: string | null; overrideReason?: string | null }
+    priority?: JobCardPriority; dueDate?: string | null; overrideReason?: string | null;
+    pastStartAcknowledgement?: PastStartAcknowledgement }
   | { clientActionId: string; type: 'GENERAL_TASK'; title: string; assignedTo: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
     priority?: JobCardPriority; dueDate?: string | null; scheduledAt?: string | null }
@@ -321,7 +376,8 @@ export type JobCardCreateInput =
     assignedTo: string; scheduledAt: string; scheduledEndsAt?: string;
     engagementKind: JobCardEngagementKind;
     dueDate?: string | null; description?: string | null;
-    contactId?: string | null; priority?: JobCardPriority; overrideReason?: string | null };
+    contactId?: string | null; priority?: JobCardPriority; overrideReason?: string | null;
+    pastStartAcknowledgement?: PastStartAcknowledgement };
 export type ProductDeliveryCreateInput = {
   clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
   assignedTo: string; scheduledAt: string; scheduledEndsAt?: string;
@@ -329,6 +385,7 @@ export type ProductDeliveryCreateInput = {
   overrideReason?: string | null; deliveryPurpose: DeliveryPurpose;
   deliveryNote?: string | null;
   items: Array<{ productId: string; quantity: number }>;
+  pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
@@ -453,6 +510,8 @@ export type PatchJobCardInput = {
   scheduledEndsAt?: string | null;
   engagementKind?: JobCardEngagementKind;
   overrideReason?: string | null;
+  /** JOB-010 release 2b: sent only when the planned start already passed. */
+  pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 
 export type JobCardListFilters = Partial<{
@@ -740,6 +799,40 @@ function parseChangeRequest(value: unknown): JobChangeRequest | null {
     requestedBy: exactRelated(v.requestedBy, 'changeRequest.requestedBy'),
   };
 }
+/**
+ * JOB-010 release 2b assignment offer. Tolerant of an absent field (previous
+ * backends keep their old shape) but strictly shaped when present; null means
+ * "this job has no offer", i.e. it is outside the acceptance window.
+ */
+function parseAssignmentOffer(value: unknown): AssignmentOffer | null {
+  if (value === undefined || value === null) return null;
+  const v = exactObject(value, 'assignmentOffer', [
+    'id', 'state', 'openedAt', 'acceptanceDueAt', 'urgentReason', 'assignee',
+  ]);
+  return {
+    id: string(v.id, 'assignmentOffer.id'),
+    state: oneOf(v.state, 'assignmentOffer.state', ASSIGNMENT_OFFER_STATES),
+    openedAt: canonicalInstant(v.openedAt, 'assignmentOffer.openedAt'),
+    acceptanceDueAt: canonicalInstant(v.acceptanceDueAt, 'assignmentOffer.acceptanceDueAt'),
+    urgentReason: v.urgentReason === null
+      ? null
+      : oneOf(v.urgentReason, 'assignmentOffer.urgentReason', ASSIGNMENT_OFFER_URGENT_REASONS),
+    assignee: exactRelated(v.assignee, 'assignmentOffer.assignee'),
+  };
+}
+/**
+ * Only sends the past-start acknowledgement when the user actually filled it.
+ * An empty acknowledgement leaves the field out of the payload so the server
+ * keeps its own rule and answers 409 when it is genuinely required.
+ */
+export function pastStartAcknowledgementPayload(
+  acknowledgement: PastStartAcknowledgement | null | undefined,
+): { pastStartAcknowledgement?: PastStartAcknowledgement } {
+  if (!acknowledgement) return {};
+  const text = acknowledgement.text.trim();
+  if (text.length === 0) return {};
+  return { pastStartAcknowledgement: { code: acknowledgement.code, text } };
+}
 function parseEngagementKind(value: unknown, type: JobCardType): JobCardEngagementKind | null {
   if (type === 'SALES_MEETING') {
     return oneOf(value, 'engagementKind', JOB_CARD_ENGAGEMENT_KINDS);
@@ -897,6 +990,7 @@ function parseJobCard(value: unknown): JobCard {
     earlyStartAuthorization: parseEarlyStartAuthorization(v.earlyStartAuthorization),
     submitLocationComparison: parseSubmitLocationComparison(v.submitLocationComparison),
     changeRequest: parseChangeRequest(v.changeRequest),
+    assignmentOffer: parseAssignmentOffer(v.assignmentOffer),
   };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
@@ -1454,6 +1548,57 @@ export const listOpenChangeRequests = async (
   parseOpenChangeRequestItem,
 );
 
+/**
+ * JOB-010 release 2b management list item: a `NEW` job whose latest assignment
+ * offer needs a management answer, oldest deadline first.
+ */
+export type AssignmentOfferNeedingActionItem = {
+  jobCardId: string;
+  jobTitle: string;
+  jobType: JobCardType;
+  offerId: string;
+  state: AssignmentOfferState;
+  closeReason: AssignmentOfferCloseReason | null;
+  closeText: string | null;
+  acceptanceDueAt: string;
+  urgentReason: AssignmentOfferUrgentReason | null;
+  scheduledAt: string;
+  assignee: RelatedName;
+  customer: RelatedName | null;
+  jobPath: string;
+};
+function parseAssignmentOfferNeedingActionItem(value: unknown): AssignmentOfferNeedingActionItem {
+  const v = exactObject(value, 'assignmentOffer', [
+    'jobCardId', 'jobTitle', 'jobType', 'offerId', 'state', 'closeReason', 'closeText',
+    'acceptanceDueAt', 'urgentReason', 'scheduledAt', 'assignee', 'customer', 'jobPath',
+  ]);
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    jobTitle: string(v.jobTitle, 'jobTitle'),
+    jobType: oneOf(v.jobType, 'jobType', JOB_CARD_TYPES),
+    offerId: string(v.offerId, 'offerId'),
+    state: oneOf(v.state, 'state', ASSIGNMENT_OFFER_STATES),
+    closeReason: v.closeReason === null
+      ? null
+      : oneOf(v.closeReason, 'closeReason', ASSIGNMENT_OFFER_CLOSE_REASONS),
+    closeText: nullableString(v.closeText, 'closeText'),
+    acceptanceDueAt: canonicalInstant(v.acceptanceDueAt, 'acceptanceDueAt'),
+    urgentReason: v.urgentReason === null
+      ? null
+      : oneOf(v.urgentReason, 'urgentReason', ASSIGNMENT_OFFER_URGENT_REASONS),
+    scheduledAt: canonicalInstant(v.scheduledAt, 'scheduledAt'),
+    assignee: exactRelated(v.assignee, 'assignee'),
+    customer: nullableRelated(v.customer, 'customer'),
+    jobPath: string(v.jobPath, 'jobPath'),
+  };
+}
+export const listAssignmentOffersNeedingAction = async (
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`/api/job-cards/assignment-offers/needs-action${query(page)}`),
+  parseAssignmentOfferNeedingActionItem,
+);
+
 export type OpenSubmissionLateItem = {
   jobCardId: string;
   jobTitle: string;
@@ -1572,6 +1717,51 @@ const lifecycle = async (id: string, command: string, input: object, options: { 
     includeSubmitLocationCapability: options.includeSubmitLocationCapability === true ? 'true' : undefined,
   })}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
+/**
+ * JOB-010 release 2b: the assigned Staff member declines (from `NEW`) or
+ * releases (from `ACCEPTED`) a job in the acceptance window. The server owns
+ * the deadline, the offer state and the audit trail; these functions only
+ * shape the transport.
+ */
+export type AssignmentReasonInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  reasonCode: AssignmentReasonCode;
+  reasonText: string;
+};
+export const declineAssignment = (id: string, input: AssignmentReasonInput) =>
+  lifecycle(id, 'decline', input);
+export const releaseAssignment = (id: string, input: AssignmentReasonInput) =>
+  lifecycle(id, 'release', input);
+export type ReofferAssignmentInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  pastStartAcknowledgement?: PastStartAcknowledgement;
+};
+export type ReofferAssignmentReceipt = {
+  jobCardId: string;
+  offerId: string;
+  acceptanceDueAt: string;
+  urgentReason: AssignmentOfferUrgentReason | null;
+};
+/** Management re-offer to the same Staff member; opens a fresh offer. */
+export const reofferAssignment = async (id: string, input: ReofferAssignmentInput) => {
+  const v = exactObject(
+    await request(`${jobPath(id)}/assignment-offers/reoffer`, json('POST', input)),
+    'assignmentOffer',
+    ['jobCardId', 'offerId', 'acceptanceDueAt', 'urgentReason'],
+  );
+  const receipt = {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    offerId: string(v.offerId, 'offerId'),
+    acceptanceDueAt: canonicalInstant(v.acceptanceDueAt, 'acceptanceDueAt'),
+    urgentReason: v.urgentReason === null
+      ? null
+      : oneOf(v.urgentReason, 'urgentReason', ASSIGNMENT_OFFER_URGENT_REASONS),
+  } satisfies ReofferAssignmentReceipt;
+  if (receipt.jobCardId !== id) invalid('assignmentOffer');
+  return receipt;
+};
 export const startJobCard = (id: string, input: StartJobCardInput) =>
   // #347/P2: the START response replaces local state, so it must also carry
   // the reader-gated SUBMIT capability; otherwise a same-screen SUBMIT would
