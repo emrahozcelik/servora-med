@@ -901,7 +901,7 @@ describe('controlled production deployment automation contract', () => {
     const runnerContent = readFileSync(runner, 'utf8');
     const hostContent = readFileSync(hostHelper, 'utf8');
     for (const content of [runnerContent, hostContent]) {
-      expect(content).not.toMatch(/import-customers|import-personnel|bootstrap-admin|seed-dev/);
+      expect(content).not.toMatch(/import-customers|import-personnel|bootstrap-admin|seed-dev|demo-dev/);
       expect(content).not.toMatch(/restore-rehearsal|restore-dr-acceptance|pg_restore\s+.*--clean/);
     }
   });

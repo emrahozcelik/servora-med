@@ -90,7 +90,8 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
 
       # Ubuntu's default apt mirrors can be down for hours; an Azure fallback
-      # mirror with bounded retries keeps --with-deps working, and the timeout
+      # mirror with bounded retries keeps --with-deps working, the bounded apt
+      # prefetch fails over from a slow mirror connection, and the timeout
       # fails it early instead of stalling the deployment.
       - name: Install browsers for production smoke
         working-directory: web
@@ -99,6 +100,7 @@ jobs:
           set -Eeuo pipefail
           sudo bash ../ops/ci/use-azure-apt-mirror.sh
           npm ci
+          bash ../ops/ci/prefetch-playwright-apt-deps.sh
           npx playwright install --with-deps chromium webkit
 
       # The runner re-verifies the exact green push CI run, its release-package

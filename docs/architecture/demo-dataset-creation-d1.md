@@ -131,6 +131,16 @@ PostgreSQL schema: create → preview (`safeToPurge=true`) → purge completely
 old action after purge returns the minimal technical `COMPLETED` receipt; it
 does not expose a product-facing `PURGED` result.
 
+## Development CLI
+
+`npm run demo:dev -- <list|create|purge>` (`server/src/db/demo-dev.ts`) drives
+the same `DemoDatasetService` from a terminal as a named active Admin, for local
+development only. It adds no content or lifecycle rule. It refuses unless
+`NODE_ENV=development` is explicit and `DATABASE_URL` is a loopback database that
+is not staging or a test database; `create` still requires
+`DEMO_DATA_CREATION_ENABLED=true`, and `purge` requires `--yes` and a blocker-free
+preview whose `planHash` it submits.
+
 ## Production posture
 
 `DEMO_DATA_CREATION_ENABLED` remains `FALSE` in production. No local acceptance
