@@ -2986,6 +2986,7 @@ still be visited.
    - `RESCHEDULE` with a new future `scheduledAt`: the cancel and the creation
      of a replacement follow-up visit commit atomically and idempotently. The
      replacement keeps the customer, contact, assignee, title, priority, the
+     data class and demo dataset (a DEMO visit's replacement stays DEMO), the
      source link to the completed visit it follows up (a follow-up source is
      always an approved JobCard, never the cancelled one) and the follow-up
      instructions, stays `SALES_MEETING` / `FOLLOW_UP`, is accepted when the actor is the

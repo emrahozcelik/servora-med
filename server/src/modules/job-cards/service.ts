@@ -4143,7 +4143,14 @@ export class JobCardService {
           // The replacement follows up the same completed visit as the
           // cancelled one (a follow-up source is always an approved JobCard);
           // which visit it replaces is recorded on its JOB_CREATED activity.
+          // A replacement of a DEMO visit stays in the same demo dataset, so a
+          // complete demo purge also removes it (same rule as createFollowUp).
+          const cancelledVisit = await tx.getFollowUpSource(actor.organizationId, jobCardId);
+          if (!cancelledVisit) followUpInvariantViolation();
+          const replacementIsDemo = cancelledVisit.dataClass === 'DEMO' && cancelledVisit.demoDatasetId !== null;
           const replacement = await this.createFollowUpChild(tx, actor, {
+            dataClass: replacementIsDemo ? 'DEMO' : 'BUSINESS',
+            demoDatasetId: replacementIsDemo ? cancelledVisit.demoDatasetId : null,
             sourceJobCardId: updated.sourceJobCardId,
             customerId: updated.customerId,
             type: 'SALES_MEETING',

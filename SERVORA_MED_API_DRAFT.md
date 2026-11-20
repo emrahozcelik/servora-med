@@ -849,7 +849,8 @@ requires `followUpContinuity` ([JOB-009](DECISIONS.md)); every other JobCard mus
 
 - `RESCHEDULE` cancels the visit and creates its replacement follow-up visit in the same
   transaction. `scheduledAt` must be in the future; the replacement keeps customer, contact,
-  assignee, title, priority, source link and instructions, and passes the normal calendar
+  assignee, title, priority, source link, instructions and data class (a DEMO visit's
+  replacement stays in its demo dataset), and passes the normal calendar
   availability and customer frequency checks.
 - `END_CYCLE` persists `endReason` (`NOT_INTERESTED`, `WORKS_WITH_COMPETITOR`,
   `CUSTOMER_INACTIVE`, `DUPLICATE_RECORD`, `OTHER`) on the cancelled JobCard, exposed as

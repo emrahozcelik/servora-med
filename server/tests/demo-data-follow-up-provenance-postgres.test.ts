@@ -266,6 +266,58 @@ describe.skipIf(!databaseUrl)('Demo follow-up provenance F1 PostgreSQL contract'
     });
   });
 
+  it('JOB-009: rescheduling a cancelled DEMO follow-up visit keeps the replacement in the dataset', async () => {
+    await withSchema(async (pool) => {
+      const fixture = await createDemoFixture(pool, 'reschedule');
+      const visitId = await insertJob(pool, fixture, {
+        title: 'Demo follow-up visit',
+        status: 'NEW',
+        dataClass: 'DEMO',
+        demoDatasetId: fixture.datasetId,
+        customerId: fixture.demoCustomerId,
+        assignedTo: fixture.demoStaffId,
+        createdBy: fixture.demoManagerId,
+      });
+      await pool.query(
+        `UPDATE job_cards SET type = 'SALES_MEETING', engagement_kind = 'FOLLOW_UP',
+           scheduled_at = '2026-08-03T09:00:00.000Z', scheduled_ends_at = '2026-08-03T10:00:00.000Z'
+         WHERE id = $1`,
+        [visitId],
+      );
+      const jobService = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-08-01T10:00:00.000Z'),
+        { publish: () => undefined },
+        undefined,
+        undefined,
+        { enabled: false, reminderLeadMinutes: 30 },
+      );
+      const version = (await pool.query<{ version: number }>(
+        'SELECT version FROM job_cards WHERE id = $1', [visitId],
+      )).rows[0]!.version;
+
+      await jobService.cancel(fixture.manager, visitId, {
+        clientActionId: randomUUID(),
+        expectedVersion: version,
+        cancelReason: 'Müşteri bu hafta uygun değil.',
+        followUpContinuity: { decision: 'RESCHEDULE', scheduledAt: '2030-01-08T09:00:00.000Z' },
+      });
+
+      const replacement = (await pool.query<{
+        data_class: 'BUSINESS' | 'DEMO';
+        demo_dataset_id: string | null;
+        engagement_kind: string | null;
+      }>(
+        `SELECT data_class, demo_dataset_id, engagement_kind FROM job_cards
+          WHERE organization_id = $1 AND id <> $2 AND title = 'Demo follow-up visit'`,
+        [fixture.organizationId, visitId],
+      )).rows;
+      expect(replacement).toEqual([
+        { data_class: 'DEMO', demo_dataset_id: fixture.datasetId, engagement_kind: 'FOLLOW_UP' },
+      ]);
+    });
+  });
+
   it('legacy: misclassified DEMO-derived follow-up no longer blocks purge and is purged with its data', async () => {
     await withSchema(async (pool) => {
       const fixture = await createDemoFixture(pool, 'legacy');
