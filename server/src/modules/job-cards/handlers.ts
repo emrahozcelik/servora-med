@@ -150,6 +150,11 @@ function notePage(raw: unknown, defaultLimit: number) {
 
 const SUBMISSION_REMINDER_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 const EARLY_START_AUTHORIZATION_FIELDS = ['clientActionId', 'expectedVersion'] as const;
+// JOB-010 release 2a: strict body allowlists for the request and its decision.
+const CHANGE_REQUEST_FIELDS = ['clientActionId', 'reasonCode', 'reasonText'] as const;
+const CHANGE_REQUEST_RESOLVE_FIELDS = [
+  'clientActionId', 'resolution', 'note', 'linkedJobCardId',
+] as const;
 const PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'engagementKind',
@@ -386,6 +391,22 @@ export function createJobCardHandlers(service: JobCardService) {
         uuidString(request.params.id, 'jobCardId'),
         body(request, EARLY_START_AUTHORIZATION_FIELDS) as never,
       ),
+    createChangeRequest: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) =>
+      reply.code(201).send(await service.createChangeRequest(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+        body(request, CHANGE_REQUEST_FIELDS) as never,
+      )),
+    resolveChangeRequest: async (
+      request: FastifyRequest<{ Params: Params & { requestId: string } }>,
+    ) => service.resolveChangeRequest(
+      actor(request),
+      uuidString(request.params.id, 'jobCardId'),
+      uuidString(request.params.requestId, 'changeRequestId'),
+      body(request, CHANGE_REQUEST_RESOLVE_FIELDS) as never,
+    ),
+    listOpenChangeRequests: async (request: FastifyRequest) =>
+      service.listOpenChangeRequests(actor(request), page(request.query, 25)),
     listNotes: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listNotes(actor(request), request.params.id, notePage(request.query, 25)),
     addNote: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) =>

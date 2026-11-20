@@ -842,9 +842,12 @@ const STAFF_MEETINGS_BY_OUTCOME_SQL = (includeSaleCapability: boolean) => `WITH 
     AND jc.staff_completed_by = $2
     AND jc.type = 'SALES_MEETING'
     AND jc.status = 'COMPLETED'
-    AND md.meeting_at >=
+    -- JOB-010 release 2a (D1 §4): a visit that did not take place has no
+    -- meeting_at. It stays visible in the outcome distribution at the
+    -- completion instant instead of being dropped.
+    AND COALESCE(md.meeting_at, jc.staff_completed_at) >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
-    AND md.meeting_at <
+    AND COALESCE(md.meeting_at, jc.staff_completed_at) <
       ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
   GROUP BY md.outcome
 )
@@ -1123,9 +1126,13 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = (includeSaleCapability: boolean) => `WITH 
   WHERE jc.organization_id = $1
     AND jc.type = 'SALES_MEETING'
     AND jc.status = 'COMPLETED'
-    AND md.meeting_at >=
+    -- JOB-010 release 2a (D1 §4): a not-held visit has no meeting_at and is
+    -- attributed to its completion instant, so the outcome distribution keeps
+    -- it visible. The business-trend "visits" cohort still requires
+    -- meeting_at: a visit that did not happen is not a visit.
+    AND COALESCE(md.meeting_at, jc.staff_completed_at) >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
-    AND md.meeting_at <
+    AND COALESCE(md.meeting_at, jc.staff_completed_at) <
       ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
   GROUP BY md.outcome
 ), outcome_distribution AS (

@@ -1,4 +1,5 @@
 import type {
+  ChangeRequestReasonCode,
   JobCardActivityStatus,
   JobCardEngagementKind,
   JobCardInvalidationReasonCode,
@@ -93,6 +94,40 @@ export function jobCardInvalidationReasonLabel(
   return code ? jobCardInvalidationReasonLabels[code] : 'Bilgi kaydedilmemiş';
 }
 
+/**
+ * JOB-010 release 2a Staff change/termination request reasons. The code list
+ * lives in `jobs-api`; labels stay here with the other presentation copy.
+ */
+export const changeRequestReasonLabels: Record<ChangeRequestReasonCode, string> = {
+  CUSTOMER_CHANGED_MIND: 'Müşteri fikrini değiştirdi',
+  CUSTOMER_POSTPONED: 'Müşteri erteledi',
+  CUSTOMER_ABSENT: 'Müşteri / ilgili kişi yerinde değildi',
+  WRONG_PRODUCT: 'Ürün veya kayıt bilgisi hatalı',
+  MISSING_STOCK_OR_EQUIPMENT: 'Stok veya ekipman eksik',
+  VISIT_NOT_POSSIBLE: 'Ziyaret / teslim gerçekleştirilemedi',
+  OTHER: 'Diğer',
+};
+
+export function changeRequestReasonLabel(
+  code: ChangeRequestReasonCode | null | undefined,
+): string {
+  return code ? changeRequestReasonLabels[code] : 'Neden belirtilmedi';
+}
+
+/** Recorded management decisions; historical rows may carry CANCELLED or SUPERSEDED. */
+export const changeRequestResolutionLabels: Record<string, string> = {
+  CORRECTED: 'Düzeltildi',
+  RESCHEDULED: 'Yeniden planlandı',
+  LINKED_JOB_CREATED: 'Bağlı yeni iş oluşturuldu',
+  REJECTED: 'Reddedildi',
+  CANCELLED: 'İptal ile kapatıldı',
+  SUPERSEDED: 'Sonraki işlemle kapatıldı',
+};
+
+export function changeRequestResolutionLabel(resolution: string): string {
+  return changeRequestResolutionLabels[resolution] ?? 'İşlemle kapatıldı';
+}
+
 export const JOB_CARD_ACTIVITY_EVENTS = [
   'WEEKLY_REPORT_REMOVED',
   'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
@@ -105,6 +140,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_SUBMISSION_REMINDER_SENT', 'JOB_SUBMISSION_AUTO_REMINDER_SENT',
   'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
   'JOB_EARLY_START_AUTHORIZED',
+  'JOB_CHANGE_REQUESTED', 'JOB_CHANGE_REQUEST_RESOLVED',
 ] as const;
 
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
@@ -138,6 +174,8 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_SUBMISSION_AUTO_REMINDER_SENT: 'Otomatik onaya gönderme hatırlatması',
   JOB_SUBMISSION_AUTO_ESCALATION_SENT: 'Yöneticiye gecikme bildirimi',
   JOB_EARLY_START_AUTHORIZED: 'Erken başlama izni verildi',
+  JOB_CHANGE_REQUESTED: 'Personel düzenleme / sonlandırma önerisi gönderdi',
+  JOB_CHANGE_REQUEST_RESOLVED: 'Personel önerisi karara bağlandı',
 };
 
 export function isKnownJobCardActivityEvent(value: string): value is KnownJobCardActivityEvent {

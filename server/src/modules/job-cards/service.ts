@@ -12,6 +12,9 @@ import {
   assertCanReadOverdueIncidentHistory,
   assertCanSendSubmissionReminder,
   assertCanGrantEarlyStartAuthorization,
+  assertCanCreateChangeRequest,
+  assertCanResolveChangeRequest,
+  assertCanListOpenChangeRequests,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -43,6 +46,8 @@ import type {
 import {
   deliveryItemCreateRequestHash,
   earlyStartAuthorizationRequestHash,
+  changeRequestCreateRequestHash,
+  changeRequestResolveRequestHash,
   followUpCreateRequestHash,
   jobCardCreateRequestHash,
   lifecycleRequestHash,
@@ -108,12 +113,22 @@ import {
   type JobCardInvalidationInput,
   type EarlyStartAuthorizationInput,
   type EarlyStartAuthorizationReceipt,
+  type CreateChangeRequestInput,
+  type CreateChangeRequestReceipt,
+  type ResolveChangeRequestInput,
+  type ResolveChangeRequestReceipt,
+  type OpenChangeRequestItem,
+  type JobChangeRequestDecision,
+  type JobChangeRequestReasonCode,
+  JOB_CHANGE_REQUEST_DECISIONS,
+  JOB_CHANGE_REQUEST_REASON_CODES,
 } from './types.js';
 import {
   jobCardInvalidationRequestHash,
 } from './invalidation-input.js';
 import {
   isoInstant,
+  optionalBoundedString,
   optionalLifecycleNote,
   requireActionId,
   requireLifecycleReason,
@@ -698,6 +713,7 @@ export class JobCardService {
     if (!mapped) return [];
 
     const managementRecipients = input.event === 'JOB_SUBMITTED_FOR_APPROVAL'
+      || input.event === 'JOB_CHANGE_REQUESTED'
       ? await transaction.listActiveManagementRecipients(input.organizationId)
       : [];
     const drafts: NotificationDraft[] = [...createJobCardNotificationDrafts({
@@ -757,6 +773,70 @@ export class JobCardService {
           at: input.activity.createdAt,
         });
       }
+    }
+    return [realtimeEvent];
+  }
+
+  /**
+   * JOB-010 release 2a: the requester must learn the decision even when the
+   * job was reassigned in the meantime, so the standard activity audience
+   * (management + current assignee) is widened with the requester identity.
+   * The in-app notification is only written while the requester is still
+   * active; the realtime event is always written so the job views refresh.
+   */
+  private async appendChangeRequestResolutionEvents(
+    transaction: JobCardTransaction,
+    input: {
+      activity: AppendedActivity;
+      actor: JobCardActor;
+      job: JobCard;
+      requestedBy: string;
+    },
+  ): Promise<RealtimeEventRecord[]> {
+    const mapped = mapJobCardActivityToRealtime({
+      activityId: input.activity.id,
+      organizationId: input.actor.organizationId,
+      jobCardId: input.job.id,
+      actorUserId: input.actor.id,
+      event: 'JOB_CHANGE_REQUEST_RESOLVED',
+      occurredAt: input.activity.createdAt,
+      beforeAssigneeId: null,
+      afterAssigneeId: input.job.assignedTo,
+      customerId: input.job.customerId,
+    });
+    if (!mapped) return [];
+    const requester = await transaction.getAssignee(
+      input.actor.organizationId, input.requestedBy,
+    );
+    const notifyRequester = requester?.isActive === true;
+    const realtimeEvent = await transaction.appendRealtimeEvent({
+      ...mapped,
+      audience: {
+        roles: mapped.audience.roles,
+        userIds: [...new Set([...mapped.audience.userIds, input.requestedBy])].sort(),
+      },
+      resourceKeys: notifyRequester
+        ? [...new Set([...mapped.resourceKeys, 'notifications'])].sort()
+        : [...mapped.resourceKeys].sort(),
+    });
+    if (!notifyRequester) return [realtimeEvent];
+    const notifications = await transaction.appendNotifications({
+      organizationId: input.actor.organizationId,
+      sourceRealtimeEventId: realtimeEvent.id,
+      createdAt: input.activity.createdAt,
+      drafts: [{
+        recipientUserId: input.requestedBy,
+        kind: 'job.change_request_resolved',
+        entityType: 'job-card',
+        entityId: input.job.id,
+      }],
+    });
+    if (this.webPush.enabled && notifications.length > 0) {
+      await transaction.appendWebPushDeliveries({
+        organizationId: input.actor.organizationId,
+        notificationIds: notifications.map((notification) => notification.id),
+        at: input.activity.createdAt,
+      });
     }
     return [realtimeEvent];
   }
@@ -843,6 +923,28 @@ export class JobCardService {
         });
         if (!updated) {
           throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+
+        // JOB-010 release 2a (D1): invalidation supersedes an OPEN
+        // change/termination request in this same transaction; the decision
+        // actor is recorded and the request text stays untouched history.
+        const supersededRequest = await tx.closeOpenChangeRequest({
+          organizationId: actor.organizationId,
+          jobCardId,
+          resolution: 'SUPERSEDED',
+          resolvedBy: actor.id,
+          resolvedAt: requestTime,
+        });
+        if (supersededRequest) {
+          await tx.appendActivity({
+            organizationId: actor.organizationId,
+            jobCardId,
+            actorId: actor.id,
+            event: 'JOB_CHANGE_REQUEST_RESOLVED',
+            metadata: {
+              requestId: supersededRequest.id, resolution: 'SUPERSEDED', linkedJobCardId: null,
+            },
+          });
         }
 
         const noteId = note === null ? null : randomUUID();
@@ -3352,6 +3454,12 @@ export class JobCardService {
     const reminders = await this.repository.listSubmissionRemindersForEpisode(
       actor.organizationId, jobCardId, current.episodeNo,
     );
+    // JOB-010 release 2a (D1 §5): while a request is open, automatic OVR-4
+    // Staff reminders stop and the wait is management time. The incident
+    // itself is never closed or rewritten by the request.
+    const openChangeRequest = await this.repository.getOpenChangeRequest(
+      actor.organizationId, jobCardId,
+    );
     return {
       open: {
         incidentId: current.id,
@@ -3372,6 +3480,7 @@ export class JobCardService {
         escalationSentAt: escalationDelivery?.sentAt.toISOString() ?? null,
         manualReminderSentAt: reminders[0]?.sentAt.toISOString() ?? null,
         manualReminderCount: reminders.length,
+        changeRequestOpenSince: openChangeRequest?.requestedAt.toISOString() ?? null,
       },
     };
   }
@@ -3740,6 +3849,276 @@ export class JobCardService {
     return result.response;
   }
 
+  /**
+   * JOB-010 release 2a (decision D1): Staff change/termination request.
+   *
+   * The request is the truthful alternative to cancelling a customer's job:
+   * it never changes the JobCard row, status or version and deletes nothing.
+   * Fail-closed: only the assigned STAFF may raise it (403 before any lookup
+   * otherwise), unknown and cross-org jobs stay 404, a terminal job is 409
+   * `JOB_NOT_ACTIVE` and a second request is 409 `CHANGE_REQUEST_ALREADY_OPEN`.
+   * Idempotency is `processed_actions` replay of the stored response for the
+   * same clientActionId. Activity, realtime event and the management
+   * notifications commit in this same transaction.
+   */
+  async createChangeRequest(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: CreateChangeRequestInput,
+  ): Promise<CreateChangeRequestReceipt> {
+    assertCanCreateChangeRequest(actor);
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!(JOB_CHANGE_REQUEST_REASON_CODES as readonly string[]).includes(input.reasonCode)) {
+      throw validation('reasonCode');
+    }
+    const reasonCode = input.reasonCode as JobChangeRequestReasonCode;
+    const reasonText = requireLifecycleReason(input.reasonText, 'reasonText');
+    const requestTime = this.now();
+    const operationKey = `JOB_CHANGE_REQUEST_CREATE:${jobCardId}`;
+    const result = await this.repository.executeCriticalAction<CreateChangeRequestReceipt>(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+        requestHash: changeRequestCreateRequestHash(jobCardId, { reasonCode, reasonText }),
+      },
+      async (tx) => {
+        const snapshot = await tx.getJob(actor.organizationId, jobCardId);
+        if (!snapshot || snapshot.assignedTo !== actor.id) {
+          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        // Assignee-before-JobCard lock order (assignee-lock.ts), like every
+        // other writer that takes the FK KEY SHARE of the requested_by user.
+        await this.lockUsersInOrder(tx, actor.organizationId, [snapshot.assignedTo]);
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job || job.assignedTo !== actor.id) {
+          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        if (isTerminalJobStatus(job.status)) {
+          throw new AppError(
+            'JOB_NOT_ACTIVE',
+            409,
+            'İş artık aktif olmadığı için öneri gönderilemez.',
+          );
+        }
+        const existing = await tx.getOpenChangeRequest(actor.organizationId, jobCardId);
+        if (existing !== null) {
+          throw new AppError(
+            'CHANGE_REQUEST_ALREADY_OPEN',
+            409,
+            'Bu iş için zaten açık bir öneri bulunuyor.',
+          );
+        }
+        const changeRequest = await tx.insertChangeRequest({
+          organizationId: actor.organizationId,
+          jobCardId,
+          requestedBy: actor.id,
+          requestedAt: requestTime,
+          jobStatusAtRequest: job.status,
+          reasonCode,
+          reasonText,
+          clientActionId,
+        });
+        const activity = await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_CHANGE_REQUESTED',
+          clientActionId,
+          metadata: {
+            requestId: changeRequest.id,
+            reasonCode,
+            jobStatusAtRequest: job.status,
+          },
+        });
+        const realtimeEvents = await this.appendRealtimeForActivity(tx, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          jobType: job.type,
+          actorUserId: actor.id,
+          event: 'JOB_CHANGE_REQUESTED',
+          beforeAssigneeId: null,
+          afterAssigneeId: job.assignedTo,
+          customerId: job.customerId,
+        });
+        return {
+          response: {
+            jobCardId,
+            changeRequestId: changeRequest.id,
+            requestedAt: changeRequest.requestedAt.toISOString(),
+          } satisfies CreateChangeRequestReceipt,
+          realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return result.response;
+  }
+
+  /**
+   * JOB-010 release 2a (decision D1): management decision on an OPEN request.
+   *
+   * It records the decision only and never changes the JobCard; correcting,
+   * rescheduling, creating a linked job or cancelling stay the existing
+   * commands. Fail-closed: STAFF is rejected with 403 before any lookup,
+   * unknown jobs and requests stay 404, an already closed request is 409
+   * `CHANGE_REQUEST_NOT_OPEN`, a rejected request needs a note and a linked
+   * job must be a different same-organization JobCard. Activity, realtime
+   * event and the requester notification commit in this same transaction.
+   */
+  async resolveChangeRequest(
+    actor: JobCardActor,
+    jobCardId: string,
+    changeRequestId: string,
+    input: ResolveChangeRequestInput,
+  ): Promise<ResolveChangeRequestReceipt> {
+    assertCanResolveChangeRequest(actor);
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!(JOB_CHANGE_REQUEST_DECISIONS as readonly string[]).includes(input.resolution)) {
+      throw validation('resolution');
+    }
+    const resolution = input.resolution as JobChangeRequestDecision;
+    const note = input.note === undefined || input.note === null
+      ? null
+      : optionalBoundedString(input.note, 'note', 2_000);
+    if (resolution === 'REJECTED' && note === null) throw validation('note');
+    const linkedJobCardId = input.linkedJobCardId === undefined
+      || input.linkedJobCardId === null
+      ? null
+      : uuidString(input.linkedJobCardId, 'linkedJobCardId');
+    if (resolution === 'LINKED_JOB_CREATED' && linkedJobCardId === null) {
+      throw validation('linkedJobCardId');
+    }
+    if (resolution !== 'LINKED_JOB_CREATED' && linkedJobCardId !== null) {
+      throw validation('linkedJobCardId');
+    }
+    const requestTime = this.now();
+    const operationKey = `JOB_CHANGE_REQUEST_RESOLVE:${changeRequestId}`;
+    const result = await this.repository.executeCriticalAction<ResolveChangeRequestReceipt>(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+        requestHash: changeRequestResolveRequestHash(jobCardId, changeRequestId, {
+          resolution,
+          note,
+          linkedJobCardId,
+        }),
+      },
+      async (tx) => {
+        const snapshot = await tx.getJob(actor.organizationId, jobCardId);
+        if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        await this.lockUsersInOrder(tx, actor.organizationId, [snapshot.assignedTo]);
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        const request = await tx.getChangeRequestForUpdate(
+          actor.organizationId, jobCardId, changeRequestId,
+        );
+        if (!request) {
+          throw new AppError('CHANGE_REQUEST_NOT_FOUND', 404, 'Öneri bulunamadı.');
+        }
+        if (request.state !== 'OPEN') {
+          throw new AppError(
+            'CHANGE_REQUEST_NOT_OPEN',
+            409,
+            'Bu öneri zaten sonuçlandırılmış.',
+          );
+        }
+        if (linkedJobCardId !== null) {
+          const linked = await tx.getJob(actor.organizationId, linkedJobCardId);
+          if (!linked || linked.id === jobCardId) throw validation('linkedJobCardId');
+        }
+        const resolved = await tx.resolveOpenChangeRequest({
+          organizationId: actor.organizationId,
+          jobCardId,
+          changeRequestId,
+          resolution,
+          resolvedBy: actor.id,
+          resolvedAt: requestTime,
+          resolutionNote: note,
+          linkedJobCardId,
+        });
+        if (!resolved) {
+          throw new AppError(
+            'CHANGE_REQUEST_NOT_OPEN',
+            409,
+            'Bu öneri zaten sonuçlandırılmış.',
+          );
+        }
+        const activity = await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_CHANGE_REQUEST_RESOLVED',
+          clientActionId,
+          metadata: { requestId: changeRequestId, resolution, linkedJobCardId },
+        });
+        const realtimeEvents = await this.appendChangeRequestResolutionEvents(tx, {
+          activity,
+          actor,
+          job,
+          requestedBy: request.requestedBy,
+        });
+        return {
+          response: {
+            jobCardId,
+            changeRequestId,
+            resolution,
+            resolvedAt: requestTime.toISOString(),
+          } satisfies ResolveChangeRequestReceipt,
+          realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return result.response;
+  }
+
+  /**
+   * JOB-010 release 2a management decision list: OPEN requests, oldest first.
+   * Management-only; STAFF is rejected with 403 before the read.
+   */
+  async listOpenChangeRequests(
+    actor: JobCardActor,
+    page: PageQuery,
+  ): Promise<{ items: OpenChangeRequestItem[]; total: number; limit: number; offset: number }> {
+    assertCanListOpenChangeRequests(actor);
+    const result = await this.repository.listOpenChangeRequests({
+      organizationId: actor.organizationId,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return {
+      items: result.items.map((item) => ({
+        changeRequestId: item.changeRequestId,
+        jobCardId: item.jobCardId,
+        jobTitle: item.jobTitle,
+        jobType: item.jobType,
+        jobStatus: item.jobStatus,
+        reasonCode: item.reasonCode,
+        reasonText: item.reasonText,
+        requestedAt: item.requestedAt.toISOString(),
+        requestedBy: { id: item.requestedById, name: item.requestedByName },
+        customer: item.customerId === null
+          ? null
+          : { id: item.customerId, name: item.customerName ?? 'Belirtilmedi' },
+        jobPath: `/jobs/${item.jobCardId}`,
+      })),
+      total: result.total,
+      limit: page.limit,
+      offset: page.offset,
+    };
+  }
+
   async listReferenceCustomers(actor: JobCardActor) {
     const customers = await this.repository.listReferenceCustomers(actor.organizationId);
     if (actor.role !== 'STAFF') return customers;
@@ -4105,6 +4484,32 @@ export class JobCardService {
           followUpProposal: persistedProposal,
         });
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        // JOB-010 release 2a (D1): the command that ends the job's open
+        // question also closes an OPEN change/termination request in this same
+        // transaction — CANCEL truthfully as CANCELLED, APPROVE as SUPERSEDED.
+        // The cancel reason stays the actor's own text; the request text is
+        // never copied into it.
+        if (definition.command === 'CANCEL' || definition.command === 'APPROVE') {
+          const resolution = definition.command === 'CANCEL' ? 'CANCELLED' : 'SUPERSEDED';
+          const closed = await tx.closeOpenChangeRequest({
+            organizationId: actor.organizationId,
+            jobCardId,
+            resolution,
+            resolvedBy: actor.id,
+            resolvedAt: requestTime,
+          });
+          // Audit trail: the closure is its own fact in the job timeline. The
+          // command's own activity/realtime already covers notifications.
+          if (closed) {
+            await tx.appendActivity({
+              organizationId: actor.organizationId,
+              jobCardId,
+              actorId: actor.id,
+              event: 'JOB_CHANGE_REQUEST_RESOLVED',
+              metadata: { requestId: closed.id, resolution, linkedJobCardId: null },
+            });
+          }
+        }
         const calendarTerminal = definition.target === 'CANCELLED'
           || definition.target === 'COMPLETED';
         if (this.calendar.enabled && calendarTerminal) {
@@ -5662,7 +6067,13 @@ export class JobCardService {
       ...job,
       workflowContext: {
         allowedCommands,
-        allowedActions: getAllowedJobActions(actor, persistedJob),
+        // JOB-010 release 2a: REQUEST_CHANGE / RESOLVE_CHANGE_REQUEST are
+        // computed from the OPEN request read with the detail; an absent
+        // request means neither action exists.
+        allowedActions: getAllowedJobActions(actor, {
+          ...persistedJob,
+          hasOpenChangeRequest: (persistedJob.changeRequest ?? null) !== null,
+        }),
         startLocationCaptureEnabled: this.geolocation.enabled
           && actor.role === 'STAFF'
           && allowedCommands.includes('START'),

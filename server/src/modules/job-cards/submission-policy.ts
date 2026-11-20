@@ -126,6 +126,15 @@ async function evaluateMeeting(
   const summaryPresent = Boolean(details?.meetingSummary?.trim());
   const unsuccessfulReasonPresent = details?.outcome !== 'FOLLOW_UP_REQUIRED'
     || UNSUCCESSFUL_VISIT_REASON_CODES.includes(details.unsuccessfulReason as (typeof UNSUCCESSFUL_VISIT_REASON_CODES)[number]);
+  /**
+   * JOB-010 release 2a (decision D1 §4): a visit that did not take place is
+   * submitted with the existing `FOLLOW_UP_REQUIRED` outcome, a structured
+   * unsuccessful reason and an EMPTY `meetingAt`. No meeting time is ever
+   * fabricated; every other outcome still requires a valid one.
+   */
+  const notHeldVisit = details?.outcome === 'FOLLOW_UP_REQUIRED'
+    && unsuccessfulReasonPresent
+    && details.meetingAt === null;
   const followUpValid = details?.nextFollowUpAt === null
     || (meetingAt !== null
       && !Number.isNaN(new Date(details!.nextFollowUpAt!).valueOf())
@@ -134,8 +143,9 @@ async function evaluateMeeting(
   const items: SubmissionRequirement[] = [
     customerRequirement,
     assigneeRequirement,
-    { code: 'MEETING_TIME_VALID', state: details?.meetingAt === null || !details
-      ? 'missing' : meetingAtValid ? 'met' : 'invalid', field: 'meetingAt' },
+    { code: 'MEETING_TIME_VALID', state: notHeldVisit ? 'met'
+      : details?.meetingAt === null || !details ? 'missing' : meetingAtValid ? 'met' : 'invalid',
+    field: 'meetingAt' },
     { code: 'MEETING_OUTCOME_VALID', state: details?.outcome === null || !details
       ? 'missing' : outcomeValid ? 'met' : 'invalid', field: 'outcome' },
     { code: 'MEETING_SUMMARY_PRESENT', state: summaryPresent ? 'met' : 'missing',
@@ -168,10 +178,12 @@ async function evaluateMeeting(
     );
   } else {
     const fieldErrors: Partial<Record<MeetingDetailField, string>> = {};
-    if (meetingAt === null || Number.isNaN(meetingAt.valueOf())) {
-      fieldErrors.meetingAt = 'Gerçekleşen görüşme zamanı zorunludur.';
-    } else if (meetingAt.valueOf() > evaluatedAt.valueOf() + 15 * 60_000) {
-      fieldErrors.meetingAt = 'Görüşme zamanı izin verilen gelecek toleransını aşıyor.';
+    if (!notHeldVisit) {
+      if (meetingAt === null || Number.isNaN(meetingAt.valueOf())) {
+        fieldErrors.meetingAt = 'Gerçekleşen görüşme zamanı zorunludur.';
+      } else if (meetingAt.valueOf() > evaluatedAt.valueOf() + 15 * 60_000) {
+        fieldErrors.meetingAt = 'Görüşme zamanı izin verilen gelecek toleransını aşıyor.';
+      }
     }
     if (details.outcome === null || !MEETING_OUTCOMES.includes(details.outcome)) {
       fieldErrors.outcome = 'Görüşme sonucu zorunludur.';

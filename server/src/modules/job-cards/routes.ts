@@ -74,6 +74,20 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
     secured,
     h.grantEarlyStartAuthorization,
   );
+  // JOB-010 release 2a (D1): Staff change/termination request, the management
+  // decision and its open list (two-segment static paths never collide with
+  // '/:id').
+  app.get('/change-requests/open', secured, h.listOpenChangeRequests);
+  app.post<{ Params: { id: string } }>(
+    '/:id/change-requests',
+    secured,
+    h.createChangeRequest,
+  );
+  app.post<{ Params: { id: string; requestId: string } }>(
+    '/:id/change-requests/:requestId/resolve',
+    secured,
+    h.resolveChangeRequest,
+  );
   app.get<{ Params: { id: string } }>('/:id/notes', secured, h.listNotes);
   app.post<{ Params: { id: string } }>('/:id/notes', secured, h.addNote);
 };

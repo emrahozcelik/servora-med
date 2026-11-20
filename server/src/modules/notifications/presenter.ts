@@ -31,6 +31,14 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
     title: 'Onaya gönderilmeyen iş',
     body: 'Personelin başlattığı iş yönetici onayına gönderilmedi. Lütfen takip edin.',
   },
+  'job.change_requested': {
+    title: 'Personel önerisi',
+    body: 'Atanan personel iş için düzenleme veya sonlandırma önerisi gönderdi. Lütfen karar verin.',
+  },
+  'job.change_request_resolved': {
+    title: 'Öneriniz yanıtlandı',
+    body: 'İş için gönderdiğiniz düzenleme veya sonlandırma önerisi yönetici tarafından yanıtlandı.',
+  },
   'calendar.assigned': {
     title: 'Yeni takvim planı',
     body: 'Takviminize yeni bir plan eklendi.',

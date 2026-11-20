@@ -85,6 +85,7 @@ import {
   SubmissionLatenessSection,
 } from './jobs/SubmissionLateness';
 import { EarlyStartAuthorizationSection } from './jobs/EarlyStartAuthorization';
+import { ChangeRequestSection } from './jobs/ChangeRequests';
 import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
@@ -508,7 +509,7 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, submissionLateness, earlyStart, overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
+  pendingLabel, continuity, submissionLateness, earlyStart, changeRequest, overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
 }: {
   job: JobCard;
@@ -539,6 +540,8 @@ export function JobDetailPanel({
   submissionLateness?: ReactNode;
   /** JOB-010 §1a early-start authorization action/status. */
   earlyStart?: ReactNode;
+  /** JOB-010 release 2a Staff change/termination request and its decision path. */
+  changeRequest?: ReactNode;
   /** Manager-only lateness history: above the workflow on desktop, a collapsed
    *  disclosure below the record details on mobile (DECISIONS.md UI-005). */
   overdueHistory?: ReactNode;
@@ -755,6 +758,7 @@ export function JobDetailPanel({
       {continuity}
       {submissionLateness}
       {earlyStart}
+      {changeRequest}
       {!narrow && overdueHistory}
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
@@ -2428,6 +2432,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         onGranted={() => {
+          setTimelineKey((value) => value + 1);
+          void refreshTruth();
+        }}
+      />
+    }
+    changeRequest={
+      <ChangeRequestSection
+        job={detail.job}
+        user={user}
+        disabled={invalidationLocked}
+        onChanged={() => {
           setTimelineKey((value) => value + 1);
           void refreshTruth();
         }}

@@ -23,6 +23,8 @@ import {
   type JobCardStatus,
   type JobCardStatusFilter,
   type JobCardType,
+  type JobChangeRequestReasonCode,
+  type JobChangeRequestResolution,
   type JobLifecycleFacts,
   type LifecycleCommand,
   type Paginated,
@@ -608,6 +610,43 @@ export type JobContactReference = {
 };
 
 /**
+ * JOB-010 release 2a: one persisted change/termination request row. The
+ * request never changes the JobCard; only these columns are written.
+ */
+export type ChangeRequestRecord = {
+  id: string;
+  jobCardId: string;
+  requestedBy: string;
+  requestedAt: Date;
+  jobStatusAtRequest: JobCardStatus;
+  reasonCode: JobChangeRequestReasonCode;
+  reasonText: string;
+  state: 'OPEN' | 'CLOSED';
+  resolution: JobChangeRequestResolution | null;
+  resolvedBy: string | null;
+  resolvedAt: Date | null;
+  resolutionNote: string | null;
+  linkedJobCardId: string | null;
+};
+
+/** JOB-010 release 2a management list row with navigation context. */
+export type OpenChangeRequestRow = {
+  organizationId: string;
+  changeRequestId: string;
+  jobCardId: string;
+  jobTitle: string;
+  jobType: JobCardType;
+  jobStatus: JobCardStatus;
+  reasonCode: JobChangeRequestReasonCode;
+  reasonText: string;
+  requestedAt: Date;
+  requestedById: string;
+  requestedByName: string | null;
+  customerId: string | null;
+  customerName: string | null;
+};
+
+/**
  * Read-only snapshot of the direct follow-up source card plus the minimal
  * customer/contact references and meeting outcome needed for eligibility
  * checks and the restricted source summary (design §6.2, §7).
@@ -794,6 +833,58 @@ export interface JobCardTransaction extends SubmissionReader {
     voidedAt: Date;
     voidReason: EarlyStartVoidReason;
   }): Promise<void>;
+  /**
+   * JOB-010 release 2a: the OPEN change/termination request of one job, or
+   * null. Read under the caller's job lock; the partial unique index allows
+   * at most one.
+   */
+  getOpenChangeRequest(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<ChangeRequestRecord | null>;
+  /** JOB-010 release 2a: one request row of the job, locked FOR UPDATE. */
+  getChangeRequestForUpdate(
+    organizationId: string,
+    jobCardId: string,
+    changeRequestId: string,
+  ): Promise<ChangeRequestRecord | null>;
+  /** JOB-010 release 2a: durable request row; caller holds the job lock. */
+  insertChangeRequest(input: {
+    organizationId: string;
+    jobCardId: string;
+    requestedBy: string;
+    requestedAt: Date;
+    jobStatusAtRequest: JobCardStatus;
+    reasonCode: JobChangeRequestReasonCode;
+    reasonText: string;
+    clientActionId: string;
+  }): Promise<{ id: string; requestedAt: Date }>;
+  /**
+   * JOB-010 release 2a: close the OPEN request of one job from a command that
+   * owns the close fact (CANCEL, APPROVE, ADMIN invalidation). Returns the
+   * closed request id, or null (a no-op) when no request is open.
+   */
+  closeOpenChangeRequest(input: {
+    organizationId: string;
+    jobCardId: string;
+    resolution: Extract<JobChangeRequestResolution, 'CANCELLED' | 'SUPERSEDED'>;
+    resolvedBy: string | null;
+    resolvedAt: Date;
+  }): Promise<{ id: string } | null>;
+  /**
+   * JOB-010 release 2a: management decision on one OPEN request. Returns
+   * false when the row was no longer OPEN (caller reports the conflict).
+   */
+  resolveOpenChangeRequest(input: {
+    organizationId: string;
+    jobCardId: string;
+    changeRequestId: string;
+    resolution: JobChangeRequestResolution;
+    resolvedBy: string | null;
+    resolvedAt: Date;
+    resolutionNote: string | null;
+    linkedJobCardId: string | null;
+  }): Promise<boolean>;
   appendAccountabilityFact(input: AppendAccountabilityFactInput): Promise<{ id: string }>;
   /**
    * OVR-2: idempotent breach materialization. The UNIQUE incident identity
@@ -1173,6 +1264,24 @@ export interface JobCardRepository extends SubmissionReader {
     limit: number;
     offset: number;
   }): Promise<{ items: readonly OpenSubmissionLateRow[]; total: number }>;
+  /**
+   * JOB-010 release 2a: the OPEN change/termination request of one job, or
+   * null. Also the OVR-4 exclusion fact and the lateness snapshot's
+   * `changeRequestOpenSince`.
+   */
+  getOpenChangeRequest(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<ChangeRequestRecord | null>;
+  /**
+   * JOB-010 release 2a management list: OPEN requests, oldest first, with the
+   * navigation context a decision needs. Bounded and tenant-scoped.
+   */
+  listOpenChangeRequests(input: {
+    organizationId: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly OpenChangeRequestRow[]; total: number }>;
   listNotes(
     organizationId: string,
     jobCardId: string,
@@ -1237,6 +1346,12 @@ type JobCardDetailRow = JobCardRow & {
   early_start_granted_at: Date | null;
   early_start_granted_by_id: string | null;
   early_start_granted_by_name: string | null;
+  change_request_id: string | null;
+  change_request_reason_code: JobChangeRequestReasonCode | null;
+  change_request_reason_text: string | null;
+  change_request_requested_at: Date | null;
+  change_request_requested_by_id: string | null;
+  change_request_requested_by_name: string | null;
 };
 type JobCardListRow = {
   id: string;
@@ -1687,6 +1802,45 @@ const SCHEDULE_REVISION_COLUMNS = `id, organization_id, job_card_id, revision_no
 const ASSIGNMENT_HISTORY_COLUMNS = `id, organization_id, job_card_id,
   from_user_id, to_user_id, changed_by, source, changed_at, activity_id`;
 
+type ChangeRequestRow = {
+  id: string;
+  job_card_id: string;
+  requested_by: string;
+  requested_at: Date;
+  job_status_at_request: JobCardStatus;
+  reason_code: JobChangeRequestReasonCode;
+  reason_text: string;
+  state: 'OPEN' | 'CLOSED';
+  resolution: JobChangeRequestResolution | null;
+  resolved_by: string | null;
+  resolved_at: Date | null;
+  resolution_note: string | null;
+  linked_job_card_id: string | null;
+};
+
+const CHANGE_REQUEST_SELECT = `SELECT id, job_card_id, requested_by, requested_at,
+       job_status_at_request, reason_code, reason_text, state, resolution,
+       resolved_by, resolved_at, resolution_note, linked_job_card_id
+  FROM job_card_change_requests`;
+
+function mapChangeRequest(row: ChangeRequestRow): ChangeRequestRecord {
+  return {
+    id: row.id,
+    jobCardId: row.job_card_id,
+    requestedBy: row.requested_by,
+    requestedAt: row.requested_at,
+    jobStatusAtRequest: row.job_status_at_request,
+    reasonCode: row.reason_code,
+    reasonText: row.reason_text,
+    state: row.state,
+    resolution: row.resolution,
+    resolvedBy: row.resolved_by,
+    resolvedAt: row.resolved_at,
+    resolutionNote: row.resolution_note,
+    linkedJobCardId: row.linked_job_card_id,
+  };
+}
+
 /**
  * JOB-010 §1a validity predicate. A stored authorization is valid only while
  * it is not voided and the job still carries the same assignee and the same
@@ -1761,6 +1915,12 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        early_start.granted_at AS early_start_granted_at,
        early_start.granted_by_id AS early_start_granted_by_id,
        early_start.granted_by_name AS early_start_granted_by_name,
+       change_request.id AS change_request_id,
+       change_request.reason_code AS change_request_reason_code,
+       change_request.reason_text AS change_request_reason_text,
+       change_request.requested_at AS change_request_requested_at,
+       change_request.requested_by_id AS change_request_requested_by_id,
+       change_request.requested_by_name AS change_request_requested_by_name,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
        customer.id AS customer_id_join, customer.name AS customer_name,
        contact.id AS contact_id_join, contact.name AS contact_name,
@@ -1813,6 +1973,22 @@ LEFT JOIN LATERAL (
   ORDER BY esa.granted_at DESC, esa.id DESC
   LIMIT 1
 ) early_start ON TRUE
+LEFT JOIN LATERAL (
+  SELECT cr.id,
+         cr.reason_code,
+         cr.reason_text,
+         cr.requested_at,
+         requester.id AS requested_by_id,
+         requester.name AS requested_by_name
+  FROM job_card_change_requests cr
+  JOIN users requester
+    ON requester.organization_id = cr.organization_id AND requester.id = cr.requested_by
+  WHERE cr.organization_id = j.organization_id
+    AND cr.job_card_id = j.id
+    AND cr.state = 'OPEN'
+  ORDER BY cr.requested_at DESC, cr.id DESC
+  LIMIT 1
+) change_request ON TRUE
 LEFT JOIN LATERAL (
   SELECT a.old_value->>'status' AS cancelled_from_status
   FROM job_card_activity_logs a
@@ -1915,6 +2091,18 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
       : {
           grantedAt: row.early_start_granted_at.toISOString(),
           grantedBy: { id: row.early_start_granted_by_id!, name: row.early_start_granted_by_name },
+        },
+    changeRequest: row.change_request_id == null
+      ? null
+      : {
+          id: row.change_request_id,
+          reasonCode: row.change_request_reason_code!,
+          reasonText: row.change_request_reason_text!,
+          requestedAt: row.change_request_requested_at!.toISOString(),
+          requestedBy: {
+            id: row.change_request_requested_by_id!,
+            name: row.change_request_requested_by_name,
+          },
         },
   };
 }
@@ -3002,6 +3190,99 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
         WHERE organization_id = $1 AND job_card_id = $2 AND voided_at IS NULL`,
       [input.organizationId, input.jobCardId, input.voidedAt, input.voidReason],
     );
+  }
+
+  async getOpenChangeRequest(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<ChangeRequestRecord | null> {
+    const result = await this.client.query<ChangeRequestRow>(
+      `${CHANGE_REQUEST_SELECT}
+        WHERE organization_id = $1 AND job_card_id = $2 AND state = 'OPEN'
+        LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapChangeRequest(result.rows[0]) : null;
+  }
+
+  async getChangeRequestForUpdate(
+    organizationId: string,
+    jobCardId: string,
+    changeRequestId: string,
+  ): Promise<ChangeRequestRecord | null> {
+    const result = await this.client.query<ChangeRequestRow>(
+      `${CHANGE_REQUEST_SELECT}
+        WHERE organization_id = $1 AND job_card_id = $2 AND id = $3
+        FOR UPDATE`,
+      [organizationId, jobCardId, changeRequestId],
+    );
+    return result.rows[0] ? mapChangeRequest(result.rows[0]) : null;
+  }
+
+  async insertChangeRequest(input: {
+    organizationId: string;
+    jobCardId: string;
+    requestedBy: string;
+    requestedAt: Date;
+    jobStatusAtRequest: JobCardStatus;
+    reasonCode: JobChangeRequestReasonCode;
+    reasonText: string;
+    clientActionId: string;
+  }) {
+    // Callers hold the JobCard row lock; the partial unique index on OPEN rows
+    // additionally absorbs any competing create path.
+    const result = await this.client.query<{ id: string; requested_at: Date }>(
+      `INSERT INTO job_card_change_requests
+          (organization_id, job_card_id, requested_by, requested_at,
+           job_status_at_request, reason_code, reason_text, client_action_id, state)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'OPEN')
+       RETURNING id, requested_at`,
+      [input.organizationId, input.jobCardId, input.requestedBy, input.requestedAt,
+        input.jobStatusAtRequest, input.reasonCode, input.reasonText, input.clientActionId],
+    );
+    const row = result.rows[0]!;
+    return { id: row.id, requestedAt: row.requested_at };
+  }
+
+  async closeOpenChangeRequest(input: {
+    organizationId: string;
+    jobCardId: string;
+    resolution: Extract<JobChangeRequestResolution, 'CANCELLED' | 'SUPERSEDED'>;
+    resolvedBy: string | null;
+    resolvedAt: Date;
+  }) {
+    const result = await this.client.query<{ id: string }>(
+      `UPDATE job_card_change_requests
+          SET state = 'CLOSED', resolution = $3, resolved_by = $4, resolved_at = $5
+        WHERE organization_id = $1 AND job_card_id = $2 AND state = 'OPEN'
+        RETURNING id`,
+      [input.organizationId, input.jobCardId, input.resolution, input.resolvedBy,
+        input.resolvedAt],
+    );
+    return result.rows[0] ? { id: result.rows[0].id } : null;
+  }
+
+  async resolveOpenChangeRequest(input: {
+    organizationId: string;
+    jobCardId: string;
+    changeRequestId: string;
+    resolution: JobChangeRequestResolution;
+    resolvedBy: string | null;
+    resolvedAt: Date;
+    resolutionNote: string | null;
+    linkedJobCardId: string | null;
+  }) {
+    // Callers already hold this row FOR UPDATE; the state predicate is the
+    // one-way guard for every non-locked path.
+    const result = await this.client.query(
+      `UPDATE job_card_change_requests
+          SET state = 'CLOSED', resolution = $4, resolved_by = $5, resolved_at = $6,
+              resolution_note = $7, linked_job_card_id = $8
+        WHERE organization_id = $1 AND job_card_id = $2 AND id = $3 AND state = 'OPEN'`,
+      [input.organizationId, input.jobCardId, input.changeRequestId, input.resolution,
+        input.resolvedBy, input.resolvedAt, input.resolutionNote, input.linkedJobCardId],
+    );
+    return (result.rowCount ?? 0) === 1;
   }
 
   async appendAccountabilityFact(input: AppendAccountabilityFactInput) {
@@ -4891,9 +5172,11 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
    * delivery state. A staff-only episode also needs a currently provable STAFF
    * recipient, so a permanently unprovable assignee cannot occupy every
    * bounded batch while other jobs wait. Completed, not-yet-due and recovered
-   * episodes never consume a batch slot. This is a scheduling prefilter only:
-   * the worker rechecks due-ness, recipient provability and delivery state
-   * under the JobCard lock before sending anything.
+   * episodes never consume a batch slot, and a job with an OPEN
+   * change/termination request is excluded entirely (JOB-010 release 2a).
+   * This is a scheduling prefilter only: the worker rechecks due-ness, the
+   * open request, recipient provability and delivery state under the JobCard
+   * lock before sending anything.
    */
   async listDueOpenSubmissionLateEpisodes(input: {
     scanTime: Date;
@@ -4926,6 +5209,17 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
           WHERE i.delay_type = 'LATE_SUBMISSION'
             AND i.recovered_at IS NULL
             AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
+            -- JOB-010 release 2a (D1 §5): while a change/termination request
+            -- is OPEN, automatic OVR-4 reminders stop for that job. The
+            -- incident is never closed or rewritten; only the automatic
+            -- senders pause, and the manual manager reminder stays allowed.
+            AND NOT EXISTS (
+              SELECT 1
+                FROM job_card_change_requests change_request
+               WHERE change_request.organization_id = j.organization_id
+                 AND change_request.job_card_id = j.id
+                 AND change_request.state = 'OPEN'
+            )
             AND (
               (
                 i.breached_at <= $2
@@ -5028,6 +5322,89 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         breachedAt: row.breached_at,
         staffId: row.staff_id,
         staffName: row.staff_name,
+        customerId: row.customer_id,
+        customerName: row.customer_name,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+    };
+  }
+
+  /**
+   * JOB-010 release 2a: the OPEN change/termination request of one job. It
+   * never changes the JobCard, so this read is the whole decision surface and
+   * the OVR-4 exclusion fact.
+   */
+  async getOpenChangeRequest(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<ChangeRequestRecord | null> {
+    const result = await this.pool.query<ChangeRequestRow>(
+      `${CHANGE_REQUEST_SELECT}
+        WHERE organization_id = $1 AND job_card_id = $2 AND state = 'OPEN'
+        LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapChangeRequest(result.rows[0]) : null;
+  }
+
+  /**
+   * JOB-010 release 2a management decision list: one row per OPEN request,
+   * oldest first, with the navigation context a decision needs. Job, user and
+   * customer columns are read at the query instant; request history is never
+   * rewritten by this projection.
+   */
+  async listOpenChangeRequests(input: {
+    organizationId: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly OpenChangeRequestRow[]; total: number }> {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total
+         FROM job_card_change_requests
+        WHERE organization_id = $1 AND state = 'OPEN'`,
+      [input.organizationId],
+    );
+    const result = await this.pool.query<{
+      change_request_id: string; job_card_id: string; job_title: string;
+      job_type: JobCardType; job_status: JobCardStatus;
+      reason_code: JobChangeRequestReasonCode; reason_text: string;
+      requested_at: Date; requested_by_id: string; requested_by_name: string | null;
+      customer_id: string | null; customer_name: string | null;
+    }>(
+      `SELECT cr.id AS change_request_id, cr.job_card_id,
+              j.title AS job_title, j.type AS job_type, j.status AS job_status,
+              cr.reason_code, cr.reason_text, cr.requested_at,
+              u.id AS requested_by_id, u.name AS requested_by_name,
+              c.id AS customer_id, c.name AS customer_name
+         FROM job_card_change_requests cr
+         JOIN job_cards j
+           ON j.organization_id = cr.organization_id
+          AND j.id = cr.job_card_id
+         JOIN users u
+           ON u.organization_id = cr.organization_id
+          AND u.id = cr.requested_by
+         LEFT JOIN customers c
+           ON c.organization_id = j.organization_id
+          AND c.id = j.customer_id
+        WHERE cr.organization_id = $1
+          AND cr.state = 'OPEN'
+        ORDER BY cr.requested_at ASC, cr.id ASC
+        LIMIT $2 OFFSET $3`,
+      [input.organizationId, input.limit, input.offset],
+    );
+    return {
+      items: result.rows.map((row) => ({
+        organizationId: input.organizationId,
+        changeRequestId: row.change_request_id,
+        jobCardId: row.job_card_id,
+        jobTitle: row.job_title,
+        jobType: row.job_type,
+        jobStatus: row.job_status,
+        reasonCode: row.reason_code,
+        reasonText: row.reason_text,
+        requestedAt: row.requested_at,
+        requestedById: row.requested_by_id,
+        requestedByName: row.requested_by_name,
         customerId: row.customer_id,
         customerName: row.customer_name,
       })),

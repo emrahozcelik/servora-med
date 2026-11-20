@@ -42,6 +42,8 @@ export const DELIVERY_ITEM_CREATE_REQUEST_VERSION = 'DELIVERY_ITEM_CREATE:v1';
 export const JOB_NOTE_ADD_REQUEST_VERSION = 'JOB_NOTE_ADD:v1';
 export const JOB_CARD_LIFECYCLE_REQUEST_VERSION = 'JOB_CARD_LIFECYCLE:v1';
 export const EARLY_START_AUTHORIZATION_REQUEST_VERSION = 'EARLY_START_AUTHORIZATION:v1';
+export const JOB_CHANGE_REQUEST_CREATE_REQUEST_VERSION = 'JOB_CHANGE_REQUEST_CREATE:v1';
+export const JOB_CHANGE_REQUEST_RESOLVE_REQUEST_VERSION = 'JOB_CHANGE_REQUEST_RESOLVE:v1';
 
 /** Deterministic one-way digest of an explicitly ordered identity object. */
 export function hashRequestIdentity(identity: Readonly<Record<string, unknown>>): string {
@@ -291,5 +293,42 @@ export function earlyStartAuthorizationRequestHash(
     operation: EARLY_START_AUTHORIZATION_REQUEST_VERSION,
     jobCardId,
     expectedVersion,
+  });
+}
+
+/**
+ * JOB-010 release 2a: the normalized request intent (reason code plus the
+ * already-trimmed mandatory text). It never touches the JobCard, so the job
+ * identity and the intent are the whole request.
+ */
+export function changeRequestCreateRequestHash(
+  jobCardId: string,
+  normalized: { reasonCode: string; reasonText: string },
+): string {
+  return hashRequestIdentity({
+    operation: JOB_CHANGE_REQUEST_CREATE_REQUEST_VERSION,
+    jobCardId,
+    reasonCode: normalized.reasonCode,
+    reasonText: normalized.reasonText,
+  });
+}
+
+/** JOB-010 release 2a: the normalized management decision on one request. */
+export function changeRequestResolveRequestHash(
+  jobCardId: string,
+  changeRequestId: string,
+  normalized: {
+    resolution: string;
+    note: string | null;
+    linkedJobCardId: string | null;
+  },
+): string {
+  return hashRequestIdentity({
+    operation: JOB_CHANGE_REQUEST_RESOLVE_REQUEST_VERSION,
+    jobCardId,
+    changeRequestId,
+    resolution: normalized.resolution,
+    note: normalized.note,
+    linkedJobCardId: normalized.linkedJobCardId,
   });
 }

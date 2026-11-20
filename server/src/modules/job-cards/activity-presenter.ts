@@ -288,6 +288,11 @@ function details(
     // JOB-010 §1a: the grant is a standalone fact (authorization id, instant,
     // revision, planned interval); the timeline renders it as a plain fact.
     case 'JOB_EARLY_START_AUTHORIZED':
+    // JOB-010 release 2a: the request and its decision carry their semantics
+    // in metadata (request id, reason code / resolution); the timeline
+    // renders them as plain facts.
+    case 'JOB_CHANGE_REQUESTED':
+    case 'JOB_CHANGE_REQUEST_RESOLVED':
       return { kind: 'NONE' };
     case 'JOB_ASSIGNED':
     case 'JOB_FIELDS_UPDATED':
