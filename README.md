@@ -258,6 +258,28 @@ All three are created with the `mustChangePassword` flag. The command refuses `N
 
 The development seed also creates one Staff profile assigned to the demo Manager, `Demo Dental Klinik`, primary Contact `Dr. Ayşe Yılmaz`, one catalog product, and one Contact-linked `NEW` Product Delivery JobCard with its `JOB_CREATED` activity. These are local reference records, not production migration data.
 
+### Development Demo Dataset
+
+The managed demo dataset (realistic customers, products, staff and JobCards in
+the `DEMO` data class) can be created and purged from a terminal on the local
+development database, without the Admin UI:
+
+```bash
+npm run demo:dev -- create --admin-email admin@servora.local
+npm run demo:dev -- list   --admin-email admin@servora.local
+npm run demo:dev -- purge  --admin-email admin@servora.local --dataset <id> --yes
+```
+
+It runs the same Admin-only `DemoDatasetService` as the UI (one active dataset
+per organization, fail-closed transactional purge that never deletes `BUSINESS`
+records) as the named active Admin. It refuses unless `NODE_ENV=development` is
+set explicitly and `DATABASE_URL` is a loopback database that is neither
+`servora_med_staging` nor a `servora_med_test*` test database. `create` also
+requires `DEMO_DATA_CREATION_ENABLED=true` in `server/.env`. Run
+`npm run db:seed:dev` first on an empty database so the Admin exists. Production
+keeps creation disabled; see
+[demo-dataset-creation-d1.md](docs/architecture/demo-dataset-creation-d1.md).
+
 ### Pilot Product Catalog Import
 
 `pilot-products.example.json` is a reviewed version-1 catalog input. Import requires an explicit
