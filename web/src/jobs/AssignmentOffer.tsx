@@ -314,10 +314,12 @@ export function OpenAssignmentOffersSection({ load = listAssignmentOffersNeeding
                   {item.assignee.name} · {item.customer?.name ?? 'Müşteri belirtilmedi'} · Kabul için son:{' '}
                   <time dateTime={item.acceptanceDueAt}>{formatInstant(item.acceptanceDueAt)}</time>
                 </span>
-                <p>
-                  Planlanan zaman:{' '}
-                  <time dateTime={item.scheduledAt}>{formatInstant(item.scheduledAt)}</time>
-                </p>
+                {item.scheduledAt !== null && (
+                  <p>
+                    Planlanan zaman:{' '}
+                    <time dateTime={item.scheduledAt}>{formatInstant(item.scheduledAt)}</time>
+                  </p>
+                )}
                 {urgentLabel !== null && (
                   <p data-assignment-offer-urgent={item.urgentReason}>
                     <strong>{urgentLabel}</strong> — müşteri zamanı risk altında.

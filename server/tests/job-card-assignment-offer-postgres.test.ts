@@ -1300,8 +1300,10 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         close_reason: 'CANCELLED',
         closed_by: managerId,
       });
+      // §9 / 049: the close instant is the lifecycle reservation instant
+      // sampled under the JobCard lock, not the in-memory service clock.
       expect(offer.closed_at?.toISOString())
-        .toBe(new Date(baseline.getTime() + 10 * MINUTE_MS).toISOString());
+        .toBe((await readReservedAt(pool, job.id, 'CANCEL')).toISOString());
       expect(await selectActivities(pool, job.id)).toContain('JOB_ASSIGNMENT_OFFER_WITHDRAWN');
       expect(await service.listAssignmentOffersNeedingAction(manager, { limit: 10, offset: 0 }))
         .toMatchObject({ total: 0 });

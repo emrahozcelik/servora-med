@@ -172,6 +172,7 @@ describe('JobCard policy', () => {
     const offer = {
       state: 'OPEN' as const,
       acceptanceDueAt: '2026-07-20T10:40:00.000Z',
+      assigneeUserId: 'staff-1',
     };
     const assignedNew = { ...job, status: 'NEW' as const, assignmentOffer: offer };
     const accepted = { ...job, status: 'ACCEPTED' as const, assignmentOffer: offer };
@@ -179,9 +180,12 @@ describe('JobCard policy', () => {
     expect(getAllowedLifecycleCommands(staff, accepted)).toEqual(['START', 'CANCEL']);
     expect(getAllowedLifecycleCommands(manager, assignedNew)).toEqual(['CANCEL']);
     // The offer-aware behaviour only exists behind the activation flag.
-    expect(getAllowedLifecycleCommands(staff, assignedNew, new Date('2026-07-20T09:00:00.000Z'), {
-      assignmentWindowEnabled: true,
-    })).toEqual(['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT']);
+    expect(getAllowedLifecycleCommands(
+      staff,
+      { ...assignedNew, scheduledAt: '2026-07-20T11:30:00.000Z' },
+      new Date('2026-07-20T09:00:00.000Z'),
+      { assignmentWindowEnabled: true },
+    )).toEqual(['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT']);
   });
 
   it('allows acceptance before scheduledAt and keeps the planned-time START floor', () => {

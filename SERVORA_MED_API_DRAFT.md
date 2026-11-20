@@ -1069,6 +1069,17 @@ When enabled, `createAssignmentOfferExpiryWorker` closes an overdue `OPEN` offer
 `job.acceptance_reminder` to the assignee at the half-way point. A lifecycle reservation
 reserved before the deadline and still in flight wins over expiry.
 
+Every offer change appends an activity row in the same transaction:
+`JOB_ASSIGNMENT_OFFER_OPENED`, `JOB_ASSIGNMENT_DECLINED`, `JOB_ASSIGNMENT_RELEASED`,
+`JOB_ASSIGNMENT_OFFER_EXPIRED`, `JOB_ASSIGNMENT_OFFER_WITHDRAWN`, and
+`JOB_ASSIGNMENT_REMINDER_SENT` for the automatic half-way reminder. The reminder is a
+system-authored fact, not a lifecycle transition (`actor_id` is `null`), but every in-app
+notification is transported by an activity-backed realtime event, so
+`JOB_ASSIGNMENT_REMINDER_SENT` is the source of the `job.acceptance_reminder` notification.
+A re-offer that supersedes an overdue `OPEN` offer writes the
+`JOB_ASSIGNMENT_OFFER_EXPIRED` activity without the `job.acceptance_expired`
+notifications, because the acting manager is already handling the recovery.
+
 ### Submit requirements
 
 For `PRODUCT_DELIVERY`:

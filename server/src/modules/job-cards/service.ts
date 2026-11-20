@@ -134,6 +134,7 @@ import {
   type AssignmentOfferDecisionInput,
   type JobAssignmentOfferOpenedReason,
   type JobAssignmentOfferState,
+  type JobAssignmentOfferSummary,
   type JobAssignmentOfferUrgentReason,
   type JobAssignmentOfferWithdrawReasonCode,
   type JobAssignmentOfferView,
@@ -736,6 +737,12 @@ export class JobCardService {
       notifyCalendarRescheduled?: boolean;
       sourceJobCardId?: string | null;
       customerId?: string | null;
+      /**
+       * JOB-010 release 2b: a management producer that supersedes its own
+       * overdue offer handles the recovery itself, so the derived in-app
+       * notification is suppressed while the activity and realtime event stay.
+       */
+      suppressNotifications?: boolean;
     },
   ): Promise<RealtimeEventRecord[]> {
     const mapped = mapJobCardActivityToRealtime({
@@ -752,24 +759,31 @@ export class JobCardService {
     });
     if (!mapped) return [];
 
-    const managementRecipients = input.event === 'JOB_SUBMITTED_FOR_APPROVAL'
-      || input.event === 'JOB_CHANGE_REQUESTED'
-      // JOB-010 release 2b: a declined/released offer and an expired
-      // acceptance must reach every active MANAGER/ADMIN.
-      || input.event === 'JOB_ASSIGNMENT_DECLINED'
-      || input.event === 'JOB_ASSIGNMENT_RELEASED'
-      || input.event === 'JOB_ASSIGNMENT_OFFER_EXPIRED'
+    const managementNotification = input.suppressNotifications !== true
+      && (
+        input.event === 'JOB_SUBMITTED_FOR_APPROVAL'
+        || input.event === 'JOB_CHANGE_REQUESTED'
+        // JOB-010 release 2b: a declined/released offer and an expired
+        // acceptance must reach every active MANAGER/ADMIN.
+        || input.event === 'JOB_ASSIGNMENT_DECLINED'
+        || input.event === 'JOB_ASSIGNMENT_RELEASED'
+        || input.event === 'JOB_ASSIGNMENT_OFFER_EXPIRED'
+      );
+    const managementRecipients = managementNotification
       ? await transaction.listActiveManagementRecipients(input.organizationId)
       : [];
-    const drafts: NotificationDraft[] = [...createJobCardNotificationDrafts({
-      event: input.event,
-      actorUserId: input.actorUserId,
-      afterAssigneeId: input.afterAssigneeId,
-      jobCardId: input.jobCardId,
-      managementRecipients,
-    })];
+    const drafts: NotificationDraft[] = input.suppressNotifications === true
+      ? []
+      : [...createJobCardNotificationDrafts({
+        event: input.event,
+        actorUserId: input.actorUserId,
+        afterAssigneeId: input.afterAssigneeId,
+        jobCardId: input.jobCardId,
+        managementRecipients,
+      })];
     if (
-      input.notifyCalendarRescheduled
+      input.suppressNotifications !== true
+      && input.notifyCalendarRescheduled
       && !drafts.some((draft) => draft.recipientUserId === input.afterAssigneeId)
     ) {
       drafts.push({
@@ -1110,10 +1124,18 @@ export class JobCardService {
 
   /** The offer summary `allowedCommands` reads, or null outside the window. */
   private assignmentOfferSummary(
-    offer: { state: JobAssignmentOfferState; acceptanceDueAt: Date } | null | undefined,
-  ) {
+    offer: {
+      state: JobAssignmentOfferState;
+      acceptanceDueAt: Date;
+      assigneeUserId: string;
+    } | null | undefined,
+  ): JobAssignmentOfferSummary | null {
     if (offer === null || offer === undefined) return null;
-    return { state: offer.state, acceptanceDueAt: offer.acceptanceDueAt.toISOString() };
+    return {
+      state: offer.state,
+      acceptanceDueAt: offer.acceptanceDueAt.toISOString(),
+      assigneeUserId: offer.assigneeUserId,
+    };
   }
 
   /**
@@ -3228,6 +3250,23 @@ export class JobCardService {
       scheduleChanged = nextScheduledAt !== (job.scheduledAt ?? null)
         || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
       scheduleRevisionChanged = scheduleChanged || dueDateChanged;
+      const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
+      // JOB-010 §4 (Q9, P1-B): for a job in the window in NEW or ACCEPTED,
+      // only management changes the customer time. Staff edits therefore
+      // never move a deadline or open, withdraw or reopen an offer. This runs
+      // before the interval-shape invariants so a Staff request for a
+      // protected field is always the contract's 403, never a generic 400.
+      if (this.assignmentWindowEnabled()
+        && !management
+        && ['NEW', 'ACCEPTED'].includes(job.status)
+        && (await transaction.getLatestAssignmentOffer(actor.organizationId, jobCardId)) !== null
+        && (scheduleChanged || dueDateChanged)) {
+        throw new AppError(
+          'CUSTOMER_TIME_MANAGEMENT_ONLY',
+          403,
+          'Müşteri zamanı yalnız yönetici tarafından değiştirilebilir.',
+        );
+      }
       if (isCalendarIntervalJob && scheduleFieldProvided
         && (nextScheduledAt === null || nextScheduledEndsAt === null)) {
         throw new AppError(
@@ -3270,21 +3309,6 @@ export class JobCardService {
       if ((scheduleChanged || assigneeChanged)
         && job.status !== 'NEW' && job.status !== 'ACCEPTED') {
         throw new AppError('JOB_NOT_EDITABLE', 409, 'JobCard bu durumda düzenlenemez.');
-      }
-      const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
-      // JOB-010 §4 (Q9, P1-B): for a job in the window in NEW or ACCEPTED,
-      // only management changes the customer time. Staff edits therefore
-      // never move a deadline or open, withdraw or reopen an offer.
-      if (this.assignmentWindowEnabled()
-        && !management
-        && ['NEW', 'ACCEPTED'].includes(job.status)
-        && (await transaction.getLatestAssignmentOffer(actor.organizationId, jobCardId)) !== null
-        && (scheduleChanged || dueDateChanged)) {
-        throw new AppError(
-          'CUSTOMER_TIME_MANAGEMENT_ONLY',
-          403,
-          'Müşteri zamanı yalnız yönetici tarafından değiştirilebilir.',
-        );
       }
       if (management && job.status === 'ACCEPTED' && (scheduleChanged || assigneeChanged)) {
         fields.status = 'NEW';
@@ -4634,6 +4658,9 @@ export class JobCardService {
             beforeAssigneeId: null,
             afterAssigneeId: job.assignedTo,
             customerId: job.customerId,
+            // The acting manager is already recovering this job with the new
+            // offer: the overdue close is history, not a fresh alarm.
+            suppressNotifications: true,
           }));
         }
         const opened = await this.openAssignmentOffer(tx, {

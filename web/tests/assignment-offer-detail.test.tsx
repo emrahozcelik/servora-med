@@ -475,7 +475,7 @@ describe('decline and release dialogs', () => {
     expect(host.textContent).toContain('Görev geri bırakıldı. Yönetici bilgilendirildi.');
   });
 
-  it('keeps the dialog open and reports a closed acceptance window', async () => {
+  it('closes the stale dialog and reloads when the acceptance window has closed', async () => {
     const fetchMock = mockDetailFetch(jobCard());
     await renderScreen(jobCard(), fetchMock);
 

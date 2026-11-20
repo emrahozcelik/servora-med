@@ -4,7 +4,10 @@ import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
-import { JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from '../job-cards/job-card-duration.js';
+import {
+  canonicalScheduledEnd,
+  JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL,
+} from '../job-cards/job-card-duration.js';
 import { isTerminalJobStatus } from '../job-cards/policy.js';
 import {
   decideAssignmentOfferOpen,
@@ -619,6 +622,7 @@ export class PostgresStaffOffboardingService {
           await this.appendAssignmentOfferEffect(client, actor, input, {
             jobCardId: jobId,
             assigneeUserId: nextAssignee,
+            type: transferredJob.type,
             scheduledAt: transferredJob.scheduledAt,
             scheduledEndsAt: transferredJob.scheduledEndsAt,
           });
@@ -724,20 +728,25 @@ export class PostgresStaffOffboardingService {
         activity.rows[0]!.created_at, activity.rows[0]!.id],
     );
     await acquireRealtimeOrderingLock(client, actor.organizationId);
+    // JOB-010 release 2b: only while the assignment window is enabled does the
+    // replacement receive the same `job.reassigned` notice a management
+    // reassignment sends. With the flag off this keeps the release 2a surface
+    // exactly: no notification row and unchanged realtime resource keys.
+    const notifyReplacement = this.assignmentWindow.enabled;
     const realtime = await client.query<{ id: string }>(
       `INSERT INTO realtime_events
         (organization_id, source_activity_id, event_type, entity_type, entity_id, actor_user_id,
          audience_roles, audience_user_ids, resource_keys, created_at)
        VALUES ($1, $2, 'job.assignment_changed', 'job-card', $3::uuid, $4,
          ARRAY['ADMIN','MANAGER']::varchar(20)[], ARRAY[$5]::uuid[],
-         ARRAY['jobs','job:' || $3::text,'overview'], $6)
+         ARRAY['jobs','job:' || $3::text,'overview']
+           || CASE WHEN $7::boolean THEN ARRAY['notifications']::text[] ELSE ARRAY[]::text[] END,
+         $6)
        RETURNING id`,
       [actor.organizationId, activity.rows[0]!.id, jobCardId, actor.id,
-        nextAssignee, activity.rows[0]!.created_at],
+        nextAssignee, activity.rows[0]!.created_at, notifyReplacement],
     );
-    // JOB-010 release 2b: the transfer previously wrote no in-app
-    // notification at all. The replacement now receives the same
-    // `job.reassigned` notice a management reassignment sends.
+    if (!notifyReplacement) return;
     await client.query(
       `INSERT INTO in_app_notifications
         (organization_id, recipient_user_id, source_realtime_event_id, kind,
@@ -762,16 +771,21 @@ export class PostgresStaffOffboardingService {
     offer: {
       jobCardId: string;
       assigneeUserId: string;
+      type: JobCardType;
       scheduledAt: string;
       scheduledEndsAt: string | null;
     },
   ) {
     const openedAt = this.now();
     if (offer.assigneeUserId === actor.id) return;
+    // JOB-010 §3: the planned interval is canonical when the row carries no
+    // explicit end, exactly as the JobCardService producers compute it.
+    const scheduledEndsAt = offer.scheduledEndsAt
+      ?? canonicalScheduledEnd(offer.type, offer.scheduledAt);
     const decision = decideAssignmentOfferOpen({
       openedAt,
       scheduledAt: new Date(offer.scheduledAt),
-      scheduledEndsAt: offer.scheduledEndsAt === null ? null : new Date(offer.scheduledEndsAt),
+      scheduledEndsAt: scheduledEndsAt === null ? null : new Date(scheduledEndsAt),
       direct: false,
       acknowledgement: null,
     });

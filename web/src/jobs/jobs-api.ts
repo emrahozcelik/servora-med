@@ -1562,7 +1562,7 @@ export type AssignmentOfferNeedingActionItem = {
   closeText: string | null;
   acceptanceDueAt: string;
   urgentReason: AssignmentOfferUrgentReason | null;
-  scheduledAt: string;
+  scheduledAt: string | null;
   assignee: RelatedName;
   customer: RelatedName | null;
   jobPath: string;
@@ -1586,7 +1586,7 @@ function parseAssignmentOfferNeedingActionItem(value: unknown): AssignmentOfferN
     urgentReason: v.urgentReason === null
       ? null
       : oneOf(v.urgentReason, 'urgentReason', ASSIGNMENT_OFFER_URGENT_REASONS),
-    scheduledAt: canonicalInstant(v.scheduledAt, 'scheduledAt'),
+    scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
     assignee: exactRelated(v.assignee, 'assignee'),
     customer: nullableRelated(v.customer, 'customer'),
     jobPath: string(v.jobPath, 'jobPath'),

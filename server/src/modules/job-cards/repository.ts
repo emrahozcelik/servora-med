@@ -1492,6 +1492,7 @@ type JobCardDetailRow = JobCardRow & {
   assignment_offer_closed_at: Date | null;
   assignment_offer_close_reason: string | null;
   assignment_offer_close_text: string | null;
+  assignment_offer_assignee_user_id: string | null;
   assignment_offer_assignee_id: string | null;
   assignment_offer_assignee_name: string | null;
 };
@@ -1525,6 +1526,7 @@ type JobCardListRow = {
   /** JOB-010 release 2b permission fact, selected by every job list projection. */
   assignment_offer_state: JobAssignmentOfferState | null;
   assignment_offer_due_at: Date | null;
+  assignment_offer_assignee_user_id: string | null;
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
@@ -2124,6 +2126,7 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        assignment_offer.closed_at AS assignment_offer_closed_at,
        assignment_offer.close_reason AS assignment_offer_close_reason,
        assignment_offer.close_text AS assignment_offer_close_text,
+       assignment_offer.assignee_user_id AS assignment_offer_assignee_user_id,
        assignment_offer.assignee_id AS assignment_offer_assignee_id,
        assignment_offer.assignee_name AS assignment_offer_assignee_name,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
@@ -2204,6 +2207,7 @@ LEFT JOIN LATERAL (
          o.closed_at,
          o.close_reason,
          o.close_text,
+         o.assignee_user_id,
          offer_assignee.id AS assignee_id,
          offer_assignee.name AS assignee_name
   FROM job_card_assignment_offers o
@@ -2339,6 +2343,7 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
           openedReason: row.assignment_offer_opened_reason!,
           acceptanceDueAt: row.assignment_offer_due_at!,
           urgentReason: row.assignment_offer_urgent_reason,
+          assigneeUserId: row.assignment_offer_assignee_user_id!,
           assigneeId: row.assignment_offer_assignee_id!,
           assigneeName: row.assignment_offer_assignee_name,
           closedAt: row.assignment_offer_closed_at,
@@ -2401,10 +2406,12 @@ function mapJobCardListItemWithAuthorization(row: JobCardListRow): PersistedJobC
     earlyStartAuthorized: row.has_early_start_authorization === true,
     assignmentOffer: row.assignment_offer_state == null
       || row.assignment_offer_due_at == null
+      || row.assignment_offer_assignee_user_id == null
       ? null
       : {
           state: row.assignment_offer_state,
           acceptanceDueAt: row.assignment_offer_due_at.toISOString(),
+          assigneeUserId: row.assignment_offer_assignee_user_id,
         },
   };
 }
@@ -2417,10 +2424,12 @@ function mapOverdueJobCardListItemWithAuthorization(
     earlyStartAuthorized: row.has_early_start_authorization === true,
     assignmentOffer: row.assignment_offer_state == null
       || row.assignment_offer_due_at == null
+      || row.assignment_offer_assignee_user_id == null
       ? null
       : {
           state: row.assignment_offer_state,
           acceptanceDueAt: row.assignment_offer_due_at.toISOString(),
+          assigneeUserId: row.assignment_offer_assignee_user_id,
         },
   };
 }
@@ -2442,7 +2451,8 @@ const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.pri
   COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count,
   ${earlyStartAuthorizationExistsSql('j')} AS has_early_start_authorization,
   latest_offer.state AS assignment_offer_state,
-  latest_offer.acceptance_due_at AS assignment_offer_due_at`;
+  latest_offer.acceptance_due_at AS assignment_offer_due_at,
+  latest_offer.assignee_user_id AS assignment_offer_assignee_user_id`;
 
 const WORKSPACE_ITEM_JOINS = `${WORKSPACE_JOINS}
   JOIN users u
@@ -2453,7 +2463,7 @@ const WORKSPACE_ITEM_JOINS = `${WORKSPACE_JOINS}
     WHERE di.organization_id = j.organization_id AND di.job_card_id = j.id
   ) delivery ON TRUE
   LEFT JOIN LATERAL (
-    SELECT o.state, o.acceptance_due_at
+    SELECT o.state, o.acceptance_due_at, o.assignee_user_id
     FROM job_card_assignment_offers o
     WHERE o.organization_id = j.organization_id AND o.job_card_id = j.id
     ORDER BY o.opened_at DESC, o.id DESC

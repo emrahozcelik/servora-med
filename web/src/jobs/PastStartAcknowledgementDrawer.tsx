@@ -45,6 +45,7 @@ export function PastStartAcknowledgementDrawer({
   const [text, setText] = useState('');
   const [formError, setFormError] = useState('');
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const codeRef = useRef<HTMLSelectElement>(null);
 
   // A reopened dialog always starts from an empty answer: a previous attempt's
   // acknowledgement belongs to a different request.
@@ -66,7 +67,7 @@ export function PastStartAcknowledgementDrawer({
     const selected = PAST_START_ACKNOWLEDGEMENT_CODES.find((entry) => entry === code);
     if (selected === undefined) {
       setFormError('Başlangıcın neden geçtiğini açıklayan bir neden seçin.');
-      textRef.current?.focus();
+      codeRef.current?.focus();
       return;
     }
     const normalized = text.trim();
@@ -103,6 +104,7 @@ export function PastStartAcknowledgementDrawer({
         <div className="field-group">
           <label htmlFor="past-start-ack-code">Neden</label>
           <select
+            ref={codeRef}
             id="past-start-ack-code"
             value={code}
             disabled={pending}

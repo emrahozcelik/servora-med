@@ -661,7 +661,9 @@ runs. Turning the flag on is release 2c (owner approval). Migration: `065`.
   `RELEASE_ASSIGNMENT` (keep all 8).
 - Activity CHECK widened (keep every 064 value): `JOB_ASSIGNMENT_OFFER_OPENED`,
   `JOB_ASSIGNMENT_DECLINED`, `JOB_ASSIGNMENT_RELEASED`,
-  `JOB_ASSIGNMENT_OFFER_EXPIRED`, `JOB_ASSIGNMENT_OFFER_WITHDRAWN`.
+  `JOB_ASSIGNMENT_OFFER_EXPIRED`, `JOB_ASSIGNMENT_OFFER_WITHDRAWN`,
+  `JOB_ASSIGNMENT_REMINDER_SENT` (the source event every reminder
+  notification needs, as `JOB_SUBMISSION_AUTO_REMINDER_SENT` in OVR-4).
 - Notification kinds widened (keep every 064 value):
   `job.acceptance_reminder`, `job.assignment_declined`,
   `job.acceptance_expired`.
@@ -701,7 +703,9 @@ Rules at open (`t` = opened_at, `S` = scheduledAt, `E` = scheduledEndsAt):
   openedReason, acceptanceDueAt, urgentReason); every `WITHDRAWN` close
   appends `JOB_ASSIGNMENT_OFFER_WITHDRAWN`.
 - `CANCEL` and ADMIN invalidation close an `OPEN` offer `WITHDRAWN`
-  (`CANCELLED` / `INVALIDATED`).
+  (`CANCELLED` / `INVALIDATED`); lifecycle closures use the 049 reservation
+  instant as `closed_at`.
+- Offboarding sends the replacement `job.reassigned` only while the flag is on.
 
 ### Commands (flag on, job in the window)
 

@@ -101,8 +101,8 @@ CREATE TABLE job_card_assignment_offers (
     close_text IS NULL OR CHAR_LENGTH(BTRIM(close_text)) BETWEEN 1 AND 2000
   ),
   -- Paired close fact: an OPEN offer states no closing fact; a closed one
-  -- states the instant, the actor (except a system expiry) and exactly the
-  -- reason shape its state owns.
+  -- states the instant, exactly the reason shape its state owns, and the
+  -- closing actor — NULL precisely for a clock-only system expiry.
   CONSTRAINT job_card_assignment_offers_closure_check CHECK (
     (
       state = 'OPEN'
@@ -113,7 +113,7 @@ CREATE TABLE job_card_assignment_offers (
     ) OR (
       state IN ('ACCEPTED', 'DECLINED', 'RELEASED', 'EXPIRED', 'WITHDRAWN')
       AND closed_at IS NOT NULL
-      AND (state = 'EXPIRED' OR closed_by IS NOT NULL)
+      AND (closed_by IS NULL) = (state = 'EXPIRED')
       AND (
         (
           state IN ('DECLINED', 'RELEASED')

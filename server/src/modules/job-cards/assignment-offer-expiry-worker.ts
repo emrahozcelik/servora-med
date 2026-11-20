@@ -28,6 +28,7 @@ import {
 import { mapJobCardActivityToRealtime } from '../realtime/event-mapper.js';
 import type { RealtimeEventRecord } from '../realtime/types.js';
 import type { NotificationDraft } from '../notifications/types.js';
+import { lockAssigneesInOrder } from './assignee-lock.js';
 import type {
   AssignmentOfferNotificationKind,
   JobCardRepository,
@@ -102,15 +103,36 @@ implements AssignmentOfferExpiryRepository {
   }> {
     const { organizationId, jobCardId } = input.candidate;
     return this.repository.executeTransaction(async (tx) => {
+      // JOB-010 §9 lock order (users → JobCard), shared with the service and
+      // offboarding: a snapshot read discovers the offer and its assignee, the
+      // user rows are locked first, and only then the JobCard row lock orders
+      // the decision. Every read after both locks re-checks that nothing
+      // changed while waiting.
+      const snapshotJob = await tx.getJob(organizationId, jobCardId);
+      const snapshotOffer = await tx.getLatestAssignmentOffer(organizationId, jobCardId);
+      if (snapshotJob === null || snapshotJob.status !== 'NEW'
+        || snapshotOffer === null || snapshotOffer.state !== 'OPEN') {
+        return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
+      }
+      await lockAssigneesInOrder(tx, organizationId, [
+        snapshotOffer.assigneeUserId,
+        snapshotJob.assignedTo,
+      ]);
       const job = await tx.getJobForUpdate(organizationId, jobCardId);
       // An offer only ever exists while the job is NEW and the assignment is
       // still live. Anything else was answered or closed elsewhere.
-      if (job === null || job.status !== 'NEW') {
+      if (job === null || job.status !== 'NEW'
+        || job.assignedTo !== snapshotJob.assignedTo) {
         return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
       }
       const offer = await tx.getLatestAssignmentOffer(organizationId, jobCardId);
       if (offer === null || offer.state !== 'OPEN') {
         return { outcome: { kind: 'skipped-no-open-offer' }, realtimeEvents: [] };
+      }
+      if (offer.id !== snapshotOffer.id
+        || offer.assigneeUserId !== snapshotOffer.assigneeUserId
+        || offer.assigneeUserId !== job.assignedTo) {
+        return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
       }
       if (input.scanTime.valueOf() >= offer.acceptanceDueAt.valueOf()) {
         return this.expire(tx, input.scanTime, {

@@ -1,4 +1,5 @@
 import { AppError } from '../../errors/index.js';
+import { isAssignmentOfferJobType } from './assignment-offer-policy.js';
 import {
   DELIVERY_PURPOSES,
   type DeliveryItem,
@@ -90,16 +91,34 @@ export function getAllowedLifecycleCommands(
   if (!actorCanReachJob(actor, job)
     || isTerminalJobStatus(job.status)) return [];
   const assignmentWindowEnabled = flags.assignmentWindowEnabled === true;
-  // JOB-010 §2: a job is in the window when it carries at least one offer.
-  const offer = assignmentWindowEnabled ? job.assignmentOffer ?? null : null;
-  const offerOpen = offer !== null && offer.state === 'OPEN'
+  // JOB-010 §2: a job is in the window only when it is a planned
+  // PRODUCT_DELIVERY / SALES_MEETING *and* at least one offer was recorded.
+  // Everything else keeps the release 2a rules unchanged, even if a stale
+  // offer fact reaches the policy.
+  const offer = assignmentWindowEnabled
+    && job.assignmentOffer != null
+    && isAssignmentOfferJobType(job.type)
+    && job.scheduledAt != null
+    ? job.assignmentOffer
+    : null;
+  // JOB-010 §4/§5: only the Staff member the offer was addressed to answers
+  // it, and only before the deadline (equality is late). Release needs the
+  // ACCEPTED offer that recorded the acceptance being handed back.
+  const mayAnswerOffer = offer !== null
+    && offer.state === 'OPEN'
+    && offer.assigneeUserId === actor.id
     && requestTime.valueOf() < Date.parse(offer.acceptanceDueAt);
+  const mayReleaseOffer = offer !== null
+    && offer.state === 'ACCEPTED'
+    && offer.assigneeUserId === actor.id;
   const commands = (() => {
     if (job.status === 'NEW') {
       if (actor.role !== 'STAFF') return ['CANCEL'];
       // JOB-010 §5: in the window Staff answer the offer; without an open
       // offer they wait for management (no accept, no cancel).
-      if (offer !== null) return offerOpen ? ['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT'] : [];
+      if (offer !== null) {
+        return mayAnswerOffer ? ['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT'] : [];
+      }
       return ['ACCEPT_ASSIGNMENT', 'CANCEL'];
     }
     if (job.status === 'ACCEPTED') {
@@ -107,9 +126,7 @@ export function getAllowedLifecycleCommands(
         if (offer === null) return ['START', 'CANCEL'];
         // JOB-010 §5: release is available while the latest offer is the
         // acceptance itself.
-        return offer.state === 'ACCEPTED'
-          ? ['START', 'RELEASE_ASSIGNMENT']
-          : ['START'];
+        return mayReleaseOffer ? ['START', 'RELEASE_ASSIGNMENT'] : ['START'];
       }
       return ['CANCEL'];
     }

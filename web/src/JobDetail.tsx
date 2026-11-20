@@ -2447,7 +2447,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (code === '') {
         setAssignmentReason({
           ...assignmentReason,
-          inlineError: 'Görevi reddetme nedenini seçin.',
+          inlineError: dialog.kind === 'release'
+            ? 'Görevi geri bırakma nedenini seçin.'
+            : 'Görevi reddetme nedenini seçin.',
         });
         return;
       }

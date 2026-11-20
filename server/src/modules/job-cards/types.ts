@@ -179,6 +179,8 @@ export type JobAssignmentOfferView = {
 export type JobAssignmentOfferSummary = {
   state: JobAssignmentOfferState;
   acceptanceDueAt: string;
+  /** JOB-010 §5: only the assignee the offer was addressed to may answer it. */
+  assigneeUserId: string;
 };
 
 export type PastStartAcknowledgementInput = {
@@ -531,6 +533,8 @@ export type JobAssignmentOfferRecord = {
   openedReason: JobAssignmentOfferOpenedReason;
   acceptanceDueAt: Date;
   urgentReason: JobAssignmentOfferUrgentReason | null;
+  /** The Staff member the offer is addressed to (permission fact). */
+  assigneeUserId: string;
   assigneeId: string;
   assigneeName: string | null;
   closedAt: Date | null;

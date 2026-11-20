@@ -227,13 +227,18 @@ describe('JOB-010 release 2b — assignment window policy', () => {
       expect(allowed(manager, subject({ assignmentOffer: offer() }))).not.toContain('ACCEPT_ASSIGNMENT');
       expect(allowed(admin, subject({ assignmentOffer: offer() }))).not.toContain('ACCEPT_ASSIGNMENT');
       // A job without a planned instant can never be in the window (§2), even
-      // if a stale offer fact reaches the policy.
+      // if a stale offer fact reaches the policy, so acceptance keeps the
+      // release 2a rule; only DECLINE/RELEASE stay absent there.
       expect(allowed(staff, subject({ scheduledAt: null, assignmentOffer: offer() })))
-        .not.toContain('ACCEPT_ASSIGNMENT');
+        .toContain('ACCEPT_ASSIGNMENT');
+      expect(allowed(staff, subject({ scheduledAt: null, assignmentOffer: offer() })))
+        .not.toContain('DECLINE_ASSIGNMENT');
       // Only PRODUCT_DELIVERY / SALES_MEETING are window types (§2, Q8).
       for (const type of ['GENERAL_TASK', 'WEEKLY_REPORT', 'SALE'] as const) {
         expect(allowed(staff, subject({ type, assignmentOffer: offer() })))
-          .not.toContain('ACCEPT_ASSIGNMENT');
+          .toContain('ACCEPT_ASSIGNMENT');
+        expect(allowed(staff, subject({ type, assignmentOffer: offer() })))
+          .not.toContain('DECLINE_ASSIGNMENT');
       }
     });
   });

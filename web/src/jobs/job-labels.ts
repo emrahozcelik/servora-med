@@ -227,6 +227,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_CHANGE_REQUESTED', 'JOB_CHANGE_REQUEST_RESOLVED',
   'JOB_ASSIGNMENT_OFFER_OPENED', 'JOB_ASSIGNMENT_DECLINED', 'JOB_ASSIGNMENT_RELEASED',
   'JOB_ASSIGNMENT_OFFER_EXPIRED', 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+  'JOB_ASSIGNMENT_REMINDER_SENT',
 ] as const;
 
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
@@ -266,6 +267,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_ASSIGNMENT_DECLINED: 'Personel görevi reddetti',
   JOB_ASSIGNMENT_RELEASED: 'Personel görevi geri bıraktı',
   JOB_ASSIGNMENT_OFFER_EXPIRED: 'Kabul süresi yanıtsız geçti',
+  JOB_ASSIGNMENT_REMINDER_SENT: 'Personele kabul hatırlatması gönderildi',
   JOB_ASSIGNMENT_OFFER_WITHDRAWN: 'Kabul teklifi geri çekildi',
 };
 

@@ -159,6 +159,9 @@ const PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'engagementKind',
   'scheduledEndsAt', 'overrideReason',
+  // JOB-010 release 2b: validated by the service as request intent for the
+  // offer producer, never a JobCard column.
+  'pastStartAcknowledgement',
 ];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
