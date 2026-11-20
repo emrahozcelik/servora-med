@@ -163,6 +163,7 @@ async function deleteJobHistoryRows(
     | 'job_card_assignment_history'
     | 'job_card_early_start_authorizations'
     | 'job_card_change_requests'
+    | 'job_card_assignment_offers'
     | 'job_card_accountability_facts',
   organizationId: string,
   jobCardIds: readonly string[],
@@ -181,6 +182,38 @@ async function deleteJobHistoryRows(
     if (!targeted.has(row.job_card_id)) {
       throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
         'Demo veri kümesi beklenmeyen bir bağımlılık nedeniyle değiştirilemedi.', { table });
+    }
+  }
+}
+
+/**
+ * Deletes the once-per-offer automatic notification rows of the targeted
+ * JobCards. They are keyed by offer id, so the ownership check resolves the
+ * JobCard through the offer instead of a direct column.
+ */
+async function deleteAssignmentOfferNotifications(
+  client: PoolClient,
+  organizationId: string,
+  jobCardIds: readonly string[],
+) {
+  if (jobCardIds.length === 0) return;
+  const result = await client.query<{ job_card_id: string }>(
+    `WITH deleted AS (
+       DELETE FROM job_card_assignment_offer_notifications n
+        USING job_card_assignment_offers o
+        WHERE n.offer_id = o.id
+          AND n.organization_id = $1
+          AND o.job_card_id = ANY($2::uuid[])
+        RETURNING o.job_card_id
+     ) SELECT DISTINCT job_card_id::text AS job_card_id FROM deleted`,
+    [organizationId, jobCardIds],
+  );
+  const targeted = new Set(jobCardIds.map(String));
+  for (const row of result.rows) {
+    if (!targeted.has(row.job_card_id)) {
+      throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+        'Demo veri kümesi beklenmeyen bir bağımlılık nedeniyle değiştirilemedi.',
+        { table: 'job_card_assignment_offer_notifications' });
     }
   }
 }
@@ -385,6 +418,7 @@ async function lockPlan(client: PoolClient, organizationId: string, plan: DemoDa
   await lockUuidRows(client, 'job_card_accountability_facts', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_early_start_authorizations', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_change_requests', organizationId, plan.jobCards, 'job_card_id');
+  await lockUuidRows(client, 'job_card_assignment_offers', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_assignment_history', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_action_locations', organizationId, plan.jobActionLocations);
@@ -439,6 +473,10 @@ async function executePlan(client: PoolClient, organizationId: string, plan: Dem
   // JOB-010 release 2a: the change/termination request is the same kind of
   // JobCard child and is removed before the JobCard row it references.
   await deleteJobHistoryRows(client, 'job_card_change_requests', organizationId, plan.jobCards);
+  // JOB-010 release 2b: the automatic offer deliveries reference the offer
+  // (RESTRICT), and the offer references the JobCard. Both go before it.
+  await deleteAssignmentOfferNotifications(client, organizationId, plan.jobCards);
+  await deleteJobHistoryRows(client, 'job_card_assignment_offers', organizationId, plan.jobCards);
   await deleteUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
   await deleteRootRows(client, 'calendar_events', organizationId, plan.datasetId, plan.calendarEvents);
   for (const jobCardId of plan.jobCardDeleteOrder) {

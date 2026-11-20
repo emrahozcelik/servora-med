@@ -219,6 +219,7 @@ describe('PostgresJobCardRepository workspace list', () => {
         contact: { id: 'contact-1', name: 'Dr. Deniz' },
         assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 2,
         earlyStartAuthorized: false,
+        assignmentOffer: null,
       }],
       total: 7,
       limit: 1,

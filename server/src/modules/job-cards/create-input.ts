@@ -1,15 +1,18 @@
 import {
   DELIVERY_PURPOSES,
+  JOB_ASSIGNMENT_OFFER_ACK_CODES,
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   type CustomerSchedulePreviewInput,
   type AvailableSlotsInput,
   type FollowUpCreateInput,
+  type JobAssignmentOfferAckCode,
   type JobCardCreateInput,
   type JobCardEngagementKind,
   type JobCardPriority,
   type JobCardType,
   type NormalizedJobCardCreateInput,
+  type PastStartAcknowledgementInput,
   type ProductDeliveryCreateInput,
 } from './types.js';
 import { AppError } from '../../errors/index.js';
@@ -25,7 +28,7 @@ import { canonicalScheduledEnd } from './job-card-duration.js';
 
 const COMMON_CREATE_FIELDS = [
   'clientActionId', 'type', 'title', 'description', 'customerId', 'contactId',
-  'assignedTo', 'priority', 'dueDate', 'scheduledAt',
+  'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'pastStartAcknowledgement',
 ] as const;
 
 const CREATE_FIELDS_BY_TYPE = {
@@ -123,6 +126,31 @@ function optionalOverrideReason(value: unknown) {
   return value.trim() || null;
 }
 
+/**
+ * JOB-010 release 2b: the past-start acknowledgement a direct management
+ * producer must supply when the planned start already passed. It is parsed on
+ * every direct producer path and ignored when no offer needs it.
+ */
+export function parsePastStartAcknowledgement(
+  value: unknown,
+): PastStartAcknowledgementInput | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw validation('pastStartAcknowledgement');
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !['code', 'text'].includes(key))) {
+    throw validation('pastStartAcknowledgement');
+  }
+  if (!JOB_ASSIGNMENT_OFFER_ACK_CODES.includes(record.code as JobAssignmentOfferAckCode)) {
+    throw validation('pastStartAcknowledgement.code');
+  }
+  return {
+    code: record.code as JobAssignmentOfferAckCode,
+    text: boundedTrimmedString(record.text, 'pastStartAcknowledgement.text', 1, 2_000),
+  };
+}
+
 function parseEngagementKind(value: unknown): JobCardEngagementKind {
   if (value === undefined) return 'SALES_MEETING';
   if (!JOB_CARD_ENGAGEMENT_KINDS.includes(value as JobCardEngagementKind)) {
@@ -137,6 +165,11 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
   if (input.type === 'PRODUCT_DELIVERY' && contactId !== null) {
     throw validation('contactId');
   }
+  // JOB-010 release 2b: only an explicitly supplied acknowledgement is
+  // carried, so an existing create intent keeps its exact normalized shape.
+  const pastStartAcknowledgement = parsePastStartAcknowledgement(
+    input.pastStartAcknowledgement,
+  );
   const common = {
     clientActionId: requireActionId(input.clientActionId),
     title: boundedTrimmedString(input.title, 'title', 1, 255),
@@ -145,6 +178,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
     assignedTo: uuidString(input.assignedTo, 'assignedTo'),
     priority: priority(input.priority),
     dueDate: dueDate(input.dueDate),
+    ...(pastStartAcknowledgement ? { pastStartAcknowledgement } : {}),
   };
   if (input.type === 'PRODUCT_DELIVERY') {
     const scheduledAt = requiredScheduledAt(input.scheduledAt);
@@ -230,6 +264,7 @@ export function parseProductDeliveryCreateInput(value: unknown): ProductDelivery
 const FOLLOW_UP_COMMON_FIELDS = [
   'clientActionId', 'type', 'title', 'followUpInstructions', 'scheduledAt',
   'assignedTo', 'priority', 'dueDate', 'contactId', 'overrideReason',
+  'pastStartAcknowledgement',
 ] as const;
 
 const FOLLOW_UP_FIELDS_BY_TYPE = {
@@ -276,6 +311,9 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
   if (input.type === 'PRODUCT_DELIVERY' && contactId !== null) {
     throw validation('contactId');
   }
+  const pastStartAcknowledgement = parsePastStartAcknowledgement(
+    input.pastStartAcknowledgement,
+  );
   const common = {
     clientActionId: requireActionId(input.clientActionId),
     type: input.type,
@@ -286,6 +324,7 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
     dueDate: normalizeFollowUpDueDate(input.dueDate, input.type),
     contactId,
     overrideReason: optionalOverrideReason(input.overrideReason),
+    ...(pastStartAcknowledgement ? { pastStartAcknowledgement } : {}),
   };
   if (input.type === 'PRODUCT_DELIVERY') {
     return {

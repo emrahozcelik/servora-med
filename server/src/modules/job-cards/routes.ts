@@ -54,6 +54,16 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.patch<{ Params: { id: string; itemId: string } }>('/:id/delivery-items/:itemId', secured, h.patchDeliveryItem);
   app.delete<{ Params: { id: string; itemId: string } }>('/:id/delivery-items/:itemId', secured, h.removeDeliveryItem);
   app.post<{ Params: { id: string } }>('/:id/accept', secured, h.accept);
+  // JOB-010 release 2b: Staff answers and the management recovery surface.
+  app.post<{ Params: { id: string } }>('/:id/decline', secured, h.decline);
+  app.post<{ Params: { id: string } }>('/:id/release', secured, h.release);
+  app.post<{ Params: { id: string } }>(
+    '/:id/assignment-offers/reoffer',
+    secured,
+    h.reofferAssignment,
+  );
+  // Static two-segment path: never collides with '/:id'.
+  app.get('/assignment-offers/needs-action', secured, h.listAssignmentOffersNeedingAction);
   app.post<{ Params: { id: string } }>('/:id/start', secured, h.start);
   app.post<{ Params: { id: string } }>('/:id/submit-for-approval', secured, h.submit);
   app.post<{ Params: { id: string } }>('/:id/approve', secured, h.approve);
