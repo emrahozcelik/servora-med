@@ -28,7 +28,8 @@
     "bootstrap:admin": "tsx --env-file=.env src/db/bootstrap-admin.ts",
     "bootstrap:admin:prod": "node dist/db/bootstrap-admin.js",
     "db:seed:dev": "tsx --env-file=.env src/db/seed-dev.ts",
-    "test": "node --env-file-if-exists=.env scripts/run-tests.mjs"
+    "test": "node --env-file-if-exists=.env scripts/run-tests.mjs",
+    "test:db": "tsx scripts/test-db.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1116.0",

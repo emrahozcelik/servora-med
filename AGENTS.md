@@ -304,6 +304,11 @@ Local server test environment contract (fail-closed):
   `dist/db/schema-check.js` and `dist/db/migrations`, which the suite executes.
 * An environment-dependent test that cannot execute must report SKIPPED, never
   PASSED.
+* When `TEST_DATABASE_URL` is missing, first check `server/.env`, then provision
+  the worktree's own database with `cd server && npm run build && npm run
+  test:db -- provision --suffix <suffix> --write-env`. Do not create ad-hoc
+  roles, databases or passwords. Report the server suite as not run only when
+  provisioning fails, quoting its `TEST_DB_*` code.
 
 See [docs/operations/local-test-environment.md](./docs/operations/local-test-environment.md).
 
