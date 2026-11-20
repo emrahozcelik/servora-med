@@ -321,11 +321,9 @@ test('every Playwright --with-deps install first prefers the Azure apt mirror un
       const step = before.slice(stepStart);
       assert.match(step, /\n {8}timeout-minutes: 15\n/, `${file}: install step must be time-bounded`);
       assert.match(step, /\n {10}sudo bash \.\.\/ops\/ci\/use-azure-apt-mirror\.sh\n/, `${file}: mirror guard must run first`);
-      if (file === 'ci.yml') {
-        // 2026-11-20: a slow-but-alive Azure connection held both web jobs for the full 15 minutes.
-        assert.match(step, /use-azure-apt-mirror\.sh\n(?: {10}npm ci\n)? {10}bash \.\.\/ops\/ci\/prefetch-playwright-apt-deps\.sh\n {10}$/,
-          `${file}: bounded apt prefetch must run between the mirror guard and the install`);
-      }
+      // 2026-11-20: a slow-but-alive Azure connection held both web jobs for the full 15 minutes.
+      assert.match(step, /use-azure-apt-mirror\.sh\n(?: {10}npm ci\n)? {10}bash \.\.\/ops\/ci\/prefetch-playwright-apt-deps\.sh\n {10}$/,
+        `${file}: bounded apt prefetch must run between the mirror guard and the install`);
     }
   }
   const releasePackage = ci.slice(ci.indexOf('\n  release-package:'));
