@@ -263,7 +263,13 @@ browsers are cached between runs. Before `--with-deps` installs system packages,
 `ops/ci/use-azure-apt-mirror.sh` makes `azure.archive.ubuntu.com` the first
 Ubuntu apt source (the runner's existing Ubuntu mirrors remain as fallbacks, since
 a slow mirror never triggers a fallback) and sets bounded apt retries/timeouts, and the install step has a 15-minute timeout; the CI `web`
-and `release-package` jobs use the same guard.
+and `release-package` jobs use the same guard. Those two CI jobs also run
+`ops/ci/prefetch-playwright-apt-deps.sh` first: it downloads (never installs)
+the packages in at most two 4-minute attempts, moves Azure to the end of the
+runner's mirror list before the retry, and fails with
+`PLAYWRIGHT_APT_PREFETCH_FAILED` instead of letting a slow-but-alive mirror
+connection use the whole step timeout. The Production Deploy workflow does not
+run the prefetch yet.
 
 Without `allow_migrations`, a release whose catalog has pending migrations stops
 at the host gate with `PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION`

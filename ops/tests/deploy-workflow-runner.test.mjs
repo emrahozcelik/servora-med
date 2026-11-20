@@ -321,6 +321,11 @@ test('every Playwright --with-deps install first prefers the Azure apt mirror un
       const step = before.slice(stepStart);
       assert.match(step, /\n {8}timeout-minutes: 15\n/, `${file}: install step must be time-bounded`);
       assert.match(step, /\n {10}sudo bash \.\.\/ops\/ci\/use-azure-apt-mirror\.sh\n/, `${file}: mirror guard must run first`);
+      if (file === 'ci.yml') {
+        // 2026-11-20: a slow-but-alive Azure connection held both web jobs for the full 15 minutes.
+        assert.match(step, /use-azure-apt-mirror\.sh\n(?: {10}npm ci\n)? {10}bash \.\.\/ops\/ci\/prefetch-playwright-apt-deps\.sh\n {10}$/,
+          `${file}: bounded apt prefetch must run between the mirror guard and the install`);
+      }
     }
   }
   const releasePackage = ci.slice(ci.indexOf('\n  release-package:'));
@@ -425,5 +430,90 @@ test('Azure apt mirror guard makes Azure the first source and keeps existing Ubu
     const noUbuntu = run(root);
     assert.notEqual(noUbuntu.status, 0);
     assert.match(noUbuntu.stderr, /APT_AZURE_MIRROR_NOT_CONFIGURED/);
+  });
+});
+
+const hasTimeout = spawnSync('/bin/sh', ['-c', 'command -v timeout'], { env: { PATH: '/usr/bin:/bin' } }).status === 0;
+
+/**
+ * 2026-11-20: apt fetched 126 MB from the Azure mirror at ~60 kB/s for the
+ * whole 15-minute step while a concurrent job got it in 5 s. The prefetch
+ * bounds each download-only attempt, demotes Azure once, then fails closed.
+ */
+test('bounded Playwright apt prefetch retries a stalled download on the runner mirrors', { skip: !hasTimeout && 'GNU timeout is not installed' }, () => {
+  const script = resolve(repoRoot, 'ops/ci/prefetch-playwright-apt-deps.sh');
+  const guarded = [
+    `${AZURE}\tpriority:1`,
+    'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:2',
+    'https://archive.ubuntu.com/ubuntu/\tpriority:3',
+    'https://security.ubuntu.com/ubuntu/\tpriority:4',
+    '',
+  ].join('\n');
+  const demoted = [
+    'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:2',
+    'https://archive.ubuntu.com/ubuntu/\tpriority:3',
+    'https://security.ubuntu.com/ubuntu/\tpriority:4',
+    `${AZURE}\tpriority:5`,
+    '',
+  ].join('\n');
+  const run = (plan, check) => withTempDir((root) => {
+    const apt = join(root, 'etc/apt');
+    const stubs = join(root, 'stubs');
+    mkdirSync(join(apt, 'sources.list.d'), { recursive: true });
+    mkdirSync(join(apt, 'apt.conf.d'), { recursive: true });
+    mkdirSync(stubs);
+    writeFileSync(join(apt, 'sources.list.d/ubuntu.sources'), 'Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\nSuites: noble\n');
+    writeFileSync(join(apt, 'apt-mirrors.txt'), guarded);
+    writeFileSync(join(stubs, 'sudo'), '#!/bin/sh\nexec "$@"\n');
+    // Records each call and the download-only config it saw; `hang` stalls past the bound.
+    writeFileSync(join(stubs, 'npx'), [
+      '#!/bin/sh',
+      'n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 ))',
+      'echo "$n" >"$STUB_DIR/count"',
+      'echo "$*" >>"$STUB_DIR/calls"',
+      'cat "$APT_ROOT/etc/apt/apt.conf.d/81-servora-ci-download-only" >>"$STUB_DIR/conf-seen"',
+      'head -n 1 "$APT_ROOT/etc/apt/apt-mirrors.txt" >>"$STUB_DIR/first-mirror"',
+      '[ "$(echo "$NPX_PLAN" | cut -d, -f"$n")" = hang ] && exec sleep 30',
+      'exit 0',
+      '',
+    ].join('\n'));
+    chmodSync(join(stubs, 'sudo'), 0o755);
+    chmodSync(join(stubs, 'npx'), 0o755);
+    const result = spawnSync('/bin/bash', [script], {
+      encoding: 'utf8',
+      env: { PATH: `${stubs}:/usr/bin:/bin`, APT_ROOT: root, PLAYWRIGHT_APT_ATTEMPT_SECONDS: '1', STUB_DIR: stubs, NPX_PLAN: plan },
+    });
+    const read = (name) => readFileSync(join(stubs, name), 'utf8');
+    // The download-only config never outlives the prefetch.
+    assert.equal(existsSync(join(apt, 'apt.conf.d/81-servora-ci-download-only')), false);
+    check(result, { mirrors: readFileSync(join(apt, 'apt-mirrors.txt'), 'utf8'), read });
+  });
+
+  run('ok', (result, { mirrors, read }) => {
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /PLAYWRIGHT_APT_PREFETCH_READY attempt=1/);
+    assert.equal(read('calls'), 'playwright install-deps chromium webkit\n');
+    assert.equal(read('conf-seen'), 'APT::Get::Download-Only "true";\nDPkg::Lock::Timeout "120";\n');
+    assert.equal(mirrors, guarded);
+  });
+
+  run('hang,ok', (result, { mirrors, read }) => {
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /PLAYWRIGHT_APT_PREFETCH_ATTEMPT_FAILED attempt=1 status=124 limit=1s/);
+    assert.match(result.stdout, /APT_AZURE_MIRROR_DEMOTED \/etc\/apt\/apt-mirrors\.txt/);
+    assert.match(result.stdout, /PLAYWRIGHT_APT_PREFETCH_READY attempt=2/);
+    assert.equal(read('calls'), 'playwright install-deps chromium webkit\n'.repeat(2));
+    assert.equal(count(read('conf-seen'), 'APT::Get::Download-Only "true";'), 2);
+    // The retry starts on the runner's own mirror; Azure stays as the last fallback.
+    assert.equal(read('first-mirror'), `${AZURE}\tpriority:1\nhttp://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:2\n`);
+    assert.equal(mirrors, demoted);
+  });
+
+  run('hang,hang,ok', (result, { mirrors, read }) => {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /PLAYWRIGHT_APT_PREFETCH_ATTEMPT_FAILED attempt=2 status=124/);
+    assert.match(result.stderr, /PLAYWRIGHT_APT_PREFETCH_FAILED/);
+    assert.equal(read('count'), '2\n');
+    assert.equal(mirrors, demoted);
   });
 });
