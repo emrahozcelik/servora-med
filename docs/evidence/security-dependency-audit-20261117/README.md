@@ -17,6 +17,13 @@ Lockfiles generated on an isolated read-only GitHub Actions runner with Node 24 
 
 The `ip-address` entry was updated on 18 November with `npm update ip-address --package-lock-only --ignore-scripts --no-audit` (npm 11.20.0); the only lockfile change is that package's version, `resolved` and `integrity`.
 
+## Retired on 20 November 2026
+
+GitHub withdrew `GHSA-fc5q-39xc-vjpf` at `2026-11-18T15:38:56Z`; `npm audit`
+no longer reports it. Per `DECISIONS.md` SEC-2026-11-20 the exception below
+was removed and both audits are strict again (no exceptions). The section is
+kept as the historical record of SEC-2026-11-18.
+
 ## Owner-approved temporary picomatch security exception (18 November 2026)
 
 Owner approved the exception on 18 November 2026. It is a **risk acceptance,
