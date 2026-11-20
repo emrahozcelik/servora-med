@@ -52,6 +52,12 @@ const EXPECTED_ACTIVITY_EVENTS = [
   'JOB_EARLY_START_AUTHORIZED',
   'JOB_CHANGE_REQUESTED',
   'JOB_CHANGE_REQUEST_RESOLVED',
+  'JOB_ASSIGNMENT_OFFER_OPENED',
+  'JOB_ASSIGNMENT_REMINDER_SENT',
+  'JOB_ASSIGNMENT_DECLINED',
+  'JOB_ASSIGNMENT_RELEASED',
+  'JOB_ASSIGNMENT_OFFER_EXPIRED',
+  'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
   'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
 ] as const;
 const EXPECTED_UNSUCCESSFUL_REASON_CODES = [
@@ -161,8 +167,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(64);
-      expect(firstRun.appliedVersions.at(-1)).toBe('064_job_card_change_requests');
+      expect(firstRun.appliedVersions).toHaveLength(65);
+      expect(firstRun.appliedVersions.at(-1)).toBe('065_job_card_assignment_offers');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -171,7 +177,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
       );
       expect(jobCardTypes).toHaveLength(5);
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
-      expect(activityEvents).toHaveLength(30);
+      expect(activityEvents).toHaveLength(36);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
       const reasonColumn = await pool.query<{ is_nullable: string }>(
         `SELECT is_nullable
@@ -258,7 +264,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '055_job_submit_location_comparison',
           '056_meeting_met_contact',
           '057_sale_from_visit',
-          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests',
+          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -283,7 +289,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '053_overdue_submission_reminders.sql'
           && file !== '054_job_action_locations_submit_approval.sql'
           && file !== '055_job_submit_location_comparison.sql'
-          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql' && file !== '062_follow_up_cycle_end_reason.sql' && file !== '063_job_card_early_start_authorizations.sql' && file !== '064_job_card_change_requests.sql')
+          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql' && file !== '062_follow_up_cycle_end_reason.sql' && file !== '063_job_card_early_start_authorizations.sql' && file !== '064_job_card_change_requests.sql' && file !== '065_job_card_assignment_offers.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -324,7 +330,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '055_job_submit_location_comparison',
           '056_meeting_met_contact',
           '057_sale_from_visit',
-          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests',
+          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

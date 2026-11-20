@@ -72,21 +72,46 @@ function timeEligible(
   return requestTime.getTime() >= earliest;
 }
 
+/**
+ * JOB-010 release 2b: the assignment acceptance window is activated by one
+ * flag. Absent means off, so every caller that cannot prove activation keeps
+ * the release 2a rules.
+ */
+export type LifecyclePolicyFlags = {
+  assignmentWindowEnabled?: boolean;
+};
+
 export function getAllowedLifecycleCommands(
   actor: JobCardActor,
   job: JobPermissionSubject,
   requestTime = new Date(),
+  flags: LifecyclePolicyFlags = {},
 ): LifecycleCommand[] {
   if (!actorCanReachJob(actor, job)
     || isTerminalJobStatus(job.status)) return [];
+  const assignmentWindowEnabled = flags.assignmentWindowEnabled === true;
+  // JOB-010 §2: a job is in the window when it carries at least one offer.
+  const offer = assignmentWindowEnabled ? job.assignmentOffer ?? null : null;
+  const offerOpen = offer !== null && offer.state === 'OPEN'
+    && requestTime.valueOf() < Date.parse(offer.acceptanceDueAt);
   const commands = (() => {
     if (job.status === 'NEW') {
-      return actor.role === 'STAFF' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['CANCEL'];
+      if (actor.role !== 'STAFF') return ['CANCEL'];
+      // JOB-010 §5: in the window Staff answer the offer; without an open
+      // offer they wait for management (no accept, no cancel).
+      if (offer !== null) return offerOpen ? ['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT'] : [];
+      return ['ACCEPT_ASSIGNMENT', 'CANCEL'];
     }
     if (job.status === 'ACCEPTED') {
-      return actor.role === 'STAFF' && actor.id === job.assignedTo
-        ? ['START', 'CANCEL']
-        : ['CANCEL'];
+      if (actor.role === 'STAFF' && actor.id === job.assignedTo) {
+        if (offer === null) return ['START', 'CANCEL'];
+        // JOB-010 §5: release is available while the latest offer is the
+        // acceptance itself.
+        return offer.state === 'ACCEPTED'
+          ? ['START', 'RELEASE_ASSIGNMENT']
+          : ['START'];
+      }
+      return ['CANCEL'];
     }
     if (job.status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
     if (job.status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
@@ -95,7 +120,8 @@ export function getAllowedLifecycleCommands(
       : ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'];
   })() as LifecycleCommand[];
   return commands.filter((command) => timeEligible(command, job, requestTime)
-    && !(command === 'CANCEL' && actor.role === 'STAFF' && job.type === 'WEEKLY_REPORT'));
+    && !(command === 'CANCEL' && actor.role === 'STAFF'
+      && (assignmentWindowEnabled || job.type === 'WEEKLY_REPORT')));
 }
 
 export function getAllowedJobActions(
@@ -243,6 +269,19 @@ export function assertCanListOpenChangeRequests(actor: JobCardActor) {
 }
 
 /**
+ * JOB-010 release 2b: re-offering an assignment and the management
+ * needs-action list are management powers. STAFF is rejected with 403 before
+ * any lookup, so the route never leaks whether the job exists.
+ */
+export function assertCanReofferAssignment(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+export function assertCanListAssignmentOffersNeedingAction(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+/**
  * OVR-4: the open-submission-late operational list is management-only for
  * the same reason as the incident history: it exposes cross-staff
  * accountability. STAFF visibility stays limited to its own jobs through
@@ -307,17 +346,21 @@ export const assertCanAddNote = (actor: JobCardActor, job: JobCard) =>
 
 export function assertCanTransition(
   actor: JobCardActor,
-  job: JobCard,
+  job: JobCard & Pick<JobPermissionSubject, 'assignmentOffer'>,
   command: LifecycleCommand,
   reason?: string,
   requestTime = new Date(),
+  flags: LifecyclePolicyFlags = {},
 ) {
   assertSameOrganization(actor, job.organizationId);
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
   if (isTerminalJobStatus(job.status)) invalidTransition();
   if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION'].includes(command)) forbidden();
-  if (command === 'ACCEPT_ASSIGNMENT' && actor.role !== 'STAFF') forbidden();
-  if (!getAllowedLifecycleCommands(actor, job, requestTime).includes(command)) invalidTransition();
+  if (['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT', 'RELEASE_ASSIGNMENT'].includes(command)
+    && actor.role !== 'STAFF') forbidden();
+  if (!getAllowedLifecycleCommands(actor, job, requestTime, flags).includes(command)) {
+    invalidTransition();
+  }
   if (command === 'REQUEST_REVISION' && !reason?.trim()) {
     throw new AppError('REVISION_REASON_REQUIRED', 400, 'Düzeltme nedeni zorunludur.');
   }

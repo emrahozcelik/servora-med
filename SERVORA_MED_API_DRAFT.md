@@ -975,6 +975,100 @@ While a request is open, the automatic OVR-4 submission reminders for that job p
 (incidents are kept and manual manager reminders stay allowed) and
 `GET /:id/submission-lateness` reports `open.changeRequestOpenSince`.
 
+### Assignment offers (JOB-010 release 2b)
+
+Release 2b is inert until `JOB_ASSIGNMENT_WINDOW_ENABLED=true`: with the flag off no offer
+is recorded, none of the commands below exists, Staff patch and `CANCEL` rules are unchanged
+and no expiry worker runs. A job is "in the acceptance window" when it has at least one
+offer row (`PRODUCT_DELIVERY` / `SALES_MEETING` with a `scheduledAt`, assigned by a non-self
+actor).
+
+Every offer row records the assignee, `openedAt`, `openedReason` (`CREATE`, `REASSIGN`,
+`RESCHEDULE`, `FOLLOW_UP_CREATE`, `APPROVE_FOLLOW_UP`, `CANCEL_REPLACEMENT`,
+`OFFBOARDING_TRANSFER`, `REOFFER`), the opening management actor, the acceptance deadline,
+the urgency reason (`SHORT_NOTICE` / `START_PASSED` / none), an optional past-start
+acknowledgement, and its state (`OPEN`, `ACCEPTED`, `DECLINED`, `RELEASED`, `EXPIRED`,
+`WITHDRAWN`). At most one offer per job is `OPEN`; closed offers are append-only history.
+
+`acceptanceDueAt = max(scheduledAt − 60 min, openedAt + 10 min)`. An answer reserved before
+that instant is on time; at or after it the server rejects the answer with
+`409 ACCEPTANCE_WINDOW_CLOSED` and writes nothing, whether or not the expiry worker ran.
+
+Management producers that fail the minimum-window rule (`openedAt + 10 min >= scheduledEndsAt`)
+return `409 ASSIGNMENT_WINDOW_TOO_SHORT`. A producer whose `openedAt >= scheduledAt` returns
+`409 PAST_START_ACKNOWLEDGEMENT_REQUIRED` unless the request carries
+`pastStartAcknowledgement: { code, text }` with `code` in `CUSTOMER_CONFIRMED_LATER_TIME`,
+`CUSTOMER_WAITING`, `OTHER` and mandatory text (1–2000). The field is accepted (and ignored
+when not needed) on create, product-delivery create, follow-up create, patch and re-offer,
+and participates in the request hash. Compound producers (JOB-008 approval, JOB-009
+replacement, offboarding transfer) record the offer without an acknowledgement and close it
+`WITHDRAWN` / `PLANNED_WINDOW_PASSED` when the planned window no longer fits.
+
+`POST /api/job-cards/:id/decline`
+
+```json
+{ "clientActionId": "uuid", "expectedVersion": 6, "reasonCode": "SCHEDULE_CONFLICT",
+  "reasonText": "Aynı saatte başka bir teslimim var." }
+```
+
+Assigned STAFF only, `NEW` with an `OPEN` offer before the deadline. `reasonCode` is one of
+`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`;
+`reasonText` is mandatory. The status stays `NEW` (`version` +1), the offer closes
+`DECLINED`, the `JOB_ASSIGNMENT_DECLINED` activity commits with the reason, and every active
+MANAGER/ADMIN receives `job.assignment_declined`. A missing/stale offer returns
+`409 ASSIGNMENT_OFFER_NOT_OPEN`.
+
+`POST /api/job-cards/:id/release` — same body, from `ACCEPTED` while the latest offer is
+`ACCEPTED` for the actor. In one transaction: the pre-release OVR-2 `LATE_START` obligation is
+materialized, the job returns to `NEW` with `acceptedAt`/`acceptedBy` cleared, the offer
+moves `ACCEPTED -> RELEASED`, the `JOB_ASSIGNMENT_RELEASED` activity commits and management
+receives `job.assignment_declined`.
+
+`POST /api/job-cards/:id/assignment-offers/reoffer`
+
+```json
+{ "clientActionId": "uuid", "expectedVersion": 6,
+  "pastStartAcknowledgement": { "code": "CUSTOMER_WAITING", "text": "Müşteri teslimi bekliyor." } }
+```
+
+MANAGER/ADMIN only (`403 FORBIDDEN` before lookup), flag on (else
+`409 ASSIGNMENT_WINDOW_DISABLED`), job `NEW`, `PRODUCT_DELIVERY` / `SALES_MEETING` with a
+`scheduledAt`. A live `OPEN` offer (`requestTime < acceptanceDueAt`) returns
+`409 ASSIGNMENT_OFFER_ALREADY_OPEN`; an overdue one is closed `EXPIRED` (no actor) in the
+same transaction. A new `REOFFER` offer opens to the current assignee and `version` +1.
+Idempotent through the request hash.
+
+Response `201`:
+
+```json
+{ "jobCardId": "uuid", "offerId": "uuid",
+  "acceptanceDueAt": "2026-11-20T11:50:00.000Z", "urgentReason": "SHORT_NOTICE" }
+```
+
+`GET /api/job-cards/assignment-offers/needs-action?limit&offset`
+
+Management only. Jobs still `NEW` whose latest offer is `DECLINED`, `RELEASED`, `EXPIRED`,
+`WITHDRAWN`/`PLANNED_WINDOW_PASSED`, or `OPEN` with an `urgentReason` or a passed deadline
+(evaluated at read time), oldest deadline first. Item:
+`{ jobCardId, jobTitle, jobType, offerId, state, closeReason, closeText, acceptanceDueAt,
+urgentReason, scheduledAt, assignee: { id, name }, customer: { id, name } | null, jobPath }`,
+plus `total`, `limit`, `offset`.
+
+The job detail exposes the latest offer as
+`assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name } } | null`
+(management and assignee); an `OPEN` offer past its deadline is presented with
+`state: EXPIRED`. With the flag on, `allowedCommands` in the window are
+`ACCEPT_ASSIGNMENT` + `DECLINE_ASSIGNMENT` in `NEW`, and `START` + `RELEASE_ASSIGNMENT` in
+`ACCEPTED`; Staff never receive `CANCEL` for any JobCard type or status.
+
+For a job in the window in `NEW`/`ACCEPTED`, a Staff patch that changes `scheduledAt`,
+`scheduledEndsAt` or `dueDate` returns `403 CUSTOMER_TIME_MANAGEMENT_ONLY`.
+
+When enabled, `createAssignmentOfferExpiryWorker` closes an overdue `OPEN` offer as
+`EXPIRED` (once, with `job.acceptance_expired` to management) and sends one
+`job.acceptance_reminder` to the assignee at the half-way point. A lifecycle reservation
+reserved before the deadline and still in flight wins over expiry.
+
 ### Submit requirements
 
 For `PRODUCT_DELIVERY`:

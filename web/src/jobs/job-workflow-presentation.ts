@@ -258,6 +258,18 @@ function commandCopy(
         consequence: 'İş “Kabul edildi” aşamasına alınacaktır.',
         successMessage: 'İş kabul edildi.',
       };
+    case 'DECLINE_ASSIGNMENT':
+      return {
+        label: 'Görevi reddet',
+        consequence: 'Görev “Atandı” durumunda kalacak; işi başka bir personele yönetici atayacaktır.',
+        successMessage: 'Görev reddedildi. Yönetici bilgilendirildi.',
+      };
+    case 'RELEASE_ASSIGNMENT':
+      return {
+        label: 'Görevi geri bırak',
+        consequence: 'İş yeniden “Atandı” aşamasına dönecek ve yönetici bilgilendirilecektir.',
+        successMessage: 'Görev geri bırakıldı. Yönetici bilgilendirildi.',
+      };
     case 'START':
       return {
         label: 'İşi başlat',
@@ -540,6 +552,12 @@ export function isLifecycleCommandVisible(
   assignedTo: string,
   command: LifecycleCommand,
 ): boolean {
+  // JOB-010 release 2b: decline and release are Staff-assignee answers to an
+  // assignment offer. The server enforces the same rule; this only decides
+  // whether the control is offered.
+  if (command === 'DECLINE_ASSIGNMENT' || command === 'RELEASE_ASSIGNMENT') {
+    return user.role === 'STAFF' && assignedTo === user.id;
+  }
   if (command !== 'START') return true;
   return status === 'ACCEPTED' && user.role === 'STAFF' && assignedTo === user.id;
 }

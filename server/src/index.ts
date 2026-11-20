@@ -47,6 +47,10 @@ import {
   PostgresOverdueReminderWorkerRepository,
   createOverdueReminderWorker,
 } from './modules/job-cards/overdue-reminder-worker.js';
+import {
+  PostgresAssignmentOfferExpiryRepository,
+  createAssignmentOfferExpiryWorker,
+} from './modules/job-cards/assignment-offer-expiry-worker.js';
 
 /**
  * Selects exactly one backup observability provider (DECISIONS.md -> OPS-004
@@ -206,6 +210,33 @@ async function main() {
                 },
                 onError: (error) => {
                   console.error('Overdue reminder iteration failed', error);
+                },
+              },
+            ),
+          }
+        : {}),
+      // JOB-010 release 2b: the assignment offer expiry / reminder worker is
+      // constructed only when the activation flag is on, so a default
+      // deployment keeps its release 2a behaviour exactly.
+      ...(config.assignmentWindow?.enabled === true
+        ? {
+            assignmentOfferExpiryWorker: createAssignmentOfferExpiryWorker(
+              new PostgresAssignmentOfferExpiryRepository(
+                jobCards,
+                config.webPush.enabled,
+              ),
+              {
+                publisher: realtimeBus,
+                pollIntervalMs: config.assignmentWindow.offerExpiryPollIntervalMs,
+                batchSize: config.assignmentWindow.offerExpiryBatchSize,
+                onReport: (report) => {
+                  app?.log.debug(
+                    { assignmentOfferExpiry: report },
+                    'Assignment offer expiry iteration',
+                  );
+                },
+                onError: (error) => {
+                  console.error('Assignment offer expiry iteration failed', error);
                 },
               },
             ),

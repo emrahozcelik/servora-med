@@ -162,6 +162,13 @@ const PATCH_FIELDS = [
 ];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
+// JOB-010 release 2b: Staff decline/release answers and the management re-offer.
+const ASSIGNMENT_DECISION_FIELDS = [
+  'clientActionId', 'expectedVersion', 'reasonCode', 'reasonText',
+] as const;
+const ASSIGNMENT_REOFFER_FIELDS = [
+  'clientActionId', 'expectedVersion', 'pastStartAcknowledgement',
+] as const;
 const START_FIELDS = [...LIFECYCLE_FIELDS, 'locationCapture'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
 const SUBMIT_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUpProposal', 'locationCapture'] as const;
@@ -301,6 +308,28 @@ export function createJobCardHandlers(service: JobCardService) {
       service.removeDeliveryItem(actor(request), request.params.id, request.params.itemId!, body(request, ['expectedVersion']) as never),
     accept: async (request: FastifyRequest<{ Params: Params }>) =>
       service.acceptAssignment(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
+    decline: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.declineAssignment(
+        actor(request),
+        request.params.id,
+        body(request, ASSIGNMENT_DECISION_FIELDS) as never,
+      ),
+    release: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.releaseAssignment(
+        actor(request),
+        request.params.id,
+        body(request, ASSIGNMENT_DECISION_FIELDS) as never,
+      ),
+    reofferAssignment: async (
+      request: FastifyRequest<{ Params: Params }>,
+      reply: FastifyReply,
+    ) => reply.code(201).send(await service.reofferAssignment(
+      actor(request),
+      uuidString(request.params.id, 'jobCardId'),
+      body(request, ASSIGNMENT_REOFFER_FIELDS) as never,
+    )),
+    listAssignmentOffersNeedingAction: async (request: FastifyRequest) =>
+      service.listAssignmentOffersNeedingAction(actor(request), page(request.query, 25)),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
       service.start(
         actor(request),

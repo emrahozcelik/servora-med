@@ -100,6 +100,7 @@ describe('Postgres JobCard detail projection', () => {
       proposer: null,
       earlyStartAuthorization: null,
       changeRequest: null,
+      assignmentOffer: null,
     });
     const projection = calls.at(-1)!;
     expect(projection.values).toEqual(['org-1', 'job-1']);

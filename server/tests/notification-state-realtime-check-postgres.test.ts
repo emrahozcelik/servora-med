@@ -119,9 +119,9 @@ describe.skipIf(!databaseUrl)('046 notification state CHECK matrix (live Postgre
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(applied.rows[0]!.version).toBe('064_job_card_change_requests');
+      expect(applied.rows[0]!.version).toBe('065_job_card_assignment_offers');
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('064_job_card_change_requests');
+      expect(catalog.head?.version).toBe('065_job_card_assignment_offers');
     });
   });
 

@@ -41,6 +41,9 @@ export function createJobCardNotificationDrafts(
     JOB_REVISION_REQUESTED: 'job.revision_requested',
     JOB_CANCELLED: 'job.cancelled',
     JOB_INVALIDATED: 'job.invalidated',
+    // JOB-010 release 2b: the automatic pre-deadline nudge is addressed to the
+    // assignee only and sent once per offer (durable delivery state).
+    JOB_ASSIGNMENT_REMINDER_SENT: 'job.acceptance_reminder',
   };
   const kind = assignedKinds[input.event];
   if (kind) {
@@ -51,12 +54,21 @@ export function createJobCardNotificationDrafts(
   // JOB-010 release 2a (D1): a Staff change/termination request is addressed
   // to every active MANAGER/ADMIN (the same recipient query as the OVR-4
   // escalation), because a human must decide it.
-  if (input.event === 'JOB_CHANGE_REQUESTED') {
+  // JOB-010 release 2b: a declined/released offer and an expired acceptance
+  // are management decisions too — nobody else can recover the commitment.
+  const managementKinds: Partial<Record<JobCardActivityEvent, NotificationDraft['kind']>> = {
+    JOB_CHANGE_REQUESTED: 'job.change_requested',
+    JOB_ASSIGNMENT_DECLINED: 'job.assignment_declined',
+    JOB_ASSIGNMENT_RELEASED: 'job.assignment_declined',
+    JOB_ASSIGNMENT_OFFER_EXPIRED: 'job.acceptance_expired',
+  };
+  const managementKind = managementKinds[input.event];
+  if (managementKind) {
     return excludingActor(
       input.managementRecipients.filter((recipient) => recipient.isActive)
         .map((recipient) => recipient.id),
       input.actorUserId,
-    ).map((recipientUserId) => draft(recipientUserId, 'job.change_requested', input.jobCardId));
+    ).map((recipientUserId) => draft(recipientUserId, managementKind, input.jobCardId));
   }
 
   if (input.event !== 'JOB_SUBMITTED_FOR_APPROVAL') return [];

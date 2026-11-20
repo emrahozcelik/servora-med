@@ -10,6 +10,10 @@ import {
   type FollowUpCancelContinuitySectionProps,
 } from './FollowUpCancelContinuitySection';
 import {
+  AssignmentReasonSection,
+  type AssignmentReasonDraft,
+} from './AssignmentOffer';
+import {
   FollowUpProposalSection,
   type FollowUpDraft,
   type FollowUpProposalSectionProps,
@@ -20,7 +24,9 @@ export type JobWorkflowDialogKind =
   | { kind: 'approve'; presentation: TransitionPresentation }
   | { kind: 'revision'; presentation: TransitionPresentation }
   | { kind: 'withdraw-edit'; presentation: RecordEditPresentation }
-  | { kind: 'cancel'; presentation: TransitionPresentation };
+  | { kind: 'cancel'; presentation: TransitionPresentation }
+  | { kind: 'decline'; presentation: TransitionPresentation }
+  | { kind: 'release'; presentation: TransitionPresentation };
 
 /**
  * Job workflow overlay router: confirmation vs reason capture.
@@ -35,12 +41,18 @@ export function JobWorkflowDialog(props: {
   followUp?: FollowUpProposalSectionProps;
   /** JOB-009: present only when cancelling a follow-up visit. */
   cancelContinuity?: FollowUpCancelContinuitySectionProps;
+  /** JOB-010 release 2b: present only for decline / release of an assignment. */
+  assignmentReason?: {
+    draft: AssignmentReasonDraft;
+    inlineError: string | null;
+    onChange: (patch: Partial<AssignmentReasonDraft>) => void;
+  };
   returnFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusEnabledRef?: RefObject<boolean>;
 }): ReactNode {
   const {
     dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
-    returnFocusRef, restoreFocusEnabledRef,
+    assignmentReason, returnFocusRef, restoreFocusEnabledRef,
   } = props;
   const continuity = dialog.kind === 'cancel' ? cancelContinuity : undefined;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
@@ -77,34 +89,53 @@ export function JobWorkflowDialog(props: {
         ].join(' ')
       : dialog.kind === 'revision'
         ? 'Personelin neyi düzeltmesi gerektiğini açıklayın.'
-        : continuity?.draft.decision === 'RESCHEDULE'
-          ? 'İptal edilen iş yeniden açılamaz; seçtiğiniz zamana yeni bir takip ziyareti oluşturulur. İptal nedenini iş geçmişine ekleyin.'
-          : 'Bu işlem terminaldir; iptal edilen iş yeniden açılamaz. İptal nedenini iş geçmişine ekleyin.';
+        : dialog.kind === 'decline' || dialog.kind === 'release'
+          ? `${dialog.presentation.consequence} Seçtiğiniz neden ve açıklama yöneticiye iletilir.`
+          : continuity?.draft.decision === 'RESCHEDULE'
+            ? 'İptal edilen iş yeniden açılamaz; seçtiğiniz zamana yeni bir takip ziyareti oluşturulur. İptal nedenini iş geçmişine ekleyin.'
+            : 'Bu işlem terminaldir; iptal edilen iş yeniden açılamaz. İptal nedenini iş geçmişine ekleyin.';
   const reasonLabel = dialog.kind === 'submit'
     ? 'Tamamlanma sonucu'
     : dialog.kind === 'approve'
       ? 'Onay notu'
       : dialog.kind === 'revision'
         ? 'Düzeltme nedeni'
-        : 'İptal nedeni';
+        : dialog.kind === 'decline' || dialog.kind === 'release'
+          ? 'Açıklama'
+          : 'İptal nedeni';
   const confirmLabel = dialog.kind === 'submit'
     ? (dialog.presentation.confirmation?.confirmLabel ?? dialog.presentation.label)
     : dialog.kind === 'approve'
       ? (dialog.presentation.confirmation?.confirmLabel ?? 'İşi tamamla')
       : dialog.kind === 'revision'
         ? 'Düzeltme için geri gönder'
-        : continuity?.draft.decision === 'RESCHEDULE'
-          ? 'İptal et ve yeniden planla'
-          : continuity?.draft.decision === 'END_CYCLE'
-            ? 'İptal et ve döngüyü sonlandır'
-            : 'İşi iptal et';
+        : dialog.kind === 'decline'
+          ? 'Görevi reddet'
+          : dialog.kind === 'release'
+            ? 'Görevi geri bırak'
+            : continuity?.draft.decision === 'RESCHEDULE'
+              ? 'İptal et ve yeniden planla'
+              : continuity?.draft.decision === 'END_CYCLE'
+                ? 'İptal et ve döngüyü sonlandır'
+                : 'İşi iptal et';
 
   const prelude = (dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
     ? <fieldset disabled={pending || uncertain}><FollowUpProposalSection {...followUp} initialFocusRef={followUpInitialFocusRef} /></fieldset>
     : continuity
       ? <fieldset disabled={pending || uncertain}><FollowUpCancelContinuitySection {...continuity} initialFocusRef={followUpInitialFocusRef} /></fieldset>
-      : undefined;
-  const hasPreludeFocus = followUp !== undefined || continuity !== undefined;
+      : (dialog.kind === 'decline' || dialog.kind === 'release') && assignmentReason
+        ? <fieldset disabled={pending || uncertain}>
+            <AssignmentReasonSection
+              draft={assignmentReason.draft}
+              inlineError={assignmentReason.inlineError}
+              onChange={assignmentReason.onChange}
+              initialFocusRef={followUpInitialFocusRef}
+            />
+          </fieldset>
+        : undefined;
+  const hasPreludeFocus = followUp !== undefined
+    || continuity !== undefined
+    || assignmentReason !== undefined;
 
   return (
     <ReasonDialog
@@ -123,7 +154,7 @@ export function JobWorkflowDialog(props: {
       required={dialog.kind !== 'approve'}
       pending={pending}
       inputsDisabled={uncertain}
-      destructive={dialog.kind === 'cancel'}
+      destructive={dialog.kind === 'cancel' || dialog.kind === 'decline' || dialog.kind === 'release'}
       prelude={prelude}
       initialFocusRef={hasPreludeFocus ? followUpInitialFocusRef : undefined}
       initialFocusReady={hasPreludeFocus}

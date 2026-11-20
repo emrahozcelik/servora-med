@@ -42,6 +42,7 @@ const job = {
   earlyStartAuthorization: null,
   submitLocationComparison: null,
   changeRequest: null,
+  assignmentOffer: null,
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',

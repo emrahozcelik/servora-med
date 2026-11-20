@@ -9,16 +9,20 @@ import {
 import { ApiError, type CurrentUser } from './services/api';
 import { markNotificationsReadByEntity } from './services/notifications-api';
 import {
-  acceptJobCard, approveJobCard, cancelJobCard, getFollowUpSuggestion, getJobCard,
+  acceptJobCard, approveJobCard, cancelJobCard, declineAssignment, releaseAssignment,
+  getFollowUpSuggestion, getJobCard,
   getMeetingDetails, listDeliveryItems,
   invalidateJobCard,
   patchDeliveryItem, patchJobCard, patchMeetingDetails,
+  pastStartAcknowledgementPayload,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
-  type ApproveFollowUpInput, type CustomerScheduleEvaluation, type DeliveryItem, type FollowUpProposalInput,
+  type ApproveFollowUpInput, type AssignmentReasonCode, type CustomerScheduleEvaluation,
+  type DeliveryItem, type FollowUpProposalInput,
   type FollowUpCancelContinuity,
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
   type JobCardInvalidationInput,
+  type PastStartAcknowledgement,
   type PatchJobCardInput, type PatchMeetingDetailsInput, type RelatedName,
   type StartJobCardInput,
   type AvailableSlot,
@@ -86,6 +90,16 @@ import {
 } from './jobs/SubmissionLateness';
 import { EarlyStartAuthorizationSection } from './jobs/EarlyStartAuthorization';
 import { ChangeRequestSection } from './jobs/ChangeRequests';
+import {
+  AssignmentOfferSection,
+  EMPTY_ASSIGNMENT_REASON,
+  type AssignmentReasonDraft,
+} from './jobs/AssignmentOffer';
+import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
+import {
+  assignmentWindowErrorMessage,
+  isAssignmentWindowStaleError,
+} from './jobs/assignment-window-errors';
 import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
@@ -509,7 +523,8 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, submissionLateness, earlyStart, changeRequest, overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
+  pendingLabel, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
+  overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
 }: {
   job: JobCard;
@@ -542,6 +557,8 @@ export function JobDetailPanel({
   earlyStart?: ReactNode;
   /** JOB-010 release 2a Staff change/termination request and its decision path. */
   changeRequest?: ReactNode;
+  /** JOB-010 release 2b server-owned assignment offer and management recovery. */
+  assignmentOffer?: ReactNode;
   /** Manager-only lateness history: above the workflow on desktop, a collapsed
    *  disclosure below the record details on mobile (DECISIONS.md UI-005). */
   overdueHistory?: ReactNode;
@@ -759,6 +776,7 @@ export function JobDetailPanel({
       {submissionLateness}
       {earlyStart}
       {changeRequest}
+      {assignmentOffer}
       {!narrow && overdueHistory}
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
@@ -1004,12 +1022,26 @@ async function executeLifecycleCommand(
     followUpProposal?: FollowUpProposalInput;
     followUpContinuity?: FollowUpCancelContinuity;
     followUp?: ApproveFollowUpInput;
+    assignmentReason?: { code: AssignmentReasonCode; text: string };
   },
   reason: string,
 ): Promise<JobCard> {
+  const lifecycleInput = { clientActionId: input.clientActionId, expectedVersion: input.expectedVersion };
   switch (command) {
     case 'ACCEPT_ASSIGNMENT':
       return acceptJobCard(jobId, input);
+    case 'DECLINE_ASSIGNMENT':
+      return declineAssignment(jobId, {
+        ...lifecycleInput,
+        reasonCode: input.assignmentReason?.code ?? 'OTHER',
+        reasonText: input.assignmentReason?.text ?? reason,
+      });
+    case 'RELEASE_ASSIGNMENT':
+      return releaseAssignment(jobId, {
+        ...lifecycleInput,
+        reasonCode: input.assignmentReason?.code ?? 'OTHER',
+        reasonText: input.assignmentReason?.text ?? reason,
+      });
     case 'START':
       return startJobCard(jobId, input);
     case 'SUBMIT_FOR_APPROVAL':
@@ -1087,6 +1119,23 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     draft: FollowUpCancelContinuityDraft;
     inlineError: string | null;
   } | null>(null);
+  /** JOB-010 release 2b: reason draft, present only while declining/releasing. */
+  const [assignmentReason, setAssignmentReason] = useState<{
+    draft: AssignmentReasonDraft;
+    inlineError: string | null;
+  } | null>(null);
+  /**
+   * JOB-010 release 2b: a management create/edit answer that the server
+   * rejected with PAST_START_ACKNOWLEDGEMENT_REQUIRED. The retry replays the
+   * same values plus the acknowledgement the user fills in.
+   */
+  const [pastStartAck, setPastStartAck] = useState<{
+    title: string;
+    description: string;
+    run: (acknowledgement: PastStartAcknowledgement) => Promise<boolean>;
+  } | null>(null);
+  const [pastStartAckPending, setPastStartAckPending] = useState(false);
+  const pastStartAckOpenerRef = useRef<HTMLElement | null>(null);
   const [followUp, setFollowUp] = useState<{
     draft: FollowUpDraft | null;
     origin: FollowUpProposalOrigin | null;
@@ -1120,6 +1169,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       followUpProposal?: FollowUpProposalInput;
       followUp?: ApproveFollowUpInput;
       followUpContinuity?: FollowUpCancelContinuity;
+      assignmentReason?: { code: AssignmentReasonCode; text: string };
     };
     reason: string;
   } | null>(null);
@@ -1284,6 +1334,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setDialog(null);
     setFollowUp(null);
     setCancelContinuity(null);
+    setAssignmentReason(null);
   }
   async function refreshTruth(): Promise<boolean> {
     const operationJobId = jobId;
@@ -1592,6 +1643,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       followUpProposal?: FollowUpProposalInput;
       followUp?: ApproveFollowUpInput;
       followUpContinuity?: FollowUpCancelContinuity;
+      assignmentReason?: { code: AssignmentReasonCode; text: string };
     },
   ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
@@ -1609,6 +1661,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         followUpProposal?: FollowUpProposalInput;
         followUp?: ApproveFollowUpInput;
         followUpContinuity?: FollowUpCancelContinuity;
+        assignmentReason?: { code: AssignmentReasonCode; text: string };
       } = input;
       if (!retained && command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
@@ -1640,6 +1693,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (extra?.followUp) commandInput = { ...commandInput, followUp: extra.followUp };
         if (extra?.followUpContinuity) {
           commandInput = { ...commandInput, followUpContinuity: extra.followUpContinuity };
+        }
+        if (extra?.assignmentReason) {
+          commandInput = { ...commandInput, assignmentReason: extra.assignmentReason };
         }
         lifecycleAttempt.current = { command, input: structuredClone(commandInput), reason };
       }
@@ -1679,6 +1735,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setDialog(null);
         setFollowUp(null);
         setCancelContinuity(null);
+        setAssignmentReason(null);
       }
       const transition = findTransition(presentation, command);
       if (transition) setMessage(transition.successMessage);
@@ -1741,6 +1798,21 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
         }
+        if (isAssignmentWindowStaleError(caught)) {
+          // JOB-010 release 2b: the offer moved on the server (deadline passed,
+          // another answer already landed). Drop the stale dialog/draft and
+          // reload the canonical offer instead of leaving dead buttons.
+          setDialog(null);
+          setAssignmentReason(null);
+          try {
+            if (!(await refreshTruth())) return;
+            if (!(await requestRealtimeDrain())) return;
+          } catch {
+            if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+            setRealtimeStale(true);
+          }
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+        }
         const dialogErrorCodes = [
           'FOLLOW_UP_PROPOSAL_REQUIRED', 'FOLLOW_UP_PROPOSAL_INVALID',
           'FOLLOW_UP_OVERRIDE_REASON_REQUIRED',
@@ -1756,7 +1828,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           setFollowUp((current) => current ? { ...current, inlineError: caught.message } : current);
           return;
         }
-        setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
+        setMessage(assignmentWindowErrorMessage(caught, 'İşlem tamamlanamadı. Lütfen tekrar deneyin.'));
         setMessageIsError(true);
         if (caught instanceof ApiError && caught.code === 'MEETING_NOT_READY') {
           setMeetingSubmissionError(caught);
@@ -1887,20 +1959,41 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
     } finally { endMutationOperation(owner); }
   }
-  async function saveJobPatch(input: PatchJobCardInput, successMessage: string) {
+  /**
+   * Opens the JOB-010 release 2b acknowledgement dialog for a management
+   * producer (create-like patch or reschedule). The retry replays the same
+   * values plus the acknowledgement; focus returns to the opener.
+   */
+  function openPastStartAcknowledgement(request: {
+    title: string;
+    description: string;
+    run: (acknowledgement: PastStartAcknowledgement) => Promise<boolean>;
+  }) {
+    pastStartAckOpenerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setPastStartAck(request);
+  }
+  async function saveJobPatch(
+    input: PatchJobCardInput,
+    successMessage: string,
+    acknowledgement?: PastStartAcknowledgement,
+  ): Promise<boolean> {
     if (state.kind !== 'ready'
-      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
+      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return false;
     const owner = startMutationOperation();
-    if (!owner) return;
+    if (!owner) return false;
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      const patched = await patchJobCard(operationJobId, input);
-      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      if (!(await refreshTruth())) return;
+      const patched = await patchJobCard(operationJobId, acknowledgement
+        ? { ...input, ...pastStartAcknowledgementPayload(acknowledgement) }
+        : input);
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return false;
+      if (!(await refreshTruth())) return false;
       setEditing(false); setTimelineKey((value) => value + 1);
-      if (!(await requestRealtimeDrain())) return;
+      if (!(await requestRealtimeDrain())) return false;
       setMessage(successMessage); onChanged();
       if (
         patched.assignmentTransitionId
@@ -1913,35 +2006,48 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           newAssignee: { id: input.assignedTo ?? null, name: patched.assignee.name },
         });
       }
+      return true;
     } catch (caught) {
-      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return false;
+      // A start that already passed may only be assigned or rescheduled with
+      // an explicit customer acknowledgement. Nothing was written, so the same
+      // values are replayed once the user fills it in.
+      if (isPastStartAcknowledgementRequired(caught) && acknowledgement === undefined) {
+        openPastStartAcknowledgement({
+          title: 'Başlangıç saati geçti',
+          description: 'Planlanan başlangıç saati geçti. Değişikliği kaydetmek için müşterinin güncel durumunu onaylayın.',
+          run: (next) => saveJobPatch(input, successMessage, next),
+        });
+        return false;
+      }
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        if (!(await refreshTruth())) return;
+        if (!(await refreshTruth())) return false;
         setEditing(false);
-        if (!(await requestRealtimeDrain())) return;
+        if (!(await requestRealtimeDrain())) return false;
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
       } else {
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
         }
-        setMessage(caught instanceof ApiError ? caught.message : 'İş güncellenemedi.');
+        setMessage(assignmentWindowErrorMessage(caught, 'İş güncellenemedi.'));
       }
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
+      return false;
     } finally { endMutationOperation(owner); }
   }
-  function saveJob(input: PatchJobCardInput) {
-    return saveJobPatch(input, 'Görüşme bilgileri güncellendi.');
+  async function saveJob(input: PatchJobCardInput) {
+    await saveJobPatch(input, 'Görüşme bilgileri güncellendi.');
   }
-  function saveDeliveryAssignee(assignedTo: string) {
-    if (state.kind !== 'ready') return Promise.resolve();
-    return saveJobPatch(
+  async function saveDeliveryAssignee(assignedTo: string) {
+    if (state.kind !== 'ready') return;
+    await saveJobPatch(
       { expectedVersion: state.detail.job.version, assignedTo },
       'Sorumlu personel güncellendi.',
     );
   }
-  function saveGeneralTask(input: GeneralTaskEditInput) {
-    if (state.kind !== 'ready') return Promise.resolve();
-    return saveJobPatch(
+  async function saveGeneralTask(input: GeneralTaskEditInput) {
+    if (state.kind !== 'ready') return;
+    await saveJobPatch(
       { expectedVersion: state.detail.job.version, ...input },
       'Görev bilgileri güncellendi.',
     );
@@ -1950,6 +2056,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     scheduledAt: string | null,
     scheduledEndsAt?: string | null,
     overrideReason?: string | null,
+    acknowledgement?: PastStartAcknowledgement,
   ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
@@ -1970,6 +2077,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           ? { scheduledEndsAt }
           : {},
         ...(overrideReason?.trim() ? { overrideReason: overrideReason.trim() } : {}),
+        ...pastStartAcknowledgementPayload(acknowledgement),
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (!(await refreshTruth())) return;
@@ -1980,6 +2088,28 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
+      // JOB-010 release 2b: a past planned start needs the explicit customer
+      // acknowledgement before the new schedule may be recorded. Nothing was
+      // written, so the retry replays the same values with the field added.
+      if (isPastStartAcknowledgementRequired(caught) && acknowledgement === undefined) {
+        openPastStartAcknowledgement({
+          title: 'Başlangıç saati geçti',
+          description: 'Planlanan başlangıç saati geçti. Yeni zamanı kaydetmek için müşterinin güncel durumunu onaylayın.',
+          run: async (next) => {
+            try {
+              await saveSchedule(scheduledAt, scheduledEndsAt, overrideReason, next);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+        });
+        throw new ApiError(
+          409,
+          'PAST_START_ACKNOWLEDGEMENT_REQUIRED',
+          'Başlangıç saati geçti. Kaydetmek için müşteri onayı gerekiyor.',
+        );
+      }
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
         if (!(await refreshTruth())) throw caught;
         if (!(await requestRealtimeDrain())) throw caught;
@@ -1991,12 +2121,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (hasPendingRealtimeInvalidation()) {
         setRealtimeStale(true);
       }
-      setMessage(caught instanceof ApiError ? caught.message : 'Planlanan zaman kaydedilemedi.');
+      const message = assignmentWindowErrorMessage(caught, 'Planlanan zaman kaydedilemedi.');
+      setMessage(message);
       setMessageIsError(true);
       setFeedbackFocusRequest((value) => value + 1);
-      throw caught instanceof Error
-        ? caught
-        : new Error('Planlanan zaman kaydedilemedi.');
+      throw caught instanceof Error ? caught : new Error('Planlanan zaman kaydedilemedi.');
     } finally {
       endMutationOperation(owner);
     }
@@ -2096,6 +2225,20 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         ? { draft: EMPTY_FOLLOW_UP_CANCEL_CONTINUITY, inlineError: null }
         : null);
       setDialog({ kind: 'cancel', presentation: transition });
+      return;
+    }
+    if (commandName === 'DECLINE_ASSIGNMENT' || commandName === 'RELEASE_ASSIGNMENT') {
+      // JOB-010 release 2b: the server asks for a structured reason plus text;
+      // the dialog owns the text, the prelude owns the code.
+      const transition = findTransition(presentation, commandName);
+      if (!transition) return;
+      dialogTriggerRef.current = trigger;
+      dialogFocusRestoreEnabledRef.current = true;
+      setAssignmentReason({ draft: EMPTY_ASSIGNMENT_REASON, inlineError: null });
+      setDialog({
+        kind: commandName === 'DECLINE_ASSIGNMENT' ? 'decline' : 'release',
+        presentation: transition,
+      });
       return;
     }
     void execute(commandName);
@@ -2298,6 +2441,31 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       void execute('REQUEST_REVISION', reason);
       return;
     }
+    if (dialog.kind === 'decline' || dialog.kind === 'release') {
+      if (!assignmentReason) return;
+      const code = assignmentReason.draft.code;
+      if (code === '') {
+        setAssignmentReason({
+          ...assignmentReason,
+          inlineError: 'Görevi reddetme nedenini seçin.',
+        });
+        return;
+      }
+      const text = reason.trim();
+      if (text.length === 0) {
+        setAssignmentReason({
+          ...assignmentReason,
+          inlineError: 'Durumu açıklayan metin zorunludur.',
+        });
+        return;
+      }
+      void execute(
+        dialog.kind === 'decline' ? 'DECLINE_ASSIGNMENT' : 'RELEASE_ASSIGNMENT',
+        text,
+        { assignmentReason: { code: code as AssignmentReasonCode, text } },
+      );
+      return;
+    }
     if (dialog.kind === 'cancel') {
       if (cancelContinuity && !lifecycleAttempt.current) {
         const resolved = resolveCancelContinuity(cancelContinuity.draft);
@@ -2448,6 +2616,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }}
       />
     }
+    assignmentOffer={
+      <AssignmentOfferSection
+        job={detail.job}
+        user={user}
+        disabled={invalidationLocked}
+        onChanged={() => {
+          setTimelineKey((value) => value + 1);
+          void refreshTruth();
+        }}
+      />
+    }
     overdueHistory={isManagementUser(user) ? (
       <OverdueIncidentHistorySection jobId={jobId} collapsible={narrowDetail} />
     ) : undefined}
@@ -2543,9 +2722,37 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
               : current),
           }
         : undefined}
+      assignmentReason={dialog.kind === 'decline' || dialog.kind === 'release'
+        ? (assignmentReason
+          ? {
+              draft: assignmentReason.draft,
+              inlineError: assignmentReason.inlineError,
+              onChange: (patch) => setAssignmentReason((current) => current
+                ? { draft: { ...current.draft, ...patch }, inlineError: null }
+                : current),
+            }
+          : undefined)
+        : undefined}
       returnFocusRef={dialogTriggerRef}
       restoreFocusEnabledRef={dialogFocusRestoreEnabledRef}
     />}
+    <PastStartAcknowledgementDrawer
+      open={pastStartAck !== null}
+      title={pastStartAck?.title ?? 'Başlangıç saati geçti'}
+      description={pastStartAck?.description ?? ''}
+      pending={pastStartAckPending}
+      returnFocusRef={pastStartAckOpenerRef}
+      onDismiss={() => { if (!pastStartAckPending) setPastStartAck(null); }}
+      onConfirm={(acknowledgement) => {
+        const request = pastStartAck;
+        if (!request) return;
+        setPastStartAckPending(true);
+        void request.run(acknowledgement).finally(() => {
+          setPastStartAckPending(false);
+          setPastStartAck(null);
+        });
+      }}
+    />
     <ReassignmentSyncPrompt
       state={reassignmentSync.state}
       onConfirm={() => { void reassignmentSync.confirm(); }}

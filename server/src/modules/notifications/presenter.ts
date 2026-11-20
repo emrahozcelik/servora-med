@@ -39,6 +39,18 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
     title: 'Öneriniz yanıtlandı',
     body: 'İş için gönderdiğiniz düzenleme veya sonlandırma önerisi yönetici tarafından yanıtlandı.',
   },
+  'job.acceptance_reminder': {
+    title: 'Görev kabul süresi yaklaşıyor',
+    body: 'Size atanan iş için kabul süresi doluyor. Lütfen işi kabul edin veya reddedin.',
+  },
+  'job.assignment_declined': {
+    title: 'Görev kabul edilmedi',
+    body: 'Personel atanan işi kabul etmedi veya geri bıraktı. Lütfen yeni bir personel atayın ya da işi yeniden planlayın.',
+  },
+  'job.acceptance_expired': {
+    title: 'Görev kabul süresi doldu',
+    body: 'Atanan iş için kabul süresi yanıtlanmadan doldu. İş iptal edilmedi; lütfen atamayı yenileyin veya işi yeniden planlayın.',
+  },
   'calendar.assigned': {
     title: 'Yeni takvim planı',
     body: 'Takviminize yeni bir plan eklendi.',

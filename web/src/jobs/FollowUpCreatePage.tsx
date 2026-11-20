@@ -34,6 +34,9 @@ import {
 import { CustomerScheduleNotice } from './CustomerScheduleNotice';
 import { useAvailableSlotSearch } from './useAvailableSlotSearch';
 import { useCustomerSchedulePreview } from './useCustomerSchedulePreview';
+import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './PastStartAcknowledgementDrawer';
+import { assignmentWindowErrorMessage } from './assignment-window-errors';
+import { pastStartAcknowledgementPayload, type PastStartAcknowledgement } from './jobs-api';
 import { PageHeader } from '../ui/PageHeader';
 
 type LoadState =
@@ -100,6 +103,10 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [fatalError, setFatalError] = useState<{ status: '403' | '404' | 'error'; message: string } | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
+  /** JOB-010 release 2b: create attempt waiting for the past-start acknowledgement. */
+  const [ackAttempt, setAckAttempt] = useState<Attempt | null>(null);
+  const [ackPending, setAckPending] = useState(false);
+  const [ackError, setAckError] = useState('');
   const attempt = useRef<Attempt | null>(null);
   const pendingRef = useRef(false);
   const sourceRef = useRef(sourceId);
@@ -375,12 +382,38 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       } else if (apiError?.code === 'ASSIGNEE_NOT_FOUND') {
         setFieldErrors({ assignedTo: 'Seçilen personel artık kullanılamıyor.' });
         setSubmitError('Sorumlu personeli kontrol edin.');
+      } else if (isPastStartAcknowledgementRequired(apiError)) {
+        // JOB-010 release 2b: nothing was written; the same values are resent
+        // with the customer acknowledgement the user fills in.
+        setAckAttempt(attemptValue);
       } else {
         setSubmitError(apiError ? errorMessage(apiError) : 'Takip işi oluşturulamadı. Tekrar deneyin.');
       }
     } finally {
       pendingRef.current = false;
       setPending(false);
+    }
+  }
+
+  async function confirmAcknowledgement(acknowledgement: PastStartAcknowledgement) {
+    const attemptValue = ackAttempt;
+    if (!attemptValue) return;
+    setAckPending(true);
+    setAckError('');
+    try {
+      const created = await createFollowUp(attemptValue.sourceId, {
+        ...attemptValue.input,
+        ...pastStartAcknowledgementPayload(acknowledgement),
+      });
+      setAckAttempt(null);
+      onCreated(created.id);
+    } catch (caught) {
+      setAckError(assignmentWindowErrorMessage(
+        caught,
+        caught instanceof ApiError ? errorMessage(caught) : 'Takip işi oluşturulamadı. Tekrar deneyin.',
+      ));
+    } finally {
+      setAckPending(false);
     }
   }
 
@@ -513,5 +546,13 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         <button className="primary-button" type="submit" disabled={pending || ambiguous}>{pending ? 'Oluşturuluyor…' : 'Takip işini oluştur'}</button>
       </div>
     </form>
+    <PastStartAcknowledgementDrawer
+      open={ackAttempt !== null}
+      description="Planlanan başlangıç saati geçti. Takip işini oluşturmak için müşterinin güncel durumunu onaylayın."
+      pending={ackPending}
+      error={ackError}
+      onDismiss={() => { if (!ackPending) { setAckAttempt(null); setAckError(''); } }}
+      onConfirm={(acknowledgement) => { void confirmAcknowledgement(acknowledgement); }}
+    />
   </main>;
 }
