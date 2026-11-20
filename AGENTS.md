@@ -269,6 +269,24 @@ cd server && npm test -- --run
 cd web && npm run build
 ```
 
+Default CI policy (GitHub Actions, effective 2026-11-03):
+
+* Normal feature and bugfix PRs use the existing `.github/workflows/ci.yml`.
+  Preserve its server/web/test coverage and `pull_request`, `push: main`, and
+  `workflow_dispatch` triggers. Verify successful results for the exact PR head
+  and, after an authorized merge, the exact resulting-main SHA.
+* Do not automatically append `[skip ci]` or `[skip actions]` to development
+  commits or merges. Do not rewrite historical commits or rerun old PRs merely
+  because hosted CI is available again.
+* A successful exact-SHA hosted run does not require a duplicate 27-gate Local
+  CI run after every merge. Full local CI is an explicitly selected fallback
+  when hosted runners are unavailable, or a separately authorized infrastructure
+  or production-release contract requires it.
+* Hosted CI does not replace required real systemd/collector or other
+  host-specific acceptance. Run those separately in an authorized disposable
+  environment when the applicable contract requires them. The post-merge
+  retirement review and production deployment safety gates still apply.
+
 Local server test environment contract (fail-closed):
 
 * `npm test` requires an explicit `TEST_DATABASE_URL`. There is no `DATABASE_URL`

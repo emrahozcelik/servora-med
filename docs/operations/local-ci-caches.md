@@ -29,12 +29,21 @@ and host Node 22 on PATH. Verify host/guest daemon IDs, same-path shared files,
 guest Linux Node 22, capacity, empty containers and CI lock ownership first.
 Do not start local CI while another workload uses the VM.
 
-The Phase 1 profile, data disk, browser images, builder cache and npm volumes
-are intentionally retained for later runs. Normal CI still removes its own
-PostgreSQL container/anonymous volume, network and source export and finalizes
-cleanup evidence. Persistent caches are never attached to PostgreSQL. Stopping
-the VM is allowed when idle; deleting it or its data disk discards the benefit.
-No global prune or automatic stale-cache retirement is part of this change.
+The Phase 1 implementation originally retained its profile, data disk, browser
+images, builder cache and npm volumes for later runs. During the explicitly
+authorized 2026-11-03 Issue #369 cleanup, the two ownership-labelled browser
+images and five verified npm cache/probe volumes were removed. Both Colima
+profiles/data disks, upstream images and the unproven builder cache were
+preserved. The cleanup report is a local operator record and is not part of
+this repository.
+
+GitHub Actions is now the normal development CI path. A future authorized local
+run must inspect actual cache availability and recreate missing caches through
+the existing runner. Normal CI still removes its own PostgreSQL container/
+anonymous volume, network and source export and finalizes cleanup evidence.
+Persistent caches are never attached to PostgreSQL. Stopping the VM is allowed
+when idle; deleting it or its data disk discards the benefit. No global prune
+or automatic stale-cache retirement is part of the cache implementation.
 
 ## Browser image
 

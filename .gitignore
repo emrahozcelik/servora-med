@@ -7,8 +7,15 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 Servora-POS/
+# Production yedek kopyaları checkout dışında tutulur; yanlışlıkla içeri
+# kopyalanırsa Git'e girmesin.
+Servora-Med-Backups/
 .impeccable/live/
 .impeccable/critique/
+.impeccable/review/
+.impeccable/surfaces/
+# Local CI/issue evidence bundles (include exported source copies) stay local.
+.local-evidence/
 .worktrees/
 dünya-dental.png
 .playwright-mcp/
