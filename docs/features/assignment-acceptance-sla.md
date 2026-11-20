@@ -609,6 +609,183 @@ request). The web parser stays strict.
 | Web | `web/src/**`, `web/tests/**` |
 | Tests | new files only: `server/tests/job-card-change-request-postgres.test.ts`, `server/tests/meeting-not-held-postgres.test.ts` |
 
+## Release 2b technical contract
+
+Release 2b implements §3–§9 and the D1 Staff-cancel removal **behind one
+activation flag that is off by default**. With the flag off, runtime behavior
+is exactly that of release 2a: no offer is recorded, the new commands are never
+offered, Staff patch and `CANCEL` rules are unchanged and no expiry worker
+runs. Turning the flag on is release 2c (owner approval). Migration: `065`.
+
+### Activation flag
+
+- Env `JOB_ASSIGNMENT_WINDOW_ENABLED` (`readBoolean`, default `false`), plus
+  optional `JOB_ASSIGNMENT_OFFER_EXPIRY_POLL_INTERVAL_MS` (default 60000) and
+  `JOB_ASSIGNMENT_OFFER_EXPIRY_BATCH_SIZE` (default 50). Both env examples get
+  `JOB_ASSIGNMENT_WINDOW_ENABLED=false`.
+- `JobCardService` and the offboarding service receive
+  `assignmentWindow: { enabled: boolean }` as a constructor option.
+- Policy: `getAllowedLifecycleCommands(actor, job, requestTime, flags?)` with
+  `flags = { assignmentWindowEnabled: boolean }` (absent = false). Every
+  caller (detail, list, board, follow-up lists, reservation preflight and
+  finalize) passes the service flag.
+
+### Schema (migration 065)
+
+`job_card_assignment_offers`
+
+| Column | Rule |
+| ------ | ---- |
+| `id` | uuid PK |
+| `organization_id`, `job_card_id` | composite FK to `job_cards`, `ON DELETE RESTRICT` |
+| `assignee_user_id` | composite FK users |
+| `opened_at` | timestamptz (request clock or 049 reservation instant) |
+| `opened_reason` | `CREATE`, `REASSIGN`, `RESCHEDULE`, `FOLLOW_UP_CREATE`, `APPROVE_FOLLOW_UP`, `CANCEL_REPLACEMENT`, `OFFBOARDING_TRANSFER`, `REOFFER` |
+| `opened_by` | composite FK users, NOT NULL |
+| `assignment_history_id` | uuid NULL |
+| `acceptance_due_at` | timestamptz NOT NULL |
+| `urgent_reason` | NULL, `SHORT_NOTICE`, `START_PASSED` |
+| `ack_code`, `ack_text` | NULL or (`CUSTOMER_CONFIRMED_LATER_TIME`, `CUSTOMER_WAITING`, `OTHER`) + text 1–2000; only with `START_PASSED` |
+| `state` | `OPEN`, `ACCEPTED`, `DECLINED`, `RELEASED`, `EXPIRED`, `WITHDRAWN` |
+| `closed_at`, `closed_by` | NULL while `OPEN`; `closed_by` NULL only for `EXPIRED` |
+| `close_reason` | `DECLINED`/`RELEASED`: `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`; `WITHDRAWN`: `REASSIGNED`, `RESCHEDULED`, `CANCELLED`, `INVALIDATED`, `OFFBOARDING_TRANSFER`, `PLANNED_WINDOW_PASSED`; NULL otherwise |
+| `close_text` | text 1–2000 required with `DECLINED`/`RELEASED`, else NULL |
+| `recorded_at` | default `now()` |
+
+- CHECKs pair state with closing columns; partial UNIQUE one `OPEN` per job;
+  index `(organization_id, state, acceptance_due_at)`.
+- `job_card_assignment_offer_notifications (offer_id, kind, sent_at)`,
+  `kind IN ('ACCEPTANCE_REMINDER','ACCEPTANCE_EXPIRED')`, UNIQUE
+  `(offer_id, kind)` — once per offer and kind.
+- 049 lifecycle-intent command CHECK widened with `DECLINE_ASSIGNMENT`,
+  `RELEASE_ASSIGNMENT` (keep all 8).
+- Activity CHECK widened (keep every 064 value): `JOB_ASSIGNMENT_OFFER_OPENED`,
+  `JOB_ASSIGNMENT_DECLINED`, `JOB_ASSIGNMENT_RELEASED`,
+  `JOB_ASSIGNMENT_OFFER_EXPIRED`, `JOB_ASSIGNMENT_OFFER_WITHDRAWN`.
+- Notification kinds widened (keep every 064 value):
+  `job.acceptance_reminder`, `job.assignment_declined`,
+  `job.acceptance_expired`.
+- Fail-closed `DO` block; `HEALTH_SCHEMA_VERSION` → `065_…` in both examples;
+  demo-data purge covers both new tables.
+
+### Offer producers (flag on only)
+
+A job is "in the window" when it has at least one offer row. Producers act
+only for `PRODUCT_DELIVERY` / `SALES_MEETING` with `scheduledAt`, assigned by a
+non-self actor, resulting in `NEW`:
+
+| Producer | Direct? | Where |
+| -------- | ------- | ----- |
+| `create`, `createProductDelivery`, management `createFollowUp` | direct | in the create transaction |
+| `patch` reassignment / reschedule (incl. JOB-006 `ACCEPTED→NEW`) | direct | after history rows; an `OPEN` offer is closed `WITHDRAWN` (`REASSIGNED`/`RESCHEDULED`) first |
+| re-offer | direct | new endpoint below |
+| JOB-008 approve-created child in `NEW` | compound | approve finalize |
+| JOB-009 `RESCHEDULE` replacement in `NEW` | compound | cancel finalize |
+| offboarding transfer of a `NEW`/`ACCEPTED` job | compound | offboarding transaction; an `OPEN` offer is closed `WITHDRAWN` (`OFFBOARDING_TRANSFER`) |
+
+Rules at open (`t` = opened_at, `S` = scheduledAt, `E` = scheduledEndsAt):
+
+- `acceptance_due_at = max(S − 60 min, t + 10 min)`.
+- `urgent_reason = START_PASSED` if `t >= S`; else `SHORT_NOTICE` if the
+  deadline is later than `S − 60 min`; else NULL.
+- Window too short: `t + 10 min >= E`. Direct → 409
+  `ASSIGNMENT_WINDOW_TOO_SHORT`, nothing written. Compound → offer recorded and
+  closed `WITHDRAWN` / `PLANNED_WINDOW_PASSED` at once.
+- `START_PASSED` on a direct producer requires body field
+  `pastStartAcknowledgement: { code, text }`, else 409
+  `PAST_START_ACKNOWLEDGEMENT_REQUIRED`. Compound producers record it without
+  acknowledgement. The field is accepted (and ignored when not needed) on
+  create, product-delivery create, follow-up create, patch and re-offer; it is
+  part of each request hash.
+- Every open appends `JOB_ASSIGNMENT_OFFER_OPENED` (metadata: offerId,
+  openedReason, acceptanceDueAt, urgentReason); every `WITHDRAWN` close
+  appends `JOB_ASSIGNMENT_OFFER_WITHDRAWN`.
+- `CANCEL` and ADMIN invalidation close an `OPEN` offer `WITHDRAWN`
+  (`CANCELLED` / `INVALIDATED`).
+
+### Commands (flag on, job in the window)
+
+All are lifecycle commands through `runLifecycle` (049 reservation, request
+hash extended with `assignmentReason { code, text }`), STAFF assignee only.
+
+- `ACCEPT_ASSIGNMENT` (existing) additionally requires the latest offer `OPEN`
+  for the actor and `reservedAt < acceptance_due_at` (checked in preflight and
+  finalize); else 409 `ACCEPTANCE_WINDOW_CLOSED` (deadline passed, nothing
+  written) or 409 `ASSIGNMENT_OFFER_NOT_OPEN`. Closes the offer `ACCEPTED`.
+- `DECLINE_ASSIGNMENT` — `POST /api/job-cards/:id/decline`, body
+  `{ clientActionId, expectedVersion, reasonCode, reasonText }`. From `NEW`, same
+  deadline rule. Status stays `NEW` (version +1); offer → `DECLINED` with the
+  reason; activity `JOB_ASSIGNMENT_DECLINED`; `job.assignment_declined` to all
+  active MANAGER/ADMIN.
+- `RELEASE_ASSIGNMENT` — `POST /api/job-cards/:id/release`, same body. From
+  `ACCEPTED` when the latest offer is `ACCEPTED` for the actor. Order in
+  finalize: materialize OVR-2 `LATE_START` against the pre-release acceptance,
+  then transition to `NEW` clearing `accepted_at`/`accepted_by` (new
+  `transitionWithVersion` branch, request clock), then offer → `RELEASED`;
+  activity `JOB_ASSIGNMENT_RELEASED`; `job.assignment_declined` to management.
+- Jobs outside the window: `ACCEPT_ASSIGNMENT` unchanged; decline/release are
+  never allowed.
+- **Staff `CANCEL` is removed for every JobCard type and status when the flag
+  is on** (D1). MANAGER/ADMIN keep it.
+- **Customer time is management-only** when the flag is on, for a job in the
+  window in `NEW`/`ACCEPTED`: a Staff patch that changes `scheduledAt`,
+  `scheduledEndsAt` or `dueDate` → 403 `CUSTOMER_TIME_MANAGEMENT_ONLY`.
+
+### Re-offer
+
+`POST /api/job-cards/:id/assignment-offers/reoffer`, body
+`{ clientActionId, expectedVersion, pastStartAcknowledgement? }`.
+MANAGER/ADMIN only (STAFF 403 before lookup), job `NEW`, `PRODUCT_DELIVERY` /
+`SALES_MEETING` with `scheduledAt`, flag on (else 409 `ASSIGNMENT_WINDOW_DISABLED`).
+A live `OPEN` offer (`now < due`) → 409 `ASSIGNMENT_OFFER_ALREADY_OPEN`; an
+overdue `OPEN` offer is closed `EXPIRED` (closed_by NULL) in the same
+transaction. Opens a new offer (`REOFFER`) to the current assignee with the
+rules above; version +1; idempotent with request hash; assignee locked before
+the job. Response 201 `{ jobCardId, offerId, acceptanceDueAt, urgentReason }`.
+
+### Expiry worker
+
+`createAssignmentOfferExpiryWorker(repository, { now, pollIntervalMs,
+batchSize, publisher, onReport, onError })` with `runOnce(scanTime)`, and
+`PostgresAssignmentOfferExpiryRepository(jobCardRepository, webPushEnabled)`,
+following OVR-3/OVR-4 conventions. Constructed only when the flag is on. Per
+candidate, under the JobCard lock:
+
+- `OPEN` and `scanTime >= acceptance_due_at` and no live `ACCEPT_ASSIGNMENT` /
+  `DECLINE_ASSIGNMENT` reservation reserved before the deadline → offer
+  `EXPIRED` (closed_at = scanTime), activity `JOB_ASSIGNMENT_OFFER_EXPIRED`,
+  `job.acceptance_expired` to all active MANAGER/ADMIN once.
+- `OPEN` and `scanTime >= opened_at + (acceptance_due_at − opened_at) / 2`
+  and before the deadline → `job.acceptance_reminder` to the assignee once.
+- Report counts per outcome; one failing candidate never stops the batch.
+
+### Reads
+
+- Job detail: `assignmentOffer: { id, state, acceptanceDueAt, openedAt,
+  urgentReason, assignee: { id, name } } | null` — the latest offer, visible to
+  management and the assignee. An `OPEN` offer past its deadline is presented
+  with `state: 'EXPIRED'`.
+- `GET /api/job-cards/assignment-offers/needs-action?limit&offset`
+  (management only): jobs still `NEW` whose latest offer is `DECLINED`,
+  `RELEASED`, `EXPIRED`, `WITHDRAWN`/`PLANNED_WINDOW_PASSED`, or `OPEN` with an
+  `urgent_reason` or past its deadline. Item: `{ jobCardId, jobTitle, jobType,
+  offerId, state, closeReason, closeText, acceptanceDueAt, urgentReason,
+  scheduledAt, assignee: { id, name }, customer: { id, name } | null, jobPath }`,
+  oldest deadline first, plus `total`, `limit`, `offset`.
+- Web: accept / "Görevi reddet" / "Görevi geri bırak" from `allowedCommands`
+  (reason dialog); deadline line on the detail ("Kabul için son: …", urgent
+  badge); management "Yeniden teklif et" with the past-start acknowledgement
+  dialog when needed; overview section "Müdahale gereken atamalar"; Turkish
+  copy for every new code. The web never computes deadlines.
+
+### Ownership for parallel work
+
+| Worker | Owns |
+| ------ | ---- |
+| Backend | `server/src/**`, migration 065, existing server tests that need updates, `ops/examples/*.env.example`, `SERVORA_MED_API_DRAFT.md` |
+| Web | `web/src/**`, `web/tests/**` |
+| Tests | new files only: `server/tests/job-card-assignment-offer-postgres.test.ts`, `server/tests/assignment-offer-expiry-postgres.test.ts`, `server/tests/assignment-window-policy.test.ts` |
+
 ## Acceptance scenarios
 
 Times use one organization timezone; the job is planned 14:00–15:00 and
