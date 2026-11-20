@@ -466,6 +466,146 @@ separate, explicitly approved step.
 Every release ships PostgreSQL integration tests for its server rules and UI
 regression tests for the screens it changes.
 
+## Release 2a technical contract (D1)
+
+Release 2a adds the Staff change/termination request, the management decision
+path and truthful not-held visits. **Staff `CANCEL` stays available in 2a**
+(it is removed only in release 2c). Migration number: `064`.
+
+### Schema (migration 064)
+
+`job_card_change_requests`
+
+| Column | Type / rule |
+| ------ | ----------- |
+| `id` | uuid PK |
+| `organization_id`, `job_card_id` | composite FK to `job_cards (organization_id, id)`, `ON DELETE RESTRICT` |
+| `requested_by` | FK `users (organization_id, id)`; the assigned STAFF at request time |
+| `requested_at` | timestamptz, request clock |
+| `job_status_at_request` | varchar, CHECK in the active statuses |
+| `reason_code` | CHECK in `CUSTOMER_CHANGED_MIND`, `CUSTOMER_POSTPONED`, `CUSTOMER_ABSENT`, `WRONG_PRODUCT`, `MISSING_STOCK_OR_EQUIPMENT`, `VISIT_NOT_POSSIBLE`, `OTHER` |
+| `reason_text` | text NOT NULL, trimmed length 1–2000 |
+| `client_action_id` | text NOT NULL |
+| `state` | CHECK in `OPEN`, `CLOSED` |
+| `resolution` | NULL while `OPEN`; CHECK in `CANCELLED`, `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED`, `REJECTED`, `SUPERSEDED` |
+| `resolved_by` | FK users, NULL for `SUPERSEDED` by a Staff/system path |
+| `resolved_at` | timestamptz |
+| `resolution_note` | text NULL; required (1–2000) for `REJECTED` |
+| `linked_job_card_id` | uuid NULL, composite FK to `job_cards`; only with `LINKED_JOB_CREATED` |
+| `recorded_at` | timestamptz default `now()` |
+
+- Paired CHECK: `OPEN` ⇔ `resolution`, `resolved_at` NULL; `CLOSED` ⇔ both set.
+- Partial UNIQUE: one `OPEN` row per `(organization_id, job_card_id)`.
+- Index on `(organization_id, state, requested_at)` for the management list.
+- Activity CHECK widened (keep every 063 value): `JOB_CHANGE_REQUESTED`,
+  `JOB_CHANGE_REQUEST_RESOLVED`.
+- Notification kind CHECK widened (keep every 053 value):
+  `job.change_requested`, `job.change_request_resolved`.
+- Fail-closed `DO` block like 063 (empty table, CHECKs accept the new values).
+- `HEALTH_SCHEMA_VERSION` in both `ops/examples/*.env.example` moves to `064_…`.
+
+### Commands and endpoints
+
+All writes use `executeCriticalAction` with a request hash (as
+`grantEarlyStartAuthorization`), lock the assignee User row before the JobCard
+row, and append activity + realtime in the same transaction.
+
+1. **Create** — `POST /api/job-cards/:id/change-requests`,
+   body `{ clientActionId, reasonCode, reasonText }`.
+   Service `createChangeRequest(actor, jobCardId, input)`.
+   - STAFF only, and only the current assignee → otherwise 403; cross-org /
+     unknown → 404 (STAFF reach rules as today).
+   - Job must be active (not terminal) → else 409 `JOB_NOT_ACTIVE`.
+   - An `OPEN` request already exists → 409 `CHANGE_REQUEST_ALREADY_OPEN`.
+   - Does **not** change the JobCard row, status or version.
+   - Activity `JOB_CHANGE_REQUESTED` (metadata: requestId, reasonCode,
+     jobStatusAtRequest); notification `job.change_requested` to every active
+     MANAGER/ADMIN (same recipient query as the OVR-4 escalation), web push when
+     enabled.
+   - Response 201 `{ jobCardId, changeRequestId, requestedAt }`.
+2. **Resolve** — `POST /api/job-cards/:id/change-requests/:requestId/resolve`,
+   body `{ clientActionId, resolution, note?, linkedJobCardId? }` where
+   `resolution` is `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED` or
+   `REJECTED`. Service `resolveChangeRequest(actor, jobCardId, requestId, input)`.
+   - MANAGER/ADMIN only → STAFF 403 before lookup; cross-org / unknown → 404.
+   - Request must be `OPEN` → else 409 `CHANGE_REQUEST_NOT_OPEN`.
+   - `REJECTED` requires `note`; `LINKED_JOB_CREATED` requires a
+     `linkedJobCardId` of the same organization that is not the job itself →
+     else 400 validation.
+   - Records the resolution only; it never changes the JobCard. Correcting or
+     rescheduling is done with the existing commands before or after.
+   - Activity `JOB_CHANGE_REQUEST_RESOLVED` (metadata: requestId, resolution,
+     linkedJobCardId); notification `job.change_request_resolved` to the
+     requester if still active.
+   - Response 200 `{ jobCardId, changeRequestId, resolution, resolvedAt }`.
+3. **Cancel closes the request.** The existing `CANCEL` command (no new body
+   field) closes an `OPEN` request of that job as `CANCELLED`, with
+   `resolved_by` = the cancelling actor, inside the cancel finalize
+   transaction. The cancel reason stays the actor's own text (never copied from
+   the request).
+4. **Superseded.** `APPROVE` and ADMIN invalidation close an `OPEN` request as
+   `SUPERSEDED` in their own transaction (`resolved_by` = that actor). A
+   Staff `CANCEL` (still allowed in 2a) closes it as `CANCELLED` with the Staff
+   actor.
+5. **List** — `GET /api/job-cards/change-requests/open?limit&offset`
+   (management only, STAFF 403). Oldest first. Item:
+   `{ changeRequestId, jobCardId, jobTitle, jobType, jobStatus, reasonCode,
+   reasonText, requestedAt, requestedBy: { id, name }, customer: { id, name } | null,
+   jobPath }`, plus `total`, `limit`, `offset`.
+
+### Job detail DTO
+
+Add `changeRequest: ChangeRequestView | null` (the `OPEN` request only),
+visible to management and to the assigned Staff:
+`{ id, reasonCode, reasonText, requestedAt, requestedBy: { id, name } }`.
+`workflowContext.allowedActions` gains `REQUEST_CHANGE` (assigned STAFF,
+active job, no open request) and `RESOLVE_CHANGE_REQUEST` (management, open
+request). The web parser stays strict.
+
+### Not-held Sales Meeting
+
+- Submission accepts an empty `meetingAt` when `outcome = FOLLOW_UP_REQUIRED`
+  and `unsuccessfulReason` is set (any code). `nextFollowUpAt` must then be
+  empty (DB CHECK 007 is unchanged). Every other outcome still requires a
+  valid `meetingAt`. The mandatory follow-up proposal rule is unchanged.
+- `MEETING_TIME_VALID` becomes `met` in that case; the web form shows the
+  time as optional only for that combination.
+- Reports keep these visits visible: the staff meeting-outcome distribution
+  and the sales follow-up outcome distribution use
+  `COALESCE(meeting_at, staff_completed_at)` as the occurred-at instant. The
+  business-trend "visits" cohort keeps requiring `meeting_at` (a visit that did
+  not happen is not a visit).
+
+### OVR-4 while a request is open
+
+- `listDueOpenSubmissionLateEpisodes` excludes jobs with an `OPEN` change
+  request, and `processCandidate` re-checks it under the JobCard lock
+  (`skipped-change-request-open` outcome). Manual manager reminders stay
+  allowed. Incidents are never touched.
+- `getSubmissionLateness` snapshot `open` gains
+  `changeRequestOpenSince: string | null`.
+
+### Web
+
+- Assigned Staff: action "Düzenleme / sonlandırma önerisi gönder" on job
+  detail (dialog: reason select with Turkish labels + mandatory text), then a
+  status line "Öneriniz yöneticide" with the reason.
+- Management: on job detail, the open request with actions "Düzeltildi",
+  "Yeniden planlandı", "Bağlı yeni iş oluşturuldu" (job id input), "Reddet"
+  (note required) and a pointer to the existing cancel command; on the
+  overview, a section "Personel önerileri" (open list), placed next to the
+  open-late section.
+- New notification kinds and activity events get Turkish copy; loading,
+  success and error states everywhere.
+
+### Ownership for parallel work
+
+| Worker | Owns |
+| ------ | ---- |
+| Backend | `server/src/**`, migration 064, existing server tests that need updates, `ops/examples/*.env.example`, `SERVORA_MED_API_DRAFT.md` |
+| Web | `web/src/**`, `web/tests/**` |
+| Tests | new files only: `server/tests/job-card-change-request-postgres.test.ts`, `server/tests/meeting-not-held-postgres.test.ts` |
+
 ## Acceptance scenarios
 
 Times use one organization timezone; the job is planned 14:00–15:00 and
