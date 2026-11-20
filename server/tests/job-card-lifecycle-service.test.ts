@@ -232,6 +232,7 @@ class LifecycleRepository implements JobCardRepository {
         this.closedChangeRequests.push({
           resolution: input.resolution, resolvedBy: input.resolvedBy,
         });
+        return null;
       },
       resolveOpenChangeRequest: async () => true,
       assertCalendarAvailability: async () => {},

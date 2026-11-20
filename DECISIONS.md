@@ -3016,9 +3016,10 @@ still be visited.
 - **Status:** Accepted product contract (owner: "Evet, kayda taşı", 2026-11-20;
   Q1–Q9 answered with the draft defaults; pre-merge decisions P1-A, P1-B,
   P1-C, early START and outcome rules added in the PR #470 review).
-  D1 decided the same day: cancellation is a management power. Implementation
-  pending; the docs ship with the code (release plan below). No runtime
-  behavior changes until each release ships.
+  D1 decided the same day: cancellation is a management power. Release 1
+  shipped in PR #470; release 2a (change/termination request, management
+  decision path, not-held visit) ships with its PR; 2b and 2c pending. The docs
+  ship with the code (release plan below).
 - **Owner:** [Assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
   The contract holds the full rules, producers, edge cases, acceptance
   scenarios and slice order.

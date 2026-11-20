@@ -347,7 +347,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2a — not-held Sales Meeting', (
       // The occurred-at instant is the staff completion instant because no
       // meeting happened.
       const staffCompletedAt = await readReservedAt(
-        pool, fixture.job.id, 'JOB_SUBMIT_FOR_APPROVAL',
+        pool, fixture.job.id, 'SUBMIT_FOR_APPROVAL',
       );
       const row = await readJobRow(pool, fixture.job.id);
       expect(row.staff_completed_at).toEqual(staffCompletedAt);

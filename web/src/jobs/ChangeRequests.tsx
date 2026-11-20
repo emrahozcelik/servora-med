@@ -175,7 +175,10 @@ export function StaffChangeRequestAction({ job, disabled = false, onSubmitted }:
               value={reasonText}
               disabled={pending}
               required
-              aria-describedby="change-request-text-help"
+              aria-invalid={formError ? true : undefined}
+              aria-describedby={formError
+                ? 'change-request-text-help change-request-form-error'
+                : 'change-request-text-help'}
               onChange={(event) => {
                 setReasonText(event.target.value);
                 setFormError('');
@@ -231,7 +234,7 @@ export function ManagementChangeRequestPanel({ job, disabled = false, onResolved
     setResolved(null);
     setMutationError('');
     setDialog(null);
-  }, [job.id, job.version]);
+  }, [job.id, job.version, request?.id]);
 
   if (request === null || request === undefined) return null;
 
@@ -396,7 +399,10 @@ export function ManagementChangeRequestPanel({ job, disabled = false, onResolved
               value={note}
               disabled={pending !== null}
               required
-              aria-describedby="change-request-reject-help"
+              aria-invalid={formError ? true : undefined}
+              aria-describedby={formError
+                ? 'change-request-reject-help change-request-reject-error'
+                : 'change-request-reject-help'}
               onChange={(event) => { setNote(event.target.value); setFormError(''); }}
             />
             <span className="form-help" id="change-request-reject-help">
@@ -404,7 +410,7 @@ export function ManagementChangeRequestPanel({ job, disabled = false, onResolved
               {' '}{REASON_TEXT_MAX_LENGTH.toLocaleString('tr-TR')} karakter.
             </span>
           </div>
-          {formError && <p className="field-error" role="alert">{formError}</p>}
+          {formError && <p className="field-error" id="change-request-reject-error" role="alert">{formError}</p>}
           {mutationError && <p className="field-error" role="alert">{mutationError}</p>}
           <div className="review-buttons">
             <button className="secondary-button" type="button" disabled={pending !== null} onClick={closeDialog}>
@@ -432,14 +438,17 @@ export function ManagementChangeRequestPanel({ job, disabled = false, onResolved
               value={linkedJobCardId}
               disabled={pending !== null}
               required
-              aria-describedby="change-request-linked-job-help"
+              aria-invalid={formError ? true : undefined}
+              aria-describedby={formError
+                ? 'change-request-linked-job-help change-request-linked-job-error'
+                : 'change-request-linked-job-help'}
               onChange={(event) => { setLinkedJobCardId(event.target.value); setFormError(''); }}
             />
             <span className="form-help" id="change-request-linked-job-help">
               Oluşturulan yeni işin numarasını yazın. Bu iş kaydı değişmez.
             </span>
           </div>
-          {formError && <p className="field-error" role="alert">{formError}</p>}
+          {formError && <p className="field-error" id="change-request-linked-job-error" role="alert">{formError}</p>}
           {mutationError && <p className="field-error" role="alert">{mutationError}</p>}
           <div className="review-buttons">
             <button className="secondary-button" type="button" disabled={pending !== null} onClick={closeDialog}>

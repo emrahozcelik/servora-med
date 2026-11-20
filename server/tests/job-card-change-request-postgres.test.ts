@@ -429,9 +429,10 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2a — Staff change/termination r
         assignedTo: staffId, createdBy: managerId,
       });
 
-      // STAFF only, and only the current assignee.
+      // STAFF only, and only the current assignee: a non-assignee STAFF stays
+      // concealed as 404 (the existing STAFF reach rule).
       await expect(createRequest(service, actor(otherStaffId, organizationId, 'STAFF'), active.id))
-        .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+        .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
       await expect(createRequest(service, actor(managerId, organizationId, 'MANAGER'), active.id))
         .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
       // Cross-org and unknown jobs stay concealed.

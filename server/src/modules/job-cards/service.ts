@@ -928,13 +928,24 @@ export class JobCardService {
         // JOB-010 release 2a (D1): invalidation supersedes an OPEN
         // change/termination request in this same transaction; the decision
         // actor is recorded and the request text stays untouched history.
-        await tx.closeOpenChangeRequest({
+        const supersededRequest = await tx.closeOpenChangeRequest({
           organizationId: actor.organizationId,
           jobCardId,
           resolution: 'SUPERSEDED',
           resolvedBy: actor.id,
           resolvedAt: requestTime,
         });
+        if (supersededRequest) {
+          await tx.appendActivity({
+            organizationId: actor.organizationId,
+            jobCardId,
+            actorId: actor.id,
+            event: 'JOB_CHANGE_REQUEST_RESOLVED',
+            metadata: {
+              requestId: supersededRequest.id, resolution: 'SUPERSEDED', linkedJobCardId: null,
+            },
+          });
+        }
 
         const noteId = note === null ? null : randomUUID();
         const author = noteId === null
@@ -4479,13 +4490,25 @@ export class JobCardService {
         // The cancel reason stays the actor's own text; the request text is
         // never copied into it.
         if (definition.command === 'CANCEL' || definition.command === 'APPROVE') {
-          await tx.closeOpenChangeRequest({
+          const resolution = definition.command === 'CANCEL' ? 'CANCELLED' : 'SUPERSEDED';
+          const closed = await tx.closeOpenChangeRequest({
             organizationId: actor.organizationId,
             jobCardId,
-            resolution: definition.command === 'CANCEL' ? 'CANCELLED' : 'SUPERSEDED',
+            resolution,
             resolvedBy: actor.id,
             resolvedAt: requestTime,
           });
+          // Audit trail: the closure is its own fact in the job timeline. The
+          // command's own activity/realtime already covers notifications.
+          if (closed) {
+            await tx.appendActivity({
+              organizationId: actor.organizationId,
+              jobCardId,
+              actorId: actor.id,
+              event: 'JOB_CHANGE_REQUEST_RESOLVED',
+              metadata: { requestId: closed.id, resolution, linkedJobCardId: null },
+            });
+          }
         }
         const calendarTerminal = definition.target === 'CANCELLED'
           || definition.target === 'COMPLETED';

@@ -73,7 +73,7 @@ function makeRepository() {
     appendAccountabilityFact: async () => ({ id: 'fact-1' }),
     appendAudit: async (input: JobCardAuditInput) => { audits.push(input); },
     // JOB-010 release 2a: invalidation supersedes an OPEN change request.
-    closeOpenChangeRequest: async () => {},
+    closeOpenChangeRequest: async () => null,
     synchronizeCalendarReminder: async (input: unknown) => { reminders.push(input); },
     appendRealtimeEvent: async (input: unknown) => {
       realtime.push(input);

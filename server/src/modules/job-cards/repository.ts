@@ -861,8 +861,8 @@ export interface JobCardTransaction extends SubmissionReader {
   }): Promise<{ id: string; requestedAt: Date }>;
   /**
    * JOB-010 release 2a: close the OPEN request of one job from a command that
-   * owns the close fact (CANCEL, APPROVE, ADMIN invalidation). A no-op when
-   * no request is open.
+   * owns the close fact (CANCEL, APPROVE, ADMIN invalidation). Returns the
+   * closed request id, or null (a no-op) when no request is open.
    */
   closeOpenChangeRequest(input: {
     organizationId: string;
@@ -870,7 +870,7 @@ export interface JobCardTransaction extends SubmissionReader {
     resolution: Extract<JobChangeRequestResolution, 'CANCELLED' | 'SUPERSEDED'>;
     resolvedBy: string | null;
     resolvedAt: Date;
-  }): Promise<void>;
+  }): Promise<{ id: string } | null>;
   /**
    * JOB-010 release 2a: management decision on one OPEN request. Returns
    * false when the row was no longer OPEN (caller reports the conflict).
@@ -3251,13 +3251,15 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     resolvedBy: string | null;
     resolvedAt: Date;
   }) {
-    await this.client.query(
+    const result = await this.client.query<{ id: string }>(
       `UPDATE job_card_change_requests
           SET state = 'CLOSED', resolution = $3, resolved_by = $4, resolved_at = $5
-        WHERE organization_id = $1 AND job_card_id = $2 AND state = 'OPEN'`,
+        WHERE organization_id = $1 AND job_card_id = $2 AND state = 'OPEN'
+        RETURNING id`,
       [input.organizationId, input.jobCardId, input.resolution, input.resolvedBy,
         input.resolvedAt],
     );
+    return result.rows[0] ? { id: result.rows[0].id } : null;
   }
 
   async resolveOpenChangeRequest(input: {

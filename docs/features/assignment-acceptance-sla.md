@@ -513,8 +513,9 @@ row, and append activity + realtime in the same transaction.
 1. **Create** — `POST /api/job-cards/:id/change-requests`,
    body `{ clientActionId, reasonCode, reasonText }`.
    Service `createChangeRequest(actor, jobCardId, input)`.
-   - STAFF only, and only the current assignee → otherwise 403; cross-org /
-     unknown → 404 (STAFF reach rules as today).
+   - STAFF only: MANAGER/ADMIN → 403 before lookup. A STAFF member who is not
+     the current assignee, a cross-org or an unknown job → 404 (the existing
+     STAFF reach concealment).
    - Job must be active (not terminal) → else 409 `JOB_NOT_ACTIVE`.
    - An `OPEN` request already exists → 409 `CHANGE_REQUEST_ALREADY_OPEN`.
    - Does **not** change the JobCard row, status or version.
@@ -546,7 +547,9 @@ row, and append activity + realtime in the same transaction.
 4. **Superseded.** `APPROVE` and ADMIN invalidation close an `OPEN` request as
    `SUPERSEDED` in their own transaction (`resolved_by` = that actor). A
    Staff `CANCEL` (still allowed in 2a) closes it as `CANCELLED` with the Staff
-   actor.
+   actor. Every such closure also appends `JOB_CHANGE_REQUEST_RESOLVED`
+   (metadata `requestId`, `resolution`) in the same transaction; no extra
+   notification beyond the command's own.
 5. **List** — `GET /api/job-cards/change-requests/open?limit&offset`
    (management only, STAFF 403). Oldest first. Item:
    `{ changeRequestId, jobCardId, jobTitle, jobType, jobStatus, reasonCode,
