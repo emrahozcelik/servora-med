@@ -146,8 +146,10 @@ npm run dev
 
 This `npm run migrate` migrates the **development** database named by
 `DATABASE_URL`. It does not provision the test database: `npm test` requires its
-own explicit, isolated `TEST_DATABASE_URL` — see
-[docs/operations/local-test-environment.md](./docs/operations/local-test-environment.md).
+own explicit, isolated `TEST_DATABASE_URL`. Provision one per worktree with
+`npm run test:db -- provision --suffix <suffix> --write-env` (run from `server/`
+after `npm run build`) — see
+[docs/operations/local-test-environment.md](./docs/operations/local-test-environment.md#provisioning-a-test-database-agents-and-humans).
 
 In another terminal:
 

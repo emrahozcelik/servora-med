@@ -43,6 +43,76 @@ real credentials:
 TEST_DATABASE_URL=postgresql://<test-user>:<test-password>@127.0.0.1:5432/servora_med_test_<suffix>
 ```
 
+## Provisioning a test database (agents and humans)
+
+When `TEST_DATABASE_URL` is missing, do not invent a role, database or password,
+and do not report the server suite as "not run" before trying this. In the
+worktree you are testing:
+
+```bash
+cd server
+grep -q '^TEST_DATABASE_URL=' .env 2>/dev/null && echo "already configured"
+npm run build
+npm run test:db -- provision --suffix <suffix> --write-env
+npm test -- --run
+```
+
+- `<suffix>`: 1–40 lowercase letters, digits or underscores naming this
+  worktree or task, for example `job009_20261120`. One suffix per worktree.
+- `provision` connects to the **loopback** PostgreSQL 17 as the local admin
+  (`TEST_DB_ADMIN_URL`, default `postgresql://127.0.0.1:5432/postgres` as the OS
+  user), creates `servora_med_test_<suffix>` if missing and migrates it to the
+  repository head with `dist/db/migrate.js`. It never drops, truncates or resets
+  an existing database, and it refuses non-loopback hosts and the protected or
+  shared names.
+- Every test database is owned by one shared login role,
+  `servora_med_test_runner`. It is a superuser for parity with CI, which runs the
+  suite as the service superuser (some tests use `DISABLE TRIGGER ALL`,
+  `pg_terminate_backend` or create roles and databases). It exists only on the
+  local loopback development cluster.
+- The role password is generated on first use and stored outside the repository
+  in `~/.config/servora-med/test-db-runner.secret` (or under `$XDG_CONFIG_HOME`),
+  mode `600`. It is never printed; diagnostics show a redacted URL.
+- `--write-env` appends `TEST_DATABASE_URL` to the gitignored `server/.env` only
+  when the key is absent. If the key already names another database, the
+  command stops before creating anything (`TEST_DB_ENV_CONFLICT`); edit the line
+  yourself if this worktree should switch databases.
+- Re-running `provision` for the same suffix is safe: it only applies pending
+  migrations, which is also the remedy for `TEST_ENV_SCHEMA_NOT_COMPATIBLE`
+  after a branch adds a migration.
+
+Housekeeping, local only:
+
+```bash
+npm run test:db -- list                        # isolated test databases, owner, size
+npm run test:db -- drop --suffix <suffix> --yes  # drop one; fails while connections are open
+```
+
+Report the server suite as **not run** only when provisioning itself fails, and
+quote the `TEST_DB_*` code it printed.
+
+Known local differences from CI (observed 2026-11-20; report them, do not
+"fix" product code for them):
+
+- CI sets `DATABASE_URL` to the same test database. A few tests call
+  `loadConfig()` and fail with `DATABASE_URL is required` when it is unset. In a
+  worktree whose `server/.env` has no `DATABASE_URL`, run
+  `DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run` (with the value exported
+  from `.env`). Never point it at the development database `servora_med`.
+- A default Homebrew cluster trusts loopback connections (`pg_hba.conf`
+  `trust`), so passwords are not checked locally. The wrong-password case in
+  `tests/db-auth-contract.test.ts` therefore fails locally and passes in CI.
+
+| Code | Remedy |
+| --- | --- |
+| `TEST_DB_ADMIN_UNAVAILABLE` | Start the local PostgreSQL 17 server, or set `TEST_DB_ADMIN_URL` to a loopback superuser connection. |
+| `TEST_DB_POSTGRES_MAJOR_MISMATCH` | The admin connection reached a non-17 server; point it at PostgreSQL 17. |
+| `TEST_DB_BUILD_MISSING` | Run `npm run build`. |
+| `TEST_DB_SUFFIX_INVALID` | Use 1–40 lowercase letters, digits or underscores. |
+| `TEST_DB_RUNNER_SECRET_MISSING` / `TEST_DB_RUNNER_AUTH_FAILED` | The role exists but the secret file is missing or does not match. Ask the machine owner; do not create another role. |
+| `TEST_DB_ENV_CONFLICT` | `server/.env` already names another test database; resolve it explicitly. |
+| `TEST_DB_MIGRATION_FAILED` | Read the migration output; the database is kept for inspection. |
+
 ## Database identity
 
 The database name is parsed structurally from the URL path, not substring
@@ -165,10 +235,11 @@ inside a test body is not an acceptable substitute.
 
 ## What this does not do
 
-This contract closes **masking**. It does not provision anything: a clean
-checkout with no test database fails clearly rather than creating one
-automatically. An optional bootstrap command (create → migrate → test → drop) is
-a separate, later ergonomics improvement, not part of this contract.
+This contract closes **masking**. The preflight itself does not provision
+anything: a clean checkout with no test database fails clearly rather than
+creating one automatically. Provisioning is the separate, explicit
+`npm run test:db -- provision` step described above; it is never invoked by
+`npm test`.
 
 ## Related
 
