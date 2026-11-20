@@ -52,6 +52,19 @@ export const JOB_CARD_ENGAGEMENT_KINDS = [
   'FOLLOW_UP',
   'OTHER',
 ] as const;
+/** JOB-009: why a cancelled follow-up visit ends the customer's visit cycle. */
+export const FOLLOW_UP_CYCLE_END_REASONS = [
+  'NOT_INTERESTED',
+  'WORKS_WITH_COMPETITOR',
+  'CUSTOMER_INACTIVE',
+  'DUPLICATE_RECORD',
+  'OTHER',
+] as const;
+export type FollowUpCycleEndReason = (typeof FOLLOW_UP_CYCLE_END_REASONS)[number];
+/** JOB-009 continuity decision sent with the cancel of a follow-up visit. */
+export type FollowUpCancelContinuity =
+  | { decision: 'RESCHEDULE'; scheduledAt: string }
+  | { decision: 'END_CYCLE'; endReason: FollowUpCycleEndReason };
 export const MEETING_OUTCOMES = [
   'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
 ] as const;
@@ -133,6 +146,7 @@ export type JobLifecycleFacts = {
   cancelledBy: RelatedName | null;
   cancelReason: string | null;
   cancelledFromStatus: JobCardStatus | null;
+  followUpCycleEndReason?: FollowUpCycleEndReason | null;
   invalidatedAt?: string | null;
   invalidatedBy?: RelatedName | null;
   invalidationReasonCode?: JobCardInvalidationReasonCode | null;
@@ -548,7 +562,7 @@ function parseLifecycleFacts(value: unknown): JobLifecycleFacts {
     'createdAt', 'acceptedAt', 'acceptedBy', 'startedAt', 'submittedAt', 'submittedBy',
     'submissionNote', 'approvedAt', 'approvedBy', 'approvalNote', 'revisionRequestedAt',
     'revisionRequestedBy', 'revisionReason', 'cancelledAt', 'cancelledBy', 'cancelReason',
-    'cancelledFromStatus', 'invalidatedAt', 'invalidatedBy', 'invalidationReasonCode',
+    'cancelledFromStatus', 'followUpCycleEndReason', 'invalidatedAt', 'invalidatedBy', 'invalidationReasonCode',
     'invalidatedFromStatus',
   ]);
   return {
@@ -569,6 +583,8 @@ function parseLifecycleFacts(value: unknown): JobLifecycleFacts {
     cancelledBy: nullableRelated(v.cancelledBy, 'cancelledBy'),
     cancelReason: nullableString(v.cancelReason, 'cancelReason'),
     cancelledFromStatus: parseCancelledFromStatus(v.cancelledFromStatus, 'cancelledFromStatus'),
+    followUpCycleEndReason: v.followUpCycleEndReason === undefined || v.followUpCycleEndReason === null
+      ? null : oneOf(v.followUpCycleEndReason, 'followUpCycleEndReason', FOLLOW_UP_CYCLE_END_REASONS),
     invalidatedAt: v.invalidatedAt === undefined ? null : nullableCanonicalInstant(v.invalidatedAt, 'invalidatedAt'),
     invalidatedBy: v.invalidatedBy === undefined ? null : nullableRelated(v.invalidatedBy, 'invalidatedBy'),
     invalidationReasonCode: v.invalidationReasonCode === undefined || v.invalidationReasonCode === null
@@ -1371,7 +1387,19 @@ export const findAvailableSlots = async (input: AvailableSlotsInput) =>
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
 export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
 export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);
-export const cancelJobCard = (id: string, input: LifecycleInput & { cancelReason: string }) => lifecycle(id, 'cancel', input);
+export const cancelJobCard = async (
+  id: string,
+  input: LifecycleInput & { cancelReason: string; followUpContinuity?: FollowUpCancelContinuity },
+) => {
+  const raw = await request(`${jobPath(id)}/cancel`, json('POST', input));
+  const parsed = parseJobCard(raw);
+  const v = raw as Record<string, unknown>;
+  // JOB-009: a rescheduled follow-up visit returns its replacement.
+  return {
+    ...parsed,
+    followUpJobCardId: typeof v.followUpJobCardId === 'string' ? v.followUpJobCardId : null,
+  };
+};
 
 export const invalidateJobCard = async (
   id: string,

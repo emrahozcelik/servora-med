@@ -52,7 +52,7 @@ const expectedLifecycle = {
   revisionRequestedBy: { id: 'manager-1', name: 'Murat Yönetici' },
   revisionReason: 'İkinci miktarı düzeltin',
   cancelledAt: null, cancelledBy: null, cancelReason: null,
-  cancelledFromStatus: null,
+  cancelledFromStatus: null, followUpCycleEndReason: null,
   invalidatedAt: null, invalidatedBy: null,
   invalidationReasonCode: null, invalidatedFromStatus: null,
 };

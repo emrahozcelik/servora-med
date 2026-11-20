@@ -2017,4 +2017,201 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       expect(child.workflowContext.lifecycle).toMatchObject({ acceptedAt: null, acceptedBy: null });
     });
   });
+
+  it('JOB-009: cancelling a follow-up visit requires exactly one continuity decision', async () => {
+    await withFixture(async ({ service, staffA, createInProgressJob }) => {
+      const followUp = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'FOLLOW_UP', title: 'Takip ziyareti', assignedTo: staffA.id,
+      });
+      await expect(service.cancel(staffA, followUp.id, {
+        clientActionId: randomUUID(), expectedVersion: followUp.version, cancelReason: 'Müşteri ulaşılamadı.',
+      })).rejects.toMatchObject(appError('FOLLOW_UP_CANCEL_DECISION_REQUIRED', 400));
+      await expect(service.cancel(staffA, followUp.id, {
+        clientActionId: randomUUID(), expectedVersion: followUp.version, cancelReason: 'Müşteri ulaşılamadı.',
+        followUpContinuity: { decision: 'END_CYCLE', endReason: 'BUDGET' },
+      })).rejects.toMatchObject(appError('VALIDATION_ERROR', 400));
+      await expect(service.cancel(staffA, followUp.id, {
+        clientActionId: randomUUID(), expectedVersion: followUp.version, cancelReason: 'Müşteri ulaşılamadı.',
+        followUpContinuity: { decision: 'RESCHEDULE', scheduledAt: atBase(-30 * MINUTE_MS) },
+      })).rejects.toMatchObject(appError('FOLLOW_UP_RESCHEDULE_IN_PAST', 400));
+      expect((await service.detail(staffA, followUp.id)).status).toBe('IN_PROGRESS');
+
+      // Other JobCards cancel exactly as before and must not send a decision.
+      const visit = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT', title: 'Müşteri ziyareti', assignedTo: staffA.id,
+        scheduledAt: atBase(-3 * HOUR_MS),
+      });
+      await expect(service.cancel(staffA, visit.id, {
+        clientActionId: randomUUID(), expectedVersion: visit.version, cancelReason: 'Plan değişti.',
+        followUpContinuity: { decision: 'END_CYCLE', endReason: 'OTHER' },
+      })).rejects.toMatchObject(appError('FOLLOW_UP_CANCEL_DECISION_INVALID', 400));
+      const cancelledVisit = await service.cancel(staffA, visit.id, {
+        clientActionId: randomUUID(), expectedVersion: visit.version, cancelReason: 'Plan değişti.',
+      });
+      expect(cancelledVisit.status).toBe('CANCELLED');
+      expect(cancelledVisit.workflowContext.lifecycle.followUpCycleEndReason).toBeNull();
+    });
+  });
+
+  it('JOB-009: END_CYCLE records the structured end reason with the cancel', async () => {
+    await withFixture(async ({ service, pool, manager, staffA, customerId, createInProgressJob }) => {
+      const followUp = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'FOLLOW_UP', title: 'Takip ziyareti', assignedTo: staffA.id,
+      });
+      const cancelled = await service.cancel(staffA, followUp.id, {
+        clientActionId: randomUUID(), expectedVersion: followUp.version,
+        cancelReason: 'Klinik başka tedarikçiyle anlaştı.',
+        followUpContinuity: { decision: 'END_CYCLE', endReason: 'WORKS_WITH_COMPETITOR' },
+      }) as JobCard & { followUpJobCardId?: string };
+      expect(cancelled.status).toBe('CANCELLED');
+      expect(cancelled.followUpJobCardId).toBeUndefined();
+      expect(cancelled.workflowContext.lifecycle).toMatchObject({
+        cancelReason: 'Klinik başka tedarikçiyle anlaştı.',
+        followUpCycleEndReason: 'WORKS_WITH_COMPETITOR',
+      });
+      const activity = await pool.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM job_card_activity_logs
+          WHERE job_card_id = $1 AND event_type = 'JOB_CANCELLED'`,
+        [followUp.id],
+      );
+      expect(activity.rows).toHaveLength(1);
+      expect(activity.rows[0]!.metadata.followUpContinuity).toEqual({
+        decision: 'END_CYCLE', endReason: 'WORKS_WITH_COMPETITOR',
+      });
+      const replacements = await pool.query('SELECT id FROM job_cards WHERE source_job_card_id = $1', [followUp.id]);
+      expect(replacements.rowCount).toBe(0);
+
+      // The column is only valid on a cancelled follow-up visit.
+      const visit = await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
+           scheduled_at, scheduled_ends_at, engagement_kind)
+         VALUES ($1, 'SALES_MEETING', 'NEW', 'Ziyaret', $2, $3, $4, $5,
+           $5::timestamptz + interval '1 hour', 'CUSTOMER_VISIT')
+         RETURNING id`,
+        [manager.organizationId, customerId, staffA.id, manager.id, EXPLICIT_LATER_AT],
+      );
+      await expect(pool.query(
+        `UPDATE job_cards SET follow_up_cycle_end_reason = 'OTHER' WHERE id = $1`,
+        [visit.rows[0]!.id],
+      )).rejects.toMatchObject({ constraint: 'job_cards_follow_up_cycle_end_reason_check' });
+    });
+  });
+
+  it('JOB-009: RESCHEDULE cancels and creates the replacement atomically and idempotently', async () => {
+    await withFixture(async ({ service, pool, manager, staffA, staffB, customerId, createInProgressJob }) => {
+      // A real cycle: an approved Customer Visit created this follow-up visit.
+      const parent = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT', title: 'Kontrol görüşmesi',
+        assignedTo: staffA.id, outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'CONTACT_NOT_AVAILABLE',
+      });
+      const submitted = await service.submitForApproval(staffA, parent.id, {
+        clientActionId: randomUUID(), expectedVersion: parent.version, note: 'Görüşme tamamlandı.',
+      });
+      const approved = await service.approve(manager, parent.id, {
+        clientActionId: randomUUID(), expectedVersion: submitted.version,
+      }) as JobCard & { followUpJobCardId: string };
+      const followUp = await service.detail(staffA, approved.followUpJobCardId);
+      expect(followUp).toMatchObject({ engagementKind: 'FOLLOW_UP', status: 'ACCEPTED' });
+
+      const newAt = atBase(26 * HOUR_MS);
+      const request = {
+        clientActionId: randomUUID(),
+        expectedVersion: followUp.version,
+        cancelReason: 'Doktor o gün kongrede.',
+        followUpContinuity: { decision: 'RESCHEDULE' as const, scheduledAt: newAt },
+      };
+      const cancelled = await service.cancel(staffA, followUp.id, request) as JobCard & { followUpJobCardId: string };
+      expect(cancelled.status).toBe('CANCELLED');
+      expect(cancelled.workflowContext.lifecycle.followUpCycleEndReason).toBeNull();
+      const replacement = await service.detail(staffA, cancelled.followUpJobCardId);
+      expect(replacement).toMatchObject({
+        type: 'SALES_MEETING',
+        engagementKind: 'FOLLOW_UP',
+        status: 'ACCEPTED',
+        title: followUp.title,
+        customerId,
+        assignedTo: staffA.id,
+        scheduledAt: newAt,
+      });
+      // The replacement follows up the same completed visit.
+      expect(replacement.followUpContext).toMatchObject({
+        sourceJobCardId: parent.id,
+        followUpInstructions: followUp.followUpContext!.followUpInstructions,
+      });
+
+      // Replaying the same request returns the same result and no second child.
+      const replay = await service.cancel(staffA, followUp.id, request) as JobCard & { followUpJobCardId: string };
+      expect(replay.followUpJobCardId).toBe(cancelled.followUpJobCardId);
+      const replacements = await pool.query(
+        `SELECT job_card_id FROM job_card_activity_logs
+          WHERE event_type = 'JOB_CREATED' AND metadata->>'replacesJobCardId' = $1`,
+        [followUp.id],
+      );
+      expect(replacements.rows.map((row) => row.job_card_id)).toEqual([cancelled.followUpJobCardId]);
+      await expect(service.cancel(staffA, followUp.id, {
+        ...request, followUpContinuity: { decision: 'END_CYCLE', endReason: 'OTHER' },
+      })).rejects.toMatchObject(appError('CLIENT_ACTION_REUSED', 409));
+      const cancelActivity = await pool.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM job_card_activity_logs WHERE job_card_id = $1 AND event_type = 'JOB_CANCELLED'`,
+        [followUp.id],
+      );
+      expect(cancelActivity.rows[0]!.metadata.followUpContinuity).toEqual({ decision: 'RESCHEDULE', scheduledAt: newAt });
+
+      // A manager rescheduling a Staff visit leaves the replacement to be accepted.
+      const managedAt = atBase(5 * HOUR_MS);
+      const managed = await service.create(manager, {
+        clientActionId: randomUUID(),
+        type: 'SALES_MEETING',
+        title: 'Yönetici takibi',
+        description: null,
+        customerId,
+        contactId: null,
+        assignedTo: staffB.id,
+        priority: 'normal',
+        dueDate: null,
+        scheduledAt: managedAt,
+        scheduledEndsAt: canonicalScheduledEnd('SALES_MEETING', managedAt),
+        engagementKind: 'FOLLOW_UP',
+      } as never);
+      const managerCancelled = await service.cancel(manager, managed.id, {
+        clientActionId: randomUUID(), expectedVersion: managed.version, cancelReason: 'Rota değişti.',
+        followUpContinuity: { decision: 'RESCHEDULE', scheduledAt: atBase(28 * HOUR_MS) },
+      }) as JobCard & { followUpJobCardId: string };
+      const managerReplacement = await service.detail(manager, managerCancelled.followUpJobCardId);
+      expect(managerReplacement).toMatchObject({ status: 'NEW', assignedTo: staffB.id, followUpContext: null });
+    });
+  });
+
+  it('JOB-009: a rescheduled replacement may reuse the cancelled visit\'s own slot', async () => {
+    await withFixture(async ({ service, pool, staffA, customerId }) => {
+      const scheduledAt = atBase(3 * HOUR_MS);
+      const planned = await service.create(staffA, {
+        clientActionId: randomUUID(),
+        type: 'SALES_MEETING',
+        title: 'Planlı takip',
+        description: null,
+        customerId,
+        contactId: null,
+        assignedTo: staffA.id,
+        priority: 'normal',
+        dueDate: null,
+        scheduledAt,
+        scheduledEndsAt: canonicalScheduledEnd('SALES_MEETING', scheduledAt),
+        engagementKind: 'FOLLOW_UP',
+      } as never);
+      const cancelled = await service.cancel(staffA, planned.id, {
+        clientActionId: randomUUID(), expectedVersion: planned.version, cancelReason: 'Saat teyidi yeniden.',
+        followUpContinuity: { decision: 'RESCHEDULE', scheduledAt },
+      }) as JobCard & { followUpJobCardId: string };
+      expect(cancelled.status).toBe('CANCELLED');
+      const replacement = await service.detail(staffA, cancelled.followUpJobCardId);
+      expect(replacement.scheduledAt).toBe(scheduledAt);
+      const active = await pool.query(
+        `SELECT id FROM job_cards WHERE organization_id = $1 AND assigned_to = $2
+            AND status NOT IN ('CANCELLED', 'COMPLETED', 'INVALIDATED') AND scheduled_at = $3`,
+        [staffA.organizationId, staffA.id, scheduledAt],
+      );
+      expect(active.rows.map((row) => row.id)).toEqual([cancelled.followUpJobCardId]);
+    });
+  });
 });

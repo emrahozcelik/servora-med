@@ -3285,6 +3285,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-recent-visit-title { margin: 0 0 0.25rem; font-weight: 700; }
 .follow-up-frequency-warning { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--border-warning); border-radius: 0.45rem; background: var(--warning-wash); }
 .follow-up-frequency-warning-label { margin: 0 0 0.2rem; color: var(--warning); font-size: 0.75rem; font-weight: 720; letter-spacing: 0.02em; text-transform: uppercase; }
+.follow-up-cancel-continuity { display: grid; gap: 0.6rem; margin: 1rem 0; padding: 0.9rem; border: 1px solid var(--rule); border-radius: 0.6rem; background: var(--accent-soft); min-width: 0; }
+.follow-up-cancel-continuity legend { padding: 0 0.25rem; font-weight: 700; }
+.follow-up-cancel-continuity .form-help { margin: 0; }
+.follow-up-cancel-choices { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+.follow-up-cancel-choice { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; cursor: pointer; }
+.follow-up-cancel-choice input { inline-size: 1.25rem; block-size: 1.25rem; margin: 0; }
 .workflow-dialog .review-buttons button, .reason-dialog .review-buttons button { min-height: var(--control-height); }
 .workflow-dialog-details { margin: 0.85rem 0 0; padding-left: 1.2rem; color: var(--ink); line-height: 1.5; }
 .workflow-dialog-details li { margin: 0.25rem 0; }

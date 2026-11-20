@@ -1,8 +1,11 @@
-import type {
-  JobCardEngagementKind,
-  JobCardType,
-  MeetingOutcome,
-  UnsuccessfulVisitReasonCode,
+import { AppError } from '../../errors/index.js';
+import {
+  FOLLOW_UP_CYCLE_END_REASONS,
+  type FollowUpCycleEndReason,
+  type JobCardEngagementKind,
+  type JobCardType,
+  type MeetingOutcome,
+  type UnsuccessfulVisitReasonCode,
 } from './types.js';
 import {
   addCalendarDaysToDateKey,
@@ -11,6 +14,7 @@ import {
   localDateKey,
 } from './local-calendar.js';
 import { advanceToWorkingDay } from './working-day-policy.js';
+import { isoInstant } from './validation.js';
 
 /**
  * V1 mandatory follow-up policy constants.
@@ -115,6 +119,94 @@ export function requiresMandatoryFollowUpProposal(input: {
   return input.outcome === 'FOLLOW_UP_REQUIRED'
     && input.unsuccessfulReason !== null
     && input.unsuccessfulReason !== undefined;
+}
+
+/**
+ * JOB-009: a follow-up visit is a SALES_MEETING whose engagement kind is
+ * FOLLOW_UP, whatever created it. Cancelling one must keep or explicitly end
+ * the customer's visit cycle.
+ */
+export function isFollowUpVisit(input: {
+  type: JobCardType;
+  engagementKind: JobCardEngagementKind | null;
+}): boolean {
+  return input.type === 'SALES_MEETING' && input.engagementKind === 'FOLLOW_UP';
+}
+
+/** JOB-009 continuity decision sent with the cancel of a follow-up visit. */
+export type FollowUpCancelContinuity =
+  | { decision: 'RESCHEDULE'; scheduledAt: string }
+  | { decision: 'END_CYCLE'; endReason: FollowUpCycleEndReason };
+
+function invalidContinuity(): never {
+  throw new AppError(
+    'VALIDATION_ERROR',
+    400,
+    'Takip döngüsü seçimi geçersiz.',
+    { field: 'followUpContinuity' },
+  );
+}
+
+/**
+ * Strictly parse the optional cancel continuity body field. Absent or null
+ * means "no decision"; anything else must be exactly one known shape.
+ */
+export function parseFollowUpCancelContinuity(value: unknown): FollowUpCancelContinuity | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) invalidContinuity();
+  const record = value as Record<string, unknown>;
+  if (record.decision === 'RESCHEDULE') {
+    if (Object.keys(record).some((key) => key !== 'decision' && key !== 'scheduledAt')) invalidContinuity();
+    return {
+      decision: 'RESCHEDULE',
+      scheduledAt: isoInstant(record.scheduledAt, 'followUpContinuity.scheduledAt'),
+    };
+  }
+  if (record.decision === 'END_CYCLE') {
+    if (Object.keys(record).some((key) => key !== 'decision' && key !== 'endReason')) invalidContinuity();
+    const reason = record.endReason;
+    if (typeof reason !== 'string'
+      || !(FOLLOW_UP_CYCLE_END_REASONS as readonly string[]).includes(reason)) invalidContinuity();
+    return { decision: 'END_CYCLE', endReason: reason as FollowUpCycleEndReason };
+  }
+  return invalidContinuity();
+}
+
+/**
+ * JOB-009 applicability: a follow-up visit requires exactly one decision, any
+ * other JobCard must not send one, and a replacement must start in the future.
+ */
+export function assertFollowUpCancelContinuity(
+  job: { type: JobCardType; engagementKind: JobCardEngagementKind | null },
+  continuity: FollowUpCancelContinuity | null,
+  requestTime: Date,
+): void {
+  if (!isFollowUpVisit(job)) {
+    if (continuity !== null) {
+      throw new AppError(
+        'FOLLOW_UP_CANCEL_DECISION_INVALID',
+        400,
+        'Bu iş için takip döngüsü seçimi gönderilemez.',
+      );
+    }
+    return;
+  }
+  if (continuity === null) {
+    throw new AppError(
+      'FOLLOW_UP_CANCEL_DECISION_REQUIRED',
+      400,
+      'Takip ziyaretini iptal ederken yeniden planlamayı ya da döngüyü sonlandırmayı seçin.',
+    );
+  }
+  if (continuity.decision === 'RESCHEDULE'
+    && Date.parse(continuity.scheduledAt) <= requestTime.valueOf()) {
+    throw new AppError(
+      'FOLLOW_UP_RESCHEDULE_IN_PAST',
+      400,
+      'Yeni ziyaret zamanı gelecekte olmalıdır.',
+      { field: 'followUpContinuity' },
+    );
+  }
 }
 
 /** JOB-008 calendar-day interval for the automatic follow-up target. */

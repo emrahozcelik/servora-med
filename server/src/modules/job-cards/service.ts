@@ -194,7 +194,10 @@ import {
   defaultFollowUpType,
   earliestFollowUpAllowedAt,
   followUpTargetInstant,
+  assertFollowUpCancelContinuity,
+  parseFollowUpCancelContinuity,
   requiresMandatoryFollowUpProposal,
+  type FollowUpCancelContinuity,
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
 import {
@@ -290,7 +293,7 @@ type SubmitInput = LifecycleInput & { followUpProposal?: FollowUpProposalInput; 
 type ApproveInput = LifecycleInput & { followUp?: ApproveFollowUpInput };
 type StartInput = LifecycleInput & { locationCapture?: unknown };
 type RevisionInput = LifecycleInput & { revisionReason: string };
-type CancelInput = LifecycleInput & { cancelReason: string };
+type CancelInput = LifecycleInput & { cancelReason: string; followUpContinuity?: unknown };
 
 function assertFollowUpMinimumLead(input: {
   meetingAt: string | null;
@@ -326,6 +329,7 @@ type LifecycleDefinition = {
   noteContext: JobCardOperationalNoteContext | null;
   followUpProposal?: FollowUpProposalInput;
   approveFollowUp?: ApproveFollowUpInput;
+  cancelContinuity?: FollowUpCancelContinuity | null;
 };
 
 type OverdueRecoveryTarget = Pick<
@@ -2045,11 +2049,12 @@ export class JobCardService {
     transaction: JobCardTransaction,
     actor: JobCardActor,
     input: {
-      sourceJobCardId: string;
+      /** JOB-009: null only for the replacement of an unlinked follow-up visit. */
+      sourceJobCardId: string | null;
       customerId: string | null;
       type: JobCardType;
       title: string;
-      followUpInstructions: string;
+      followUpInstructions: string | null;
       scheduledAt: string | null;
       assignedTo: string;
       priority: JobCardPriority;
@@ -3739,6 +3744,7 @@ export class JobCardService {
       note: null, revisionReason: null,
       cancelReason: lifecycleReason(input.cancelReason, 'cancelReason'),
       noteContext: 'CANCEL',
+      cancelContinuity: parseFollowUpCancelContinuity(input.followUpContinuity),
     });
   }
 
@@ -3757,6 +3763,9 @@ export class JobCardService {
     assertCanTransition(actor, job, definition.command,
       definition.revisionReason ?? definition.cancelReason ?? undefined, reservedAt);
     if (definition.command === 'START') assertPlannedIntervalForStart(job);
+    if (definition.command === 'CANCEL') {
+      assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, reservedAt);
+    }
   }
 
   private async runLifecycle(
@@ -3819,6 +3828,9 @@ export class JobCardService {
         );
         if (definition.command === 'START') {
           assertPlannedIntervalForStart(job);
+        }
+        if (definition.command === 'CANCEL') {
+          assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, requestTime);
         }
         // OVR-2: derive the semantic obligation resolved by this command
         // independently from breach discovery. A current revision may be on
@@ -3914,6 +3926,9 @@ export class JobCardService {
           command: definition.command, status: definition.target, occurredAt, actorId: actor.id,
           note: definition.note, revisionReason: definition.revisionReason,
           cancelReason: definition.cancelReason,
+          followUpCycleEndReason: definition.cancelContinuity?.decision === 'END_CYCLE'
+            ? definition.cancelContinuity.endReason
+            : null,
           followUpProposal: persistedProposal,
         });
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
@@ -3961,6 +3976,16 @@ export class JobCardService {
               assignedTo: approval.proposal.assignedTo,
               followUpInstructions: approval.proposal.followUpInstructions,
             },
+          };
+        }
+
+        if (definition.cancelContinuity) {
+          // JOB-009: the cancel records whether the follow-up cycle continues.
+          metadata = {
+            ...(metadata ?? {}),
+            followUpContinuity: definition.cancelContinuity.decision === 'RESCHEDULE'
+              ? { decision: 'RESCHEDULE', scheduledAt: definition.cancelContinuity.scheduledAt }
+              : { decision: 'END_CYCLE', endReason: definition.cancelContinuity.endReason },
           };
         }
 
@@ -4111,6 +4136,38 @@ export class JobCardService {
           followUpJobCardId = child.job.id;
           childRealtimeEvents = child.realtimeEvents;
         }
+        if (definition.cancelContinuity?.decision === 'RESCHEDULE') {
+          // JOB-009: the replacement commits with the cancel. The cancelled
+          // visit no longer occupies the calendar, so the same Staff may take
+          // an overlapping replacement slot.
+          // The replacement follows up the same completed visit as the
+          // cancelled one (a follow-up source is always an approved JobCard);
+          // which visit it replaces is recorded on its JOB_CREATED activity.
+          const replacement = await this.createFollowUpChild(tx, actor, {
+            sourceJobCardId: updated.sourceJobCardId,
+            customerId: updated.customerId,
+            type: 'SALES_MEETING',
+            title: updated.title,
+            followUpInstructions: updated.followUpInstructions,
+            scheduledAt: definition.cancelContinuity.scheduledAt,
+            assignedTo: updated.assignedTo,
+            priority: updated.priority,
+            dueDate: null,
+            contactId: updated.contactId,
+            engagementKind: 'FOLLOW_UP',
+            clientActionId: input.clientActionId,
+            requestTime,
+            assignee: lockedAssignees.get(updated.assignedTo) ?? null,
+            ...(actor.id === updated.assignedTo
+              ? { acceptance: { acceptedAt: requestTime, acceptedBy: actor.id } }
+              : {}),
+            activityMetadata: {
+              replacesJobCardId: jobCardId,
+            },
+          });
+          followUpJobCardId = replacement.job.id;
+          childRealtimeEvents = replacement.realtimeEvents;
+        }
         const realtimeEvents = await this.appendRealtimeForActivity(tx, {
           activity,
           organizationId: actor.organizationId,
@@ -4140,6 +4197,13 @@ export class JobCardService {
           lockedAssignees = new Map<string, JobCardAssignee>();
           const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
             || definition.command === 'APPROVE';
+          if (definition.cancelContinuity?.decision === 'RESCHEDULE') {
+            const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
+            if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+            lockedAssignees = await this.lockUsersInOrder(
+              tx, actor.organizationId, [jobSnapshot.assignedTo],
+            );
+          }
           if (mayScheduleFollowUp) {
             const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
             if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -4585,6 +4649,7 @@ export class JobCardService {
         followUpProposal: definition.followUpProposal ?? null,
         approveFollowUp: definition.approveFollowUp ?? null,
         locationCapture: actionLocation ?? null,
+        ...(definition.cancelContinuity ? { cancelContinuity: definition.cancelContinuity } : {}),
       }),
     };
   }

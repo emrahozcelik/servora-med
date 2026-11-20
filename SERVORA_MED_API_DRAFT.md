@@ -87,6 +87,9 @@ CONFLICT
 ACTION_IN_PROGRESS
 INVALID_TRANSITION
 INVARIANT_VIOLATION
+FOLLOW_UP_CANCEL_DECISION_REQUIRED
+FOLLOW_UP_CANCEL_DECISION_INVALID
+FOLLOW_UP_RESCHEDULE_IN_PAST
 VERSION_CONFLICT
 EMAIL_ALREADY_EXISTS
 STAFF_PROFILE_REQUIRED
@@ -830,6 +833,34 @@ Base lifecycle command body:
 ```
 
 `request-revision` requires `revisionReason`; `cancel` requires `cancelReason` according to cancellation policy.
+
+Cancelling a follow-up visit (`type = SALES_MEETING` with `engagementKind = FOLLOW_UP`) also
+requires `followUpContinuity` ([JOB-009](DECISIONS.md)); every other JobCard must omit it:
+
+```json
+{ "clientActionId": "uuid", "expectedVersion": 6, "cancelReason": "Müşteri bu hafta uygun değil",
+  "followUpContinuity": { "decision": "RESCHEDULE", "scheduledAt": "2026-11-24T07:30:00.000Z" } }
+```
+
+```json
+{ "clientActionId": "uuid", "expectedVersion": 6, "cancelReason": "Rakip firmayla anlaşma yaptı",
+  "followUpContinuity": { "decision": "END_CYCLE", "endReason": "WORKS_WITH_COMPETITOR" } }
+```
+
+- `RESCHEDULE` cancels the visit and creates its replacement follow-up visit in the same
+  transaction. `scheduledAt` must be in the future; the replacement keeps customer, contact,
+  assignee, title, priority, source link and instructions, and passes the normal calendar
+  availability and customer frequency checks.
+- `END_CYCLE` persists `endReason` (`NOT_INTERESTED`, `WORKS_WITH_COMPETITOR`,
+  `CUSTOMER_INACTIVE`, `DUPLICATE_RECORD`, `OTHER`) on the cancelled JobCard, exposed as
+  `followUpCycleEndReason` in the lifecycle facts.
+- Each object accepts exactly the keys shown. A missing decision returns
+  `400 FOLLOW_UP_CANCEL_DECISION_REQUIRED`, a decision on any other JobCard
+  `400 FOLLOW_UP_CANCEL_DECISION_INVALID`, a past replacement time
+  `400 FOLLOW_UP_RESCHEDULE_IN_PAST`, and a malformed object `400 VALIDATION_ERROR`
+  (`field: followUpContinuity`).
+- The decision is part of the idempotent request identity; a cancel without it keeps its
+  previous request hash.
 
 ### Submit requirements
 

@@ -1611,10 +1611,13 @@ describe('Postgres lifecycle transition persistence', () => {
     expect(update.text).toContain("revision_requested_at = CASE WHEN $10 = 'REQUEST_REVISION'");
     expect(update.text).toContain("cancelled_at = CASE WHEN $10 = 'CANCEL'");
     expect(update.text).toContain("cancel_reason = CASE WHEN $10 = 'CANCEL' THEN $9 ELSE cancel_reason END");
+    expect(update.text).toContain(
+      "follow_up_cycle_end_reason = CASE WHEN $10 = 'CANCEL' THEN $17::varchar(40) ELSE follow_up_cycle_end_reason END",
+    );
     expect(update.text.match(/\bWHERE\b/g)).toHaveLength(1);
     expect(update.values).toEqual([
       'org-1', 'job-1', 2, 'IN_PROGRESS', time, 'staff-1', null, null, null, 'START',
-      null, null, null, null, null, null,
+      null, null, null, null, null, null, null,
     ]);
   });
 });

@@ -331,6 +331,7 @@ version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)
 | cancelled_at | TIMESTAMPTZ NULL | |
 | cancelled_by | UUID NULL | FK to users |
 | cancel_reason | TEXT NULL | |
+| follow_up_cycle_end_reason | VARCHAR(40) NULL | JOB-009, migration `062`: `NOT_INTERESTED`, `WORKS_WITH_COMPETITOR`, `CUSTOMER_INACTIVE`, `DUPLICATE_RECORD` or `OTHER`; allowed only on a cancelled `SALES_MEETING` / `FOLLOW_UP` JobCard (check constraint) |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 

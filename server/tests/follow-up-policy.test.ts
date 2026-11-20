@@ -17,6 +17,9 @@ import {
   suggestedFollowUpInstant,
   isFollowUpMinimumLeadSatisfied,
   followUpLeadReferenceAt,
+  assertFollowUpCancelContinuity,
+  isFollowUpVisit,
+  parseFollowUpCancelContinuity,
 } from '../src/modules/job-cards/follow-up-policy.js';
 import type {
   JobCardEngagementKind,
@@ -298,5 +301,60 @@ describe('deriveProposalOrigin', () => {
       proposal({ type: 'GENERAL_TASK' }),
       suggestion,
     )).toBe('STAFF_ADJUSTED');
+  });
+});
+
+describe('JOB-009 follow-up cancel continuity', () => {
+  const followUp = { type: 'SALES_MEETING' as const, engagementKind: 'FOLLOW_UP' as const };
+  const visit = { type: 'SALES_MEETING' as const, engagementKind: 'CUSTOMER_VISIT' as const };
+  const now = new Date('2026-11-18T09:00:00.000Z');
+
+  it('identifies only SALES_MEETING / FOLLOW_UP JobCards as follow-up visits', () => {
+    expect(isFollowUpVisit(followUp)).toBe(true);
+    expect(isFollowUpVisit(visit)).toBe(false);
+    expect(isFollowUpVisit({ type: 'GENERAL_TASK', engagementKind: null })).toBe(false);
+  });
+
+  it('parses exactly one known decision shape', () => {
+    expect(parseFollowUpCancelContinuity(undefined)).toBeNull();
+    expect(parseFollowUpCancelContinuity(null)).toBeNull();
+    expect(parseFollowUpCancelContinuity({ decision: 'END_CYCLE', endReason: 'CUSTOMER_INACTIVE' }))
+      .toEqual({ decision: 'END_CYCLE', endReason: 'CUSTOMER_INACTIVE' });
+    expect(parseFollowUpCancelContinuity({ decision: 'RESCHEDULE', scheduledAt: '2026-11-20T10:00:00+03:00' }))
+      .toEqual({ decision: 'RESCHEDULE', scheduledAt: '2026-11-20T07:00:00.000Z' });
+    for (const invalid of [
+      'END_CYCLE',
+      [],
+      {},
+      { decision: 'END_CYCLE' },
+      { decision: 'END_CYCLE', endReason: 'BUDGET' },
+      { decision: 'END_CYCLE', endReason: 'OTHER', scheduledAt: '2026-11-20T10:00:00Z' },
+      { decision: 'RESCHEDULE' },
+      { decision: 'RESCHEDULE', scheduledAt: '2026-11-20 10:00' },
+      { decision: 'RESCHEDULE', scheduledAt: '2026-11-20T10:00:00Z', endReason: 'OTHER' },
+    ]) {
+      expect(() => parseFollowUpCancelContinuity(invalid)).toThrow(
+        expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 }),
+      );
+    }
+  });
+
+  it('requires a decision for follow-up visits and forbids it elsewhere', () => {
+    expect(() => assertFollowUpCancelContinuity(followUp, null, now))
+      .toThrow(expect.objectContaining({ code: 'FOLLOW_UP_CANCEL_DECISION_REQUIRED' }));
+    expect(() => assertFollowUpCancelContinuity(visit, { decision: 'END_CYCLE', endReason: 'OTHER' }, now))
+      .toThrow(expect.objectContaining({ code: 'FOLLOW_UP_CANCEL_DECISION_INVALID' }));
+    expect(() => assertFollowUpCancelContinuity(visit, null, now)).not.toThrow();
+    expect(() => assertFollowUpCancelContinuity(followUp, { decision: 'END_CYCLE', endReason: 'OTHER' }, now))
+      .not.toThrow();
+  });
+
+  it('requires a replacement strictly after the request time', () => {
+    expect(() => assertFollowUpCancelContinuity(
+      followUp, { decision: 'RESCHEDULE', scheduledAt: now.toISOString() }, now,
+    )).toThrow(expect.objectContaining({ code: 'FOLLOW_UP_RESCHEDULE_IN_PAST' }));
+    expect(() => assertFollowUpCancelContinuity(
+      followUp, { decision: 'RESCHEDULE', scheduledAt: '2026-11-18T09:15:00.000Z' }, now,
+    )).not.toThrow();
   });
 });

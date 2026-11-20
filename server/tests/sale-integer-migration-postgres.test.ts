@@ -24,11 +24,19 @@ async function at057(run: (pool: Pool, store: PostgresMigrationStore) => Promise
     }
     const store = new PostgresMigrationStore(pool);
     await runMigrations({ migrationsDirectory: previous, store });
+    // The fixture drives today's JobCard service, whose detail projection reads
+    // the 062 column. Provide it only while the 057-era rows are created; each
+    // test drops it again before the real 058+ upgrade re-adds it.
+    await pool.query('ALTER TABLE job_cards ADD COLUMN follow_up_cycle_end_reason VARCHAR(40)');
     await run(pool, store);
   } finally {
     await pool.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await admin.end(); await rm(previous, { recursive: true, force: true });
   }
+}
+
+async function dropFixtureOnlyColumns(pool: Pool) {
+  await pool.query('ALTER TABLE job_cards DROP COLUMN follow_up_cycle_end_reason');
 }
 
 async function tableStorage(pool: Pool) {
@@ -48,6 +56,7 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
       const receipts = (await pool.query('SELECT *,xmin::text FROM processed_actions ORDER BY id')).rows;
       const audit = (await pool.query('SELECT *,xmin::text FROM job_card_activity_logs ORDER BY id')).rows;
       const storageBefore = await tableStorage(pool);
+      await dropFixtureOnlyColumns(pool);
       // Hold a real reader lock and observe the migration waiting, rather than inferring lock behavior.
       const blocker = await pool.connect();
       await blocker.query('BEGIN');
@@ -67,7 +76,7 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
         blocker.release();
         await upgrade;
       }
-      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal'] });
+      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason'] });
       const storageAfter = await tableStorage(pool);
       expect(storageBefore.typmod).toBe(786439); // NUMERIC(12,3)
       expect(storageAfter.typmod).toBe(-1); // unrestricted NUMERIC
@@ -104,6 +113,7 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
       const storage = await tableStorage(pool);
       const receipts = (await pool.query('SELECT *,xmin::text FROM processed_actions ORDER BY id')).rows;
       const audit = (await pool.query('SELECT *,xmin::text FROM job_card_activity_logs ORDER BY id')).rows;
+      await dropFixtureOnlyColumns(pool);
       await expect(runMigrations({ migrationsDirectory: directory, store }))
         .rejects.toMatchObject({ code: '23514', message: expect.stringContaining('SALE-QTY-001') });
       expect((await pool.query('SELECT *,xmin::text FROM job_card_sale_items ORDER BY id')).rows).toEqual(before);
