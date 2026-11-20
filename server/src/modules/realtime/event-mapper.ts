@@ -46,6 +46,10 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   JOB_SUBMISSION_REMINDER_SENT: 'job.updated',
   JOB_SUBMISSION_AUTO_REMINDER_SENT: 'job.updated',
   JOB_SUBMISSION_AUTO_ESCALATION_SENT: 'job.updated',
+  // JOB-010 §1a: the grant is not a lifecycle transition. It invalidates the
+  // job detail/list views through the established 'job.updated' transport so
+  // the assigned Staff member's next START reads the widened rule.
+  JOB_EARLY_START_AUTHORIZED: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([

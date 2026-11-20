@@ -11,6 +11,7 @@ import {
   assertCanListOpenSubmissionLate,
   assertCanReadOverdueIncidentHistory,
   assertCanSendSubmissionReminder,
+  assertCanGrantEarlyStartAuthorization,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -41,6 +42,7 @@ import type {
 } from './repository.js';
 import {
   deliveryItemCreateRequestHash,
+  earlyStartAuthorizationRequestHash,
   followUpCreateRequestHash,
   jobCardCreateRequestHash,
   lifecycleRequestHash,
@@ -104,6 +106,8 @@ import {
   type AvailableSlotsInput,
   type AvailableSlotsResponse,
   type JobCardInvalidationInput,
+  type EarlyStartAuthorizationInput,
+  type EarlyStartAuthorizationReceipt,
 } from './types.js';
 import {
   jobCardInvalidationRequestHash,
@@ -3017,6 +3021,16 @@ export class JobCardService {
           activityId: assignmentTransitionId,
         });
       }
+      // JOB-010 §1a: a valid early-start authorization lives only while the
+      // assignee and the planned interval it was granted for are unchanged.
+      // Any effective change voids it one-way in this same transaction; a
+      // dueDate-only revision does not (scheduleChanged excludes it).
+      if (assigneeChanged || scheduleChanged) {
+        await transaction.voidEarlyStartAuthorizations({
+          organizationId: actor.organizationId, jobCardId, voidedAt: requestTime,
+          voidReason: assigneeChanged ? 'REASSIGNED' : 'RESCHEDULED',
+        });
+      }
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
       if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       return {
@@ -3557,6 +3571,165 @@ export class JobCardService {
             sentAt: requestTime.toISOString(),
           },
           realtimeEvents: [realtimeEvent],
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return result.response;
+  }
+
+  /**
+   * JOB-010 §1a management early-start authorization.
+   *
+   * Fail-closed: STAFF is rejected with 403 before any lookup; unknown or
+   * cross-org jobs stay 404; stale versions, terminal/other-type jobs and
+   * already-authorized jobs stay 409 without side effects. The row records the
+   * assignee and planned interval it was granted for, so a later reassignment
+   * or reschedule invalidates it. Idempotency is `processed_actions` replay of
+   * the stored response for the same clientActionId.
+   */
+  async grantEarlyStartAuthorization(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: EarlyStartAuthorizationInput,
+  ): Promise<EarlyStartAuthorizationReceipt> {
+    assertCanGrantEarlyStartAuthorization(actor);
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw validation('expectedVersion');
+    }
+    const requestTime = this.now();
+    const operationKey = `JOB_EARLY_START_AUTHORIZATION:${jobCardId}`;
+    const result = await this.repository.executeCriticalAction(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+        requestHash: earlyStartAuthorizationRequestHash(jobCardId, input.expectedVersion),
+      },
+      async (tx) => {
+        // Staff-user lock contract (assignee-lock.ts): lock the assignee User
+        // row BEFORE the JobCard row, like every other scheduling writer and
+        // offboarding, so a concurrent offboarding transfer cannot deadlock
+        // against the FK KEY SHARE taken by the authorization insert.
+        const snapshot = await tx.getJob(actor.organizationId, jobCardId);
+        if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        await this.lockUsersInOrder(tx, actor.organizationId, [snapshot.assignedTo]);
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (job.version !== input.expectedVersion || job.assignedTo !== snapshot.assignedTo) {
+          throw new AppError(
+            'VERSION_CONFLICT',
+            409,
+            'JobCard başka bir işlem tarafından güncellendi.',
+          );
+        }
+        if (
+          (job.type !== 'PRODUCT_DELIVERY' && job.type !== 'SALES_MEETING')
+          || (job.status !== 'NEW' && job.status !== 'ACCEPTED')
+          || job.scheduledAt === null
+        ) {
+          throw new AppError(
+            'EARLY_START_NOT_APPLICABLE',
+            409,
+            'Erken başlama izni yalnız planlanmış ürün teslimi veya satış görüşmesi '
+              + 'işleri için, iş yeni ya da kabul edildi durumundayken verilebilir.',
+          );
+        }
+        const scheduledAt = new Date(job.scheduledAt);
+        const scheduledEndsAt = job.scheduledEndsAt === null ? null : new Date(job.scheduledEndsAt);
+        const live = await tx.getLiveEarlyStartAuthorization(actor.organizationId, jobCardId);
+        const stillValid = live !== null
+          && live.assigneeUserId === job.assignedTo
+          && live.scheduledAt.getTime() === scheduledAt.getTime()
+          && (live.scheduledEndsAt?.getTime() ?? null)
+            === (scheduledEndsAt?.getTime() ?? null);
+        if (stillValid) {
+          throw new AppError(
+            'EARLY_START_ALREADY_AUTHORIZED',
+            409,
+            'Bu iş için geçerli bir erken başlama izni zaten var.',
+          );
+        }
+        // A live row that no longer matches the job is a stale fact (the
+        // invalidating edit happened outside the covered paths). Void it
+        // truthfully before the partial-unique insert, so history stays
+        // one-way and the new authorization is representable.
+        if (live) {
+          await tx.voidEarlyStartAuthorizations({
+            organizationId: actor.organizationId,
+            jobCardId,
+            voidedAt: requestTime,
+            voidReason: live.assigneeUserId !== job.assignedTo ? 'REASSIGNED' : 'RESCHEDULED',
+          });
+        }
+        const scheduleRevisionNo = await tx.getCurrentScheduleRevisionNo(
+          actor.organizationId, jobCardId,
+        );
+        if (scheduleRevisionNo === null) {
+          throw new AppError(
+            'EARLY_START_AUTHORIZATION_UNAVAILABLE',
+            409,
+            'İşin plan revizyonu bulunamadığı için erken başlama izni kaydedilemedi.',
+          );
+        }
+        const authorization = await tx.insertEarlyStartAuthorization({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assigneeUserId: job.assignedTo,
+          scheduleRevisionNo,
+          scheduledAt,
+          scheduledEndsAt,
+          grantedBy: actor.id,
+          grantedAt: requestTime,
+          clientActionId,
+        });
+        const updated = await tx.bumpVersion(
+          actor.organizationId, jobCardId, input.expectedVersion,
+        );
+        if (!updated) {
+          throw new AppError(
+            'VERSION_CONFLICT',
+            409,
+            'JobCard başka bir işlem tarafından güncellendi.',
+          );
+        }
+        const activity = await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_EARLY_START_AUTHORIZED',
+          clientActionId,
+          metadata: {
+            authorizationId: authorization.id,
+            assigneeUserId: job.assignedTo,
+            scheduleRevisionNo,
+            scheduledAt: scheduledAt.toISOString(),
+            scheduledEndsAt: scheduledEndsAt?.toISOString() ?? null,
+            grantedAt: authorization.grantedAt.toISOString(),
+          },
+        });
+        const realtimeEvents = await this.appendRealtimeForActivity(tx, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_EARLY_START_AUTHORIZED',
+          beforeAssigneeId: null,
+          afterAssigneeId: job.assignedTo,
+          customerId: job.customerId,
+        });
+        return {
+          response: {
+            jobCardId,
+            authorizationId: authorization.id,
+            grantedAt: authorization.grantedAt.toISOString(),
+          } satisfies EarlyStartAuthorizationReceipt,
+          realtimeEvents,
         };
       },
     );
@@ -5433,7 +5606,16 @@ export class JobCardService {
     const evaluation = readinessStatuses.includes(job.status)
       ? precomputed ?? await evaluateSubmission(reader, actor, persistedJob, evaluatedAt)
       : null;
-    const allowedCommands = getAllowedLifecycleCommands(actor, persistedJob, evaluatedAt);
+    const allowedCommands = getAllowedLifecycleCommands(
+      actor,
+      {
+        ...persistedJob,
+        // JOB-010 §1a: only a currently valid authorization widens START;
+        // an absent fact defaults to false (never true).
+        earlyStartAuthorized: (persistedJob.earlyStartAuthorization ?? null) !== null,
+      },
+      evaluatedAt,
+    );
     let followUpContext: JobCardDetail['followUpContext'] = null;
     if (sourceJobCardId != null) {
       if (followUpInstructions == null) followUpInvariantViolation();
@@ -5523,15 +5705,18 @@ export class JobCardService {
 
   private presentListItem(
     actor: JobCardActor,
-    item: PersistedJobCardListItem,
+    rawItem: PersistedJobCardListItem,
     evaluatedAt = this.now(),
   ): JobCardListItem {
+    // JOB-010 §1a: the permission fact is server-internal; never serialized.
+    const { earlyStartAuthorized, ...item } = rawItem;
     const subject: JobPermissionSubject = {
       organizationId: actor.organizationId,
       type: item.type,
       status: item.status,
       assignedTo: item.assignee.id,
       scheduledAt: item.scheduledAt,
+      earlyStartAuthorized,
     };
     return { ...item, allowedCommands: getAllowedLifecycleCommands(actor, subject, evaluatedAt) };
   }

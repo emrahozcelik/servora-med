@@ -78,6 +78,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
   'JOB_SUBMISSION_REMINDER_SENT', 'JOB_SUBMISSION_AUTO_REMINDER_SENT',
   'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
+  'JOB_EARLY_START_AUTHORIZED',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -112,6 +113,13 @@ export type JobCard = {
   invalidatedAt: string | null;
   invalidatedBy: string | null;
   invalidationReasonCode: JobCardInvalidationReasonCode | null;
+  /**
+   * JOB-010 §1a permission fact. Server-computed, never stored on the row and
+   * never serialized on the wire: a job whose current assignee and planned
+   * interval still match a non-voided early-start authorization. Absent means
+   * false, so every caller that cannot prove the fact fails closed.
+   */
+  earlyStartAuthorized?: boolean;
 };
 
 export type JobCardInvalidationInput = {
@@ -321,6 +329,39 @@ export type PersistedJobCardDetail = JobCard & {
   contact: RelatedIdentity | null;
   lifecycle: JobLifecycleFacts;
   proposer: RelatedIdentity | null;
+  /**
+   * JOB-010 §1a: the currently valid early-start authorization, or null. Only
+   * a row that still matches the job's assignee and planned interval is read,
+   * so an absent value means "no authorization", never "unknown".
+   */
+  earlyStartAuthorization: EarlyStartAuthorizationView | null;
+};
+
+export type EarlyStartAuthorizationView = {
+  grantedAt: string;
+  grantedBy: { id: string; name: string | null };
+};
+
+export type EarlyStartVoidReason = 'REASSIGNED' | 'RESCHEDULED' | 'OFFBOARDING_TRANSFER';
+
+export type EarlyStartAuthorizationRecord = {
+  id: string;
+  assigneeUserId: string;
+  scheduledAt: Date;
+  scheduledEndsAt: Date | null;
+  grantedAt: Date;
+  grantedBy: string;
+};
+
+export type EarlyStartAuthorizationInput = {
+  clientActionId: string;
+  expectedVersion: number;
+};
+
+export type EarlyStartAuthorizationReceipt = {
+  jobCardId: string;
+  authorizationId: string;
+  grantedAt: string;
 };
 
 export type JobWorkflowContext = {
@@ -410,7 +451,7 @@ export type JobCardActivityStatus = JobCardStatus | 'PLANNED';
 export type JobPermissionSubject = Pick<
   JobCard,
   'organizationId' | 'type' | 'status' | 'assignedTo'
-> & Partial<Pick<JobCard, 'scheduledAt'>>;
+> & Partial<Pick<JobCard, 'scheduledAt' | 'earlyStartAuthorized'>>;
 
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
@@ -494,6 +535,12 @@ export type PersistedJobCardListItem = {
    */
   overdueSince?: string | null;
   latenessSeconds?: number | null;
+  /**
+   * JOB-010 §1a permission fact for `allowedCommands`. Present on the list,
+   * board and follow-up projections and stripped by the presenter before the
+   * item is serialized; absent means false.
+   */
+  earlyStartAuthorized?: boolean;
 };
 
 export type JobCardListItem = PersistedJobCardListItem & {

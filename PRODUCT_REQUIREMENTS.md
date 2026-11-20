@@ -184,6 +184,35 @@ manager instructions/questions may be supplied, but the former owner's content
 and history are not copied. SOF-2C/closure verification remain separate and
 OF-02 stays open. See the [accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-ownership.md).
 
+### Assignment acceptance window amendment — JOB-010, 2026-11-20
+
+Accepted product contract; implementation pending. Until each slice ships, the
+invariants above describe runtime behavior.
+
+- Assigned Staff may accept before the planned start. For `PRODUCT_DELIVERY`
+  and `SALES_MEETING`, accepted Staff may `START` from 30 minutes before the
+  planned start; earlier needs a management authorization or a reschedule.
+  Early start never changes the planned times.
+- A management-assigned `PRODUCT_DELIVERY` or `SALES_MEETING` with a planned
+  time carries an assignment offer with a server-computed acceptance deadline
+  that the server enforces on every request. Staff accept, decline (`NEW`) or
+  release (`ACCEPTED`, before `START`) with a reason. For these jobs in `NEW`
+  and `ACCEPTED`, Staff no longer cancel and no longer change `scheduledAt`,
+  `scheduledEndsAt` or `dueDate`. Management keeps reasoned cancellation and
+  recovers declined, released or expired offers by reassigning, re-offering,
+  rescheduling or cancelling.
+- An expired offer never cancels the JobCard and is not recorded as Staff
+  fault. A visit or delivery that did not happen never gets a fabricated
+  actual time.
+- **D1:** STAFF never cancel any JobCard (this supersedes the Staff
+  cancellation invariant above once release 2c is activated). Staff send a
+  reasoned change/termination request instead; it never changes the status;
+  management decides. A visit that did not happen is submitted with an empty
+  `meetingAt`. Management-approved operational reasons are never Staff fault
+  in performance metrics. See
+  [DECISIONS.md JOB-010](DECISIONS.md) and the
+  [assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
+
 ### Lifecycle visibility and responsibility
 
 The product must make the current JobCard phase, expected actor, and transition consequence

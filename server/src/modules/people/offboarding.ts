@@ -565,6 +565,19 @@ export class PostgresStaffOffboardingService {
       );
       if (updated.rowCount !== 1) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       const previousFollowUp = currentFollowUps.get(jobId);
+      if (previousJob && jobDecision.get(jobId)
+        && previousJob.assignedTo !== jobDecision.get(jobId)) {
+        // JOB-010 §1a: the transfer reassigns ownership, so a live early-start
+        // authorization held by the offboarded Staff member is voided one-way
+        // in this same transaction.
+        await client.query(
+          `UPDATE job_card_early_start_authorizations
+              SET voided_at = $3, void_reason = 'OFFBOARDING_TRANSFER'
+            WHERE organization_id = $1 AND job_card_id = $2
+              AND voided_at IS NULL AND assignee_user_id = $4`,
+          [actor.organizationId, jobId, this.now(), targetUserId],
+        );
+      }
       if (jobDecision.has(jobId) && previousJob) {
         await this.appendJobAssignmentEffect(client, actor, input, jobId, previousJob.assignedTo, jobDecision.get(jobId)!,
           previousJob.status === 'ACCEPTED' && previousJob.assignedTo !== jobDecision.get(jobId));

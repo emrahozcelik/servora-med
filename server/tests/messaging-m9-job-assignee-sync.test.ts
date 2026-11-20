@@ -48,7 +48,7 @@ const MIGRATIONS = [
   '040_demo_lifecycle_simplification.sql',
   '041_user_lifecycle_reconciliation.sql',
   '042_unsuccessful_visit_reason.sql',
-  '043_job_card_schedule_and_assignment_history.sql', '062_follow_up_cycle_end_reason.sql',
+  '043_job_card_schedule_and_assignment_history.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql',
 ] as const;
 
 type Fixture = {

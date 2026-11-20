@@ -149,6 +149,7 @@ function notePage(raw: unknown, defaultLimit: number) {
 }
 
 const SUBMISSION_REMINDER_FIELDS = ['clientActionId', 'expectedVersion'] as const;
+const EARLY_START_AUTHORIZATION_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 const PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'engagementKind',
@@ -378,6 +379,12 @@ export function createJobCardHandlers(service: JobCardService) {
         actor(request),
         uuidString(request.params.id, 'jobCardId'),
         body(request, SUBMISSION_REMINDER_FIELDS) as never,
+      ),
+    grantEarlyStartAuthorization: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.grantEarlyStartAuthorization(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+        body(request, EARLY_START_AUTHORIZATION_FIELDS) as never,
       ),
     listNotes: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listNotes(actor(request), request.params.id, notePage(request.query, 25)),

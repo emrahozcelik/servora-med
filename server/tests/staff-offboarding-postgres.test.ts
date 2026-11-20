@@ -408,10 +408,23 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
         customerDecisions: plan.customers.map((item) => ({ customerId: item.id, action: 'REASSIGN' as const, replacementUserId: fixture.replacementB.id })),
         reminderDecisions: plan.reminders.map((item) => ({ reminderId: item.id, action: 'TRANSFER' as const, replacementUserId: fixture.replacementC.id })),
       });
+      // JOB-010 §1a: an early-start authorization held by the offboarded Staff
+      // member is voided one-way by the transfer, in the same transaction.
+      // The active job already carries its planned interval; the authorization
+      // was granted before START and survives it.
+      await fixture.pool.query(
+        `INSERT INTO job_card_early_start_authorizations
+           (organization_id, job_card_id, assignee_user_id, schedule_revision_no,
+            scheduled_at, scheduled_ends_at, granted_by, granted_at, client_action_id)
+         SELECT j.organization_id, j.id, j.assigned_to, 1, j.scheduled_at,
+                j.scheduled_ends_at, $2, $3, $4
+           FROM job_cards j
+          WHERE j.id = $1 AND j.scheduled_at IS NOT NULL`,
+        [fixture.ids.activeJob, fixture.admin.id, '2026-08-25T08:00:00.000Z', randomUUID()],
+      );
       const response = await fixture.service.execute(fixture.admin, fixture.target.id, input);
       expect(response.status).toBe('OFFBOARDED');
       expect(fixture.disconnectUser).toHaveBeenCalledWith(fixture.organizationId, fixture.target.id);
-
       const state = await fixture.pool.query<{
         target_active: boolean; active_job_assignee: string; accepted_status: string;
         accepted_at: Date | null; accepted_by: string | null;
@@ -477,6 +490,16 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
         });
         expect(row.activity_id).not.toBeNull();
       }
+      const earlyStart = await fixture.pool.query<{
+        voided_at: Date | null; void_reason: string | null;
+      }>(
+        `SELECT voided_at, void_reason FROM job_card_early_start_authorizations
+          WHERE job_card_id = $1 AND assignee_user_id = $2`,
+        [fixture.ids.activeJob, fixture.target.id],
+      );
+      expect(earlyStart.rows).toEqual([
+        expect.objectContaining({ voided_at: expect.any(Date), void_reason: 'OFFBOARDING_TRANSFER' }),
+      ]);
       const completedHistory = await fixture.pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count
            FROM job_card_assignment_history

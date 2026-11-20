@@ -329,7 +329,9 @@ describe.skipIf(!databaseUrl)('JOB-007 real Staff lifecycle', () => {
   it('still refuses START before the new visit is planned to begin', async () => {
     const staff = await newStaff('Erken başlatmak isteyen personel');
     const customerId = await insertCustomer('Klinik G');
-    const futureStart = baselineIso(await readDbBaseline(pool), 30 * MINUTE_MS);
+    // JOB-010 §1a allows START from scheduledAt - 30 min, so the refused
+    // boundary sits one minute past the tolerance and stays outside it.
+    const futureStart = baselineIso(await readDbBaseline(pool), 31 * MINUTE_MS);
     setClock(futureStart);
 
     const future = await createMeeting(staff, staff.id, customerId, futureStart);
