@@ -50,6 +50,11 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   // job detail/list views through the established 'job.updated' transport so
   // the assigned Staff member's next START reads the widened rule.
   JOB_EARLY_START_AUTHORIZED: 'job.updated',
+  // JOB-010 release 2a: raising or deciding a change/termination request is
+  // not a lifecycle transition. Both facts invalidate the job views (detail,
+  // list) and the management overview through the established transport.
+  JOB_CHANGE_REQUESTED: 'job.updated',
+  JOB_CHANGE_REQUEST_RESOLVED: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([

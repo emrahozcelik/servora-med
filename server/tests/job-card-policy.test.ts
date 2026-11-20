@@ -259,20 +259,40 @@ describe('JobCard policy', () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const };
     expect(getAllowedJobActions(staff, { ...meeting, status: 'IN_PROGRESS' })).toEqual([
       'EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'EDIT_MEETING_RESULT',
-      'VIEW_NOTES', 'ADD_NOTE',
+      'VIEW_NOTES', 'ADD_NOTE', 'REQUEST_CHANGE',
     ]);
     expect(getAllowedJobActions(manager, { ...meeting, status: 'WAITING_APPROVAL' })).toEqual([
       'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' })).toEqual([
-      'EDIT_JOB_FIELDS', 'VIEW_NOTES',
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'REQUEST_CHANGE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'ACCEPTED' })).toEqual([
-      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE',
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'REQUEST_CHANGE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'CANCELLED' })).toEqual([
       'VIEW_MEETING_RESULT', 'VIEW_NOTES',
     ]);
+  });
+
+  it('projects the change-request actions only from the open-request fact', () => {
+    const delivery = { ...job, type: 'PRODUCT_DELIVERY' as const };
+    // Assigned Staff may raise a request on any active job, and only once.
+    for (const status of JOB_CARD_STATUSES) {
+      const active = !['COMPLETED', 'CANCELLED', 'INVALIDATED'].includes(status);
+      expect(getAllowedJobActions(staff, { ...delivery, status }).includes('REQUEST_CHANGE'))
+        .toBe(active);
+      expect(getAllowedJobActions(staff, {
+        ...delivery, status, hasOpenChangeRequest: true,
+      }).includes('REQUEST_CHANGE')).toBe(false);
+      expect(getAllowedJobActions(manager, {
+        ...delivery, status, hasOpenChangeRequest: true,
+      }).includes('RESOLVE_CHANGE_REQUEST')).toBe(true);
+      expect(getAllowedJobActions(manager, { ...delivery, status })
+        .includes('RESOLVE_CHANGE_REQUEST')).toBe(false);
+    }
+    // Only the current assignee may raise one.
+    expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, delivery)).toEqual([]);
   });
 
   it('exposes accepted-stage notes for assigned Staff and conceals other Staff', () => {

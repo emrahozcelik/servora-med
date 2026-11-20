@@ -56,7 +56,7 @@ const MIGRATIONS = [
   '050_overdue_incident_scanner_source.sql',
   '051_weekly_report_foundation.sql', '052_weekly_report_recurrence.sql',
   '053_overdue_submission_reminders.sql', '054_job_action_locations_submit_approval.sql',
-  '055_job_submit_location_comparison.sql', '056_meeting_met_contact.sql', '057_sale_from_visit.sql', '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '061_weekly_report_removal.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql',
+  '055_job_submit_location_comparison.sql', '056_meeting_met_contact.sql', '057_sale_from_visit.sql', '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '061_weekly_report_removal.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql',
 
 ] as const;
 

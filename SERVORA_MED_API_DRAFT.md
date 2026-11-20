@@ -899,6 +899,82 @@ requires `followUpContinuity` ([JOB-009](DECISIONS.md)); every other JobCard mus
 - The decision is part of the idempotent request identity; a cancel without it keeps its
   previous request hash.
 
+### Change/termination request (JOB-010 release 2a, decision D1)
+
+Staff never cancel a customer's JobCard (release 2c). From release 2a the assigned Staff
+member raises a reasoned request instead; it never changes the JobCard row, status or
+version and deletes nothing. At most one request per job is `OPEN`.
+
+`POST /api/job-cards/:id/change-requests`
+
+```json
+{ "clientActionId": "uuid", "reasonCode": "CUSTOMER_POSTPONED", "reasonText": "Müşteri teslimi önümüzdeki haftaya aldı." }
+```
+
+- `reasonCode` is one of `CUSTOMER_CHANGED_MIND`, `CUSTOMER_POSTPONED`, `CUSTOMER_ABSENT`,
+  `WRONG_PRODUCT`, `MISSING_STOCK_OR_EQUIPMENT`, `VISIT_NOT_POSSIBLE`, `OTHER`;
+  `reasonText` is mandatory (trimmed, 1–2000 code points).
+- Assigned STAFF only: any other role gets `403 FORBIDDEN` before any lookup, and a STAFF
+  member who is not the current assignee (or a cross-org / unknown job) gets
+  `404 JOB_CARD_NOT_FOUND`.
+- A terminal job returns `409 JOB_NOT_ACTIVE`; a second open request returns
+  `409 CHANGE_REQUEST_ALREADY_OPEN`; a replay of the same `clientActionId` returns the
+  stored receipt.
+- The `JOB_CHANGE_REQUESTED` activity, its realtime `job.updated` event and a
+  `job.change_requested` in-app notification (plus web push when enabled) to every active
+  MANAGER/ADMIN commit in the same transaction.
+
+Response `201`:
+
+```json
+{ "jobCardId": "uuid", "changeRequestId": "uuid", "requestedAt": "2026-11-20T09:00:00.000Z" }
+```
+
+`POST /api/job-cards/:id/change-requests/:requestId/resolve`
+
+```json
+{ "clientActionId": "uuid", "resolution": "REJECTED", "note": "Müşteri teslimi bekliyor, iş devam ediyor." }
+```
+
+- MANAGER/ADMIN only: STAFF gets `403 FORBIDDEN` before any lookup; cross-org and unknown
+  jobs or requests return `404`.
+- `resolution` is `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED` or `REJECTED`.
+  `REJECTED` requires `note` (1–2000 code points); `LINKED_JOB_CREATED` requires a
+  `linkedJobCardId` that belongs to the same organization and is not this job. Both are
+  `400 VALIDATION_ERROR` otherwise.
+- An already closed request returns `409 CHANGE_REQUEST_NOT_OPEN`.
+- It records the decision only; correcting, rescheduling, creating the linked job and
+  cancelling stay the existing commands. The `JOB_CHANGE_REQUEST_RESOLVED` activity, its
+  realtime `job.updated` event and a `job.change_request_resolved` notification to the
+  requester (while still active) commit in the same transaction.
+
+Response `200`:
+
+```json
+{ "jobCardId": "uuid", "changeRequestId": "uuid", "resolution": "LINKED_JOB_CREATED",
+  "resolvedAt": "2026-11-20T11:00:00.000Z" }
+```
+
+An open request is closed by the command that ends the job's open question, inside that
+command's transaction: `cancel` writes `CANCELLED` with the cancelling actor, `approve` and
+the ADMIN `invalidate` write `SUPERSEDED`. The cancel reason stays the actor's own text.
+
+`GET /api/job-cards/change-requests/open?limit&offset`
+
+Management only (`403 FORBIDDEN` for STAFF), oldest first. Item:
+`{ changeRequestId, jobCardId, jobTitle, jobType, jobStatus, reasonCode, reasonText,
+requestedAt, requestedBy: { id, name }, customer: { id, name } | null, jobPath }`, plus
+`total`, `limit`, `offset`.
+
+The job detail exposes the currently open request as
+`changeRequest: { id, reasonCode, reasonText, requestedAt, requestedBy: { id, name } } | null`,
+and `workflowContext.allowedActions` gains `REQUEST_CHANGE` (assigned STAFF, active job, no
+open request) and `RESOLVE_CHANGE_REQUEST` (MANAGER/ADMIN, open request).
+
+While a request is open, the automatic OVR-4 submission reminders for that job pause
+(incidents are kept and manual manager reminders stay allowed) and
+`GET /:id/submission-lateness` reports `open.changeRequestOpenSince`.
+
 ### Submit requirements
 
 For `PRODUCT_DELIVERY`:
@@ -919,8 +995,11 @@ For `SALES_MEETING`, validation order is deterministic:
 2. eligible assignee
 3. actual `meetingAt`, one canonical outcome, and normalized non-empty summary
 
-`meetingAt` may be at most 15 minutes after the authoritative request time. A non-null
-follow-up must be later than the meeting; `FOLLOW_UP_REQUIRED` does not make follow-up
+`meetingAt` may be at most 15 minutes after the authoritative request time. It may be
+empty only when `outcome` is `FOLLOW_UP_REQUIRED` and a structured `unsuccessfulReason` is
+set — a visit that did not take place is submitted truthfully and never gets a fabricated
+time (JOB-010 release 2a, decision D1). Every other outcome requires it.
+A non-null follow-up must be later than the meeting; `FOLLOW_UP_REQUIRED` does not make follow-up
 mandatory. Relation failures retain `CUSTOMER_NOT_FOUND`, `CUSTOMER_INACTIVE`, and
 `ASSIGNEE_NOT_ELIGIBLE`; structured field failures return `400 MEETING_NOT_READY` with
 safe `details.fieldErrors` keys only.

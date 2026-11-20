@@ -118,6 +118,21 @@ export function getAllowedJobActions(
       actions.push('ADD_NOTE');
     }
   };
+  /**
+   * JOB-010 release 2a (D1): the assigned Staff member may always raise a
+   * change/termination request on an active job, but only one at a time.
+   * Management sees the decision action only while a request is open. Both
+   * facts are server-computed; an absent flag means "no open request".
+   */
+  const addChangeRequestActions = () => {
+    if (actor.role === 'STAFF') {
+      if (actor.id === job.assignedTo && !terminal && job.hasOpenChangeRequest !== true) {
+        actions.push('REQUEST_CHANGE');
+      }
+      return;
+    }
+    if (job.hasOpenChangeRequest === true) actions.push('RESOLVE_CHANGE_REQUEST');
+  };
   if (job.type !== 'SALES_MEETING') {
     addNoteActions();
     if (
@@ -127,6 +142,7 @@ export function getAllowedJobActions(
     ) {
       actions.push('EDIT_DELIVERY_ACTUAL_TIME');
     }
+    addChangeRequestActions();
     return actions;
   }
   if (job.status === 'WAITING_APPROVAL'
@@ -140,6 +156,7 @@ export function getAllowedJobActions(
     actions.push('EDIT_MEETING_RESULT');
   }
   addNoteActions();
+  addChangeRequestActions();
   return actions;
 }
 
@@ -195,6 +212,33 @@ export function assertCanSendSubmissionReminder(actor: JobCardActor) {
  * concealed as 404 by the service lookup.
  */
 export function assertCanGrantEarlyStartAuthorization(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+/**
+ * JOB-010 release 2a (D1): the change/termination request is a Staff power.
+ * The service additionally requires the caller to be the current assignee; a
+ * non-Staff caller is rejected with 403 before any lookup, so the route never
+ * leaks whether the job exists.
+ */
+export function assertCanCreateChangeRequest(actor: JobCardActor) {
+  if (actor.role !== 'STAFF') forbidden();
+}
+
+/**
+ * JOB-010 release 2a: the management decision is MANAGER/ADMIN only. STAFF is
+ * rejected with 403 before any lookup; cross-org jobs stay concealed as 404.
+ */
+export function assertCanResolveChangeRequest(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+/**
+ * JOB-010 release 2a: the open-request decision list is management-only for
+ * the same reason as the OVR-4 lists — it exposes every Staff member's
+ * requests across the organization.
+ */
+export function assertCanListOpenChangeRequests(actor: JobCardActor) {
   if (actor.role === 'STAFF') forbidden();
 }
 

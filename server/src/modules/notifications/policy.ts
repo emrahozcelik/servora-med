@@ -48,6 +48,17 @@ export function createJobCardNotificationDrafts(
       .map((recipientUserId) => draft(recipientUserId, kind, input.jobCardId));
   }
 
+  // JOB-010 release 2a (D1): a Staff change/termination request is addressed
+  // to every active MANAGER/ADMIN (the same recipient query as the OVR-4
+  // escalation), because a human must decide it.
+  if (input.event === 'JOB_CHANGE_REQUESTED') {
+    return excludingActor(
+      input.managementRecipients.filter((recipient) => recipient.isActive)
+        .map((recipient) => recipient.id),
+      input.actorUserId,
+    ).map((recipientUserId) => draft(recipientUserId, 'job.change_requested', input.jobCardId));
+  }
+
   if (input.event !== 'JOB_SUBMITTED_FOR_APPROVAL') return [];
   return excludingActor(
     input.managementRecipients.filter((recipient) => recipient.isActive).map((recipient) => recipient.id),

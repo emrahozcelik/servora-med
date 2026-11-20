@@ -117,10 +117,10 @@ describe('runMigrations', () => {
       '055_job_submit_location_comparison.sql',
       '056_meeting_met_contact.sql',
       '057_sale_from_visit.sql',
-      '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '061_weekly_report_removal.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql',
+      '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '061_weekly_report_removal.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('063_job_card_early_start_authorizations.sql');
-    expect(expectedSchemaVersion).toBe(63);
+    expect(migrations.at(-1)?.name).toBe('064_job_card_change_requests.sql');
+    expect(expectedSchemaVersion).toBe(64);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

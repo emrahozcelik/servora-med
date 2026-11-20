@@ -45,8 +45,10 @@ describe('PostgresReportsRepository Staff meeting outcomes', () => {
     expect(sql).toContain("jc.type = 'SALES_MEETING'");
     expect(sql).toContain("jc.status = 'COMPLETED'");
     expect(sql).toContain('jc.staff_completed_by = $2');
-    expect(sql).toContain('md.meeting_at >=');
-    expect(sql).toContain('md.meeting_at <');
+    // JOB-010 release 2a: a not-held visit is attributed to its completion
+    // instant instead of being dropped from the outcome distribution.
+    expect(sql).toContain('COALESCE(md.meeting_at, jc.staff_completed_at) >=');
+    expect(sql).toContain('COALESCE(md.meeting_at, jc.staff_completed_at) <');
     expect(sql).toContain('AT TIME ZONE organization_range.timezone');
     expect(sql).not.toMatch(/due_date|created_at|manager_approved_at|activity/i);
   });

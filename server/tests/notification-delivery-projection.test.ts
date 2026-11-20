@@ -47,7 +47,7 @@ const MIGRATIONS = [
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
   '049_job_card_lifecycle_intents.sql',
-  '050_overdue_incident_scanner_source.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql',
+  '050_overdue_incident_scanner_source.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql',
 
 ] as const;
 

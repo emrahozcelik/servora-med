@@ -95,6 +95,16 @@ class LifecycleRepository implements JobCardRepository {
   revision = { at: null as Date | null, by: null as string | null, reason: null as string | null };
   cancellation = { at: null as Date | null, by: null as string | null, reason: null as string | null };
   calendarSyncs: unknown[] = [];
+  // JOB-010 release 2a: the open request the detail projects and the closes
+  // the CANCEL / APPROVE paths write.
+  changeRequest: {
+    id: string;
+    reasonCode: 'CUSTOMER_POSTPONED';
+    reasonText: string;
+    requestedAt: string;
+    requestedBy: { id: string; name: string | null };
+  } | null = null;
+  closedChangeRequests: Array<{ resolution: string; resolvedBy: string | null }> = [];
   lifecycle = {
     createdAt: '2026-07-13T10:00:00.000Z',
     acceptedAt: null as string | null,
@@ -125,6 +135,7 @@ class LifecycleRepository implements JobCardRepository {
       earlyStartAuthorization: this.job.earlyStartAuthorized === true
         ? { grantedAt: '2026-07-13T11:00:00.000Z', grantedBy: { id: 'manager-1', name: 'Manager One' } }
         : null,
+      changeRequest: this.changeRequest,
     };
   }
 
@@ -196,6 +207,33 @@ class LifecycleRepository implements JobCardRepository {
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
       appendWebPushDeliveries: async () => [],
+      getOpenChangeRequest: async () => (this.changeRequest === null
+        ? null
+        : {
+            id: this.changeRequest.id,
+            jobCardId: this.job.id,
+            requestedBy: this.changeRequest.requestedBy.id,
+            requestedAt: new Date(this.changeRequest.requestedAt),
+            jobStatusAtRequest: this.job.status,
+            reasonCode: this.changeRequest.reasonCode,
+            reasonText: this.changeRequest.reasonText,
+            state: 'OPEN' as const,
+            resolution: null,
+            resolvedBy: null,
+            resolvedAt: null,
+            resolutionNote: null,
+            linkedJobCardId: null,
+          }),
+      getChangeRequestForUpdate: async () => null,
+      insertChangeRequest: async () => ({
+        id: 'change-request-1', requestedAt: new Date('2026-07-19T14:30:00.000Z'),
+      }),
+      closeOpenChangeRequest: async (input) => {
+        this.closedChangeRequests.push({
+          resolution: input.resolution, resolvedBy: input.resolvedBy,
+        });
+      },
+      resolveOpenChangeRequest: async () => true,
       assertCalendarAvailability: async () => {},
       synchronizeCalendarReminder: async (input) => { this.calendarSyncs.push(input); },
       getAssignee: async () => {
@@ -652,6 +690,7 @@ describe('JobCard lifecycle commands', () => {
       allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
       allowedActions: [
         'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'EDIT_DELIVERY_ACTUAL_TIME',
+        'REQUEST_CHANGE',
       ],
       startLocationCaptureEnabled: false,
       // Reader-gated: absent by default so previous web bundles keep parsing.
