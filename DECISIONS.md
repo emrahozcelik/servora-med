@@ -2802,6 +2802,8 @@ records are not rewritten.
 
 ## SEC-2026-11-18 — Expiring dev-only picomatch GHSA exception
 
+**Superseded by SEC-2026-11-20 (exception retired early).**
+
 Status: **owner-approved 18 November 2026**, conditional, temporary, and
 **automatically expires after 2 December 2026 (Europe/Istanbul)**. This
 decision does not assert vulnerability remediation. It changes only the
@@ -2934,3 +2936,24 @@ could place a visit in the evening or at night.
 - Cancelled follow-ups, a manager view of customers without an active plan and
   a "move to now and start" shortcut are separate follow-up PRs.
 - No migration, vocabulary, report or calendar-display change.
+
+## SEC-2026-11-20 — picomatch GHSA exception retired
+
+Status: accepted by the owner on 2026-11-20 ("picomatch istisnasını kaldır").
+Supersedes SEC-2026-11-18; that record stays as history.
+
+- GitHub withdrew advisory `GHSA-fc5q-39xc-vjpf` at
+  `2026-11-18T15:38:56Z`, so `npm audit` no longer reports it and the
+  exception no longer applies to any finding. It is removed before its
+  2 December expiry instead of being left as dormant code.
+- Web and server security audits return to the strict gate: any HIGH or
+  CRITICAL advisory, malformed report or unusable npm output fails. There
+  are no advisory allowlists, package exceptions or expiry windows.
+- `web/scripts/audit-picomatch-exception.mjs` and the separate
+  `npm audit --omit=dev` pass that existed only for the exception are
+  removed. The full `npm audit --json` evaluation covers production and
+  development dependencies. The stricter metadata validation (every
+  severity counter and the total) and the shared script used by both
+  workspaces stay.
+- A future exception for any advisory again requires a separate explicit
+  owner decision.

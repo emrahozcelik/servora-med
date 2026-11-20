@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Fail-closed security audit for web/server.
- * A single owner-approved, expiring picomatch advisory may pass ONLY when
- * it is dev-only and an independent production dependency audit is clean.
+ * Fail-closed security audit for web/server: any HIGH or CRITICAL advisory,
+ * malformed report or unusable npm output fails. There are no exceptions.
  * Usage from web: node scripts/audit-high-policy.mjs
  * Usage from server: node ../web/scripts/audit-high-policy.mjs --workspace server
  */
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateAudit } from './audit-high-policy-lib.mjs';
@@ -40,25 +38,11 @@ function audit(command) {
 }
 
 try {
-  const productionReport = evaluateAudit(audit('npm audit --omit=dev --json'));
-  if (!productionReport.pass) {
-    console.error('FAIL: ' + workspace + ' production dependency audit: ' + productionReport.message);
-    process.exit(1);
-  }
-  console.log('PASS: ' + workspace + ' production HIGH/CRITICAL audit — no exception applied');
-
-  // The lockfile must be committed and installed. A missing/malformed file
-  // fails closed before any exception can be considered.
-  const lockfile = JSON.parse(readFileSync(resolve(repoRoot, 'package-lock.json'), 'utf8'));
-  const result = evaluateAudit(audit('npm audit --json'), {
-    picomatchException: true,
-    lockfile,
-    now: new Date(), // CI runner clock; deliberately not overrideable by env
-  });
-  console.log(result.message);
+  const result = evaluateAudit(audit('npm audit --json'));
+  console.log(workspace + ': ' + result.message);
   if (!result.pass) process.exit(result.exitCode);
 } catch (error) {
-  console.error('FAIL: audit execution or lockfile validation failed — fail-closed');
+  console.error('FAIL: audit execution failed — fail-closed');
   if (error instanceof Error) console.error(error.message);
   process.exit(1);
 }

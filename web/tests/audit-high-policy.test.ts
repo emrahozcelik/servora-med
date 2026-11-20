@@ -351,166 +351,24 @@ describe('P3-Q — unusable command output', () => {
 });
 
 
-// ─── SECURITY-2026-11-18 — one GHSA, only dev, expires automatically ───────
+// ─── SEC-2026-11-20 — retired picomatch exception ───────────────────────────
 
-const PICOMATCH_GHSA = 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf';
-const approvedTime = new Date('2026-11-18T12:00:00Z');
-
-function picomatchReport(extra: Record<string, unknown> = {}) {
-  const vulnerabilities = {
-    picomatch: makeVuln({
-      name: 'picomatch',
-      severity: 'high',
-      via: [{ name: 'picomatch', severity: 'high', url: PICOMATCH_GHSA }],
-      effects: ['fdir', 'vite', 'vitest'],
-    }),
-    fdir: makeVuln({ name: 'fdir', severity: 'high', via: ['picomatch'] }),
-    tinyglobby: makeVuln({ name: 'tinyglobby', severity: 'high', via: ['fdir', 'picomatch'] }),
-    vite: makeVuln({ name: 'vite', severity: 'high', via: ['picomatch', 'tinyglobby'] }),
-    vitest: makeVuln({ name: 'vitest', severity: 'high', via: ['vite', 'picomatch', '@vitest/mocker'] }),
-    '@vitest/mocker': makeVuln({ name: '@vitest/mocker', severity: 'high', via: ['vite'] }),
-    ...extra,
-  };
-  const high = Object.values(vulnerabilities).filter(v => (v as { severity: string }).severity === 'high').length;
-  const critical = Object.values(vulnerabilities).filter(v => (v as { severity: string }).severity === 'critical').length;
-  return makeReport(vulnerabilities, { high, critical });
-}
-
-function approvedLockfile() {
-  return {
-    lockfileVersion: 3,
-    packages: Object.fromEntries([
-      'picomatch', 'fdir', 'tinyglobby', 'vite', 'vitest', '@vitest/mocker', '@vitejs/plugin-react',
-    ].map(name => ['node_modules/' + name, { version: name === 'picomatch' ? '4.0.7' : '1.0.0', dev: true }])),
-  };
-}
-
-function evaluateException(report = picomatchReport(), lockfile: unknown = approvedLockfile(), now = approvedTime) {
-  return evaluateAudit(report, { picomatchException: true, lockfile, now });
-}
-
-describe('SECURITY-2026-11-18 — strict temporary picomatch exception', () => {
-  it('allows the exact advisory and only dev-only transitive high chain', () => {
-    const result = evaluateException();
-    expect(result.pass).toBe(true);
-    expect(result.message).toContain('PASS WITH TEMPORARY SECURITY EXCEPTION');
-    expect(result.message).toContain('GHSA-fc5q-39xc-vjpf');
-    expect(result.message).toContain('2 December 2026');
-  });
-
-  it('accepts web plugin-react only as a verified additional high descendant', () => {
-    const withPlugin = picomatchReport({
-      '@vitejs/plugin-react': makeVuln({ name: '@vitejs/plugin-react', severity: 'high', via: ['vite'] }),
-    });
-    expect(evaluateException(withPlugin).pass).toBe(true);
-  });
-
-  it('does not enable an exception for the generic parser without explicit options', () => {
-    expect(evaluateAudit(picomatchReport()).pass).toBe(false);
-  });
-
-  it('rejects a second HIGH on an unrelated package', () => {
-    const report = picomatchReport({
-      react: makeVuln({ name: 'react', severity: 'high', via: [{ name: 'react', severity: 'high', url: PICOMATCH_GHSA }] }),
-    });
-    expect(evaluateException(report).pass).toBe(false);
-  });
-
-  it('rejects a CRITICAL even when the picomatch chain is otherwise eligible', () => {
-    const report = picomatchReport({
-      rogue: makeVuln({ name: 'rogue', severity: 'critical', via: [] }),
-    });
-    expect(evaluateException(report).pass).toBe(false);
-  });
-
-  it('rejects an additional direct advisory on picomatch', () => {
-    const report = picomatchReport({
-      picomatch: makeVuln({ name: 'picomatch', severity: 'high', via: [
-        { name: 'picomatch', severity: 'high', url: PICOMATCH_GHSA },
-        { name: 'picomatch', severity: 'high', url: 'https://github.com/advisories/GHSA-other' },
-      ] }),
-    });
-    expect(evaluateException(report).pass).toBe(false);
-  });
-
-  it('rejects wrong advisory URL even with the picomatch package name', () => {
-    const report = picomatchReport({
-      picomatch: makeVuln({ name: 'picomatch', severity: 'high', via: [
-        { name: 'picomatch', severity: 'high', url: 'https://github.com/advisories/GHSA-fake' },
-      ] }),
-    });
-    expect(evaluateException(report).pass).toBe(false);
-  });
-
-  it('rejects a transitive package with an additional direct advisory', () => {
-    const report = picomatchReport({
-      vite: makeVuln({ name: 'vite', severity: 'high', via: [
-        'picomatch', { name: 'vite', severity: 'high', url: 'https://github.com/advisories/GHSA-other' },
-      ] }),
-    });
-    expect(evaluateException(report).pass).toBe(false);
-  });
-
-  it('rejects a chain that does not lead to picomatch', () => {
-    const report = picomatchReport({
-      vite: makeVuln({ name: 'vite', severity: 'high', via: ['missing'] }),
-    });
-    expect(evaluateException(report).pass).toBe(false);
-  });
-
-  it('rejects a cyclic advisory chain', () => {
-    const report = picomatchReport({
-      vite: makeVuln({ name: 'vite', severity: 'high', via: ['tinyglobby'] }),
-      tinyglobby: makeVuln({ name: 'tinyglobby', severity: 'high', via: ['vite'] }),
-    });
-    expect(evaluateException(report).pass).toBe(false);
-  });
-
-  it('rejects any affected package marked production in the lockfile', () => {
-    const lock = approvedLockfile();
-    lock.packages['node_modules/picomatch'].dev = false;
-    expect(evaluateException(picomatchReport(), lock).pass).toBe(false);
-  });
-
-  it('rejects an affected transitive package marked production', () => {
-    const lock = approvedLockfile();
-    lock.packages['node_modules/vite'].dev = false;
-    expect(evaluateException(picomatchReport(), lock).pass).toBe(false);
-  });
-
-  it('rejects missing lockfile, missing package and wrong lockfile format', () => {
-    expect(evaluateException(picomatchReport(), null).pass).toBe(false);
-    expect(evaluateException(picomatchReport(), { lockfileVersion: 2, packages: {} }).pass).toBe(false);
-    const lock = approvedLockfile();
-    delete (lock.packages as Record<string, unknown>)['node_modules/fdir'];
-    expect(evaluateException(picomatchReport(), lock).pass).toBe(false);
-  });
-
-  it('rejects a picomatch version outside the reviewed affected range', () => {
-    const lock = approvedLockfile();
-    lock.packages['node_modules/picomatch'].version = '4.1.0';
-    expect(evaluateException(picomatchReport(), lock).pass).toBe(false);
-  });
-
-  it('is valid through 2 December 2026 Istanbul but expires at the following midnight', () => {
-    expect(evaluateException(picomatchReport(), approvedLockfile(), new Date('2026-12-02T20:59:59Z')).pass).toBe(true);
-    expect(evaluateException(picomatchReport(), approvedLockfile(), new Date('2026-12-02T21:00:00Z')).pass).toBe(false);
-  });
-
-  it('fails closed when clock is invalid or before the approval window', () => {
-    expect(evaluateException(picomatchReport(), approvedLockfile(), new Date(NaN)).pass).toBe(false);
-    expect(evaluateException(picomatchReport(), approvedLockfile(), new Date('2026-11-17T15:00:00Z')).pass).toBe(false);
-  });
-
-  it('fails closed for metadata inconsistencies and malformed JSON', () => {
-    const bad = JSON.parse(picomatchReport());
-    bad.metadata.vulnerabilities.high = 1;
-    expect(evaluateException(JSON.stringify(bad)).pass).toBe(false);
-    expect(evaluateException('{').pass).toBe(false);
-  });
-
-  it('production audit is always evaluated without the exception', () => {
-    expect(evaluateAudit(makeReport({})).pass).toBe(true);
-    expect(evaluateAudit(picomatchReport()).pass).toBe(false);
+describe('SEC-2026-11-20 — formerly excepted picomatch chain', () => {
+  it('the dev-only GHSA-fc5q-39xc-vjpf chain that SEC-2026-11-18 accepted now fails', () => {
+    const vulnerabilities = {
+      picomatch: makeVuln({
+        name: 'picomatch',
+        severity: 'high',
+        via: [{ name: 'picomatch', severity: 'high', url: 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf' }],
+        effects: ['fdir', 'vite'],
+      }),
+      fdir: makeVuln({ name: 'fdir', severity: 'high', via: ['picomatch'] }),
+      vite: makeVuln({ name: 'vite', severity: 'high', via: ['picomatch', 'fdir'] }),
+    };
+    const result = evaluateAudit(makeReport(vulnerabilities, { high: 3, critical: 0 }));
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('high severity advisory bulundu: picomatch, fdir, vite');
+    expect(result.message).not.toContain('EXCEPTION');
   });
 });

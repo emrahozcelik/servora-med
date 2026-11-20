@@ -1,14 +1,11 @@
 // @ts-check
 
-import { checkPicomatchException } from './audit-picomatch-exception.mjs';
-
 /**
  * audit-high-policy-lib.mjs
  *
  * Generic npm audit high/critical gate. Fail-closed.
- * The sole owner-approved picomatch ReDoS exception requires explicit context,
- * exact advisory verification, dev-only lockfile proof, production re-audit
- * and an expiring deadline. All other HIGH/CRITICAL entries fail.
+ * There are no advisory allowlists and no exceptions: any HIGH or CRITICAL
+ * entry fails, and any malformed report fails.
  */
 
 /**
@@ -58,10 +55,9 @@ function validateVulnShape(vuln) {
  * metadata high/critical consistency → high/critical decision.
  *
  * @param {string} auditJson - Raw JSON from `npm audit --json`
- * @param {{picomatchException?: boolean, lockfile?: unknown, now?: Date}} [options]
  * @returns {AuditResult}
  */
-export function evaluateAudit(auditJson, options = {}) {
+export function evaluateAudit(auditJson) {
   /** @type {any} */
   let report;
   try {
@@ -143,19 +139,10 @@ export function evaluateAudit(auditJson, options = {}) {
     return fail('FAIL: metadata total count mismatch — fail-closed');
   }
 
-  // CRITICAL always blocks; the single approved exception is HIGH-only.
   if (criticalCount > 0) {
     return fail(`FAIL: critical severity advisory bulundu: ${criticalNames.join(', ')}`);
   }
   if (highCount > 0) {
-    if (options.picomatchException === true) {
-      const result = checkPicomatchException(report.vulnerabilities, options.lockfile, options.now);
-      if (result.allowed) {
-        return { pass: true, exitCode: 0, message: 'PASS WITH TEMPORARY SECURITY EXCEPTION: ' + result.reason };
-      }
-      return fail('FAIL: high severity advisory bulundu: ' + highNames.join(', ')
-        + '; exception denied: ' + result.reason);
-    }
     return fail(`FAIL: high severity advisory bulundu: ${highNames.join(', ')}`);
   }
 
