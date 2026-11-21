@@ -94,6 +94,8 @@ describe('OpenSubmissionLateSection (UI polish slice A)', () => {
       accountableRole: 'STAFF', accountableSource: 'ASSIGNMENT_AT_BREACH', accountableUser: null,
       source: 'SCANNER', recordedAt: '2026-10-06T03:58:00.000Z',
       recoveredAt: '2026-10-06T05:00:00.000Z', recoveryActor: null,
+      endedAt: null, endedBy: null, endReason: null, endNote: null,
+      endedByScheduleRevisionNo: null, endedDurationSeconds: null,
       totalDelaySeconds: 3745, manualReminderSentAt: null, manualReminderCount: 0,
       postReminderDelaySeconds: null,
     } as const;
@@ -105,6 +107,34 @@ describe('OpenSubmissionLateSection (UI polish slice A)', () => {
     expect(approval).toContain('Onay süresi sonu:');
     expect(approval).not.toContain('gönderim');
     expect(historyDetail({ ...base, delayType: 'LATE_SUBMISSION' })).toContain('Son gönderim zamanı:');
+  });
+
+  it('shows a deadline-extension ending instead of a recovery or ongoing wording', () => {
+    const endedAt = '2026-11-21T08:30:00.000Z';
+    const ended = {
+      id: 'i-ended', delayType: 'LATE_SUBMISSION', episodeNo: 2, scheduleRevisionNo: 3,
+      deadlineAt: '2026-11-20T09:00:00.000Z', breachedAt: '2026-11-20T10:00:00.000Z',
+      accountableRole: 'STAFF', accountableSource: 'ASSIGNMENT_AT_BREACH', accountableUser: null,
+      source: 'MUTATION', recordedAt: '2026-11-20T10:00:01.000Z',
+      recoveredAt: null, recoveryActor: null,
+      endedAt, endedBy: { id: 'm1', name: 'Dr. Mert Yönetici' },
+      endReason: 'DEADLINE_EXTENDED' as const, endNote: 'Müşteri yeni tarihi onayladı',
+      endedByScheduleRevisionNo: 4, endedDurationSeconds: 90_061,
+      totalDelaySeconds: null, manualReminderSentAt: null, manualReminderCount: 1,
+      postReminderDelaySeconds: null,
+    };
+    const detail = historyDetail(ended);
+    expect(detail).toContain(`Tarih uzatılmasıyla sonlandırıldı: ${
+      new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+        .format(new Date(endedAt))
+    }`);
+    expect(detail).toContain('Sonlandıran: Dr. Mert Yönetici');
+    expect(detail).toContain('Gerekçe: Müşteri yeni tarihi onayladı');
+    expect(detail).toContain('Sonlandırılana kadar: 1 gün 1 saat');
+    expect(detail).not.toContain('Devam eden gecikme');
+    expect(detail).not.toContain('Gecikme bitişi');
+    expect(detail).not.toContain('Toplam gecikme');
+    expect(historyDetail({ ...ended, endedBy: null })).toContain('Sonlandıran: Belirtilmedi');
   });
 
   it('keeps title and metadata in distinct elements', async () => {
@@ -138,6 +168,12 @@ const historyRows: OverdueIncidentHistoryItem[] = Array.from({ length: 13 }, (_,
   recordedAt: '2026-10-06T03:58:00.000Z',
   recoveredAt: null,
   recoveryActor: null,
+  endedAt: null,
+  endedBy: null,
+  endReason: null,
+  endNote: null,
+  endedByScheduleRevisionNo: null,
+  endedDurationSeconds: null,
   totalDelaySeconds: null,
   manualReminderSentAt: null,
   manualReminderCount: 0,
