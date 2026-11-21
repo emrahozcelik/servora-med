@@ -10,7 +10,7 @@ import type {
  * Organization-local period window for a report: `periodStart` 00:00
  * (inclusive) → `periodEnd + 1 day` 00:00 (exclusive), resolved with the
  * local-calendar authority so DST transitions cannot shift the boundary.
- * Workweek reports (`periodEnd = periodStart + 4`) yield Monday → Saturday
+ * Working-week reports (`periodEnd = periodStart + 5`) yield Monday → Sunday
  * 00:00; legacy 7-day reports (`periodEnd = periodStart + 6`) keep Monday →
  * next Monday 00:00.
  */

@@ -78,15 +78,15 @@ const V1_SECTION_LABELS: SectionSpec[] = [
   { key: 'supportNeeded', label: 'Yöneticiden destek beklenen konular' },
 ];
 
-/** Workweek (Monday–Friday) section order and labels. */
-const WORKWEEK_SECTION_LABELS: SectionSpec[] = [
+/** Working-week (Monday–Saturday) section order and labels. */
+const WORKING_WEEK_SECTION_LABELS: SectionSpec[] = [
   { key: 'summary', label: 'Bu hafta' },
   { key: 'blockers', label: 'Sorunlar ve destek ihtiyacı' },
   { key: 'nextWeekPlan', label: 'Gelecek hafta planı' },
 ];
 
-/** Legacy-only body sections rendered with V1 labels if a workweek submission still carries text. */
-const LEGACY_WORKWEEK_FALLBACK_LABELS: SectionSpec[] = [
+/** Legacy-only body sections rendered with V1 labels if a working-week submission still carries text. */
+const LEGACY_WORKING_WEEK_FALLBACK_LABELS: SectionSpec[] = [
   { key: 'highlights', label: 'Öne çıkan çalışmalar' },
   { key: 'fieldObservations', label: 'Müşteri / saha gözlemleri' },
   { key: 'supportNeeded', label: 'Yöneticiden destek beklenen konular' },
@@ -113,18 +113,18 @@ function optionalSection(value: string | null): string | null {
 }
 
 function buildSections(submission: WeeklyReportSubmission): WeeklyReportPdfSection[] {
-  const isWorkweek = submission.periodEnd === addCalendarDaysToDateKey(submission.periodStart, 4);
-  if (!isWorkweek) {
+  const isWorkingWeek = submission.periodEnd === addCalendarDaysToDateKey(submission.periodStart, 5);
+  if (!isWorkingWeek) {
     return V1_SECTION_LABELS.map((section) => ({
       label: section.label,
       value: optionalSection(submission.body[section.key]),
     }));
   }
-  const sections: WeeklyReportPdfSection[] = WORKWEEK_SECTION_LABELS.map((section) => ({
+  const sections: WeeklyReportPdfSection[] = WORKING_WEEK_SECTION_LABELS.map((section) => ({
     label: section.label,
     value: optionalSection(submission.body[section.key]),
   }));
-  for (const legacy of LEGACY_WORKWEEK_FALLBACK_LABELS) {
+  for (const legacy of LEGACY_WORKING_WEEK_FALLBACK_LABELS) {
     const value = optionalSection(submission.body[legacy.key]);
     if (value !== null) {
       sections.push({ label: legacy.label, value });

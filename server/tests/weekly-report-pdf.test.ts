@@ -143,11 +143,11 @@ describe('Weekly Report PDF — document model', () => {
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
   });
 
-  it('renders workweek submissions (period_end = period_start + 4) with the three D5 labels and optional legacy text', () => {
-    const cleanWorkweek = buildWeeklyReportPdfDocumentModel({
+  it('renders working-week submissions (period_end = period_start + 5) with the three D5 labels and optional legacy text', () => {
+    const cleanWorkingWeek = buildWeeklyReportPdfDocumentModel({
       submission: submission({
         periodStart: '2026-09-21',
-        periodEnd: '2026-09-25',
+        periodEnd: '2026-09-26',
         body: {
           summary: 'Çalışma haftası özeti',
           blockers: null,
@@ -159,7 +159,7 @@ describe('Weekly Report PDF — document model', () => {
       }),
       staffName: 'Ayşe',
     });
-    expect(cleanWorkweek.sections).toEqual([
+    expect(cleanWorkingWeek.sections).toEqual([
       { label: 'Bu hafta', value: 'Çalışma haftası özeti' },
       { label: 'Sorunlar ve destek ihtiyacı', value: null },
       { label: 'Gelecek hafta planı', value: 'Gelecek hafta planı' },
@@ -168,7 +168,7 @@ describe('Weekly Report PDF — document model', () => {
     const withLegacyText = buildWeeklyReportPdfDocumentModel({
       submission: submission({
         periodStart: '2026-09-21',
-        periodEnd: '2026-09-25',
+        periodEnd: '2026-09-26',
         body: {
           summary: 'Özet',
           blockers: 'Sorun',
