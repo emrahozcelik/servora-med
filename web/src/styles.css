@@ -2267,9 +2267,26 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   color: var(--ink);
 }
 .weekly-existing-notice-message {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
   margin: 0;
   font-weight: 620;
   line-height: 1.45;
+}
+.weekly-existing-notice-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid var(--border-warning);
+  border-radius: 50%;
+  color: var(--warning);
+  background: var(--warning-soft);
+  font-size: 0.8rem;
+  font-weight: 800;
 }
 .weekly-existing-notice-hint {
   margin: 0.35rem 0 0;
@@ -2277,10 +2294,83 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-size: 0.875rem;
   line-height: 1.45;
 }
+.weekly-existing-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.weekly-existing-notice-link {
+  text-decoration: none;
+}
+.weekly-existing-error-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding-inline: 0.25rem;
+}
 .weekly-existing-hint {
   display: block;
   margin-top: 0.35rem;
   font-weight: 450;
+}
+.weekly-bulk-result-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.weekly-bulk-result-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+.bulk-result-name {
+  min-width: 0;
+  font-weight: 620;
+  overflow-wrap: break-word;
+}
+.bulk-result-outcome {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-chip);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.bulk-result-outcome--created {
+  border-color: var(--border-success);
+  color: var(--success);
+  background: var(--success-soft);
+}
+.bulk-result-outcome--existing {
+  border-color: var(--border-warning);
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.weekly-bulk-result-link {
+  min-width: 0;
+  text-decoration: none;
+  white-space: nowrap;
+}
+@media (max-width: 479px) {
+  .weekly-bulk-result-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .weekly-bulk-result-link {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
 }
 /* "+ Özel soru ekle" is a content-width action, not a stretched grid item. */
 .weekly-question-actions {
@@ -2353,6 +2443,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--canvas);
   color: var(--muted);
 }
+.weekly-report-editor fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .weekly-report-section { display: grid; gap: 0.85rem; min-width: 0; }
 .weekly-report-section + .weekly-report-section { margin-top: 1.35rem; }
 .weekly-report-section .field-group { margin-top: 0; }
@@ -2368,6 +2464,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   padding-top: 0.9rem;
   border-top: 1px dashed var(--rule);
   min-width: 0;
+}
+.weekly-legacy-fields .form-help {
+  margin: 0;
 }
 .weekly-subsection-heading {
   margin: 0;
@@ -2408,22 +2507,26 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   line-height: 1.45;
 }
 .weekly-mobile-readiness-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.75rem;
+  display: grid;
+  gap: 0.35rem;
   margin: 0;
   padding: 0;
   list-style: none;
   min-width: 0;
 }
 .weekly-mobile-readiness-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.15rem 0.45rem;
   min-width: 0;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
+}
+.weekly-mobile-readiness-text {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 .weekly-mobile-readiness-item--met {
   color: var(--success);
@@ -2435,11 +2538,23 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .weekly-mobile-readiness-state {
   font-weight: 650;
 }
+.weekly-save-status {
+  margin-top: 0.85rem;
+  margin-bottom: 0;
+}
+.weekly-editor-blocked-hint {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
 .weekly-mobile-sticky-submit {
   display: none;
 }
-@media (min-width: 768px) {
-  .weekly-mobile-readiness {
+@media (min-width: 64rem) {
+  .weekly-mobile-readiness,
+  .weekly-editor-blocked-hint {
     display: none;
   }
 }
@@ -5710,9 +5825,26 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   .review-buttons .compact-button { min-height: var(--control-height); }
 }
 
-@media (max-width: 767px) {
-  /* WR-WEEK mobile Staff save/submit bar: stays reachable while filling the
-     form without scrolling past it; clears .mobile-bottom-nav inside AppShell. */
+@media (max-width: 63.9375rem) {
+  /* WR-WEEK mobile/tablet Staff save/submit bar: stays reachable while filling
+     the form without scrolling past the single-column rail (< 64rem); clears
+     .mobile-bottom-nav inside AppShell without duplicate safe-area padding. */
+  html:has(.weekly-editor-actions) {
+    scroll-padding-bottom: 9.5rem;
+  }
+  html:has(.authenticated-shell--mobile .weekly-editor-actions) {
+    scroll-padding-bottom: calc(13.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .weekly-report-editor textarea,
+  .weekly-report-editor input,
+  .weekly-report-editor button {
+    scroll-margin-bottom: 9.5rem;
+  }
+  .authenticated-shell--mobile .weekly-report-editor textarea,
+  .authenticated-shell--mobile .weekly-report-editor input,
+  .authenticated-shell--mobile .weekly-report-editor button {
+    scroll-margin-bottom: calc(13.5rem + env(safe-area-inset-bottom, 0px));
+  }
   .weekly-editor-actions.form-actions {
     position: sticky;
     bottom: 0;
@@ -5730,11 +5862,14 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   }
   .authenticated-shell--mobile .weekly-editor-actions.form-actions {
     bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: 0.75rem;
   }
   .weekly-editor-actions.form-actions button {
     width: auto;
-    flex: 1 1 8.5rem;
+    min-width: 0;
+    flex: 1 1 auto;
     min-height: var(--control-height);
+    padding-inline: 0.6rem;
   }
   .weekly-editor-actions[data-dirty="false"]:has(.weekly-mobile-sticky-submit) > button[type="submit"] {
     border-color: var(--rule);
@@ -5747,5 +5882,53 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   }
   .weekly-mobile-sticky-submit {
     display: inline-flex;
+  }
+  /* Avoid duplicate primary button in focus order while sticky primary is active. */
+  [data-weekly-report-detail="true"]:has(.weekly-mobile-sticky-submit) [data-job-decision-panel="true"] .review-buttons > .primary-button {
+    display: none;
+  }
+}
+@media (max-width: 63.9375rem) and (max-height: 540px), (max-width: 359px) {
+  html:has(.weekly-editor-actions),
+  html:has(.authenticated-shell--mobile .weekly-editor-actions) {
+    scroll-padding-bottom: 5.5rem;
+  }
+  .weekly-report-editor textarea,
+  .weekly-report-editor input,
+  .weekly-report-editor button,
+  .authenticated-shell--mobile .weekly-report-editor textarea,
+  .authenticated-shell--mobile .weekly-report-editor input,
+  .authenticated-shell--mobile .weekly-report-editor button {
+    scroll-margin-bottom: 5.5rem;
+  }
+  .weekly-editor-actions.form-actions,
+  .authenticated-shell--mobile .weekly-editor-actions.form-actions {
+    position: static;
+    bottom: auto;
+    margin: 1.25rem 0 0;
+    padding: 0.75rem 0 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+}
+@media (max-width: 479px) {
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-view > table,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-view > table > tbody,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-row,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-label,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-content {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-label {
+    border-inline-end: 0;
+    border-bottom: 0;
+    padding-bottom: 0.25rem;
+  }
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-content {
+    border-inline-end: 0;
+    padding-top: 0.25rem;
   }
 }

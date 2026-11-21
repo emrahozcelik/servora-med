@@ -272,11 +272,34 @@ describe('Weekly report create screen', () => {
     expect(host.textContent).toContain('Pazartesi günü başlamalıdır');
   });
 
-  it('falls back to manual date input when the organization calendar fails to load', async () => {
+  it('falls back to manual date input without guessing a deadline when the organization calendar fails to load', async () => {
     weeklyApi.getWeeklyReportReference.mockRejectedValueOnce(new Error('network error'));
     await render(staffUser);
-    expect(host.querySelector('#weekly-period')).not.toBeNull();
+    const input = host.querySelector('#weekly-period') as HTMLInputElement;
+    expect(input).not.toBeNull();
     expect(host.textContent).toContain('Organizasyon takvimi yüklenemedi');
+    change(input, '2026-11-02');
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 2–7 Kasım 2026 · Son teslim tarihi sunucuda belirlenir');
+  });
+
+  it('hides the manual date input while loading reference and disables STAFF empty submit until ready', async () => {
+    let resolveReference!: (value: typeof REFERENCE) => void;
+    weeklyApi.getWeeklyReportReference.mockReturnValueOnce(
+      new Promise((resolve) => { resolveReference = resolve; }),
+    );
+    await render(staffUser);
+    expect(host.querySelector('#weekly-period')).toBeNull();
+    const submitBtn = host.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submitBtn.disabled).toBe(true);
+
+    await act(async () => {
+      resolveReference(REFERENCE);
+      await flush();
+    });
+    expect(submitBtn.disabled).toBe(false);
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 3–8 Ağustos 2026 · Son teslim 10 Ağustos Pazartesi');
   });
 
   it('prefills the removed report week and Staff without creating or copying content automatically', async () => {
@@ -506,8 +529,14 @@ describe('Weekly report create screen', () => {
     expect(notice).not.toBeNull();
     expect(notice!.textContent).toContain('Bu personelin bu hafta için raporu zaten var.');
     expect(notice!.textContent).toContain('Admin');
-    const link = notice!.querySelector('a[href="/jobs/job-9"]');
+    const link = notice!.querySelector('a.weekly-existing-notice-link[href="/jobs/job-9"]');
     expect(link?.textContent).toBe('Mevcut rapora git');
+
+    // Clearing staff selection and failing validation clears the prior existing notice.
+    await clickButton('Seçimi temizle');
+    await act(async () => { submit(); await flush(); });
+    expect(host.querySelector('#weekly-existing-notice')).toBeNull();
+    expect(host.querySelector('.form-error')).not.toBeNull();
   });
 
   it('summarises mixed created and existing outcomes accurately in Turkish without false claims (D8 / A13)', async () => {
@@ -529,11 +558,12 @@ describe('Weekly report create screen', () => {
     expect(host.textContent).toContain('3–8 Ağustos 2026');
     expect(host.textContent).not.toContain('Her personel için ayrı bir haftalık rapor oluşturuldu');
     expect(host.textContent).toContain('Admin');
-    const rows = Array.from(host.querySelectorAll('#weekly-bulk-result-items li'));
+    const rows = Array.from(host.querySelectorAll('#weekly-bulk-result-items.weekly-bulk-result-list li.weekly-bulk-result-row'));
     expect(rows).toHaveLength(2);
     expect(rows[0]!.textContent).toContain('Ayşe Personel');
-    expect(rows[0]!.querySelector('a')?.getAttribute('href')).toBe('/jobs/job-1');
-    expect(rows[1]!.textContent).toContain('Zaten mevcut');
+    expect(rows[0]!.querySelector('.bulk-result-outcome--created')?.textContent).toBe('Oluşturuldu');
+    expect(rows[0]!.querySelector('a.weekly-bulk-result-link')?.getAttribute('href')).toBe('/jobs/job-1');
+    expect(rows[1]!.querySelector('.bulk-result-outcome--existing')?.textContent).toBe('Zaten mevcut');
     expect(host.querySelector('.form-error')).toBeNull();
   });
 

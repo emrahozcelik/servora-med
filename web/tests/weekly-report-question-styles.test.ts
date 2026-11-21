@@ -59,16 +59,25 @@ describe('weekly report manager-question editor and WR-WEEK styles contract', ()
     expect(radio).not.toContain('!important');
   });
 
-  it('keeps mobile sticky editor actions and readiness summary scoped below 768px with DESIGN tokens', () => {
-    expect(css).toMatch(/@media\s*\(min-width:\s*768px\)\s*\{[\s\S]*?\.weekly-mobile-readiness\s*\{[^}]*display:\s*none/s);
-    const mobileBlock = css.slice(css.indexOf('@media (max-width: 767px)'));
+  it('keeps mobile/tablet sticky editor actions and readiness summary scoped below 64rem with DESIGN tokens and tight-height fallback', () => {
+    expect(css).toMatch(/@media\s*\(min-width:\s*64rem\)\s*\{[\s\S]*?\.weekly-mobile-readiness[\s\S]*?display:\s*none/s);
+    const mobileBlock = css.slice(css.indexOf('@media (max-width: 63.9375rem)'));
     expect(mobileBlock).toContain('.weekly-editor-actions.form-actions');
     expect(mobileBlock).toContain('position: sticky');
+    expect(mobileBlock).toContain('scroll-margin-bottom');
+    expect(mobileBlock).toContain('scroll-padding-bottom');
     expect(mobileBlock).toContain('var(--paper)');
     expect(mobileBlock).toContain('var(--rule)');
     expect(mobileBlock).toContain('var(--shadow-raised)');
     expect(mobileBlock).toContain('var(--control-height)');
+    expect(mobileBlock).toContain('max-height: 540px');
+    expect(mobileBlock).toContain('max-width: 359px');
+    expect(mobileBlock).toContain('position: static');
     expect(mobileBlock).not.toContain('backdrop-filter');
+    expect(ruleFor('.weekly-report-editor fieldset')).toContain('border: 0');
+    expect(ruleFor('.weekly-mobile-readiness-item')).toContain('display: grid');
+    expect(ruleFor('.weekly-bulk-result-list')).toContain('list-style: none');
+    expect(css).toMatch(/@media\s*\(max-width:\s*479px\)[\s\S]*?\[data-weekly-report-detail="true"\]\s*\.servora-ant-descriptions/s);
   });
 
   it('does not introduce a global .field-row rule', () => {

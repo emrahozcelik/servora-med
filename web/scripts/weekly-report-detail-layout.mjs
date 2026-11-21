@@ -312,8 +312,10 @@ async function measure(page) {
     }));
 
     const primaryButton = decisionPanel?.querySelector('.primary-button') ?? null;
+    const primaryVisible = primaryButton !== null && getComputedStyle(primaryButton).display !== 'none';
 
     const editorBlock = host.querySelector('[data-job-detail-block="weekly-report-editor"]');
+    const editorFieldset = editorBlock?.querySelector('fieldset') ?? null;
     const editorForm = editorBlock?.querySelector('form') ?? null;
     const readiness = host.querySelector('[data-weekly-mobile-readiness="true"]');
     const readinessStyle = readiness ? getComputedStyle(readiness) : null;
@@ -346,7 +348,7 @@ async function measure(page) {
       main: main ? rect(main) : null,
       timeline: timeline ? rect(timeline) : null,
       primary: primaryButton
-        ? { text: text(primaryButton), classes: primaryButton.className, ...rect(primaryButton) }
+        ? { text: text(primaryButton), classes: primaryButton.className, visible: primaryVisible, ...rect(primaryButton) }
         : null,
       primaryInRail: primaryButton !== null && rail !== null && rail.contains(primaryButton),
       destructive: [...host.querySelectorAll('.destructive-button')].map((button) => ({
@@ -363,9 +365,14 @@ async function measure(page) {
         ? Math.max(...textareas.map((area) => area.getBoundingClientRect().width))
         : 0,
       editor: editorBlock !== null,
+      editorFieldsetBorderTop: editorFieldset ? parseFloat(getComputedStyle(editorFieldset).borderTopWidth) : 0,
       editorForm: editorForm ? rect(editorForm) : null,
       readiness: readiness && readinessStyle && readinessStyle.display !== 'none'
-        ? { ...rect(readiness), text: text(readiness) }
+        ? {
+            ...rect(readiness),
+            readyClass: readiness.classList.contains('weekly-mobile-readiness--ready'),
+            text: text(readiness),
+          }
         : null,
       stickyBar: stickyBar ? { ...rect(stickyBar), position: getComputedStyle(stickyBar).position, buttons: stickyButtons } : null,
       locked: host.querySelector('[data-job-detail-block="weekly-report-locked"]') !== null,
@@ -446,14 +453,32 @@ function checkState(measurement, spec, viewport, failures) {
   if (spec.labelSuffix === '-legacy' && !measurement.frozenText.includes('Eski dönem öne çıkan çalışmalar.')) {
     failures.push(`${label}: legacy 7-day frozen report omitted stored legacy body field`);
   }
+  if (spec.editor && measurement.editorFieldsetBorderTop > 0) {
+    failures.push(`${label}: unreset fieldset borderTopWidth ${measurement.editorFieldsetBorderTop}px`);
+  }
   if (spec.editor) {
-    if (viewport.width <= 767) {
+    const isSingleColumn = viewport.width < DESKTOP_MIN_WIDTH_PX;
+    if (isSingleColumn) {
       if (!measurement.readiness || !measurement.editorForm || measurement.readiness.bottom > measurement.editorForm.top + 1) {
         failures.push(`${label}: mobile readiness summary missing or not above editor form`);
+      } else if (spec.name === 'ACCEPTED') {
+        if (measurement.readiness.readyClass) {
+          failures.push(`${label}: ACCEPTED readiness must not render green --ready state`);
+        }
+        if (!measurement.readiness.text.includes('önce işi başlatın')) {
+          failures.push(`${label}: ACCEPTED readiness missing neutral start guidance`);
+        }
       }
-      if (!measurement.stickyBar || measurement.stickyBar.position !== 'sticky') {
-        failures.push(`${label}: mobile sticky editor actions bar missing or not sticky`);
+      if (!measurement.stickyBar) {
+        failures.push(`${label}: mobile editor actions bar missing`);
       } else {
+        const expectSticky = viewport.width >= 360 && viewport.height > 540;
+        if (expectSticky && measurement.stickyBar.position !== 'sticky') {
+          failures.push(`${label}: expected sticky editor actions bar, got "${measurement.stickyBar.position}"`);
+        }
+        if (!expectSticky && measurement.stickyBar.position === 'sticky') {
+          failures.push(`${label}: editor actions bar should not stay sticky below 360px or 540px height`);
+        }
         const visibleSticky = measurement.stickyBar.buttons.filter((b) => b.visible);
         if (visibleSticky.length < 2) {
           failures.push(`${label}: expected save + primary action in mobile sticky bar, got ${JSON.stringify(visibleSticky)}`);
@@ -462,7 +487,13 @@ function checkState(measurement, spec, viewport, failures) {
           if (btn.width < 44 || btn.height < 44) {
             failures.push(`${label}: mobile sticky button "${btn.text}" target too small (${btn.width.toFixed(1)}x${btn.height.toFixed(1)})`);
           }
+          if (viewport.width === 390 && btn.height > 56) {
+            failures.push(`${label}: sticky button "${btn.text}" wrapped at 390px (${btn.height.toFixed(1)}px tall)`);
+          }
         }
+      }
+      if (measurement.primary?.visible) {
+        failures.push(`${label}: duplicate rail primary button still visible below 64rem alongside sticky bar`);
       }
     } else {
       if (measurement.readiness !== null) {
@@ -569,6 +600,17 @@ async function runCase(browser, baseUrl, viewport, spec, failures) {
     checkState(measurement, spec, viewport, failures);
 
     if (spec.editor && viewport.width === 390) {
+      await page.locator('#weekly-answer-q1').focus();
+      const focusClearance = await page.evaluate(() => {
+        const field = document.querySelector('#weekly-answer-q1');
+        const bar = document.querySelector('[data-weekly-editor-actions="true"]');
+        const fieldRect = field ? field.getBoundingClientRect() : null;
+        const barRect = bar ? bar.getBoundingClientRect() : null;
+        return { fieldBottom: fieldRect?.bottom ?? null, barTop: barRect?.top ?? null };
+      });
+      if (focusClearance.fieldBottom !== null && focusClearance.barTop !== null && focusClearance.fieldBottom > focusClearance.barTop + 1) {
+        failures.push(`${label}: focused field covered by sticky bar (${JSON.stringify(focusClearance)})`);
+      }
       await page.locator('[data-job-detail-block="weekly-report-editor"]').scrollIntoViewIfNeeded();
       const stickyInViewport = await page.evaluate(() => {
         const bar = document.querySelector('[data-weekly-editor-actions="true"]');
@@ -582,6 +624,16 @@ async function runCase(browser, baseUrl, viewport, spec, failures) {
       if (!stickyInViewport || stickyInViewport.some((b) => b.top < 0 || b.bottom > b.viewportHeight + 1)) {
         failures.push(`${label}: sticky save/submit actions not reachable inside viewport while editing form (${JSON.stringify(stickyInViewport)})`);
       }
+      // Tight height check (simulated soft keyboard): sticky bar disengages.
+      await page.setViewportSize({ width: 390, height: 500 });
+      const tightPosition = await page.evaluate(() => {
+        const bar = document.querySelector('[data-weekly-editor-actions="true"]');
+        return bar ? getComputedStyle(bar).position : null;
+      });
+      if (tightPosition === 'sticky') {
+        failures.push(`${label}: sticky bar should disengage at tight viewport height 500px`);
+      }
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
     }
 
     console.log(JSON.stringify({

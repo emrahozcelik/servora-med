@@ -275,6 +275,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const [saving, setSaving] = useState(false);
   const [removalBusy,setRemovalBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [saveNotice, setSaveNotice] = useState('');
   const [actionError, setActionError] = useState('');
   /**
    * Slice 2 advisory post-submit notice (neutral, non-error). Set only on a
@@ -292,6 +293,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   const loadGeneration = useRef(0);
   const formRef = useRef<FormState | null>(null);
+  const dialogTriggerRef = useRef<HTMLButtonElement | null>(null);
   const attemptRef = useRef<LifecycleAttempt | null>(null);
   /**
    * Synchronous lifecycle ownership. React `pending` state only flips after a
@@ -391,6 +393,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     attemptRef.current = null;
     setAmbiguous(false);
     setActionNotice('');
+    setSaveNotice('');
     return () => {
       lifecycleSession.current.active = false;
     };
@@ -445,12 +448,14 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   function setDraftField(key: keyof WeeklyReportDraft, value: string) {
     const current = formRef.current;
     if (!current) return;
+    setSaveNotice('');
     applyForm({ ...current, draft: { ...current.draft, [key]: value } });
   }
 
   function setAnswer(questionKey: string, answer: string) {
     const current = formRef.current;
     if (!current) return;
+    setSaveNotice('');
     const answers = current.answers.some((entry) => entry.questionKey === questionKey)
       ? current.answers.map((entry) => (entry.questionKey === questionKey ? { ...entry, answer } : entry))
       : [...current.answers, { questionKey, answer }];
@@ -461,7 +466,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     event.preventDefault();
     const current = formRef.current;
     if (saving || !current) return;
-    setSaving(true); setSaveError('');
+    setSaving(true); setSaveError(''); setSaveNotice('');
     try {
       const updated = await patchWeeklyReportDraft(jobCardId, {
         expectedVersion: current.baseline.version,
@@ -478,6 +483,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           version: updated.version,
         },
       });
+      setSaveNotice('Taslak kaydedildi.');
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
         // Never discard the user's local edits. Refresh the server-side
@@ -547,7 +553,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     if (retained !== null && retained.command !== command) return;
     lifecycleInFlight.current = true;
     const operationJobId = jobCardId;
-    setPending(true); setActionError(''); setActionNotice('');
+    setPending(true); setActionError(''); setActionNotice(''); setSaveNotice('');
     try {
       if (retained === null) {
         const input: LifecycleAttempt['input'] = {
@@ -672,7 +678,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   }
 
   function onCommand(command: LifecycleCommand, trigger: HTMLButtonElement) {
-    void trigger;
+    dialogTriggerRef.current = trigger;
     if (ambiguous || blockedCommands.has(command)) {
       if (submitBlockedReason !== null) setActionError(submitBlockedReason);
       return;
@@ -737,6 +743,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const allRequirementsMet = presentation.requirements.length > 0
     && metRequirementCount === presentation.requirements.length
     && submitBlockedReason === null;
+  const readyToSubmitNow = loadedJob.status === 'IN_PROGRESS' && allRequirementsMet;
 
   const reportFacts: RecordDescriptionItem[] = [
     { key: 'assignee', label: 'Personel', content: loadedJob.assignee.name },
@@ -930,39 +937,46 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
             <h2 id="weekly-report-title">Haftalık rapor</h2>
             {showRequirements && (
               <div
-                className={allRequirementsMet
+                className={readyToSubmitNow
                   ? 'weekly-mobile-readiness weekly-mobile-readiness--ready'
                   : 'weekly-mobile-readiness'}
                 data-weekly-mobile-readiness="true"
                 role="region"
                 aria-label="Kontrole hazırlık özeti"
+                aria-live="polite"
               >
                 <p className="weekly-mobile-readiness-summary">
-                  <span aria-hidden="true">{allRequirementsMet ? '✓' : '○'}</span>
+                  <span aria-hidden="true">{readyToSubmitNow ? '✓' : '○'}</span>
                   <span>
-                    {allRequirementsMet
+                    {readyToSubmitNow
                       ? `Kontrole hazır (${metRequirementCount}/${presentation.requirements.length})`
-                      : `Kontrole hazırlık: ${metRequirementCount}/${presentation.requirements.length} madde tamam`}
+                      : allRequirementsMet && loadedJob.status === 'ACCEPTED'
+                        ? `Hazırlık tamam (${metRequirementCount}/${presentation.requirements.length}) · Göndermek için önce işi başlatın`
+                        : `Kontrole hazırlık: ${metRequirementCount}/${presentation.requirements.length} madde tamam`}
                   </span>
                 </p>
                 {submitBlockedReason && (
                   <p className="weekly-mobile-readiness-note">{submitBlockedReason}</p>
                 )}
                 <ul className="weekly-mobile-readiness-list">
-                  {presentation.requirements.map((item) => (
-                    <li
-                      key={item.code}
-                      className={`weekly-mobile-readiness-item weekly-mobile-readiness-item--${item.state}`}
-                    >
-                      <span className="weekly-mobile-readiness-icon" aria-hidden="true">
-                        {item.state === 'met' ? '✓' : item.state === 'invalid' ? '!' : '○'}
-                      </span>
-                      <span className="weekly-mobile-readiness-label">{item.label}</span>
-                      <span className="weekly-mobile-readiness-state">
-                        {`· ${item.state === 'met' ? 'Tamam' : item.state === 'invalid' ? 'Geçersiz' : 'Eksik'}`}
-                      </span>
-                    </li>
-                  ))}
+                  {presentation.requirements.map((item) => {
+                    const stateText = item.state === 'met' ? 'Tamam' : item.state === 'invalid' ? 'Geçersiz' : 'Eksik';
+                    return (
+                      <li
+                        key={item.code}
+                        className={`weekly-mobile-readiness-item weekly-mobile-readiness-item--${item.state}`}
+                      >
+                        <span className="weekly-mobile-readiness-icon" aria-hidden="true">
+                          {item.state === 'met' ? '✓' : item.state === 'invalid' ? '!' : '○'}
+                        </span>
+                        <span className="weekly-mobile-readiness-text">
+                          <span className="weekly-mobile-readiness-label">{item.label}</span>
+                          {' '}
+                          <span className="weekly-mobile-readiness-state">{`· ${stateText}`}</span>
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -988,6 +1002,9 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                       <h4 id="weekly-legacy-fields-heading" className="weekly-subsection-heading">
                         Önceki form alanları
                       </h4>
+                      <p className="form-help">
+                        Önceki form düzeninden taşınan kayıtlı alanlar; gönderime kadar düzenlenebilir.
+                      </p>
                       {legacyDraftFields.map((field) => (
                         <div className="field-group" key={field.key}>
                           <label htmlFor={`weekly-${field.key}`}>
@@ -1030,11 +1047,21 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                   onClick={() => { setSaveError(''); void refresh({ hydrateForm: true }); }}>Sunucudaki sürümü yükle</button>
               </div>}
               {saveError && <div className="form-error" role="alert">{saveError}</div>}
+              {saveNotice && <div className="detail-feedback weekly-save-status" role="status" data-weekly-save-notice="true">{saveNotice}</div>}
               <div
                 className="form-actions weekly-editor-actions"
                 data-weekly-editor-actions="true"
                 data-dirty={formDirty ? 'true' : 'false'}
               >
+                {presentation.primaryTransition && submitBlockedReason && (
+                  <p
+                    className="weekly-editor-blocked-hint"
+                    id="weekly-editor-submit-reason"
+                    role="status"
+                  >
+                    {submitBlockedReason}
+                  </p>
+                )}
                 <button
                   className="primary-button"
                   type="submit"
@@ -1047,6 +1074,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                     className={formDirty ? 'secondary-button weekly-mobile-sticky-submit' : 'primary-button weekly-mobile-sticky-submit'}
                     type="button"
                     disabled={pending || removalBusy || ambiguous || blockedCommands.has(presentation.primaryTransition.command)}
+                    aria-describedby={submitBlockedReason ? 'weekly-editor-submit-reason' : undefined}
                     onClick={(event) => onCommand(presentation.primaryTransition!.command, event.currentTarget)}
                   >
                     {pending ? 'İşleniyor…' : presentation.primaryTransition.label}
@@ -1180,6 +1208,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         uncertain={ambiguous}
         onClose={() => { setDialog(null); setRevisionCorrection(null); }}
         onConfirm={confirmDialog}
+        returnFocusRef={dialogTriggerRef}
         revisionCorrection={dialog.kind === 'revision' && revisionCorrection
           ? { draft: revisionCorrection, onChange: setRevisionCorrection }
           : undefined}
