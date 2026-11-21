@@ -24,7 +24,7 @@ describe('OVR-5b visual review shared-style contract', () => {
     expect(label).toContain('cursor: pointer');
   });
 
-  it('keeps compact buttons in a form footer at the control height', () => {
+  it('keeps compact buttons in a stacked mobile form footer at the control height', () => {
     const footer = ruleBody('.review-buttons .compact-button');
     expect(footer).toContain('min-height: var(--control-height)');
   });

@@ -3041,11 +3041,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .inline-form-actions {
   margin-top: 1rem;
 }
-/* A small-size variant inside a form footer may look compact, but the stacked
-   mobile footer must never drop the 44px target (UI-003 OVR-5b review). */
-.review-buttons .compact-button {
-  min-height: var(--control-height);
-}
 .job-schedule-edit .review-buttons {
   margin-top: 1rem;
 }
@@ -5568,3 +5563,9 @@ html .servora-result-state .servora-ant-result-title,
 html .servora-result-state .servora-ant-result-subtitle,
 html .servora-result-state .servora-ant-result-extra,
 html .servora-result-state .servora-ant-result-icon { text-align: left; }
+
+@media (max-width: 48rem) {
+  /* A compact button in a stacked mobile form footer keeps the 44px target
+     (UI-003 OVR-5b review); desktop compact sizing is unchanged. */
+  .review-buttons .compact-button { min-height: var(--control-height); }
+}

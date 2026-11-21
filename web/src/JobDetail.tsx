@@ -2209,7 +2209,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         openPastStartAcknowledgement({
           title: 'Başlangıç saati geçti',
           description: 'Planlanan başlangıç saati geçti. Değişikliği kaydetmek için müşterinin güncel durumunu onaylayın.',
-          run: (next) => saveJobPatch(input, successMessage, next),
+          // The drawer expects a boolean; a form-owned failure must not reject
+          // its promise (the page feedback already carries the message).
+          run: async (next) => {
+            try {
+              return await saveJobPatch(input, successMessage, next, errorOwner);
+            } catch {
+              return false;
+            }
+          },
         });
         return false;
       }
