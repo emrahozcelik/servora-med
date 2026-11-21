@@ -349,15 +349,15 @@ async function insertIncident(
 }
 
 describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
-  it('M1: migration 066 is the schema head and adds the ending and correction columns', async () => {
+  it('M1: migration 067 is the schema head and keeps the ending and correction columns', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('066_overdue_correction_deadline_and_extension');
+      expect(catalog.head?.version).toBe('067_overdue_delivery_identity_per_incident');
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.at(-1)?.version)
-        .toBe('066_overdue_correction_deadline_and_extension');
+        .toBe('067_overdue_delivery_identity_per_incident');
 
       const columns = await pool.query<{
         table_name: string; column_name: string; data_type: string; is_nullable: string;
@@ -538,7 +538,7 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
     });
   });
 
-  it('M1: delivery identity adds the per-incident key beside the 053 per-episode key', async () => {
+  it('M1: delivery identity is per incident and kind after migration 067', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'OVR5a M1 delivery');
       const staffId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
@@ -560,14 +560,13 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
         );
 
       await insertDelivery(firstIncidentId, 'STAFF_REMINDER');
-      // 066 new key: one delivery per incident and kind.
+      // The incident key still allows exactly one delivery per incident/kind.
       await expect(insertDelivery(firstIncidentId, 'STAFF_REMINDER'))
         .rejects.toMatchObject({ code: '23505' });
-      // 053 key stays in 066: the same episode and kind is still one row, so a
-      // second incident of that episode cannot receive the same kind yet.
-      await expect(insertDelivery(secondIncidentId, 'STAFF_REMINDER'))
-        .rejects.toMatchObject({ code: '23505' });
-      // A different kind is a different delivery under both keys.
+      // 067 drops the superseded per-episode key: a different incident of the
+      // same episode may start its own reminder cycle (§4.9 / N1).
+      await insertDelivery(secondIncidentId, 'STAFF_REMINDER');
+      // A different kind is a different delivery under the incident key.
       await insertDelivery(secondIncidentId, 'MANAGEMENT_ESCALATION');
 
       const constraints = await pool.query<{ conname: string; definition: string }>(
@@ -576,16 +575,15 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
           WHERE conrelid = 'job_card_overdue_notification_deliveries'::regclass
             AND contype = 'u'`,
       );
+      expect(constraints.rows).toHaveLength(1);
       const incidentKey = constraints.rows.find(
         (row) => row.conname === 'job_card_overdue_notification_deliveries_incident_kind_key',
       );
       expect(incidentKey).toBeDefined();
       expect(incidentKey!.definition).toContain('incident_id');
       expect(incidentKey!.definition).toContain('kind');
-      const episodeKey = constraints.rows.find(
-        (row) => row.definition.includes('episode_no') && row.definition.includes('job_card_id'),
-      );
-      expect(episodeKey).toBeDefined();
+      // The 053 per-episode identity is gone in 067.
+      expect(constraints.rows.some((row) => row.definition.includes('episode_no'))).toBe(false);
     });
   });
 
@@ -638,7 +636,8 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
       const activation = await selectActivation(pool, organizationId, job.id);
       expect(activation.episode_no).toBe(2);
       expect(activation.activated_by_command).toBe('REQUEST_REVISION');
-      expect(activation.correction_due_at).toBeNull();
+      // OVR-5b materializes the 24h default on a REQUEST_REVISION activation.
+      expect(activation.correction_due_at).toEqual(shiftMs(activation.activated_at, 24 * 3_600_000));
       const correctionDueAt = shiftMs(activation.activated_at, 3_600_000);
       await setCorrectionDueAt(pool, organizationId, job.id, 2, correctionDueAt);
 

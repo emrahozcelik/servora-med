@@ -203,6 +203,9 @@ class LifecycleRepository implements JobCardRepository {
       recoverOverdueIncidentEpisode: async (input: unknown) => {
         this.recoveries.push(input);
       },
+      listOpenDeadlineIncidents: async () => [],
+      endOverdueIncidentEpisode: async () => [],
+      hasOpenDeadlineOverdueIncident: async () => false,
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
@@ -1183,7 +1186,12 @@ describe('JobCard lifecycle commands', () => {
       authorRoleSnapshot: 'MANAGER', workflowStage: 'WAITING_APPROVAL',
       context: 'REQUEST_REVISION', note: 'İlk neden', relatedActivityId: 'activity-1',
     });
-    expect(repo.events[0]?.metadata).toEqual({ noteId: repo.notes[0]?.id });
+    expect(repo.events[0]?.metadata).toEqual({
+      noteId: repo.notes[0]?.id,
+      // OVR-5b §3.7: the revision activity records the stored correction
+      // deadline (the 24h default against this reserved_at).
+      correctionDueAt: '2026-07-14T12:00:00.000Z',
+    });
 
     repo.job.status = 'REVISION_REQUESTED'; repo.job.version = 4;
     await service.resume(staff, 'job-1', input('resume-after-revision', 4));

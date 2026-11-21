@@ -174,6 +174,9 @@ class CrudMemoryRepository implements JobCardRepository {
         revisionRequestedAt: null,
       }),
       getNextSubmittedSeqNo: async () => 1,
+      listOpenDeadlineIncidents: async () => [],
+      endOverdueIncidentEpisode: async () => [],
+      hasOpenDeadlineOverdueIncident: async () => false,
       appendAccountabilityFact: async () => ({ id: 'fact-1' }),
       createMeetingDetails: async () => {},
       appendActivity: async (input) => {
@@ -262,6 +265,9 @@ class CrudMemoryRepository implements JobCardRepository {
         revisionRequestedAt: null,
       }),
       getNextSubmittedSeqNo: async () => 1,
+      listOpenDeadlineIncidents: async () => [],
+      endOverdueIncidentEpisode: async () => [],
+      hasOpenDeadlineOverdueIncident: async () => false,
       appendAccountabilityFact: async () => ({ id: 'fact-1' }),
       createMeetingDetails: async () => { throw new Error('unused'); },
       updateFieldsWithVersion: async (input) => {

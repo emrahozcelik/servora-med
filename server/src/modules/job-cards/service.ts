@@ -158,6 +158,7 @@ import {
   requireSubmissionNote,
   validation,
   boundedTrimmedString,
+  codePointLength,
 } from './validation.js';
 import {
   normalizeFollowUpDueDate,
@@ -288,6 +289,13 @@ import type { ReverseGeocodingQuotaGuard } from '../geocoding/reverse-geocoding-
 import type { NotificationDraft } from '../notifications/types.js';
 import { normalizeExpiryDate } from './delivery-input.js';
 import {
+  CORRECTION_DEADLINE_DEFAULT_HOURS,
+  CORRECTION_DEADLINE_MAX_DAYS,
+  CORRECTION_DEADLINE_MIN_HOURS,
+  effectiveSubmissionDeadlineAt,
+  lateStartDeadlineAt,
+  submissionBreachInstant,
+  type OverdueIncidentDelayType,
   type OverdueIncidentIdentity,
   type OverdueIncidentSource,
 } from './overdue-incidents.js';
@@ -321,7 +329,21 @@ type PatchInput = {
   overrideReason?: string | null;
   /** JOB-010 release 2b: required when a direct producer opens a passed-start offer. */
   pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
+  /** OVR-5b §4.5: the reason of an extension that ends open lateness. */
+  deadlineExtensionReason?: string | null;
+  /** OVR-5b §4.11: resolve the job's OPEN change request in this same patch. */
+  changeRequestResolution?: ChangeRequestResolutionInput | null;
 };
+
+/** OVR-5b §4.11: the atomic JOB-010 resolution carried by a deadline patch. */
+type ChangeRequestResolutionInput = {
+  changeRequestId: string;
+  resolution: 'RESCHEDULED';
+  note?: string | null;
+};
+
+/** OVR-5b §4.11: the only resolution a deadline patch may record. */
+const PATCH_CHANGE_REQUEST_RESOLUTIONS = ['RESCHEDULED'] as const;
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
   deliveredAt: string | null; quantity: number; lotNo?: string | null; serialNo?: string | null;
@@ -337,7 +359,11 @@ type LifecycleInput = {
 type SubmitInput = LifecycleInput & { followUpProposal?: FollowUpProposalInput; locationCapture?: unknown };
 type ApproveInput = LifecycleInput & { followUp?: ApproveFollowUpInput };
 type StartInput = LifecycleInput & { locationCapture?: unknown };
-type RevisionInput = LifecycleInput & { revisionReason: string };
+type RevisionInput = LifecycleInput & {
+  revisionReason: string;
+  /** OVR-5b §3: optional management correction deadline (ISO instant). */
+  correctionDueAt?: string | null;
+};
 type CancelInput = LifecycleInput & { cancelReason: string; followUpContinuity?: unknown };
 
 function assertFollowUpMinimumLead(input: {
@@ -362,6 +388,8 @@ const JOB_CARD_PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'scheduledEndsAt',
   'engagementKind', 'overrideReason', 'pastStartAcknowledgement',
+  // OVR-5b: deadline extension reason and atomic change-request resolution.
+  'deadlineExtensionReason', 'changeRequestResolution',
 ] as const;
 type LifecycleDefinition = {
   command: LifecycleCommand;
@@ -377,11 +405,22 @@ type LifecycleDefinition = {
   cancelContinuity?: FollowUpCancelContinuity | null;
   /** JOB-010 release 2b: the Staff decline/release reason, part of the hash. */
   assignmentReason?: { code: string; text: string } | null;
+  /**
+   * OVR-5b §3.8: normalized REQUEST_REVISION correction deadline. Undefined
+   * when the client did not send it, so the request hash stays identical.
+   */
+  correctionDueAt?: string;
 };
 
 type OverdueRecoveryTarget = Pick<
   OverdueIncidentIdentity,
   'organizationId' | 'jobCardId' | 'delayType' | 'episodeNo'
+>;
+
+/** OVR-5b §4: the only delay types an authorized extension can end. */
+type OpenDeadlineDelayType = Extract<
+  OverdueIncidentDelayType,
+  'LATE_START' | 'LATE_SUBMISSION'
 >;
 
 type ValidatedFollowUpProposal = FollowUpProposalFields & {
@@ -578,6 +617,101 @@ function lifecycleReason(value: unknown, field: 'revisionReason' | 'cancelReason
     );
   }
   return requireLifecycleReason(value, field);
+}
+
+// OVR-5b §3 / §4: the two correction-deadline validation failures keep their
+// accepted field error and Turkish text in one place.
+const CORRECTION_DUE_AT_SYNTAX_MESSAGE = 'Geçerli bir düzeltme son tarihi seçin.';
+const CORRECTION_DUE_AT_BOUNDS_MESSAGE =
+  'Düzeltme son tarihi en az 1 saat, en fazla 14 gün sonrası olmalı.';
+
+function correctionDueAtError(message: string) {
+  return new AppError('VALIDATION_ERROR', 400, message, {
+    fieldErrors: { correctionDueAt: message },
+  });
+}
+
+/** OVR-5b §4.11: every field-level change-request resolution failure. */
+function changeRequestResolutionError(message: string) {
+  return new AppError('VALIDATION_ERROR', 400, message, {
+    fieldErrors: { changeRequestResolution: message },
+  });
+}
+
+/**
+ * OVR-5b §3.1 syntax gate. Runs before the lifecycle intent claim and the
+ * request hash, so an invalid value never creates a reservation. Returns
+ * undefined when the client did not send the key: the hash then stays
+ * byte-identical to a pre-5b REQUEST_REVISION.
+ */
+function revisionCorrectionDueAt(input: { correctionDueAt?: unknown }): string | undefined {
+  if (!Object.hasOwn(input, 'correctionDueAt')) return undefined;
+  const value = input.correctionDueAt;
+  if (typeof value !== 'string') throw correctionDueAtError(CORRECTION_DUE_AT_SYNTAX_MESSAGE);
+  try {
+    return isoInstant(value, 'correctionDueAt');
+  } catch {
+    throw correctionDueAtError(CORRECTION_DUE_AT_SYNTAX_MESSAGE);
+  }
+}
+
+/**
+ * OVR-5b §4.5: the optional deadline-extension reason. Missing and blank both
+ * mean "no reason"; a non-string or more than 500 trimmed code points is a
+ * validation failure whenever the key is sent.
+ */
+function patchDeadlineExtensionReason(input: { deadlineExtensionReason?: unknown }): string | null {
+  if (!Object.hasOwn(input, 'deadlineExtensionReason')) return null;
+  const value = input.deadlineExtensionReason;
+  if (typeof value !== 'string') {
+    const message = 'Tarih değişikliği gerekçesi geçersiz.';
+    throw new AppError('VALIDATION_ERROR', 400, message, {
+      fieldErrors: { deadlineExtensionReason: message },
+    });
+  }
+  const trimmed = value.trim();
+  if (codePointLength(trimmed) > 500) {
+    const message = 'Tarih değişikliği gerekçesi en fazla 500 karakter olabilir.';
+    throw new AppError('VALIDATION_ERROR', 400, message, {
+      fieldErrors: { deadlineExtensionReason: message },
+    });
+  }
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * OVR-5b §4.11: the atomic change-request resolution carried by a deadline
+ * patch. Shape errors are always the field-level validation failure; whether
+ * the request exists, belongs to this job and is still open is decided under
+ * the locks.
+ */
+function patchChangeRequestResolution(
+  input: { changeRequestResolution?: unknown },
+): ChangeRequestResolutionInput | null {
+  if (!Object.hasOwn(input, 'changeRequestResolution')) return null;
+  const message = 'Değişiklik talebi sonuçlandırma bilgisi geçersiz.';
+  const fail = () => changeRequestResolutionError(message);
+  const raw = input.changeRequestResolution;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw fail();
+  const record = raw as Record<string, unknown>;
+  try {
+    uuidString(record.changeRequestId, 'changeRequestResolution');
+  } catch {
+    throw fail();
+  }
+  if (typeof record.resolution !== 'string'
+    || !(PATCH_CHANGE_REQUEST_RESOLUTIONS as readonly string[]).includes(record.resolution)) {
+    throw fail();
+  }
+  const note = record.note;
+  if (note !== undefined && note !== null && typeof note !== 'string') throw fail();
+  const trimmedNote = typeof note === 'string' ? note.trim() : null;
+  if (trimmedNote !== null && codePointLength(trimmedNote) > 2_000) throw fail();
+  return {
+    changeRequestId: record.changeRequestId as string,
+    resolution: 'RESCHEDULED',
+    note: trimmedNote === null || trimmedNote === '' ? null : trimmedNote,
+  };
 }
 
 export type WeeklyReportCreateResult = {
@@ -898,6 +1032,82 @@ export class JobCardService {
       });
     }
     return [realtimeEvent];
+  }
+
+  /**
+   * JOB-010 release 2a / OVR-5b §4.11: the single writer of a management
+   * decision on one OPEN request. It is shared by the dedicated resolution
+   * command and by a deadline patch that carries `changeRequestResolution`,
+   * so state, resolution note, resolution activity, Staff notification and
+   * realtime effects can never diverge. Callers already hold the users and
+   * JobCard locks; this method takes the request row FOR UPDATE last.
+   */
+  private async resolveChangeRequestInTransaction(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    input: {
+      changeRequestId: string;
+      resolution: JobChangeRequestDecision;
+      note: string | null;
+      linkedJobCardId: string | null;
+      requestTime: Date;
+      clientActionId?: string;
+    },
+  ): Promise<{ changeRequestId: string; realtimeEvents: RealtimeEventRecord[] }> {
+    const request = await tx.getChangeRequestForUpdate(
+      actor.organizationId, job.id, input.changeRequestId,
+    );
+    if (!request) {
+      throw new AppError('CHANGE_REQUEST_NOT_FOUND', 404, 'Öneri bulunamadı.');
+    }
+    if (request.state !== 'OPEN') {
+      throw new AppError(
+        'CHANGE_REQUEST_NOT_OPEN',
+        409,
+        'Bu öneri zaten sonuçlandırılmış.',
+      );
+    }
+    if (input.linkedJobCardId !== null) {
+      const linked = await tx.getJob(actor.organizationId, input.linkedJobCardId);
+      if (!linked || linked.id === job.id) throw validation('linkedJobCardId');
+    }
+    const resolved = await tx.resolveOpenChangeRequest({
+      organizationId: actor.organizationId,
+      jobCardId: job.id,
+      changeRequestId: input.changeRequestId,
+      resolution: input.resolution,
+      resolvedBy: actor.id,
+      resolvedAt: input.requestTime,
+      resolutionNote: input.note,
+      linkedJobCardId: input.linkedJobCardId,
+    });
+    if (!resolved) {
+      throw new AppError(
+        'CHANGE_REQUEST_NOT_OPEN',
+        409,
+        'Bu öneri zaten sonuçlandırılmış.',
+      );
+    }
+    const activity = await tx.appendActivity({
+      organizationId: actor.organizationId,
+      jobCardId: job.id,
+      actorId: actor.id,
+      event: 'JOB_CHANGE_REQUEST_RESOLVED',
+      clientActionId: input.clientActionId,
+      metadata: {
+        requestId: input.changeRequestId,
+        resolution: input.resolution,
+        linkedJobCardId: input.linkedJobCardId,
+      },
+    });
+    const realtimeEvents = await this.appendChangeRequestResolutionEvents(tx, {
+      activity,
+      actor,
+      job,
+      requestedBy: request.requestedBy,
+    });
+    return { changeRequestId: input.changeRequestId, realtimeEvents };
   }
 
   /**
@@ -2999,6 +3209,12 @@ export class JobCardService {
       fields.pastStartAcknowledgement,
     );
     delete fields.pastStartAcknowledgement;
+    // OVR-5b §4: both new keys are patch request intent, never JobCard
+    // columns. Their type/length is validated whenever they are sent.
+    const deadlineExtensionReason = patchDeadlineExtensionReason(input);
+    const changeRequestResolution = patchChangeRequestResolution(input);
+    delete fields.deadlineExtensionReason;
+    delete fields.changeRequestResolution;
     if (Object.keys(fields).length === 0 || (fields.title !== undefined && !fields.title.trim()) ||
       (fields.priority !== undefined && !JOB_CARD_PRIORITIES.includes(fields.priority))) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
@@ -3256,6 +3472,20 @@ export class JobCardService {
         || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
       scheduleRevisionChanged = scheduleChanged || dueDateChanged;
       const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
+      // OVR-5b §4.11: only management may resolve the Staff request, and only
+      // a patch that really appends a schedule revision. Nothing is written.
+      if (changeRequestResolution !== null) {
+        if (!management) {
+          throw changeRequestResolutionError(
+            'Değişiklik talebini yalnızca yönetim sonuçlandırabilir.',
+          );
+        }
+        if (!scheduleRevisionChanged) {
+          throw changeRequestResolutionError(
+            'Değişiklik talebi yalnızca zaman planı değişen bir güncellemeyle sonuçlandırılabilir.',
+          );
+        }
+      }
       // JOB-010 §4 (Q9, P1-B): for a job in the window in NEW or ACCEPTED,
       // only management changes the customer time. Staff edits therefore
       // never move a deadline or open, withdraw or reopen an offer. This runs
@@ -3406,6 +3636,23 @@ export class JobCardService {
           requestTime,
         });
       }
+      // OVR-5b §5.1: Staff never move a deadline that is currently late. The
+      // check runs after every existing guard and after the pre-mutation
+      // materialization, so a breach the scanner has not ticked yet is locked
+      // first and then rolled back with the whole transaction (§5.3 / S3).
+      // The stricter guards above keep precedence.
+      if (!management
+        && (scheduleChanged || dueDateChanged)
+        && await transaction.hasOpenDeadlineOverdueIncident({
+          organizationId: actor.organizationId,
+          jobCardId,
+        })) {
+        throw new AppError(
+          'DEADLINE_CHANGE_REQUIRES_MANAGEMENT',
+          409,
+          'Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.',
+        );
+      }
       if (this.calendar.enabled && (scheduleChanged || assigneeChanged)) {
         await transaction.synchronizeCalendarReminder({
           organizationId: actor.organizationId,
@@ -3480,6 +3727,63 @@ export class JobCardService {
           createdAt: requestTime,
         });
         appendedScheduleRevisionNo = appended.revisionNo;
+      }
+      // OVR-5b §4.1–§4.7: a management extension whose new first-late boundary
+      // lies in the future ends the open obligation of that delay type and
+      // episode in this same transaction. It runs after the appended revision
+      // (the ending binds to it) and before the post-revision MUTATION
+      // producers below, which therefore find nothing breached. A boundary that
+      // would be removed is rejected (§4.3), and a missing reason rejects the
+      // whole patch before anything is written (§4.5).
+      if (management && scheduleRevisionChanged && appendedScheduleRevisionNo !== null) {
+        const ending = await this.endOpenObligationsByExtension(transaction, {
+          organizationId: actor.organizationId,
+          jobCardId,
+          job: updated,
+          actorId: actor.id,
+          requestTime,
+          reason: deadlineExtensionReason,
+          scheduleRevisionNo: appendedScheduleRevisionNo,
+        });
+        if (ending !== null) {
+          const activity = await transaction.appendActivity({
+            organizationId: actor.organizationId,
+            jobCardId,
+            actorId: actor.id,
+            event: 'JOB_OVERDUE_ENDED_BY_EXTENSION',
+            metadata: {
+              delayTypes: ending.delayTypes,
+              endings: ending.endings,
+              reason: ending.reason,
+              scheduleRevisionNo: appendedScheduleRevisionNo,
+            },
+          });
+          realtimeEvents.push(...await this.appendRealtimeForActivity(transaction, {
+            activity,
+            organizationId: actor.organizationId,
+            jobCardId,
+            actorUserId: actor.id,
+            event: 'JOB_OVERDUE_ENDED_BY_EXTENSION',
+            jobType: job.type,
+            beforeAssigneeId: job.assignedTo,
+            afterAssigneeId: updated.assignedTo,
+            customerId: updated.customerId,
+          }));
+        }
+      }
+      // OVR-5b §4.11: the patch may close the job's OPEN change request with
+      // the very same effects as the dedicated resolution command, inside this
+      // transaction, after the job lock and with the users -> job -> request
+      // lock order. A patch never resolves a request it did not name.
+      if (changeRequestResolution !== null) {
+        const resolved = await this.resolveChangeRequestInTransaction(transaction, actor, updated, {
+          changeRequestId: changeRequestResolution.changeRequestId,
+          resolution: changeRequestResolution.resolution,
+          note: changeRequestResolution.note ?? null,
+          linkedJobCardId: null,
+          requestTime,
+        });
+        realtimeEvents.push(...resolved.realtimeEvents);
       }
       // OVR-2: a revision that moves the first-late boundary into the past
       // breaches under the NEW governing revision, but never before the revision
@@ -4485,53 +4789,13 @@ export class JobCardService {
         await this.lockUsersInOrder(tx, actor.organizationId, [snapshot.assignedTo]);
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        const request = await tx.getChangeRequestForUpdate(
-          actor.organizationId, jobCardId, changeRequestId,
-        );
-        if (!request) {
-          throw new AppError('CHANGE_REQUEST_NOT_FOUND', 404, 'Öneri bulunamadı.');
-        }
-        if (request.state !== 'OPEN') {
-          throw new AppError(
-            'CHANGE_REQUEST_NOT_OPEN',
-            409,
-            'Bu öneri zaten sonuçlandırılmış.',
-          );
-        }
-        if (linkedJobCardId !== null) {
-          const linked = await tx.getJob(actor.organizationId, linkedJobCardId);
-          if (!linked || linked.id === jobCardId) throw validation('linkedJobCardId');
-        }
-        const resolved = await tx.resolveOpenChangeRequest({
-          organizationId: actor.organizationId,
-          jobCardId,
+        const resolved = await this.resolveChangeRequestInTransaction(tx, actor, job, {
           changeRequestId,
           resolution,
-          resolvedBy: actor.id,
-          resolvedAt: requestTime,
-          resolutionNote: note,
+          note,
           linkedJobCardId,
-        });
-        if (!resolved) {
-          throw new AppError(
-            'CHANGE_REQUEST_NOT_OPEN',
-            409,
-            'Bu öneri zaten sonuçlandırılmış.',
-          );
-        }
-        const activity = await tx.appendActivity({
-          organizationId: actor.organizationId,
-          jobCardId,
-          actorId: actor.id,
-          event: 'JOB_CHANGE_REQUEST_RESOLVED',
+          requestTime,
           clientActionId,
-          metadata: { requestId: changeRequestId, resolution, linkedJobCardId },
-        });
-        const realtimeEvents = await this.appendChangeRequestResolutionEvents(tx, {
-          activity,
-          actor,
-          job,
-          requestedBy: request.requestedBy,
         });
         return {
           response: {
@@ -4540,7 +4804,7 @@ export class JobCardService {
             resolution,
             resolvedAt: requestTime.toISOString(),
           } satisfies ResolveChangeRequestReceipt,
-          realtimeEvents,
+          realtimeEvents: resolved.realtimeEvents,
         };
       },
     );
@@ -4981,11 +5245,14 @@ export class JobCardService {
   }
 
   async requestRevision(actor: JobCardActor, jobCardId: string, input: RevisionInput) {
+    // OVR-5b §3.1: syntax first, before the intent claim and the hash.
+    const correctionDueAt = revisionCorrectionDueAt(input);
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'REQUEST_REVISION', operationKey: 'JOB_REQUEST_REVISION', target: 'REVISION_REQUESTED',
       event: 'JOB_REVISION_REQUESTED', note: null,
       revisionReason: lifecycleReason(input.revisionReason, 'revisionReason'), cancelReason: null,
       noteContext: 'REQUEST_REVISION',
+      ...(correctionDueAt === undefined ? {} : { correctionDueAt }),
     });
   }
 
@@ -5049,6 +5316,12 @@ export class JobCardService {
     if (definition.command === 'START') assertPlannedIntervalForStart(job);
     if (definition.command === 'CANCEL') {
       assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, reservedAt);
+    }
+    // OVR-5b §3.1: the correction-deadline bound is checked against the
+    // reservation instant here and again in finalize against the same
+    // reserved_at. Skipped when the job has no original submission deadline.
+    if (definition.correctionDueAt !== undefined) {
+      await this.assertCorrectionDeadlineBounds(tx, job, definition.correctionDueAt, reservedAt);
     }
   }
 
@@ -5124,6 +5397,13 @@ export class JobCardService {
         if (definition.command === 'CANCEL') {
           assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, requestTime);
         }
+        // OVR-5b §3: the stored correction deadline of a revision episode is
+        // decided once here, under the JobCard lock and against reserved_at:
+        // the supplied value, else reserved_at + 24h, else NULL when the job
+        // has no original deadline at all (§3.4). It never changes afterwards.
+        const storedCorrectionDueAt = definition.command === 'REQUEST_REVISION'
+          ? await this.resolveStoredCorrectionDueAt(tx, job, definition.correctionDueAt, requestTime)
+          : null;
         // JOB-010 §5: releasing materializes the OVR-2 obligation of the
         // acceptance that is about to be cleared, so handing the job back can
         // never hide a breach. It runs BEFORE the transition, like the JOB-006
@@ -5376,6 +5656,17 @@ export class JobCardService {
         if (assignmentOfferMetadata !== null) {
           metadata = { ...(metadata ?? {}), ...assignmentOfferMetadata };
         }
+        // OVR-5b §3.7: the revision activity records the stored correction
+        // deadline (null when the job has no original deadline). The in-app
+        // notification text stays unchanged.
+        if (definition.command === 'REQUEST_REVISION') {
+          metadata = {
+            ...(metadata ?? {}),
+            correctionDueAt: storedCorrectionDueAt === null
+              ? null
+              : storedCorrectionDueAt.toISOString(),
+          };
+        }
 
         const activity = await tx.appendActivity({
           organizationId: actor.organizationId,
@@ -5458,6 +5749,7 @@ export class JobCardService {
           || definition.command === 'WITHDRAW_FROM_APPROVAL') {
           const armedEpisodeNo = await this.activateNextSubmissionEpisode(
             tx, actor.organizationId, jobCardId, definition.command, requestTime,
+            storedCorrectionDueAt,
           );
           // WITHDRAW creates the staff obligation; it does not satisfy it.
           // When the newly activated episode is already late, lock it OPEN
@@ -5829,6 +6121,7 @@ export class JobCardService {
     jobCardId: string,
     command: 'REQUEST_REVISION' | 'WITHDRAW_FROM_APPROVAL',
     requestTime: Date,
+    correctionDueAt: Date | null = null,
   ): Promise<number> {
     const episodeNo = await tx.getNextSubmittedSeqNo(organizationId, jobCardId);
     await tx.insertSubmissionEpisodeActivation({
@@ -5837,8 +6130,81 @@ export class JobCardService {
       episodeNo,
       activatedAt: requestTime,
       activatedByCommand: command,
+      // OVR-5b §3: only a REQUEST_REVISION activation can carry one.
+      correctionDueAt: command === 'REQUEST_REVISION' ? correctionDueAt : null,
     });
     return episodeNo;
+  }
+
+  /**
+   * OVR-5b §3.4: the job's original effective submission deadline under the
+   * current governing values, ignoring any correction. Null means the job has
+   * no submission lateness today and keeps none.
+   */
+  private async originalSubmissionDeadline(
+    tx: JobCardTransaction,
+    job: JobCard,
+  ): Promise<Date | null> {
+    const phaseDeadline = job.scheduledEndsAt
+      ?? (job.type === 'SALES_MEETING' ? null : job.scheduledAt);
+    if (phaseDeadline === null && job.dueDate === null) return null;
+    // The due-date fallback is the only timezone-dependent branch, exactly as
+    // the shared producer resolves it.
+    const timezone = phaseDeadline === null
+      ? await tx.getOrganizationTimezone(job.organizationId)
+      : 'UTC';
+    return effectiveSubmissionDeadlineAt({
+      scheduledEndsAt: job.scheduledEndsAt,
+      scheduledAt: job.scheduledAt,
+      type: job.type,
+      dueDate: job.dueDate,
+      timezone,
+    });
+  }
+
+  /** OVR-5b §3.1 accepted bound: 1 hour to 14 days after the arming instant. */
+  private assertCorrectionDeadlineBoundsValue(correction: Date, reservedAt: Date): void {
+    const value = correction.getTime();
+    const earliest = reservedAt.getTime() + CORRECTION_DEADLINE_MIN_HOURS * 3_600_000;
+    const latest = reservedAt.getTime() + CORRECTION_DEADLINE_MAX_DAYS * 86_400_000;
+    if (Number.isNaN(value) || value < earliest || value > latest) {
+      throw correctionDueAtError(CORRECTION_DUE_AT_BOUNDS_MESSAGE);
+    }
+  }
+
+  /**
+   * OVR-5b §3.1 reservation preflight: validate the supplied correction
+   * deadline against `reservedAt`. Skipped when §3.4 applies (no original
+   * deadline), so a syntactically valid value is ignored there.
+   */
+  private async assertCorrectionDeadlineBounds(
+    tx: JobCardTransaction,
+    job: JobCard,
+    correctionDueAt: string,
+    reservedAt: Date,
+  ): Promise<void> {
+    if (await this.originalSubmissionDeadline(tx, job) === null) return;
+    this.assertCorrectionDeadlineBoundsValue(new Date(correctionDueAt), reservedAt);
+  }
+
+  /**
+   * OVR-5b §3: the value persisted on the REQUEST_REVISION activation row.
+   * Re-validates the bound against the same reserved_at the finalize commits,
+   * materializes the 24h default, and returns NULL when the job has no
+   * original deadline.
+   */
+  private async resolveStoredCorrectionDueAt(
+    tx: JobCardTransaction,
+    job: JobCard,
+    supplied: string | undefined,
+    reservedAt: Date,
+  ): Promise<Date | null> {
+    if (await this.originalSubmissionDeadline(tx, job) === null) return null;
+    const correction = supplied === undefined
+      ? new Date(reservedAt.getTime() + CORRECTION_DEADLINE_DEFAULT_HOURS * 3_600_000)
+      : new Date(supplied);
+    this.assertCorrectionDeadlineBoundsValue(correction, reservedAt);
+    return correction;
   }
 
   /**
@@ -5910,6 +6276,157 @@ export class JobCardService {
       recoveredAt: requestTime,
       recoveryActorUserId: actor.id,
     });
+  }
+
+  /**
+   * OVR-5b §4.1–§4.7: the authorized deadline extension of one management
+   * patch. Under the NEW field values it evaluates, per open deadline
+   * obligation, that delay type's first-late boundary:
+   *
+   * - `null` => the patch removes the governing boundary of a still-open
+   *   obligation: rejected with `OPEN_LATENESS_DEADLINE_REQUIRED` (§4.3);
+   * - after the patch instant => the obligation is no longer late: every open
+   *   row of that (job, delay type, episode) is ended with the reason, the
+   *   actor, the instant and the appended revision (§4.6);
+   * - at or before the patch instant => still late, nothing is ended (§4.2).
+   *
+   * Only `LATE_START` episode 1 and the current `LATE_SUBMISSION` episode take
+   * part. `APPROVAL_WAIT` is management delay with no schedule deadline and is
+   * never ended (§4.4). A missing reason is rejected before any ending (§4.5).
+   */
+  private async endOpenObligationsByExtension(
+    tx: JobCardTransaction,
+    input: {
+      organizationId: string;
+      jobCardId: string;
+      job: JobCard;
+      actorId: string;
+      requestTime: Date;
+      reason: string | null;
+      scheduleRevisionNo: number;
+    },
+  ): Promise<{
+    delayTypes: OpenDeadlineDelayType[];
+    endings: Array<{
+      delayType: OpenDeadlineDelayType;
+      episodeNo: number;
+      previousFirstLateAt: string;
+      newFirstLateAt: string;
+    }>;
+    reason: string;
+  } | null> {
+    const open = await tx.listOpenDeadlineIncidents({
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+    });
+    if (open.length === 0) return null;
+
+    const currentEpisodeNo = await tx.getNextSubmittedSeqNo(
+      input.organizationId, input.jobCardId,
+    );
+    // The correction deadline of the evaluated submission episode belongs to
+    // the §3 effective-deadline formula; the LATE_START boundary needs none.
+    let submissionFirstLateAt: Date | null | undefined;
+    const lateStartFirstLateAt = lateStartDeadlineAt(input.job.scheduledEndsAt);
+    const groups = new Map<string, {
+      delayType: OpenDeadlineDelayType;
+      episodeNo: number;
+      newFirstLateAt: Date;
+    }>();
+
+    for (const incident of open) {
+      if (incident.delayType === 'LATE_START' && incident.episodeNo !== 1) continue;
+      if (incident.delayType === 'LATE_SUBMISSION'
+        && incident.episodeNo !== currentEpisodeNo) continue;
+      let firstLateAt: Date | null;
+      if (incident.delayType === 'LATE_START') {
+        firstLateAt = lateStartFirstLateAt;
+      } else {
+        if (submissionFirstLateAt === undefined) {
+          const activation = await tx.getSubmissionEpisodeActivation(
+            input.organizationId, input.jobCardId, currentEpisodeNo,
+          );
+          const phaseDeadline = input.job.scheduledEndsAt
+            ?? (input.job.type === 'SALES_MEETING' ? null : input.job.scheduledAt);
+          const timezone = phaseDeadline === null && input.job.dueDate !== null
+            ? await tx.getOrganizationTimezone(input.organizationId)
+            : 'UTC';
+          const effective = effectiveSubmissionDeadlineAt({
+            scheduledEndsAt: input.job.scheduledEndsAt,
+            scheduledAt: input.job.scheduledAt,
+            type: input.job.type,
+            dueDate: input.job.dueDate,
+            timezone,
+            correctionDueAt: activation?.correctionDueAt ?? null,
+          });
+          submissionFirstLateAt = effective === null
+            ? null
+            : submissionBreachInstant(effective);
+        }
+        firstLateAt = submissionFirstLateAt;
+      }
+      if (firstLateAt === null) {
+        throw new AppError(
+          'OPEN_LATENESS_DEADLINE_REQUIRED',
+          409,
+          'Gecikmesi açık işin son tarihi kaldırılamaz; ileri bir tarih seçin.',
+        );
+      }
+      if (firstLateAt.getTime() <= input.requestTime.getTime()) continue;
+      groups.set(`${incident.delayType}:${incident.episodeNo}`, {
+        delayType: incident.delayType,
+        episodeNo: incident.episodeNo,
+        newFirstLateAt: firstLateAt,
+      });
+    }
+
+    if (groups.size === 0) return null;
+    if (input.reason === null) {
+      const message = 'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.';
+      throw new AppError('DEADLINE_EXTENSION_REASON_REQUIRED', 400, message, {
+        fieldErrors: { deadlineExtensionReason: message },
+      });
+    }
+
+    const endings: Array<{
+      delayType: OpenDeadlineDelayType;
+      episodeNo: number;
+      previousFirstLateAt: string;
+      newFirstLateAt: string;
+    }> = [];
+    for (const group of groups.values()) {
+      const ended = await tx.endOverdueIncidentEpisode({
+        organizationId: input.organizationId,
+        jobCardId: input.jobCardId,
+        delayType: group.delayType,
+        episodeNo: group.episodeNo,
+        endedAt: input.requestTime,
+        endedByUserId: input.actorId,
+        endReason: 'DEADLINE_EXTENDED',
+        endNote: input.reason,
+        endedByScheduleRevisionNo: input.scheduleRevisionNo,
+      });
+      // The canonical row of the episode is its earliest breach, exactly as
+      // the reminder worker selects it; its own deadline_at is the first-late
+      // boundary that governed before the extension.
+      const canonical = [...ended].sort((left, right) => (
+        left.breachedAt.getTime() - right.breachedAt.getTime()
+        || left.id.localeCompare(right.id)
+      ))[0];
+      if (!canonical) continue;
+      endings.push({
+        delayType: group.delayType,
+        episodeNo: group.episodeNo,
+        previousFirstLateAt: canonical.deadlineAt.toISOString(),
+        newFirstLateAt: group.newFirstLateAt.toISOString(),
+      });
+    }
+    if (endings.length === 0) return null;
+    return {
+      delayTypes: [...new Set(endings.map((ending) => ending.delayType))],
+      endings,
+      reason: input.reason,
+    };
   }
 
   private async materializeOverdueBreachForCommand(
@@ -6059,6 +6576,10 @@ export class JobCardService {
         locationCapture: actionLocation ?? null,
         ...(definition.cancelContinuity ? { cancelContinuity: definition.cancelContinuity } : {}),
         ...(definition.assignmentReason ? { assignmentReason: definition.assignmentReason } : {}),
+        // OVR-5b §3.8: only when the client sent it.
+        ...(definition.correctionDueAt === undefined
+          ? {}
+          : { correctionDueAt: definition.correctionDueAt }),
       }),
     };
   }
