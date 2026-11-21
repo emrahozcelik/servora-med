@@ -224,6 +224,34 @@ describe('OVR-5 revision correction deadline dialog', () => {
       .toBe('Lot numarasını doğrulayın.');
   });
 
+  it('moves focus to the correction picker on its server field error', async () => {
+    const harness = makeFetch({
+      card: jobCard(),
+      revisionResult: () => json({
+        error: 'Düzeltme son tarihi en az 1 saat, en fazla 14 gün sonrası olmalı.',
+        code: 'VALIDATION_ERROR',
+        details: {
+          fieldErrors: {
+            correctionDueAt: 'Düzeltme son tarihi en az 1 saat, en fazla 14 gün sonrası olmalı.',
+          },
+        },
+      }, 400),
+    });
+    await render(harness);
+    await openRevisionDialog();
+
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    typeReason(dialog, 'Lot numarasını doğrulayın.');
+    await act(async () => {
+      buttonByName(dialog, 'Düzeltme için geri gönder')!.click();
+      await settle();
+    });
+
+    const picker = host.querySelector<HTMLInputElement>('#revision-correction-due-at')!;
+    expect(picker.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(picker);
+  });
+
   it('shows the effective correction deadline on the job detail', async () => {
     const harness = makeFetch({
       card: jobCard({ status: 'REVISION_REQUESTED', correctionDueAt: '2026-11-24T10:00:00.000Z' }),

@@ -232,6 +232,8 @@ describe('OVR-5 deadline extension UI', () => {
     const reason = host.querySelector<HTMLTextAreaElement>('#general-task-edit-extension-reason')!;
     expect(reason).not.toBeNull();
     expect(host.textContent).toContain('Tarih değişikliği gerekçesi');
+    expect(host.textContent).toContain('En fazla 500 karakter.');
+    expect(reason.getAttribute('aria-describedby')).toContain('general-task-edit-extension-reason-help');
 
     await setInput('#general-task-edit-due-date', '2026-12-05');
     await submit('Değişiklikleri kaydet');
@@ -240,6 +242,9 @@ describe('OVR-5 deadline extension UI', () => {
     expect(host.textContent).toContain(
       'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.',
     );
+    expect(reason.getAttribute('aria-describedby')).toContain('general-task-edit-extension-reason-error');
+    // OVR-5b visual review: the invalid reason field owns focus, not the footer.
+    expect(document.activeElement).toBe(reason);
 
     const textarea = host.querySelector<HTMLTextAreaElement>('#general-task-edit-extension-reason')!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
@@ -326,6 +331,12 @@ describe('OVR-5 deadline extension UI', () => {
     expect(host.textContent).toContain(
       'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.',
     );
+    // OVR-5b visual review: the server field error moves focus to the field.
+    const revealedReason = host.querySelector<HTMLTextAreaElement>(
+      '#general-task-edit-extension-reason',
+    )!;
+    expect(revealedReason.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(revealedReason);
 
     const textarea = host.querySelector<HTMLTextAreaElement>('#general-task-edit-extension-reason')!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
@@ -462,6 +473,14 @@ describe('OVR-5 deadline extension UI', () => {
     expect(host.textContent).toContain(
       'Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.',
     );
+
+    // OVR-5b visual review: the open form keeps the patch error and the focus
+    // instead of leaving only the page feedback behind it.
+    expect(host.querySelector('#general-task-edit-due-date')).not.toBeNull();
+    const inlineAlert = host.querySelector<HTMLElement>('.general-task-edit-form [role="alert"]')!;
+    expect(inlineAlert.textContent)
+      .toContain('Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.');
+    expect(document.activeElement).toBe(inlineAlert);
   });
 
   it('shows CHANGE_REQUEST_NOT_OPEN when the open request was resolved meanwhile', async () => {
@@ -483,5 +502,78 @@ describe('OVR-5 deadline extension UI', () => {
       changeRequestResolution: { changeRequestId: 'request-1', resolution: 'RESCHEDULED' },
     });
     expect(host.textContent).toContain('Bu öneri zaten sonuçlandırılmış.');
+    const inlineAlert = host.querySelector<HTMLElement>('.general-task-edit-form [role="alert"]')!;
+    expect(inlineAlert.textContent).toContain('Bu öneri zaten sonuçlandırılmış.');
+    expect(document.activeElement).toBe(inlineAlert);
+  });
+
+  it('focuses the schedule reason field on its required client error', async () => {
+    const harness = makeFetch({ card: generalTask({ hasOpenOverdueIncident: true }) });
+    await render(managerUser, harness);
+
+    const reason = host.querySelector<HTMLTextAreaElement>('#job-schedule-extension-reason')!;
+    expect(reason).not.toBeNull();
+    expect(host.textContent).toContain('En fazla 500 karakter.');
+    expect(reason.getAttribute('aria-describedby')).toContain('job-schedule-extension-reason-help');
+
+    await submit('Planlanan zamanı kaydet');
+
+    expect(harness.patchBodies).toHaveLength(0);
+    expect(host.textContent).toContain(
+      'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.',
+    );
+    // OVR-5b visual review: the invalid reason field owns focus, not the footer.
+    expect(document.activeElement).toBe(reason);
+  });
+
+  it('reveals and focuses the schedule reason field after DEADLINE_EXTENSION_REASON_REQUIRED', async () => {
+    const harness = makeFetch({
+      card: generalTask({ hasOpenOverdueIncident: false }),
+      patchResult: () => json({
+        error: 'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.',
+        code: 'DEADLINE_EXTENSION_REASON_REQUIRED',
+        details: {
+          fieldErrors: {
+            deadlineExtensionReason: 'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.',
+          },
+        },
+      }, 400),
+    });
+    await render(managerUser, harness);
+
+    expect(host.querySelector('#job-schedule-extension-reason')).toBeNull();
+    await setInput('#job-scheduled-at', '2026-11-25T09:00');
+    await settle();
+    await submit('Planlanan zamanı kaydet');
+
+    const reason = host.querySelector<HTMLTextAreaElement>('#job-schedule-extension-reason')!;
+    expect(reason).not.toBeNull();
+    expect(reason.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(reason);
+  });
+
+  it('keeps schedule patch errors inline and focused instead of the page feedback', async () => {
+    const harness = makeFetch({
+      card: generalTask({ hasOpenOverdueIncident: true }),
+      patchResult: () => json({
+        error: 'Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.',
+        code: 'DEADLINE_CHANGE_REQUIRES_MANAGEMENT',
+      }, 409),
+    });
+    await render(managerUser, harness);
+
+    const reason = host.querySelector<HTMLTextAreaElement>('#job-schedule-extension-reason')!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+      ?.set?.call(reason, 'Müşteri ertelemeyi istedi.');
+    reason.dispatchEvent(new Event('input', { bubbles: true }));
+    await submit('Planlanan zamanı kaydet');
+
+    expect(harness.patchBodies).toHaveLength(1);
+    const inlineError = host.querySelector<HTMLElement>('.job-schedule-edit p.field-error')!;
+    expect(inlineError.textContent).toContain(
+      'Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.',
+    );
+    expect(document.activeElement).toBe(inlineError);
+    expect(document.activeElement).not.toBe(host.querySelector('.detail-feedback-error'));
   });
 });

@@ -4,6 +4,8 @@
  * server `fieldErrors.correctionDueAt` next to the control.
  */
 
+import { useEffect, useRef } from 'react';
+
 export type RevisionCorrectionDraft = {
   /** Device-local `YYYY-MM-DDTHH:mm` for the datetime-local input. */
   value: string;
@@ -24,10 +26,17 @@ export function RevisionCorrectionDueField({
 }) {
   const hintId = 'revision-correction-due-at-hint';
   const errorId = 'revision-correction-due-at-error';
+  const inputRef = useRef<HTMLInputElement>(null);
+  // OVR-5b visual review: a server field error moves focus to the picker
+  // instead of leaving it on the dialog shell or the submit button.
+  useEffect(() => {
+    if (draft.fieldError) inputRef.current?.focus();
+  }, [draft.fieldError]);
   return (
     <div className="field-group">
       <label htmlFor="revision-correction-due-at">Düzeltme son tarihi</label>
       <input
+        ref={inputRef}
         id="revision-correction-due-at"
         name="correctionDueAt"
         type="datetime-local"

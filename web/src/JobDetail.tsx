@@ -445,6 +445,8 @@ function JobScheduleEditForm({
   const [reasonError, setReasonError] = useState('');
   // OVR-5 §4.11: checked by default; only sent when a deadline field changed.
   const [resolveChangeRequest, setResolveChangeRequest] = useState(true);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const submitErrorRef = useRef<HTMLParagraphElement>(null);
   const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}`;
   const lastKey = useRef(canonicalKey);
 
@@ -457,6 +459,14 @@ function JobScheduleEditForm({
     setReasonVisible(true);
     setReasonError(deadlineExtensionError);
   }, [deadlineExtensionError]);
+
+  // OVR-5b visual review: while this form is open the invalid reason field owns
+  // focus on its client or server error, then the inline patch error does; the
+  // page feedback stays informational.
+  useEffect(() => {
+    if (reasonError) reasonRef.current?.focus();
+    else if (submitError) submitErrorRef.current?.focus();
+  }, [reasonError, submitError]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     engagementKind: job.engagementKind,
@@ -584,6 +594,7 @@ function JobScheduleEditForm({
           <div className="field-group">
             <label htmlFor="job-schedule-extension-reason">Tarih değişikliği gerekçesi</label>
             <textarea
+              ref={reasonRef}
               id="job-schedule-extension-reason"
               name="deadlineExtensionReason"
               rows={3}
@@ -592,13 +603,17 @@ function JobScheduleEditForm({
               disabled={pending}
               required
               aria-invalid={reasonError ? true : undefined}
-              aria-describedby={reasonError ? 'job-schedule-extension-reason-error' : undefined}
+              aria-describedby={['job-schedule-extension-reason-help',
+                reasonError ? 'job-schedule-extension-reason-error' : null].filter(Boolean).join(' ')}
               onChange={(event) => {
                 setReason(event.target.value);
                 setReasonError('');
                 setSubmitError('');
               }}
             />
+            <span className="form-help" id="job-schedule-extension-reason-help">
+              En fazla 500 karakter.
+            </span>
             {reasonError && (
               <span id="job-schedule-extension-reason-error" className="field-error" role="alert">
                 {reasonError}
@@ -631,7 +646,7 @@ function JobScheduleEditForm({
           onSelect={useAvailableSlot}
           disabled={!managementUser && hasOpenOverdueIncident}
         />
-        {submitError && <p className="field-error" role="alert">{submitError}</p>}
+        {submitError && <p ref={submitErrorRef} className="field-error" role="alert" tabIndex={-1}>{submitError}</p>}
         <div className="review-buttons">
           <button className="secondary-button" type="submit"
             disabled={pending || !onSave || (!managementUser && hasOpenOverdueIncident)}>
@@ -2149,6 +2164,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     input: PatchJobCardInput,
     successMessage: string,
     acknowledgement?: PastStartAcknowledgement,
+    /**
+     * OVR-5b visual review: `form` means the caller keeps an inline editor open
+     * and renders the patch error beside its fields, so the page feedback must
+     * neither take focus from that form nor swallow the error.
+     */
+    errorOwner: 'page' | 'form' = 'page',
   ): Promise<boolean> {
     if (state.kind !== 'ready'
       || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return false;
@@ -2209,7 +2230,14 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }
         setMessage(assignmentWindowErrorMessage(caught, 'İş güncellenemedi.'));
       }
-      setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
+      setMessageIsError(true);
+      if (errorOwner === 'form'
+        && !(caught instanceof ApiError && caught.code === 'VERSION_CONFLICT')) {
+        // Only a version conflict closes the editor; for every other failure the
+        // open form owns the message and the focus.
+        throw new Error(assignmentWindowErrorMessage(caught, 'İş güncellenemedi.'));
+      }
+      setFeedbackFocusRequest((value) => value + 1);
       return false;
     } finally { endMutationOperation(owner); }
   }
@@ -2228,6 +2256,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     await saveJobPatch(
       { expectedVersion: state.detail.job.version, ...input },
       'Görev bilgileri güncellendi.',
+      undefined,
+      'form',
     );
   }
   async function saveSchedule(
@@ -2313,7 +2343,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       const message = assignmentWindowErrorMessage(caught, 'Planlanan zaman kaydedilemedi.');
       setMessage(message);
       setMessageIsError(true);
-      setFeedbackFocusRequest((value) => value + 1);
+      // OVR-5b visual review: this form renders the failure inline and focuses
+      // it, so the page feedback stays informational instead of taking focus.
       throw caught instanceof Error ? caught : new Error('Planlanan zaman kaydedilemedi.');
     } finally {
       endMutationOperation(owner);

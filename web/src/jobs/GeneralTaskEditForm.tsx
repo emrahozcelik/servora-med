@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { listStaff, type StaffProfile } from '../services/people-api';
 import type { CurrentUser } from '../services/api';
@@ -47,6 +47,8 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
   const [staffState, setStaffState] = useState<LoadState>(canChangeAssignee ? 'loading' : 'ready');
   const [fieldError, setFieldError] = useState('');
   const [error, setError] = useState('');
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!canChangeAssignee) return;
@@ -64,6 +66,16 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
     setReasonVisible(true);
     setReasonError(deadlineExtensionError);
   }, [deadlineExtensionError]);
+
+  // OVR-5b visual review: the invalid reason field owns focus on its client or
+  // server error, and a patch error stays inside the open form.
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
+
+  useEffect(() => {
+    if (reasonError) reasonRef.current?.focus();
+  }, [reasonError]);
 
   const dueDateChanged = dueDate !== (job.dueDate ?? '');
   // OVR-5 §4.5: the reason is only required for a deadline change that may end
@@ -96,20 +108,27 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
           resolution: 'RESCHEDULED' as const,
         }
       : undefined;
-    await onSave({
-      title: nextTitle,
-      description: description.trim(),
-      priority,
-      ...(canChangeAssignee ? { assignedTo } : {}),
-      ...(dueDateChanged ? { dueDate: dueDate.trim() ? dueDate : null } : {}),
-      ...(trimmedReason ? { deadlineExtensionReason: trimmedReason } : {}),
-      ...(resolution ? { changeRequestResolution: resolution } : {}),
-    });
+    try {
+      await onSave({
+        title: nextTitle,
+        description: description.trim(),
+        priority,
+        ...(canChangeAssignee ? { assignedTo } : {}),
+        ...(dueDateChanged ? { dueDate: dueDate.trim() ? dueDate : null } : {}),
+        ...(trimmedReason ? { deadlineExtensionReason: trimmedReason } : {}),
+        ...(resolution ? { changeRequestResolution: resolution } : {}),
+      });
+    } catch (caught) {
+      // OVR-5b visual review: the patch error stays beside the open form
+      // (for example DEADLINE_CHANGE_REQUIRES_MANAGEMENT) instead of only on
+      // the page feedback behind it.
+      setError(caught instanceof Error ? caught.message : 'Görev güncellenemedi.');
+    }
   }
 
   return <section className="general-task-edit-form" aria-labelledby="general-task-edit-title-heading">
     <h2 id="general-task-edit-title-heading">Görevi düzenle</h2>
-    {error && <div className="form-error" role="alert">{error}</div>}
+    {error && <div ref={errorRef} className="form-error" role="alert" tabIndex={-1}>{error}</div>}
     {staffState === 'error' && <p className="field-error" role="alert">Personel listesi yüklenemedi.</p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="general-task-edit-title">Başlık</label>
@@ -139,11 +158,15 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
       </div>
       {managementUser && reasonVisible && (
         <div className="field-group"><label htmlFor="general-task-edit-extension-reason">Tarih değişikliği gerekçesi</label>
-          <textarea id="general-task-edit-extension-reason" name="deadlineExtensionReason" rows={3}
+          <textarea ref={reasonRef} id="general-task-edit-extension-reason" name="deadlineExtensionReason" rows={3}
             value={reason} maxLength={500} required={deadlineExtensionRequired}
             aria-invalid={reasonError ? true : undefined}
-            aria-describedby={reasonError ? 'general-task-edit-extension-reason-error' : undefined}
+            aria-describedby={['general-task-edit-extension-reason-help',
+              reasonError ? 'general-task-edit-extension-reason-error' : null].filter(Boolean).join(' ')}
             onChange={(event) => { setReason(event.target.value); setReasonError(''); }} />
+          <span className="form-help" id="general-task-edit-extension-reason-help">
+            En fazla 500 karakter.
+          </span>
           {reasonError && (
             <span id="general-task-edit-extension-reason-error" className="field-error" role="alert">
               {reasonError}
