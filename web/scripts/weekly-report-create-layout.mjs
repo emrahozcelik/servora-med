@@ -232,6 +232,11 @@ const scenarios = [
         noticeText.includes('İptal edilmiş bir rapor varsa, yalnızca bir Admin kaldırdıktan sonra yerine yeni rapor oluşturulabilir.'),
         `${label}: missing cancelled replacement hint (${noticeText})`,
       );
+      const linkRect = await notice.locator('a.weekly-existing-notice-link').boundingBox();
+      assert.ok(
+        linkRect && linkRect.height >= 44,
+        `${label}: "Mevcut rapora git" touch target below 44px (${JSON.stringify(linkRect)})`,
+      );
       const navigated = await page.evaluate(() => window.weeklyCreateNavigated ?? null);
       assert.equal(navigated, null, `${label}: must not navigate on existing outcome`);
     },
@@ -257,7 +262,23 @@ const scenarios = [
         sectionText.includes('2 yeni rapor oluşturuldu, 1 personel için mevcut rapor korundu.'),
         `${label}: summary sentence (${sectionText})`,
       );
-      assert.equal(await page.locator('#weekly-bulk-result-items li').count(), 3, `${label}: result rows`);
+      const rows = page.locator('#weekly-bulk-result-items li.weekly-bulk-result-row');
+      assert.equal(await rows.count(), 3, `${label}: result rows`);
+      const listMetrics = await page.evaluate(() => {
+        const list = document.querySelector('#weekly-bulk-result-items');
+        const link = document.querySelector('#weekly-bulk-result-items a.weekly-bulk-result-link');
+        const linkBox = link ? link.getBoundingClientRect() : null;
+        return {
+          listStyleType: list ? getComputedStyle(list).listStyleType : null,
+          createdCount: document.querySelectorAll('.bulk-result-outcome--created').length,
+          existingCount: document.querySelectorAll('.bulk-result-outcome--existing').length,
+          linkHeight: linkBox ? linkBox.height : 0,
+        };
+      });
+      assert.equal(listMetrics.listStyleType, 'none', `${label}: bulk list still shows bullets`);
+      assert.equal(listMetrics.createdCount, 2, `${label}: created badge count`);
+      assert.equal(listMetrics.existingCount, 1, `${label}: existing badge count`);
+      assert.ok(listMetrics.linkHeight >= 44, `${label}: "Raporu aç" link height ${listMetrics.linkHeight} < 44`);
     },
   },
 ];

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
@@ -52,9 +53,9 @@ type CreateAttempt =
 const CANCELLED_REPLACE_HINT =
   'İptal edilmiş bir rapor varsa, yalnızca bir Admin kaldırdıktan sonra yerine yeni rapor oluşturulabilir.';
 
-function previewDueDate(periodStart: string, reference: WeeklyReportReference | null): string {
+function previewDueDate(periodStart: string, reference: WeeklyReportReference | null): string | null {
+  if (!reference) return null;
   const mondayDeadline = addCalendarDays(periodStart, 7);
-  if (!reference) return mondayDeadline;
   // WR-WEEK D9: max(periodEnd + 2, organization-local creation date).
   return mondayDeadline < reference.today ? reference.today : mondayDeadline;
 }
@@ -83,6 +84,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [ambiguous, setAmbiguous] = useState(false);
   const [bulkResult, setBulkResult] = useState<WeeklyReportBulkResult | null>(null);
+  const periodStartRef = useRef(initialPeriodStart ?? '');
   const attemptRef = useRef<CreateAttempt | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const existingNoticeRef = useRef<HTMLDivElement>(null);
@@ -90,6 +92,11 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   // Separate request gate: the canonical-week load and the staff list load are
   // independent reads and must not cancel each other.
   const referenceGate = useRef(createRequestGate());
+
+  function updatePeriodStart(next: string) {
+    periodStartRef.current = next;
+    setPeriodStart(next);
+  }
 
   async function loadReference() {
     const generation = referenceGate.current.next();
@@ -101,16 +108,17 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
       setReferenceState('ready');
       const lastWeekStart = addCalendarDays(canonical.periodStart, -7);
       // Prefill only when the user has not already picked a week.
-      setPeriodStart((current) => {
-        if (!current) {
-          setWeekMode('this_week');
-          return canonical.periodStart;
-        }
-        if (current === canonical.periodStart) setWeekMode('this_week');
-        else if (current === lastWeekStart) setWeekMode('last_week');
-        else setWeekMode('custom');
-        return current;
-      });
+      const currentPeriod = periodStartRef.current;
+      if (!currentPeriod) {
+        setWeekMode('this_week');
+        updatePeriodStart(canonical.periodStart);
+      } else if (currentPeriod === canonical.periodStart) {
+        setWeekMode('this_week');
+      } else if (currentPeriod === lastWeekStart) {
+        setWeekMode('last_week');
+      } else {
+        setWeekMode('custom');
+      }
     } catch {
       if (!referenceGate.current.isCurrent(generation)) return;
       setReferenceState('error');
@@ -157,8 +165,8 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
     setExistingNotice(null);
     setFieldErrors((current) => ({ ...current, periodStart: undefined }));
     if (!reference) return;
-    if (mode === 'this_week') setPeriodStart(reference.periodStart);
-    else if (mode === 'last_week') setPeriodStart(addCalendarDays(reference.periodStart, -7));
+    if (mode === 'this_week') updatePeriodStart(reference.periodStart);
+    else if (mode === 'last_week') updatePeriodStart(addCalendarDays(reference.periodStart, -7));
   }
 
   function addCustomQuestion() {
@@ -306,6 +314,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    setExistingNotice(null);
     if (ambiguous) { const attempt = attemptRef.current; if (attempt) await sendAttempt(attempt); return; }
     const nextErrors = collectFieldErrors();
     setFieldErrors(nextErrors);
@@ -336,7 +345,9 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   }
 
   const staffUnavailable = !isStaff && staffState !== 'ready';
-  const showDateInput = weekMode === 'custom' || referenceState === 'error' || !reference;
+  const referenceLoadingWithoutPeriod = referenceState === 'loading' && !periodStart;
+  const showDateInput = referenceState === 'error'
+    || (weekMode === 'custom' && (referenceState === 'ready' || Boolean(initialPeriodStart)));
   const validMondaySelected = isMondayDateKey(periodStart);
   const previewSaturday = validMondaySelected ? addCalendarDays(periodStart, 5) : null;
   const previewDeadline = validMondaySelected ? previewDueDate(periodStart, reference) : null;
@@ -368,16 +379,20 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
         {existing > 0 && (
           <p className="form-help">{CANCELLED_REPLACE_HINT}</p>
         )}
-        <ul className="activity-list" id="weekly-bulk-result-items">
+        <ul className="activity-list weekly-bulk-result-list" id="weekly-bulk-result-items">
           {bulkResult.items.map((item) => (
-            <li key={item.jobCardId}>
+            <li key={item.jobCardId} className="weekly-bulk-result-row">
               <span className="bulk-result-name">
                 {nameById.get(item.staffUserId) ?? item.staffUserId}
               </span>
-              <span className="bulk-result-outcome">
+              <span
+                className={item.outcome === 'created'
+                  ? 'bulk-result-outcome bulk-result-outcome--created'
+                  : 'bulk-result-outcome bulk-result-outcome--existing'}
+              >
                 {item.outcome === 'created' ? 'Oluşturuldu' : 'Zaten mevcut'}
               </span>
-              <a href={`/jobs/${encodeURIComponent(item.jobCardId)}`}>Raporu aç</a>
+              <a className="secondary-button weekly-bulk-result-link" href={paths.job(item.jobCardId)}>Raporu aç</a>
             </li>
           ))}
         </ul>
@@ -406,7 +421,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
       {error}
       {existingJobId && <>
         {' '}
-        <a href={`/jobs/${encodeURIComponent(existingJobId)}`}>Mevcut rapora git</a>
+        <a className="weekly-existing-error-link" href={paths.job(existingJobId)}>Mevcut rapora git</a>
         {' '}
         <span className="weekly-existing-hint">{CANCELLED_REPLACE_HINT}</span>
       </>}
@@ -420,10 +435,15 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
         ref={existingNoticeRef}
       >
         <p className="weekly-existing-notice-message">
-          {existingNotice.message}{' '}
-          <a href={`/jobs/${encodeURIComponent(existingNotice.jobCardId)}`}>Mevcut rapora git</a>
+          <span className="weekly-existing-notice-icon" aria-hidden="true">!</span>
+          <span>{existingNotice.message}</span>
         </p>
         <p className="weekly-existing-notice-hint">{existingNotice.hint}</p>
+        <div className="weekly-existing-notice-actions">
+          <a className="secondary-button weekly-existing-notice-link" href={paths.job(existingNotice.jobCardId)}>
+            Mevcut rapora git
+          </a>
+        </div>
       </div>
     )}
     <form className="task-form" onSubmit={submit} noValidate>
@@ -477,16 +497,18 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
               aria-invalid={fieldErrors.periodStart ? true : undefined}
               onChange={(event) => {
                 setExistingNotice(null);
-                setPeriodStart(event.target.value);
+                updatePeriodStart(event.target.value);
                 setFieldErrors((current) => ({ ...current, periodStart: undefined }));
               }}
             />
           </div>
         )}
         <div className="weekly-period-meta">
-          {validMondaySelected && previewSaturday && previewDeadline && (
+          {validMondaySelected && previewSaturday && (
             <p className="weekly-period-preview" id="weekly-period-preview" role="status">
-              {`Dönem ${formatCalendarRange(periodStart, previewSaturday)} · Son teslim ${formatCalendarDayWithWeekday(previewDeadline)}`}
+              {previewDeadline
+                ? `Dönem ${formatCalendarRange(periodStart, previewSaturday)} · Son teslim ${formatCalendarDayWithWeekday(previewDeadline)}`
+                : `Dönem ${formatCalendarRange(periodStart, previewSaturday)} · Son teslim tarihi sunucuda belirlenir`}
             </p>
           )}
           {referenceState === 'loading' && <span className="field-status" role="status">Rapor haftası organizasyon takviminden yükleniyor…</span>}
@@ -556,7 +578,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
         <button className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
         {ambiguous && <button className="secondary-button" type="button" disabled={pending}
           onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>}
-        <button className="primary-button" type="submit" disabled={pending || ambiguous || staffUnavailable}>
+        <button className="primary-button" type="submit" disabled={pending || ambiguous || staffUnavailable || referenceLoadingWithoutPeriod}>
           {pending
             ? 'Rapor isteği gönderiliyor…'
             : isStaff ? 'Raporu oluştur' : 'Rapor isteklerini oluştur'}

@@ -1845,6 +1845,7 @@ describe('WeeklyReportDetail', () => {
 
     const editor = host.querySelector('[data-job-detail-block="weekly-report-editor"]')!;
     expect(editor.textContent).toContain('Önceki form alanları');
+    expect(editor.textContent).toContain('Önceki form düzeninden taşınan kayıtlı alanlar; gönderime kadar düzenlenebilir.');
     const supportField = host.querySelector('#weekly-supportNeeded') as HTMLTextAreaElement;
     expect(supportField).not.toBeNull();
     expect(supportField.value).toBe('Eski destek talebi.');
@@ -2009,6 +2010,8 @@ describe('WeeklyReportDetail', () => {
     const readiness = editor.querySelector('[data-weekly-mobile-readiness="true"]')!;
     const editorForm = editor.querySelector('form')!;
     expect(readiness).not.toBeNull();
+    expect(readiness.getAttribute('aria-live')).toBe('polite');
+    expect(readiness.classList.contains('weekly-mobile-readiness--ready')).toBe(false);
     expect(readiness.compareDocumentPosition(editorForm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(readiness.textContent).toContain('1/2 madde tamam');
     expect(readiness.textContent).toContain('Eksik');
@@ -2019,9 +2022,99 @@ describe('WeeklyReportDetail', () => {
     expect(stickySubmit).not.toBeNull();
     expect(stickySubmit.textContent).toBe('Kontrole gönder');
     expect(stickySubmit.disabled).toBe(false);
+    expect(stickySubmit.getAttribute('aria-describedby')).toBeNull();
 
     type(summaryField(), 'Düzenlendi.');
     expect(stickySubmit.disabled).toBe(true);
+    expect(stickySubmit.getAttribute('aria-describedby')).toBe('weekly-editor-submit-reason');
+    const blockedHint = stickyBar.querySelector('#weekly-editor-submit-reason')!;
+    expect(blockedHint.getAttribute('role')).toBe('status');
+    expect(blockedHint.textContent).toBe('Raporu göndermeden önce değişiklikleri kaydedin.');
     expect(readiness.textContent).toContain('Raporu göndermeden önce değişiklikleri kaydedin.');
+
+    weeklyApi.patchWeeklyReportDraft.mockResolvedValueOnce(makeDetail({
+      version: 3,
+      draft: {
+        summary: 'Düzenlendi.', blockers: null, nextWeekPlan: 'Önümüzdeki hafta planı.',
+        highlights: null, fieldObservations: null, supportNeeded: null,
+      },
+    }));
+    await act(async () => { submitForm(); await flush(); });
+    const saveStatus = host.querySelector('[data-weekly-save-notice="true"]');
+    expect(saveStatus).not.toBeNull();
+    expect(saveStatus!.getAttribute('role')).toBe('status');
+    expect(saveStatus!.textContent).toBe('Taslak kaydedildi.');
+    type(summaryField(), 'Tekrar düzenlendi.');
+    expect(host.querySelector('[data-weekly-save-notice="true"]')).toBeNull();
+  });
+
+  // 47
+  it('marks readiness green only in IN_PROGRESS and uses neutral copy in ACCEPTED when all items are met', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'ACCEPTED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: {
+          evaluatedAt: '2026-08-07T09:00:00.000Z',
+          ready: true,
+          items: [
+            { code: 'WEEKLY_DRAFT_VALID', state: 'met' },
+            { code: 'WEEKLY_ANSWERS_COMPLETE', state: 'met' },
+          ],
+        },
+      },
+    }));
+    await render();
+    const acceptedReadiness = host.querySelector('[data-weekly-mobile-readiness="true"]')!;
+    expect(acceptedReadiness.classList.contains('weekly-mobile-readiness--ready')).toBe(false);
+    expect(acceptedReadiness.textContent).toContain('Hazırlık tamam (2/2)');
+    expect(acceptedReadiness.textContent).toContain('önce işi başlatın');
+    expect(acceptedReadiness.textContent).not.toContain('Kontrole hazır');
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'IN_PROGRESS',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: {
+          evaluatedAt: '2026-08-07T09:00:00.000Z',
+          ready: true,
+          items: [
+            { code: 'WEEKLY_DRAFT_VALID', state: 'met' },
+            { code: 'WEEKLY_ANSWERS_COMPLETE', state: 'met' },
+          ],
+        },
+      },
+    }));
+    await render();
+    const inProgressReadiness = host.querySelector('[data-weekly-mobile-readiness="true"]')!;
+    expect(inProgressReadiness.classList.contains('weekly-mobile-readiness--ready')).toBe(true);
+    expect(inProgressReadiness.textContent).toContain('Kontrole hazır (2/2)');
+  });
+
+  // 48
+  it('wires returnFocusRef when opening a workflow dialog from the sticky submit button', async () => {
+    await render();
+    const stickySubmit = host.querySelector('.weekly-mobile-sticky-submit') as HTMLButtonElement;
+    stickySubmit.focus();
+    await act(async () => {
+      stickySubmit.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    const cancelBtn = Array.from(document.querySelectorAll('[role="dialog"] button'))
+      .find((b) => b.textContent === 'Vazgeç') as HTMLButtonElement;
+    expect(cancelBtn).toBeDefined();
+    await act(async () => {
+      cancelBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(stickySubmit);
   });
 });
