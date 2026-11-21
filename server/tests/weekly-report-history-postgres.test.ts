@@ -329,11 +329,11 @@ describe.skipIf(!databaseUrl)('weekly report profile history (PostgreSQL)', () =
       });
       const byId = new Map(page.items.map((item) => [item.reportId, item]));
 
-      // A report created for the week of 2026-08-03 is due the next Monday.
+      // A report created for the working week of 2026-08-03 is due on the Monday after it.
       // The value is the server's calendar date, so it must not shift a day.
       expect(byId.get(s.a1Old.reportId)!.dueDate).toBe('2026-08-10');
       expect(byId.get(s.a1Old.reportId)!.periodStart).toBe(WEEK_A);
-      expect(byId.get(s.a1Old.reportId)!.periodEnd).toBe('2026-08-09');
+      expect(byId.get(s.a1Old.reportId)!.periodEnd).toBe('2026-08-08');
       // A missing deadline stays missing rather than becoming an invented date.
       expect(byId.get(s.a1New.reportId)!.dueDate).toBeNull();
 

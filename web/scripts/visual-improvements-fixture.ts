@@ -98,6 +98,6 @@ export const report: StaffReportResponse = {
 };
 export const weekly: WeeklyReportHistoryItem[] = [{
   reportId: 'weekly-1', jobCardId: 'weekly-job', staffUserId: staffId,
-  periodStart: '2026-10-26', periodEnd: '2026-11-01', status: 'WAITING_APPROVAL', dueDate: '2026-11-02',
+  periodStart: '2026-10-26', periodEnd: '2026-10-31', status: 'WAITING_APPROVAL', dueDate: '2026-11-02',
   submissionCount: 1, latestSubmissionSeqNo: 1, latestSubmittedAt: stamp, createdAt: stamp, completedAt: null,
 }];

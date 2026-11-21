@@ -5,46 +5,36 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  WEEKLY_REPORT_PRESET_QUESTIONS,
   WeeklyReportQuestionEditor,
+  collectManagerQuestions,
+  nextCustomQuestionKey,
   type CustomQuestionDraft,
 } from '../src/jobs/WeeklyReportQuestionEditor';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 /**
- * The manager-question editor is shared by Weekly Report creation and by
- * recurrence template editing. These tests drive the editor directly so the
- * preset rows can be asserted on their own contract: owned AntD checkboxes
- * with stable semantic keys, a locked (disabled) surface, and custom rows that
- * keep the key they were given.
+ * Manager-question editor tests for Weekly Report creation (WR-WEEK D6:
+ * presets removed; managers add only report-specific custom questions with
+ * stable keys).
  */
 function Harness({
   locked = false,
-  initialPresetKeys = [],
   initialCustomQuestions = [],
 }: {
   locked?: boolean;
-  initialPresetKeys?: string[];
   initialCustomQuestions?: CustomQuestionDraft[];
 }) {
-  const [presetKeys, setPresetKeys] = useState<ReadonlySet<string>>(new Set(initialPresetKeys));
   const [customQuestions, setCustomQuestions] = useState<CustomQuestionDraft[]>(initialCustomQuestions);
   return <WeeklyReportQuestionEditor
     idPrefix="weekly"
     locked={locked}
-    selectedPresetKeys={presetKeys}
-    onTogglePreset={(key, checked) => setPresetKeys((current) => {
-      const next = new Set(current);
-      if (checked) next.add(key); else next.delete(key);
-      return next;
-    })}
     customQuestions={customQuestions}
     onChangeCustomPrompt={(key, prompt) => setCustomQuestions((current) => current.map(
       (question) => (question.key === key ? { ...question, prompt } : question),
     ))}
     onAddCustom={() => setCustomQuestions((current) => [
-      ...current, { key: `custom_${current.length + 1}`, prompt: '' },
+      ...current, { key: nextCustomQuestionKey(current.map((q) => q.key)), prompt: '' },
     ])}
     onRemoveCustom={(key) => setCustomQuestions((current) => (
       current.filter((question) => question.key !== key)
@@ -75,85 +65,34 @@ describe('Weekly report manager-question editor', () => {
     await act(async () => root.render(<Harness {...props} />));
   }
 
-  function presetInputs(): HTMLInputElement[] {
-    return Array.from(
-      host.querySelectorAll<HTMLInputElement>('#weekly-preset-questions input[type="checkbox"]'),
-    );
-  }
-
-  it('renders one owned AntD checkbox row per preset, in canonical order', async () => {
+  it('renders no preset question checkboxes (WR-WEEK D6)', async () => {
     await render();
-    const rows = Array.from(host.querySelectorAll('#weekly-preset-questions > .weekly-question-preset'));
-    expect(rows).toHaveLength(WEEKLY_REPORT_PRESET_QUESTIONS.length);
-    expect(rows).toHaveLength(5);
-    const inputs = presetInputs();
-    expect(inputs).toHaveLength(5);
-    expect(inputs.map((input) => input.id)).toEqual(
-      WEEKLY_REPORT_PRESET_QUESTIONS.map((preset) => `weekly-preset-${preset.key}`),
-    );
-    // Each row hosts exactly one owned AntD checkbox, not a bare native input.
-    // Selectors are prefix-agnostic: the owned boundary renders `servora-ant-*`
-    // in production, while these suites mount a plain ConfigProvider.
-    for (const row of rows) {
-      expect(row.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
-      expect(row.querySelector('[class*="-checkbox-wrapper"]')).not.toBeNull();
-      expect(row.querySelector('[class*="-checkbox-input"]')).not.toBeNull();
-    }
+    expect(host.querySelector('#weekly-preset-questions')).toBeNull();
+    expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(host.querySelector('#weekly-add-custom-question')).not.toBeNull();
   });
 
-  it('keeps the accessible name of every preset checkbox on its prompt', async () => {
+  it('adds custom questions with stable collision-free keys', async () => {
     await render();
-    for (const preset of WEEKLY_REPORT_PRESET_QUESTIONS) {
-      const input = host.querySelector<HTMLInputElement>(`#weekly-preset-${preset.key}`);
-      expect(input).not.toBeNull();
-      // The AntD wrapper is a <label>, so it is the accessible name owner.
-      const label = input!.closest('label');
-      expect(label).not.toBeNull();
-      expect(label!.textContent?.trim()).toBe(preset.prompt);
-      expect(input!.type).toBe('checkbox');
-    }
-  });
-
-  it('toggles a preset through real checkbox activation and keeps the checked state', async () => {
-    await render();
-    const highlights = host.querySelector<HTMLInputElement>('#weekly-preset-preset_week_highlights')!;
-    const support = host.querySelector<HTMLInputElement>('#weekly-preset-preset_management_support')!;
-    expect(highlights.checked).toBe(false);
-
-    await act(async () => { highlights.click(); });
-    expect(highlights.checked).toBe(true);
-    expect(support.checked).toBe(false);
-
-    await act(async () => { support.click(); });
-    expect(highlights.checked).toBe(true);
-    expect(support.checked).toBe(true);
-
-    // A second activation unchecks only that row.
-    await act(async () => { highlights.click(); });
-    expect(highlights.checked).toBe(false);
-    expect(support.checked).toBe(true);
-  });
-
-  it('reflects a caller-owned selection without letting the editor own the state', async () => {
-    await render({ initialPresetKeys: ['preset_field_feedback'] });
-    expect(host.querySelector<HTMLInputElement>('#weekly-preset-preset_field_feedback')!.checked).toBe(true);
-    expect(presetInputs().filter((input) => input.checked)).toHaveLength(1);
-  });
-
-  it('disables every preset checkbox and the add action while locked', async () => {
-    await render({ locked: true, initialPresetKeys: ['preset_week_highlights'] });
-    const inputs = presetInputs();
-    expect(inputs).toHaveLength(5);
-    expect(inputs.every((input) => input.disabled)).toBe(true);
-    expect(inputs.map((input) => input.matches(':disabled'))).toEqual([true, true, true, true, true]);
     const add = host.querySelector<HTMLButtonElement>('#weekly-add-custom-question')!;
-    expect(add.disabled).toBe(true);
+    await act(async () => { add.click(); });
+    await act(async () => { add.click(); });
+    expect(host.querySelector('#weekly-custom-question-custom_1')).not.toBeNull();
+    expect(host.querySelector('#weekly-custom-question-custom_2')).not.toBeNull();
+  });
 
-    // A locked surface cannot be mutated through the checkbox.
-    const highlights = host.querySelector<HTMLInputElement>('#weekly-preset-preset_week_highlights')!;
-    await act(async () => { highlights.click(); });
-    expect(highlights.checked).toBe(true);
-    expect(host.querySelector<HTMLInputElement>('#weekly-preset-preset_incomplete_work')!.checked).toBe(false);
+  it('disables custom question inputs, remove controls and the add action while locked', async () => {
+    await render({
+      locked: true,
+      initialCustomQuestions: [{ key: 'custom_1', prompt: 'Kilitli soru' }],
+    });
+    const input = host.querySelector<HTMLInputElement>('#weekly-custom-question-custom_1')!;
+    const remove = Array.from(host.querySelectorAll('#weekly-questions .inline-action'))
+      .find((button) => button.textContent === 'Kaldır') as HTMLButtonElement;
+    const add = host.querySelector<HTMLButtonElement>('#weekly-add-custom-question')!;
+    expect(input.disabled).toBe(true);
+    expect(remove.disabled).toBe(true);
+    expect(add.disabled).toBe(true);
   });
 
   it('keeps the add-custom action in its own content-width action container', async () => {
@@ -185,5 +124,16 @@ describe('Weekly report manager-question editor', () => {
       .find((button) => button.textContent === 'Kaldır') as HTMLButtonElement;
     await act(async () => { remove.dispatchEvent(new Event('click', { bubbles: true })); });
     expect(host.querySelector('#weekly-custom-question-q1')).toBeNull();
+  });
+
+  it('collectManagerQuestions trims prompts and omits blank rows while preserving keys', () => {
+    expect(collectManagerQuestions([
+      { key: 'custom_1', prompt: '  Saha ziyareti notu  ' },
+      { key: 'custom_2', prompt: '   ' },
+      { key: 'custom_3', prompt: 'Stok durumu?' },
+    ])).toEqual([
+      { key: 'custom_1', prompt: 'Saha ziyareti notu' },
+      { key: 'custom_3', prompt: 'Stok durumu?' },
+    ]);
   });
 });

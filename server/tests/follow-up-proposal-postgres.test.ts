@@ -934,7 +934,12 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       const job = await createInProgressJob({
         type: 'SALES_MEETING', title: 'Kontrol görüşmesi', assignedTo: staffA.id,
       });
-      for (const [index, at] of [1, 2, 3].map((days) => new Date(Date.parse(PROPOSAL_AT) - days * DAY_MS).toISOString()).entries()) {
+      // Anchor the past visits on the instant the service actually proposes.
+      // The fixture's PROPOSAL_AT can differ from it by up to a day depending
+      // on the DB clock's time of day, which pushed one visit past the
+      // proposal and made this test fail in the evening.
+      const proposedAt = Date.parse((await service.getFollowUpSuggestion(manager, job.id)).scheduledAt!);
+      for (const [index, at] of [1, 2, 3].map((days) => new Date(proposedAt - days * DAY_MS).toISOString()).entries()) {
         const visit = await pool.query<{ id: string }>(
           `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
              started_at, staff_completed_at, staff_completed_by, manager_approved_at, manager_approved_by,

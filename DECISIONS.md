@@ -3176,3 +3176,58 @@ management decision list.
   live and 067 is not applied; after OVR-5b, fixes go forward.
 - Reports are unchanged (stage 3 of the lateness plan).
 
+
+## WR-WEEK — Weekly Report working week (Monday–Saturday) and Monday deadline
+
+- **Date:** 2026-11-21
+- **Status:** Accepted product contract (owner, 2026-11-21: proposed defaults
+  accepted with "evet hazırla"; late-request rule option (a) chosen with
+  "önerinle a ile devam edelim"; period and deadline revised the same day,
+  before any release: "raporlar pazartesiden cumartesiye olacakmış. haftalık
+  rapor istendiğinde cumartesi gününü kapsayacak. rapor pazar ve pazartesiye
+  kadar gönderilebilecek."; clarified and approved the same day: overdue at the
+  end of Monday, submission allowed any time before, a late request due on its
+  creation day); implemented and verified locally, hosted CI pending. Ships with the code in one
+  PR. Contract: [weekly-report-workweek.md](./docs/features/weekly-report-workweek.md).
+
+### Decision
+
+1. A new Weekly Report covers the organization-local working week: ISO Monday
+   `period_start`, `period_end = period_start + 5` (Saturday).
+2. The deadline is the Monday after the period (`due_date = period_end + 2`),
+   still server-only and immutable; Staff may submit any time before it,
+   including Sunday and Monday. Overdue starts Tuesday 00:00
+   organization-local under the unchanged overdue contract.
+3. The automatic work list covers Monday 00:00 → Sunday 00:00; Sunday
+   completions belong to no weekly report. The create screen defaults to the
+   current ISO week (on Sunday the week that just ended).
+4. The Staff form has three sections (Bu hafta, Sorunlar ve destek ihtiyacı,
+   Gelecek hafta planı); the five preset manager questions are removed and
+   custom questions remain.
+5. Existing reports, drafts, submissions, frozen questions/answers, source-work
+   snapshots and PDFs are never rewritten and keep rendering all stored fields
+   with their original labels.
+6. A manager request that resolves to an existing report never navigates as if
+   one was created; bulk results state created and existing counts separately.
+7. A request created after the deadline of its week is never born overdue:
+   `due_date = max(period_end + 2, organization-local creation date)`.
+8. Weekly-report screens get the accepted UI changes: week choice, period and
+   deadline preview, Turkish calendar dates, and mobile-reachable Staff actions.
+
+### Consequences
+
+- Supersedes only these parts of earlier records: the Monday–Sunday period of
+  "Weekly Report V1 Slice 1", the "day after `period_end`" due-date formula and
+  six body sections of "Slice 2", the deadline formula of the field-test
+  server-only deadline rule, and the five preset questions of the V1 field-test
+  remediation. Identity/uniqueness, Admin removal, CANCEL/INVALIDATE week
+  reservation and the recurrence retirement are unchanged.
+- Migration 068 widens the period constraints so that old 7-day rows stay valid
+  and binds each submission's period to its report; applied migrations are not
+  edited.
+- The weekly-report reference read gains an additive `today` field.
+- Reports open at deploy time keep their 7-day period and deadline.
+- Historical production labels are one week ahead of the work they describe.
+  Right after the release, old-convention reports labelled with the release
+  week or later are removed with the Admin removal command (history kept);
+  older reports are untouched. Release order: 066 → 067 → 068.

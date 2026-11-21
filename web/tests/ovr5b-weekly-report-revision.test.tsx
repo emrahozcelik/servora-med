@@ -48,13 +48,13 @@ const manager: CurrentUser = {
   role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
 };
 
-const WEEK = { periodStart: '2026-11-16', periodEnd: '2026-11-22' };
+const WEEK = { periodStart: '2026-11-16', periodEnd: '2026-11-21' };
 
 function makeJob(overrides: Partial<JobCard> = {}): JobCard {
   return {
     id: 'job-1', organizationId: 'org-1', organizationTimezone: 'Europe/Istanbul',
     type: 'WEEKLY_REPORT', status: 'WAITING_APPROVAL', version: 3,
-    title: 'Haftalık Rapor (2026-11-16 – 2026-11-22)', description: null,
+    title: 'Haftalık Rapor (2026-11-16 – 2026-11-21)', description: null,
     customerId: null, contactId: null, assignedTo: 'staff-1', createdBy: 'manager-1',
     priority: 'normal', dueDate: '2026-11-23', scheduledAt: null, scheduledEndsAt: null,
     engagementKind: null,

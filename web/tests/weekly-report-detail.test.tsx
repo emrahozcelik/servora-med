@@ -64,13 +64,13 @@ const managerUser: CurrentUser = {
   ...staffUser, id: 'manager-1', name: 'Murat Yönetici', role: 'MANAGER',
 };
 
-const WEEK = { periodStart: '2026-08-03', periodEnd: '2026-08-09' };
+const WEEK = { periodStart: '2026-08-03', periodEnd: '2026-08-08' };
 
 function makeJob(overrides: Partial<JobCard> = {}): JobCard {
   const { workflowContext: workflowOverrides, ...rest } = overrides;
   return {
     id: 'job-1', organizationId: 'org-1', type: 'WEEKLY_REPORT', status: 'IN_PROGRESS',
-    version: 3, title: 'Haftalık Rapor (2026-08-03 – 2026-08-09)', description: null,
+    version: 3, title: 'Haftalık Rapor (2026-08-03 – 2026-08-08)', description: null,
     customerId: null, contactId: null, assignedTo: 'staff-1', createdBy: 'manager-1',
     priority: 'normal', dueDate: '2026-08-10', scheduledAt: null, scheduledEndsAt: null,
     engagementKind: null,
@@ -1789,5 +1789,332 @@ describe('WeeklyReportDetail', () => {
     expect(labels).toEqual(['Ürün teslimi', 'Satış görüşmesi']);
     expect(host.textContent).not.toContain('PRODUCT_DELIVERY');
     expect(host.textContent).not.toContain('SALES_MEETING');
+  });
+
+  // --- WR-WEEK: 3-field workweek editor, legacy draft preservation, record-shape labels, Turkish dates & mobile ---
+
+  // 41
+  it('formats Turkish period and due date in header and facts without repeating the period in header description', async () => {
+    await render();
+    const header = host.querySelector('[data-job-detail-section="heading"] header');
+    expect(header).not.toBeNull();
+    expect(header!.querySelector('h1')?.textContent).toBe('Haftalık Rapor · 3–8 Ağustos 2026');
+    expect(header!.querySelector('.page-header-description')).toBeNull();
+    expect(header!.textContent).not.toContain('2026-08-03');
+
+    const facts = host.querySelector('[data-job-detail-block="record-facts"]')!;
+    expect(facts.textContent).toContain('3–8 Ağustos 2026');
+    expect(facts.textContent).toContain('10 Ağustos 2026 Pazartesi');
+    expect(facts.textContent).not.toContain('2026-08-03');
+    expect(facts.textContent).not.toContain('2026-08-08');
+    expect(facts.textContent).not.toContain('2026-08-10');
+  });
+
+  // 42
+  it('renders only the three workweek sections for a new workweek draft (D5 / A10)', async () => {
+    await render();
+    const editor = host.querySelector('[data-job-detail-block="weekly-report-editor"]')!;
+    const textareas = Array.from(editor.querySelectorAll('textarea'));
+    // 3 draft sections + 1 manager question = 4
+    expect(textareas.map((el) => el.id)).toEqual([
+      'weekly-summary',
+      'weekly-blockers',
+      'weekly-nextWeekPlan',
+      'weekly-answer-q1',
+    ]);
+    expect(editor.textContent).toContain('Bu hafta *');
+    expect(editor.textContent).toContain('Sorunlar ve destek ihtiyacı');
+    expect(editor.textContent).toContain('Gelecek hafta planı *');
+    expect(editor.textContent).not.toContain('Önceki form alanları');
+    expect(editor.textContent).not.toContain('Haftanın özeti');
+  });
+
+  // 43
+  it('keeps legacy draft text editable under "Önceki form alanları", detects dirty edits and preserves all six keys (A11 / A19)', async () => {
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      draft: {
+        summary: 'Özet.',
+        blockers: null,
+        nextWeekPlan: 'Plan.',
+        highlights: null,
+        fieldObservations: null,
+        supportNeeded: 'Eski destek talebi.',
+      },
+    }));
+    await render();
+
+    const editor = host.querySelector('[data-job-detail-block="weekly-report-editor"]')!;
+    expect(editor.textContent).toContain('Önceki form alanları');
+    expect(editor.textContent).toContain('Önceki form düzeninden taşınan kayıtlı alanlar; gönderime kadar düzenlenebilir.');
+    const supportField = host.querySelector('#weekly-supportNeeded') as HTMLTextAreaElement;
+    expect(supportField).not.toBeNull();
+    expect(supportField.value).toBe('Eski destek talebi.');
+    expect(host.querySelector('#weekly-highlights')).toBeNull();
+    expect(host.querySelector('#weekly-fieldObservations')).toBeNull();
+
+    // Edit only supportNeeded -> form becomes dirty, submit is blocked.
+    type(supportField, 'Güncellenmiş destek talebi.');
+    expect(buttonByText('Kontrole gönder').disabled).toBe(true);
+
+    weeklyApi.patchWeeklyReportDraft.mockResolvedValueOnce(makeDetail({
+      version: 3,
+      draft: {
+        summary: 'Özet.',
+        blockers: null,
+        nextWeekPlan: 'Plan.',
+        highlights: null,
+        fieldObservations: null,
+        supportNeeded: 'Güncellenmiş destek talebi.',
+      },
+    }));
+    await act(async () => { submitForm(); await flush(); });
+    expect(weeklyApi.patchWeeklyReportDraft).toHaveBeenCalledWith('job-1', expect.objectContaining({
+      expectedVersion: 2,
+      draft: {
+        summary: 'Özet.',
+        blockers: null,
+        nextWeekPlan: 'Plan.',
+        highlights: null,
+        fieldObservations: null,
+        supportNeeded: 'Güncellenmiş destek talebi.',
+      },
+    }));
+    expect(buttonByText('Kontrole gönder').disabled).toBe(false);
+
+    // Clearing the field mid-edit does not unmount the textarea while baseline still holds text.
+    type(host.querySelector('#weekly-supportNeeded') as HTMLTextAreaElement, '');
+    expect(host.querySelector('#weekly-supportNeeded')).not.toBeNull();
+  });
+
+  // 44
+  it('keeps the six-field V1 editor and labels for an open legacy 7-day report (D7 / A8)', async () => {
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      periodStart: '2026-08-03',
+      periodEnd: '2026-08-09',
+      dueDate: '2026-08-10',
+    }));
+    await render();
+    const editor = host.querySelector('[data-job-detail-block="weekly-report-editor"]')!;
+    expect(editor.textContent).toContain('Haftanın özeti *');
+    expect(editor.textContent).toContain('Sorunlar / engeller');
+    expect(editor.textContent).toContain('Öne çıkan çalışmalar');
+    expect(editor.textContent).toContain('Müşteri / saha gözlemleri');
+    expect(editor.textContent).toContain('Yöneticiden destek beklenen konular');
+    expect(editor.textContent).not.toContain('Önceki form alanları');
+  });
+
+  // 45
+  it('renders frozen report and historyFacts with record-shape labels and all stored legacy fields (A9 / A20)', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'COMPLETED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES'],
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      jobStatus: 'COMPLETED',
+      periodStart: '2026-08-03',
+      periodEnd: '2026-08-09',
+      dueDate: '2026-08-10',
+    }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([
+      makeSubmission({
+        seqNo: 1,
+        periodStart: '2026-08-03',
+        periodEnd: '2026-08-09',
+        body: {
+          summary: '7-gün özeti.',
+          blockers: '7-gün engeli.',
+          nextWeekPlan: '7-gün planı.',
+          highlights: 'Öne çıkan iş.',
+          fieldObservations: 'Saha gözlemi.',
+          supportNeeded: 'Destek ihtiyacı.',
+        },
+        questions: [{ key: 'preset_week_highlights', prompt: 'Hazır soru?' }],
+        answers: [{ questionKey: 'preset_week_highlights', answer: 'Hazır yanıt.' }],
+      }),
+    ]);
+    await render(managerUser);
+
+    const frozen = sectionText('weekly-frozen-title');
+    expect(frozen).toContain('Haftanın özeti');
+    expect(frozen).toContain('Sorunlar / engeller');
+    expect(frozen).toContain('Öne çıkan iş.');
+    expect(frozen).toContain('Saha gözlemi.');
+    expect(frozen).toContain('Destek ihtiyacı.');
+    expect(frozen).toContain('Hazır soru?');
+    expect(frozen).toContain('Hazır yanıt.');
+
+    const historyFactsEl = host.querySelector('.weekly-history [aria-label="Seçilen gönderim ayrıntısı"]')!;
+    expect(historyFactsEl.textContent).toContain('Haftanın özeti');
+    expect(historyFactsEl.textContent).toContain('Öne çıkan iş.');
+    expect(historyFactsEl.textContent).toContain('Saha gözlemi.');
+    expect(historyFactsEl.textContent).toContain('Destek ihtiyacı.');
+    expect(historyFactsEl.textContent).toContain('Hazır yanıt.');
+
+    // Working-week submission (+5) uses D5 labels.
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED' }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([
+      makeSubmission({
+        seqNo: 1,
+        periodStart: '2026-08-03',
+        periodEnd: '2026-08-08',
+        body: {
+          summary: 'Çalışma haftası özeti.',
+          blockers: null,
+          nextWeekPlan: 'Gelecek plan.',
+          highlights: null,
+          fieldObservations: null,
+          supportNeeded: null,
+        },
+      }),
+    ]);
+    await render(managerUser);
+    const workweekFrozen = sectionText('weekly-frozen-title');
+    expect(workweekFrozen).toContain('Bu hafta');
+    expect(workweekFrozen).toContain('Sorunlar ve destek ihtiyacı');
+    expect(workweekFrozen).not.toContain('Haftanın özeti');
+    expect(workweekFrozen).not.toContain('Öne çıkan çalışmalar');
+
+    const workweekHistoryFacts = host.querySelector('.weekly-history [aria-label="Seçilen gönderim ayrıntısı"]')!;
+    expect(workweekHistoryFacts.textContent).toContain('Bu hafta');
+    expect(workweekHistoryFacts.textContent).toContain('Sorunlar ve destek ihtiyacı');
+    expect(workweekHistoryFacts.textContent).not.toContain('Haftanın özeti');
+  });
+
+  // 46
+  it('renders mobile readiness summary above the form and sticky save/submit actions with shared blocking state (A22)', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: {
+          evaluatedAt: '2026-08-07T09:00:00.000Z',
+          ready: false,
+          items: [
+            { code: 'WEEKLY_DRAFT_VALID', state: 'met' },
+            { code: 'WEEKLY_ANSWERS_COMPLETE', state: 'missing' },
+          ],
+        },
+      },
+    }));
+    await render();
+
+    const editor = host.querySelector('[data-job-detail-block="weekly-report-editor"]')!;
+    const readiness = editor.querySelector('[data-weekly-mobile-readiness="true"]')!;
+    const editorForm = editor.querySelector('form')!;
+    expect(readiness).not.toBeNull();
+    expect(readiness.getAttribute('aria-live')).toBe('polite');
+    expect(readiness.classList.contains('weekly-mobile-readiness--ready')).toBe(false);
+    expect(readiness.compareDocumentPosition(editorForm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(readiness.textContent).toContain('1/2 madde tamam');
+    expect(readiness.textContent).toContain('Eksik');
+
+    const stickyBar = editorForm.querySelector('[data-weekly-editor-actions="true"]')!;
+    expect(stickyBar.querySelector('button[type="submit"]')?.textContent).toBe('Taslağı kaydet');
+    const stickySubmit = stickyBar.querySelector('.weekly-mobile-sticky-submit') as HTMLButtonElement;
+    expect(stickySubmit).not.toBeNull();
+    expect(stickySubmit.textContent).toBe('Kontrole gönder');
+    expect(stickySubmit.disabled).toBe(false);
+    expect(stickySubmit.getAttribute('aria-describedby')).toBeNull();
+
+    type(summaryField(), 'Düzenlendi.');
+    expect(stickySubmit.disabled).toBe(true);
+    expect(stickySubmit.getAttribute('aria-describedby')).toBe('weekly-editor-submit-reason');
+    const blockedHint = stickyBar.querySelector('#weekly-editor-submit-reason')!;
+    expect(blockedHint.getAttribute('role')).toBe('status');
+    expect(blockedHint.textContent).toBe('Raporu göndermeden önce değişiklikleri kaydedin.');
+    expect(readiness.textContent).toContain('Raporu göndermeden önce değişiklikleri kaydedin.');
+
+    weeklyApi.patchWeeklyReportDraft.mockResolvedValueOnce(makeDetail({
+      version: 3,
+      draft: {
+        summary: 'Düzenlendi.', blockers: null, nextWeekPlan: 'Önümüzdeki hafta planı.',
+        highlights: null, fieldObservations: null, supportNeeded: null,
+      },
+    }));
+    await act(async () => { submitForm(); await flush(); });
+    const saveStatus = host.querySelector('[data-weekly-save-notice="true"]');
+    expect(saveStatus).not.toBeNull();
+    expect(saveStatus!.getAttribute('role')).toBe('status');
+    expect(saveStatus!.textContent).toBe('Taslak kaydedildi.');
+    type(summaryField(), 'Tekrar düzenlendi.');
+    expect(host.querySelector('[data-weekly-save-notice="true"]')).toBeNull();
+  });
+
+  // 47
+  it('marks readiness green only in IN_PROGRESS and uses neutral copy in ACCEPTED when all items are met', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'ACCEPTED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: {
+          evaluatedAt: '2026-08-07T09:00:00.000Z',
+          ready: true,
+          items: [
+            { code: 'WEEKLY_DRAFT_VALID', state: 'met' },
+            { code: 'WEEKLY_ANSWERS_COMPLETE', state: 'met' },
+          ],
+        },
+      },
+    }));
+    await render();
+    const acceptedReadiness = host.querySelector('[data-weekly-mobile-readiness="true"]')!;
+    expect(acceptedReadiness.classList.contains('weekly-mobile-readiness--ready')).toBe(false);
+    expect(acceptedReadiness.textContent).toContain('Hazırlık tamam (2/2)');
+    expect(acceptedReadiness.textContent).toContain('önce işi başlatın');
+    expect(acceptedReadiness.textContent).not.toContain('Kontrole hazır');
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'IN_PROGRESS',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: {
+          evaluatedAt: '2026-08-07T09:00:00.000Z',
+          ready: true,
+          items: [
+            { code: 'WEEKLY_DRAFT_VALID', state: 'met' },
+            { code: 'WEEKLY_ANSWERS_COMPLETE', state: 'met' },
+          ],
+        },
+      },
+    }));
+    await render();
+    const inProgressReadiness = host.querySelector('[data-weekly-mobile-readiness="true"]')!;
+    expect(inProgressReadiness.classList.contains('weekly-mobile-readiness--ready')).toBe(true);
+    expect(inProgressReadiness.textContent).toContain('Kontrole hazır (2/2)');
+  });
+
+  // 48
+  it('wires returnFocusRef when opening a workflow dialog from the sticky submit button', async () => {
+    await render();
+    const stickySubmit = host.querySelector('.weekly-mobile-sticky-submit') as HTMLButtonElement;
+    stickySubmit.focus();
+    await act(async () => {
+      stickySubmit.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    const cancelBtn = Array.from(document.querySelectorAll('[role="dialog"] button'))
+      .find((b) => b.textContent === 'Vazgeç') as HTMLButtonElement;
+    expect(cancelBtn).toBeDefined();
+    await act(async () => {
+      cancelBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(stickySubmit);
   });
 });

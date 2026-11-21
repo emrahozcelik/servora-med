@@ -7,17 +7,21 @@ import type {
 } from './types.js';
 
 /**
- * Organization-local week window for a report period: Monday 00:00
- * (inclusive) → next Monday 00:00 (exclusive), resolved with the
+ * Organization-local period window for a report: `periodStart` 00:00
+ * (inclusive) → `periodEnd + 1 day` 00:00 (exclusive), resolved with the
  * local-calendar authority so DST transitions cannot shift the boundary.
+ * Working-week reports (`periodEnd = periodStart + 5`) yield Monday → Sunday
+ * 00:00; legacy 7-day reports (`periodEnd = periodStart + 6`) keep Monday →
+ * next Monday 00:00.
  */
 export function weekInstants(
   periodStart: string,
+  periodEnd: string,
   timezone: string,
 ): { weekStart: Date; weekEnd: Date } {
   return {
     weekStart: instantFromLocal(periodStart, 0, 0, timezone),
-    weekEnd: instantFromLocal(addCalendarDaysToDateKey(periodStart, 7), 0, 0, timezone),
+    weekEnd: instantFromLocal(addCalendarDaysToDateKey(periodEnd, 1), 0, 0, timezone),
   };
 }
 

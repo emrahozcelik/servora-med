@@ -18,7 +18,7 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 
 const WEEK_A = '2026-08-03';
-const WEEK_A_END = '2026-08-09';
+const WEEK_A_END = '2026-08-08';
 const WEEK_A_DUE = '2026-08-10';
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
@@ -174,7 +174,7 @@ describe.skipIf(!databaseUrl)('weekly report creation (PostgreSQL)', () => {
           questions: QUESTIONS,
         }),
       );
-      // Deadline authority is server-canonical: the Monday after the period,
+      // Deadline authority is server-canonical: Monday after the Monday-Saturday period (max(periodEnd + 2, requestDate)),
       // regardless of who requests the report.
       expect(requested).toMatchObject({ staffUserId: staffA, status: 'NEW', dueDate: WEEK_A_DUE });
       const job = (await pool.query(
@@ -366,7 +366,7 @@ describe.skipIf(!databaseUrl)('weekly report creation (PostgreSQL)', () => {
     });
   });
 
-  it('derives the canonical next-Monday deadline for a manager single create (S2)', async () => {
+  it('derives the canonical Monday deadline for a manager single create (S2)', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const managerId = await insertUser(pool, organizationId, 'MANAGER');

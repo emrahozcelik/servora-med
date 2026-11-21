@@ -17,11 +17,11 @@ function serviceDouble() {
     createProductDelivery: vi.fn().mockResolvedValue({ jobCardId: 'job-1', version: 4 }),
     createWeeklyReport: vi.fn().mockResolvedValue({
       jobCardId: 'job-1', reportId: 'report-1', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-09', status: 'ACCEPTED',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', status: 'ACCEPTED',
       dueDate: '2026-08-10',
     }),
     bulkRequestWeeklyReports: vi.fn().mockResolvedValue({
-      periodStart: '2026-08-03', periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [{
         staffUserId: '11111111-1111-4111-8111-111111111111',
         jobCardId: 'job-1', reportId: 'report-1', outcome: 'created',
@@ -62,8 +62,8 @@ function serviceDouble() {
     invalidate: vi.fn().mockResolvedValue({ ...result, status: 'INVALIDATED' }),
     getWeeklyReport: vi.fn().mockResolvedValue({ id: 'report-1' }),
     weeklyReportReference: vi.fn().mockResolvedValue({
-      timezone: 'Europe/Istanbul', periodStart: '2026-08-03',
-      periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      timezone: 'Europe/Istanbul', today: '2026-08-05', periodStart: '2026-08-03',
+      periodEnd: '2026-08-08', dueDate: '2026-08-10',
     }),
     updateWeeklyReportDraft: vi.fn().mockResolvedValue({ id: 'report-1', version: 2 }),
     listWeeklyReportSubmissions: vi.fn().mockResolvedValue([]),
@@ -896,8 +896,8 @@ describe('JobCard routes', () => {
     // guards against a future wildcard route swallowing it.
     expect(service.getWeeklyReport).not.toHaveBeenCalled();
     expect(response.json()).toEqual({
-      timezone: 'Europe/Istanbul', periodStart: '2026-08-03',
-      periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      timezone: 'Europe/Istanbul', today: '2026-08-05', periodStart: '2026-08-03',
+      periodEnd: '2026-08-08', dueDate: '2026-08-10',
     });
   });
 

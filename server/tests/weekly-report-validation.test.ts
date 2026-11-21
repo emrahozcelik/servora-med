@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { AppError } from '../src/errors/index.js';
 import {
+  currentWeeklyReportPeriod,
+  weeklyReportDueDate,
+} from '../src/modules/weekly-reports/reference.js';
+import {
   MAX_MANAGER_QUESTIONS,
   parsePeriodStart,
   validateDraftAnswers,
@@ -32,10 +36,10 @@ const QUESTIONS: ManagerQuestion[] = [
 ];
 
 describe('weekly report period validation', () => {
-  it('accepts a Monday and derives periodEnd as start + 6 days', () => {
+  it('accepts a Monday and derives periodEnd as start + 5 days (Monday–Saturday working week)', () => {
     expect(parsePeriodStart(MONDAY)).toEqual({
       periodStart: '2026-08-03',
-      periodEnd: '2026-08-09',
+      periodEnd: '2026-08-08',
     });
   });
 
@@ -181,5 +185,55 @@ describe('source-work snapshot validation', () => {
     validationError(() => validateSourceWorkSnapshot([{ ...item, title: '  ' }]));
     validationError(() => validateSourceWorkSnapshot([{ ...item, staffCompletedAt: 'yesterday' }]));
     validationError(() => validateSourceWorkSnapshot('not-an-array'));
+  });
+});
+
+describe('weekly report reference and due date (WR-WEEK)', () => {
+  it('returns Monday after the working week on weekdays and includes org-local today (A1, A3)', () => {
+    // Friday 2026-11-20 10:00 Europe/Istanbul = 07:00Z
+    expect(currentWeeklyReportPeriod(new Date('2026-11-20T07:00:00.000Z'), 'Europe/Istanbul')).toEqual({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-20',
+      periodStart: '2026-11-16',
+      periodEnd: '2026-11-21',
+      dueDate: '2026-11-23',
+    });
+    // Monday 2026-11-23 00:30 Europe/Istanbul = 2026-11-22T21:30Z
+    expect(currentWeeklyReportPeriod(new Date('2026-11-22T21:30:00.000Z'), 'Europe/Istanbul')).toEqual({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-23',
+      periodStart: '2026-11-23',
+      periodEnd: '2026-11-28',
+      dueDate: '2026-11-30',
+    });
+  });
+
+  it('keeps the just-ended working week on Sunday with Monday due date (A2)', () => {
+    // Saturday 2026-11-21 12:00 Europe/Istanbul = 09:00Z
+    expect(currentWeeklyReportPeriod(new Date('2026-11-21T09:00:00.000Z'), 'Europe/Istanbul')).toEqual({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-21',
+      periodStart: '2026-11-16',
+      periodEnd: '2026-11-21',
+      dueDate: '2026-11-23',
+    });
+    // Sunday 2026-11-22 12:00 Europe/Istanbul = 09:00Z
+    expect(currentWeeklyReportPeriod(new Date('2026-11-22T09:00:00.000Z'), 'Europe/Istanbul')).toEqual({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-22',
+      periodStart: '2026-11-16',
+      periodEnd: '2026-11-21',
+      dueDate: '2026-11-23',
+    });
+  });
+
+  it('derives dueDate as max(periodEnd + 2, requestDateKey) for on-time, late and future weeks (A18, A18b)', () => {
+    // Week 2026-11-16..2026-11-21, Monday after = 2026-11-23
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-18')).toBe('2026-11-23');
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-21')).toBe('2026-11-23');
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-23')).toBe('2026-11-23');
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-24')).toBe('2026-11-24');
+    // Future week 2026-11-23..2026-11-28 requested on 2026-11-18 -> 2026-11-30
+    expect(weeklyReportDueDate('2026-11-28', '2026-11-18')).toBe('2026-11-30');
   });
 });

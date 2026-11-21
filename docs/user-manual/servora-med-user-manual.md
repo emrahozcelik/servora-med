@@ -199,13 +199,26 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 
 ### 7.4 Haftalık Rapor
 
-1. `/jobs/new-weekly-report` — rapor haftası (Pazartesi) ve termin (varsayılan: dönemi
-   izleyen Pazartesi). Müşteri seçilmez; haftalık rapor müşteriye bağlı değildir.
-2. Rapor **Kabul edildi** veya **Uygulanıyor** durumundayken **İşi başlat** ile
-   **Uygulanıyor** durumuna alın, bölümleri doldurun (**Haftanın özeti** ve
-   **Gelecek hafta planı** zorunludur) ve varsa yönetici sorularını yanıtlayın.
-   **Taslağı kaydet** tüm bölümleri birlikte değiştirir.
-3. **Otomatik çalışma listesi** o hafta tamamladığınız işleri gösterir; düzenlenemez.
+Haftalık rapor **Pazartesi–Cumartesi** çalışma haftasını kapsar. Rapor istendiği
+andan itibaren gönderilebilir; Cumartesi akşamı, Pazar ve Pazartesi olağan gönderim
+günleridir. Son teslim tarihi dönemi izleyen **Pazartesi**dir; Pazartesi gün sonuna
+kadar gönderilmeyen rapor Salı 00:00'dan itibaren gecikmiş sayılır. Yönetici geçmiş
+bir haftanın raporunu bu Pazartesi'den sonra isterse son teslim tarihi isteğin
+oluşturulduğu gündür; rapor gecikmiş olarak açılmaz.
+
+1. `/jobs/new-weekly-report` — rapor haftasını seçin (**Bu hafta**, **Geçen hafta**
+   veya **Başka hafta**). Ekran göndermeden önce dönemi ve son teslim tarihini
+   gösterir; son tarih sunucu tarafından belirlenir ve değiştirilemez. Müşteri
+   seçilmez; haftalık rapor müşteriye bağlı değildir.
+2. Rapor **Kabul edildi** durumundayken **İşi başlat** ile **Uygulanıyor** durumuna
+   alın, üç bölümü doldurun (**Bu hafta** ve **Gelecek hafta planı** zorunlu,
+   **Sorunlar ve destek ihtiyacı** isteğe bağlı) ve varsa yönetici sorularını
+   yanıtlayın. **Taslağı kaydet** tüm bölümleri birlikte değiştirir. Eski form
+   düzeninde açılmış bir taslakta yazılı ek alanlar **Önceki form alanları**
+   altında gönderime kadar görünür ve düzenlenebilir.
+3. **Otomatik çalışma listesi** dönem içinde (Pazartesi 00:00 – Pazar 00:00)
+   tamamladığınız işleri gösterir; Pazar günü tamamlanan işler hiçbir haftalık
+   rapora girmez. Liste gönderim anında dondurulur ve düzenlenemez.
 4. **Kontrole gönder** ile rapor dondurulur (değiştirilemez kayıt oluşur). Yönetici
    düzeltme isterse **Düzeltmeye başla** ile **Uygulanıyor** durumuna dönün, düzeltin ve
    yeniden gönderin (yeni kayıt oluşur, eski kayıt değişmez).
@@ -265,41 +278,21 @@ adını değiştirirse güncellenebilir.
 - Bu nedenle bir PDF'i arşiv amaçlı kullanacaksanız, indirdiğiniz sürümün numarasını ve raporun
   o anki durumunu birlikte değerlendirin.
 
-**Otomatik oluşturma (yönetici / sistem yöneticisi)**
+**Rapor isteme (yönetici / sistem yöneticisi)**
 
-Haftalık raporlar, bir yönetici kural tanımlarsa **otomatik oluşturulur**.
-Her personel için en fazla bir otomatik kural olur.
+Haftalık raporlar yöneticinin elle oluşturduğu isteklerle açılır; otomatik
+haftalık rapor oluşturma kaldırılmıştır.
 
-- **Nerede?** **Yeni → Haftalık Rapor** ekranında **Rapor türü** seçimi vardır:
-  **Tek seferlik** (bir kerelik istek) veya **Her hafta otomatik** (tekrarlayan kural).
-  Bu seçim ve aşağıdaki yönetim bölümü yalnız yönetici/sistem yöneticisine görünür;
-  personel bu kontrolleri görmez.
-- **Her hafta otomatik** modunda: aktif personellerden en fazla 50'sini seçin,
-  **Başlangıç haftası (Pazartesi)** olarak içinde bulunulan veya gelecek bir haftayı
-  seçin, yönetici sorularını (en fazla 5) ve isteğe bağlı talep notunu yazın.
-  Serbest bir termin tarihi girilmez: termin her hafta için otomatik olarak
-  dönemi izleyen Pazartesi olur.
-- Başlangıç haftası olarak içinde bulunulan haftayı seçerseniz, o haftanın raporu
-  sistem tarafından otomatik oluşturulur; ayrıca tek seferlik istek göndermeyin
-  (iki ayrı kayıt oluşmasını önlemek için sistem bunu böyle ister).
-- **Otomatik haftalık raporlar** yönetim bölümünde her kural listelenir: personel,
-  **Aktif** / **Duraklatıldı** durumu, **Sonraki rapor haftası**, son işlenen hafta ve
-  sonucu, gerekçe (ör. personel artık uygun değilse otomatik duraklatma açıklaması).
-- Bir kuralda **Şablonu düzenle** (sorular + not), **Duraklat** ve **Devam ettir**
-  işlemleri vardır; silme yoktur. Şablon değişikliği yalnızca bundan sonra
-  oluşturulacak raporları etkiler; daha önce açılmış raporların soruları, notu ve
-  gönderilmiş içerikleri değişmez.
-- **Duraklat** seçilen kuralı durdurur; duraklatılan haftalar sonradan üretilmez.
-  **Devam ettir** kuralı içinde bulunulan haftadan başlatır; geçmişte kalan bir
-  haftayı seçemezsiniz.
-- Belirsiz kalan (yanıtı alınamayan) bir işlemde ekrandaki **Özgün isteği tekrar
-  dene** düğmesi aynı isteği aynen tekrar gönderir; form kilitliyken yeni işlem
-  başlatılamaz.
-
-**Personel için not:** Otomatik kuralla açılan rapor, yöneticinin tek seferlik
-isteğiyle açılan raporla aynıdır: önce kabul edip başlatmanız, doldurup kontrole
-göndermeniz gerekir. Otomatik raporlar da profilinizdeki **Haftalık Raporlar**
-bölümünde ve PDF indirmede aynı şekilde görünür.
+- **Yeni → Haftalık Rapor** ekranında bir veya birden çok personel seçin (en fazla
+  50), rapor haftasını seçin ve isterseniz o haftaya özel yönetici soruları ile
+  talep notu ekleyin. Hazır soru listesi yoktur; sorular rapor oluşturulurken
+  dondurulur.
+- Seçilen personelin o hafta için raporu zaten varsa yeni rapor oluşturulmaz; ekran
+  bunu açıkça bildirir ve mevcut rapora bağlantı verir. İptal edilmiş bir rapor
+  haftayı tutmaya devam eder; yerine yenisini açmak için önce bir sistem yöneticisi
+  raporu kaldırmalıdır.
+- Toplu istekte sonuç ekranı kaç raporun oluşturulduğunu ve kaç personelin raporunun
+  zaten mevcut olduğunu ayrı ayrı gösterir.
 
 ---
 
@@ -321,14 +314,11 @@ Bu bölüm, uygulamayı ilk kez kullanan bir yönetici için adım adım yazılm
 4. Telefonda / dar ekranda yalnız liste gösterilir (sıkışık pano yoktur).
 5. Kartın başlığına veya kart alanına tıklayarak doğrudan iş detayına girin (özet
    aç/kapat adımı yoktur). Durum komutları kart üzerindeki ayrı düğmelerdir.
-6. **Yeni → Haftalık Rapor** ile bir personele haftalık rapor isteyin (tek personel,
-   rapor haftası, en fazla 5 yönetici sorusu). Personel kabul edip doldurur; içeriği
-   siz düzenleyemez veya onun adına gönderemezsiniz. Her hafta otomatik istek için
-   aynı ekrandaki **Her hafta otomatik** modunu kullanın (en fazla 50 personel,
-   başlangıç haftası, termin her zaman dönemi izleyen Pazartesi). Otomatik kuralları
-   aynı ekrandaki **Otomatik haftalık raporlar** bölümünden düzenlersiniz: şablon
-   değişikliği yalnız sonraki raporları etkiler, **Duraklat** seçili haftaları atlar,
-   **Devam ettir** içinde bulunulan haftadan başlatır. Ayrıntılar için bkz. §7.6.
+6. **Yeni → Haftalık Rapor** ile personelden haftalık rapor isteyin (bir veya birden
+   çok personel, rapor haftası, isteğe bağlı özel sorular). Rapor Pazartesi–Cumartesi
+   dönemini kapsar ve son teslim tarihi dönemi izleyen Pazartesi'dir. Personel kabul
+   edip doldurur; içeriği siz düzenleyemez veya onun adına gönderemezsiniz.
+   Ayrıntılar için bkz. §7.4 ve §7.6.
 
 ### 8.3 Yönetici kontrol kuyruğu (en sık iş)
 

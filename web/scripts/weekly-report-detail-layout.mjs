@@ -141,6 +141,18 @@ const states = [
     destructive: null,
   },
   {
+    name: 'COMPLETED',
+    labelSuffix: '-legacy',
+    query: '&legacy=1',
+    role: 'MANAGER',
+    sections: ['heading', 'lifecycle', 'terminal', 'facts', 'timeline'],
+    rail: false,
+    editor: false,
+    locked: false,
+    primary: null,
+    destructive: null,
+  },
+  {
     name: 'CANCELLED',
     role: 'STAFF',
     sections: ['heading', 'lifecycle', 'terminal', 'facts', 'timeline'],
@@ -300,11 +312,30 @@ async function measure(page) {
     }));
 
     const primaryButton = decisionPanel?.querySelector('.primary-button') ?? null;
+    const primaryVisible = primaryButton !== null && getComputedStyle(primaryButton).display !== 'none';
+
+    const editorBlock = host.querySelector('[data-job-detail-block="weekly-report-editor"]');
+    const editorFieldset = editorBlock?.querySelector('fieldset') ?? null;
+    const editorForm = editorBlock?.querySelector('form') ?? null;
+    const readiness = host.querySelector('[data-weekly-mobile-readiness="true"]');
+    const readinessStyle = readiness ? getComputedStyle(readiness) : null;
+    const stickyBar = host.querySelector('[data-weekly-editor-actions="true"]');
+    const stickyButtons = stickyBar
+      ? [...stickyBar.querySelectorAll('button')].map((button) => ({
+        text: text(button),
+        visible: getComputedStyle(button).display !== 'none',
+        ...rect(button),
+      }))
+      : [];
+    const header = host.querySelector('[data-job-detail-section="heading"] header');
+    const frozenText = text(host.querySelector('[data-job-detail-block="weekly-frozen-report"]') ?? document.createElement('div'));
 
     return {
       overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       viewportHeight: window.innerHeight,
       sections,
+      headerText: header ? text(header) : '',
+      frozenText,
       steps: stepsHost ? {
         present: true,
         host: rect(stepsHost),
@@ -317,7 +348,7 @@ async function measure(page) {
       main: main ? rect(main) : null,
       timeline: timeline ? rect(timeline) : null,
       primary: primaryButton
-        ? { text: text(primaryButton), classes: primaryButton.className, ...rect(primaryButton) }
+        ? { text: text(primaryButton), classes: primaryButton.className, visible: primaryVisible, ...rect(primaryButton) }
         : null,
       primaryInRail: primaryButton !== null && rail !== null && rail.contains(primaryButton),
       destructive: [...host.querySelectorAll('.destructive-button')].map((button) => ({
@@ -333,7 +364,17 @@ async function measure(page) {
       widestTextarea: textareas.length
         ? Math.max(...textareas.map((area) => area.getBoundingClientRect().width))
         : 0,
-      editor: host.querySelector('[data-job-detail-block="weekly-report-editor"]') !== null,
+      editor: editorBlock !== null,
+      editorFieldsetBorderTop: editorFieldset ? parseFloat(getComputedStyle(editorFieldset).borderTopWidth) : 0,
+      editorForm: editorForm ? rect(editorForm) : null,
+      readiness: readiness && readinessStyle && readinessStyle.display !== 'none'
+        ? {
+            ...rect(readiness),
+            readyClass: readiness.classList.contains('weekly-mobile-readiness--ready'),
+            text: text(readiness),
+          }
+        : null,
+      stickyBar: stickyBar ? { ...rect(stickyBar), position: getComputedStyle(stickyBar).position, buttons: stickyButtons } : null,
       locked: host.querySelector('[data-job-detail-block="weekly-report-locked"]') !== null,
       lockedNotice: text(host.querySelector('.weekly-report-locked-notice') ?? document.createElement('p')),
       historyEmpty: text(host.querySelector('.weekly-history-empty') ?? document.createElement('p')),
@@ -343,7 +384,7 @@ async function measure(page) {
 }
 
 function checkState(measurement, spec, viewport, failures) {
-  const label = `${spec.name} @ ${viewport.name}`;
+  const label = `${spec.name}${spec.labelSuffix ?? ''} @ ${viewport.name}`;
   if (!measurement) {
     failures.push(`${label}: weekly report detail root not found`);
     return;
@@ -405,8 +446,64 @@ function checkState(measurement, spec, viewport, failures) {
   if (!spec.editor && measurement.formCount !== 0) {
     failures.push(`${label}: ${measurement.formCount} form(s) rendered without an editable report`);
   }
-  if (spec.editor && measurement.textareaCount < 7) {
+  // Workweek editable reports render 3 body fields + 1 manager question = 4 textareas.
+  if (spec.editor && measurement.textareaCount < 4) {
     failures.push(`${label}: editable report rendered only ${measurement.textareaCount} textarea(s)`);
+  }
+  if (spec.labelSuffix === '-legacy' && !measurement.frozenText.includes('Eski dönem öne çıkan çalışmalar.')) {
+    failures.push(`${label}: legacy 7-day frozen report omitted stored legacy body field`);
+  }
+  if (spec.editor && measurement.editorFieldsetBorderTop > 0) {
+    failures.push(`${label}: unreset fieldset borderTopWidth ${measurement.editorFieldsetBorderTop}px`);
+  }
+  if (spec.editor) {
+    const isSingleColumn = viewport.width < DESKTOP_MIN_WIDTH_PX;
+    if (isSingleColumn) {
+      if (!measurement.readiness || !measurement.editorForm || measurement.readiness.bottom > measurement.editorForm.top + 1) {
+        failures.push(`${label}: mobile readiness summary missing or not above editor form`);
+      } else if (spec.name === 'ACCEPTED') {
+        if (measurement.readiness.readyClass) {
+          failures.push(`${label}: ACCEPTED readiness must not render green --ready state`);
+        }
+        if (!measurement.readiness.text.includes('önce işi başlatın')) {
+          failures.push(`${label}: ACCEPTED readiness missing neutral start guidance`);
+        }
+      }
+      if (!measurement.stickyBar) {
+        failures.push(`${label}: mobile editor actions bar missing`);
+      } else {
+        const expectSticky = viewport.width >= 360 && viewport.height > 540;
+        if (expectSticky && measurement.stickyBar.position !== 'sticky') {
+          failures.push(`${label}: expected sticky editor actions bar, got "${measurement.stickyBar.position}"`);
+        }
+        if (!expectSticky && measurement.stickyBar.position === 'sticky') {
+          failures.push(`${label}: editor actions bar should not stay sticky below 360px or 540px height`);
+        }
+        const visibleSticky = measurement.stickyBar.buttons.filter((b) => b.visible);
+        if (visibleSticky.length < 2) {
+          failures.push(`${label}: expected save + primary action in mobile sticky bar, got ${JSON.stringify(visibleSticky)}`);
+        }
+        for (const btn of visibleSticky) {
+          if (btn.width < 44 || btn.height < 44) {
+            failures.push(`${label}: mobile sticky button "${btn.text}" target too small (${btn.width.toFixed(1)}x${btn.height.toFixed(1)})`);
+          }
+          if (viewport.width === 390 && btn.height > 56) {
+            failures.push(`${label}: sticky button "${btn.text}" wrapped at 390px (${btn.height.toFixed(1)}px tall)`);
+          }
+        }
+      }
+      if (measurement.primary?.visible) {
+        failures.push(`${label}: duplicate rail primary button still visible below 64rem alongside sticky bar`);
+      }
+    } else {
+      if (measurement.readiness !== null) {
+        failures.push(`${label}: mobile readiness summary should be hidden on desktop`);
+      }
+      const visibleStickySubmit = measurement.stickyBar?.buttons.filter((b) => b.visible && b.text !== 'Taslağı kaydet') ?? [];
+      if (visibleStickySubmit.length > 0) {
+        failures.push(`${label}: mobile sticky submit button should be hidden on desktop`);
+      }
+    }
   }
 
   if (measurement.textareaOverflow > 0) {
@@ -492,15 +589,52 @@ async function runCase(browser, baseUrl, viewport, spec, failures) {
   const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height }, reducedMotion: 'reduce' });
   const diagnostics = { pageErrors: [], consoleErrors: [], requestFailures: [], badResponses: [] };
   attachDiagnostics(page, diagnostics);
-  const label = `${spec.name} @ ${viewport.name}`;
+  const label = `${spec.name}${spec.labelSuffix ?? ''} @ ${viewport.name}`;
   try {
-    await page.goto(`${baseUrl}?state=${spec.name}&role=${spec.role}`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}?state=${spec.name}&role=${spec.role}${spec.query ?? ''}`, { waitUntil: 'networkidle' });
     await page.waitForSelector('html[data-weekly-detail-ready="true"]');
     await page.waitForSelector('[data-weekly-report-detail="true"]');
     await page.waitForSelector('.servora-workflow-steps');
 
     const measurement = await measure(page);
     checkState(measurement, spec, viewport, failures);
+
+    if (spec.editor && viewport.width === 390) {
+      await page.locator('#weekly-answer-q1').focus();
+      const focusClearance = await page.evaluate(() => {
+        const field = document.querySelector('#weekly-answer-q1');
+        const bar = document.querySelector('[data-weekly-editor-actions="true"]');
+        const fieldRect = field ? field.getBoundingClientRect() : null;
+        const barRect = bar ? bar.getBoundingClientRect() : null;
+        return { fieldBottom: fieldRect?.bottom ?? null, barTop: barRect?.top ?? null };
+      });
+      if (focusClearance.fieldBottom !== null && focusClearance.barTop !== null && focusClearance.fieldBottom > focusClearance.barTop + 1) {
+        failures.push(`${label}: focused field covered by sticky bar (${JSON.stringify(focusClearance)})`);
+      }
+      await page.locator('[data-job-detail-block="weekly-report-editor"]').scrollIntoViewIfNeeded();
+      const stickyInViewport = await page.evaluate(() => {
+        const bar = document.querySelector('[data-weekly-editor-actions="true"]');
+        if (!bar) return null;
+        const buttons = [...bar.querySelectorAll('button')].filter((b) => getComputedStyle(b).display !== 'none');
+        return buttons.map((b) => {
+          const r = b.getBoundingClientRect();
+          return { text: b.textContent, top: r.top, bottom: r.bottom, viewportHeight: window.innerHeight };
+        });
+      });
+      if (!stickyInViewport || stickyInViewport.some((b) => b.top < 0 || b.bottom > b.viewportHeight + 1)) {
+        failures.push(`${label}: sticky save/submit actions not reachable inside viewport while editing form (${JSON.stringify(stickyInViewport)})`);
+      }
+      // Tight height check (simulated soft keyboard): sticky bar disengages.
+      await page.setViewportSize({ width: 390, height: 500 });
+      const tightPosition = await page.evaluate(() => {
+        const bar = document.querySelector('[data-weekly-editor-actions="true"]');
+        return bar ? getComputedStyle(bar).position : null;
+      });
+      if (tightPosition === 'sticky') {
+        failures.push(`${label}: sticky bar should disengage at tight viewport height 500px`);
+      }
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    }
 
     console.log(JSON.stringify({
       case: label,
@@ -519,7 +653,7 @@ async function runCase(browser, baseUrl, viewport, spec, failures) {
 
     try {
       await page.screenshot({
-        path: join(tmpdir(), `servora-weekly-detail-${spec.name}-${viewport.name}.png`),
+        path: join(tmpdir(), `servora-weekly-detail-${spec.name}${spec.labelSuffix ?? ''}-${viewport.name}.png`),
         fullPage: true,
       });
     } catch (error) {
