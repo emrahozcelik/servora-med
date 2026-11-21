@@ -1,3 +1,4 @@
+import { addCalendarDaysToDateKey } from '../../job-cards/local-calendar.js';
 import type { SourceWorkSnapshotItem, WeeklyReportSubmission } from '../types.js';
 
 /** One frozen report section, already resolved to plain text. */
@@ -65,11 +66,27 @@ export type WeeklyReportPdfDocumentModel = {
   sourceWork: WeeklyReportPdfSourceWorkItem[];
 };
 
-/** Section order and wording mirror the report detail surface. */
-const SECTION_LABELS: { key: keyof WeeklyReportSubmission['body']; label: string }[] = [
+type SectionSpec = { key: keyof WeeklyReportSubmission['body']; label: string };
+
+/** V1 (7-day) section order and labels — preserved verbatim for historical submissions. */
+const V1_SECTION_LABELS: SectionSpec[] = [
   { key: 'summary', label: 'Haftanın özeti' },
   { key: 'blockers', label: 'Sorunlar / engeller' },
   { key: 'nextWeekPlan', label: 'Gelecek hafta planı' },
+  { key: 'highlights', label: 'Öne çıkan çalışmalar' },
+  { key: 'fieldObservations', label: 'Müşteri / saha gözlemleri' },
+  { key: 'supportNeeded', label: 'Yöneticiden destek beklenen konular' },
+];
+
+/** Workweek (Monday–Friday) section order and labels. */
+const WORKWEEK_SECTION_LABELS: SectionSpec[] = [
+  { key: 'summary', label: 'Bu hafta' },
+  { key: 'blockers', label: 'Sorunlar ve destek ihtiyacı' },
+  { key: 'nextWeekPlan', label: 'Gelecek hafta planı' },
+];
+
+/** Legacy-only body sections rendered with V1 labels if a workweek submission still carries text. */
+const LEGACY_WORKWEEK_FALLBACK_LABELS: SectionSpec[] = [
   { key: 'highlights', label: 'Öne çıkan çalışmalar' },
   { key: 'fieldObservations', label: 'Müşteri / saha gözlemleri' },
   { key: 'supportNeeded', label: 'Yöneticiden destek beklenen konular' },
@@ -95,6 +112,27 @@ function optionalSection(value: string | null): string | null {
   return cleaned.length === 0 ? null : cleaned;
 }
 
+function buildSections(submission: WeeklyReportSubmission): WeeklyReportPdfSection[] {
+  const isWorkweek = submission.periodEnd === addCalendarDaysToDateKey(submission.periodStart, 4);
+  if (!isWorkweek) {
+    return V1_SECTION_LABELS.map((section) => ({
+      label: section.label,
+      value: optionalSection(submission.body[section.key]),
+    }));
+  }
+  const sections: WeeklyReportPdfSection[] = WORKWEEK_SECTION_LABELS.map((section) => ({
+    label: section.label,
+    value: optionalSection(submission.body[section.key]),
+  }));
+  for (const legacy of LEGACY_WORKWEEK_FALLBACK_LABELS) {
+    const value = optionalSection(submission.body[legacy.key]);
+    if (value !== null) {
+      sections.push({ label: legacy.label, value });
+    }
+  }
+  return sections;
+}
+
 export function buildWeeklyReportPdfDocumentModel(input: {
   submission: WeeklyReportSubmission;
   staffName: string;
@@ -110,10 +148,7 @@ export function buildWeeklyReportPdfDocumentModel(input: {
     submittedAt: submission.submittedAt,
     submittedBy: submission.submittedBy,
     staffName: sanitizePdfText(staffName),
-    sections: SECTION_LABELS.map((section) => ({
-      label: section.label,
-      value: optionalSection(submission.body[section.key]),
-    })),
+    sections: buildSections(submission),
     answers: submission.answers
       .map((answer) => ({
         prompt: questions.get(answer.questionKey) ?? answer.questionKey,

@@ -281,7 +281,7 @@ async function evaluateWeeklyReport(
   let sourceWorkFailure: AppError | null = null;
   try {
     const timezone = await reader.getOrganizationTimezone(actor.organizationId);
-    const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+    const { weekStart, weekEnd } = weekInstants(report.periodStart, report.periodEnd, timezone);
     await reader.listWeeklySourceWorkSnapshot({
       organizationId: actor.organizationId,
       staffUserId: actor.id,

@@ -165,7 +165,7 @@ import {
   parsePastStartAcknowledgement,
   priority as normalizePriority,
 } from './create-input.js';
-import { addCalendarDaysToDateKey } from './local-calendar.js';
+import { localDateKey } from './local-calendar.js';
 import type { ManagerQuestion } from '../weekly-reports/types.js';
 import type {
   WeeklyReportDetail,
@@ -180,6 +180,7 @@ import { weeklyReportPdfFileName } from '../weekly-reports/pdf/file-name.js';
 import { renderWeeklyReportPdf } from '../weekly-reports/pdf/renderer.js';
 import {
   currentWeeklyReportPeriod,
+  weeklyReportDueDate,
   type WeeklyReportReference,
 } from '../weekly-reports/reference.js';
 import {
@@ -1826,14 +1827,15 @@ export class JobCardService {
         ? []
         : validateManagerQuestions(input.questions);
     }
-    // Deadline authority is SERVER-ONLY (field-test product decision): the
-    // submission deadline is always the day after the report period ends — the
-    // Monday following the Monday–Sunday period — via calendar-day arithmetic.
-    // The public request shape carries no dueDate field at all (the parser
-    // rejects one as an unknown field), so no caller, staff or manager, can
-    // move their own or anyone's accountability deadline.
-    const dueDate = addCalendarDaysToDateKey(input.periodEnd, 1);
+    // Deadline authority is SERVER-ONLY (field-test product decision, WR-WEEK):
+    // the submission deadline is Friday of the workweek (`periodEnd`), or the
+    // organization-local creation date if requested later so a late request is
+    // never born overdue. The public request shape carries no dueDate field at
+    // all (the parser rejects one as an unknown field), so no caller, staff or
+    // manager, can move their own or anyone's accountability deadline.
     const requestTime = this.now();
+    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
+    const dueDate = weeklyReportDueDate(input.periodEnd, localDateKey(requestTime, timezone));
     const result = await this.repository.executeCriticalAction<WeeklyReportCreateResult>(
       {
         organizationId: actor.organizationId, userId: actor.id,
@@ -2045,10 +2047,11 @@ export class JobCardService {
     const questions = input.questions === undefined || input.questions === null
       ? []
       : validateManagerQuestions(input.questions);
-    // Same server-only deadline authority as the single create: the canonical
-    // Monday after the period, derived from calendar-day arithmetic.
-    const dueDate = addCalendarDaysToDateKey(input.periodEnd, 1);
+    // Same server-only deadline authority as the single create: Friday of the
+    // period (`periodEnd`), or the organization-local creation date if later.
     const requestTime = this.now();
+    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
+    const dueDate = weeklyReportDueDate(input.periodEnd, localDateKey(requestTime, timezone));
     const result = await this.repository.executeCriticalAction<WeeklyReportBulkRequestResult>(
       {
         organizationId: actor.organizationId, userId: actor.id,
@@ -2149,7 +2152,7 @@ export class JobCardService {
     let liveSourceWork: WeeklyReportDetail['liveSourceWork'] = [];
     if (job.status === 'ACCEPTED' || job.status === 'IN_PROGRESS') {
       const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
-      const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+      const { weekStart, weekEnd } = weekInstants(report.periodStart, report.periodEnd, timezone);
       const rows = await this.repository.listWeeklySourceWorkSnapshot({
         organizationId: actor.organizationId,
         staffUserId: report.staffUserId,
@@ -2419,7 +2422,7 @@ export class JobCardService {
     const body = validateSubmissionBody(report.draft);
     const answers = validateSubmissionAnswers(report.questions, report.answers);
     const timezone = await tx.getOrganizationTimezone(actor.organizationId);
-    const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+    const { weekStart, weekEnd } = weekInstants(report.periodStart, report.periodEnd, timezone);
     const sourceRows = await tx.listWeeklySourceWorkSnapshot({
       organizationId: actor.organizationId,
       staffUserId: actor.id,
@@ -3356,13 +3359,12 @@ export class JobCardService {
           }
         }
         // Deadline immutability (field-test product authority, extended to
-        // every actor): the submission deadline is server-canonical
-        // (periodEnd + 1) at creation AND stays tied to the immutable report
-        // period afterwards — a MANAGER/ADMIN can no longer reschedule it
-        // through the generic patch either. Same-value patches fall through
-        // to the ordinary change-scoped machinery (a no-op); a CHANGED
-        // dueDate is rejected for every role (STAFF already hit the stricter
-        // ownership check above).
+        // every actor): the submission deadline is server-canonical at
+        // creation AND stays tied to the immutable report afterwards — a
+        // MANAGER/ADMIN can no longer reschedule it through the generic patch
+        // either. Same-value patches fall through to the ordinary
+        // change-scoped machinery (a no-op); a CHANGED dueDate is rejected for
+        // every role (STAFF already hit the stricter ownership check above).
         if (fields.dueDate !== undefined
           && fields.dueDate !== (job.dueDate ?? null)) {
           throw new AppError(

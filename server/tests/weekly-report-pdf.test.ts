@@ -142,6 +142,52 @@ describe('Weekly Report PDF — document model', () => {
     const second = buildWeeklyReportPdfDocumentModel({ submission: submission(), staffName: 'Ayşe' });
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
   });
+
+  it('renders workweek submissions (period_end = period_start + 4) with the three D5 labels and optional legacy text', () => {
+    const cleanWorkweek = buildWeeklyReportPdfDocumentModel({
+      submission: submission({
+        periodStart: '2026-09-21',
+        periodEnd: '2026-09-25',
+        body: {
+          summary: 'Çalışma haftası özeti',
+          blockers: null,
+          nextWeekPlan: 'Gelecek hafta planı',
+          highlights: null,
+          fieldObservations: '   ',
+          supportNeeded: null,
+        },
+      }),
+      staffName: 'Ayşe',
+    });
+    expect(cleanWorkweek.sections).toEqual([
+      { label: 'Bu hafta', value: 'Çalışma haftası özeti' },
+      { label: 'Sorunlar ve destek ihtiyacı', value: null },
+      { label: 'Gelecek hafta planı', value: 'Gelecek hafta planı' },
+    ]);
+
+    const withLegacyText = buildWeeklyReportPdfDocumentModel({
+      submission: submission({
+        periodStart: '2026-09-21',
+        periodEnd: '2026-09-25',
+        body: {
+          summary: 'Özet',
+          blockers: 'Sorun',
+          nextWeekPlan: 'Plan',
+          highlights: 'Eski öne çıkan',
+          fieldObservations: null,
+          supportNeeded: 'Eski destek talebi',
+        },
+      }),
+      staffName: 'Ayşe',
+    });
+    expect(withLegacyText.sections).toEqual([
+      { label: 'Bu hafta', value: 'Özet' },
+      { label: 'Sorunlar ve destek ihtiyacı', value: 'Sorun' },
+      { label: 'Gelecek hafta planı', value: 'Plan' },
+      { label: 'Öne çıkan çalışmalar', value: 'Eski öne çıkan' },
+      { label: 'Yöneticiden destek beklenen konular', value: 'Eski destek talebi' },
+    ]);
+  });
 });
 
 describe('Weekly Report PDF — rendering', () => {

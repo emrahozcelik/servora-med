@@ -63,7 +63,7 @@ describe.skipIf(!databaseUrl)('CRM Slice 4A PR2 migration 060', () => {
       const versions = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows.map((row) => row.version);
-      expect(versions.at(-1)).toBe('067_overdue_delivery_identity_per_incident');
+      expect(versions.at(-1)).toBe('068_weekly_report_workweek');
       const again = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store: new PostgresMigrationStore(pool) });
       expect(again.appliedVersions).toEqual([]);
     });
@@ -82,7 +82,7 @@ describe.skipIf(!databaseUrl)('CRM Slice 4A PR2 migration 060', () => {
         expect(before.appliedVersions).toHaveLength(59);
         expect((await pool.query("SELECT to_regclass(current_schema() || '.customer_duplicate_reviews') AS table").then((result) => result.rows[0]?.table))).toBeNull();
         const upgrade = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
-        expect(upgrade.appliedVersions).toEqual(['060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident']);
+        expect(upgrade.appliedVersions).toEqual(['060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident', '068_weekly_report_workweek']);
         expect((await pool.query("SELECT to_regclass(current_schema() || '.customer_duplicate_reviews') AS table").then((result) => result.rows[0]?.table))).not.toBeNull();
         expect((await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store })).appliedVersions).toEqual([]);
       } finally {
