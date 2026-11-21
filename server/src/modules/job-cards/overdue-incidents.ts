@@ -39,6 +39,15 @@ import type { JobCardType } from './types.js';
 /** Approval-wait breach threshold: one named server-side constant. */
 export const APPROVAL_WAIT_BREACH_HOURS = 24;
 
+/**
+ * OVR-5 correction deadline policy (contract §3.1, Q2): management picks the
+ * correction deadline of a revision episode; it defaults to 24 hours and must
+ * lie between 1 hour and 14 days after the arming instant.
+ */
+export const CORRECTION_DEADLINE_MIN_HOURS = 1;
+export const CORRECTION_DEADLINE_DEFAULT_HOURS = 24;
+export const CORRECTION_DEADLINE_MAX_DAYS = 14;
+
 export const OVERDUE_INCIDENT_DELAY_TYPES = [
   'LATE_START',
   'LATE_SUBMISSION',

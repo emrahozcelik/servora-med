@@ -3142,7 +3142,8 @@ management decision list.
 - **Status:** Accepted product contract (owner: lateness direction 2026-11-20,
   items 1 "A + B" and 2 "A"; Q1–Q4 answered 2026-11-21; design review the same
   day, "Kabul, 5a başla"). Ships in two releases: OVR-5a (readers, migration
-  066) and OVR-5b (writers and UI, migration 067). Contract:
+  066, shipped in PR #473) and OVR-5b (writers and UI, migration 067, the
+  following PR); production deploys 5a before 5b. Contract:
   [overdue-correction-deadline-and-extension.md](./docs/features/overdue-correction-deadline-and-extension.md).
 
 ### Decision

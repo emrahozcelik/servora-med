@@ -1,7 +1,8 @@
 # Revision correction deadline and authorized deadline extension (OVR-5)
 
 - **Status:** Accepted product contract — `DECISIONS.md` OVR-5 (owner: "Kabul, 5a
-  başla", 2026-11-21). OVR-5a (readers) in progress; OVR-5b follows.
+  başla", 2026-11-21). OVR-5a (readers, migration 066) shipped in PR #473; OVR-5b (writers, UI, migration 067) ships in the
+  following PR. Production deploy order: 5a before 5b (§8).
   The owner chose the lateness direction on 2026-11-20 (item 1 "A + B": a
   correction deadline with a management-adjustable value; item 2 "A": the
   history is kept and the old obligation is ended) and answered the open

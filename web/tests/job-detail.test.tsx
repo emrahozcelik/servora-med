@@ -116,6 +116,8 @@ const job: JobCard = {
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' },
   contact: null,
   followUpContext: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
   workflowContext: staffContext('NEW', { createdAt: '2026-07-17T08:00:00.000Z' }, {
     allowedActions: [],
     submissionReadiness: null,

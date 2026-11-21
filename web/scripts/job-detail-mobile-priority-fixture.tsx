@@ -106,6 +106,9 @@ function jobCard(
     customer: { id: 'customer-1', name: 'DentArt Ağız ve Diş Sağlığı' },
     contact: { id: 'contact-1', name: 'Dr. Selin Aksoy' },
     followUpContext: null,
+    // OVR-5 detail DTO fields; the fixture has no open lateness.
+    hasOpenOverdueIncident: false,
+    correctionDueAt: null,
     workflowContext: workflowContext(commands, lifecycle),
   };
 }

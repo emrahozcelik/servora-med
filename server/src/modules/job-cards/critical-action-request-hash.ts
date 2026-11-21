@@ -143,6 +143,12 @@ export type LifecycleRequestIdentity = {
    * when absent so every pre-2b lifecycle hash stays byte-identical.
    */
   assignmentReason?: { code: string; text: string } | null;
+  /**
+   * OVR-5b (§3.8): the normalized management correction deadline of a
+   * REQUEST_REVISION. Omitted when the client did not send it, so every
+   * receipt recorded before this release keeps replaying byte-identically.
+   */
+  correctionDueAt?: string | null;
 };
 
 export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string {
@@ -171,6 +177,11 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
           text: identity.assignmentReason.text.trim(),
         },
       }
+      : {}),
+    // OVR-5b (§3.8): present only when the client sent it; absent keeps every
+    // pre-5b REQUEST_REVISION hash identical.
+    ...(identity.correctionDueAt !== undefined && identity.correctionDueAt !== null
+      ? { correctionDueAt: canonicalInstantValue(identity.correctionDueAt) }
       : {}),
   });
 }

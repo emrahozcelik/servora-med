@@ -84,6 +84,8 @@ function generalTaskJob(overrides: Partial<JobCard> = {}): JobCard {
     dueDate: null, scheduledAt: '2026-07-20T09:00:00.000Z',
     assignee: { id: 's1', name: 'Ayşe Personel' }, customer: null,
     contact: null, followUpContext: null,
+    hasOpenOverdueIncident: false,
+    correctionDueAt: null,
     workflowContext: generalTaskContext('NEW'),
     ...overrides,
   };

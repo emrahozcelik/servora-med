@@ -162,6 +162,8 @@ const PATCH_FIELDS = [
   // JOB-010 release 2b: validated by the service as request intent for the
   // offer producer, never a JobCard column.
   'pastStartAcknowledgement',
+  // OVR-5b: deadline extension reason and atomic change-request resolution.
+  'deadlineExtensionReason', 'changeRequestResolution',
 ];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
@@ -363,7 +365,7 @@ export function createJobCardHandlers(service: JobCardService) {
     availableSlots: async (request: FastifyRequest) =>
       service.availableSlots(actor(request), parseAvailableSlotsInput(request.body)),
     requestRevision: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason']) as never),
+      service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason', 'correctionDueAt']) as never),
     withdrawFromApproval: async (request: FastifyRequest<{ Params: Params }>) =>
       service.withdrawFromApproval(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     resume: async (request: FastifyRequest<{ Params: Params }>) =>

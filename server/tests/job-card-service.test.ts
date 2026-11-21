@@ -205,6 +205,9 @@ class MemoryJobCardRepository implements JobCardRepository {
       insertOverdueIncident: async () => ({ id: 'incident-1', created: true }),
       recoverOverdueIncident: async () => undefined,
       recoverOverdueIncidentEpisode: async () => undefined,
+      listOpenDeadlineIncidents: async () => [],
+      endOverdueIncidentEpisode: async () => [],
+      hasOpenDeadlineOverdueIncident: async () => false,
       appendJobActionLocation: async (location) => {
         if (this.failLocation) throw new Error('location failed');
         this.locationAppends.push(location);

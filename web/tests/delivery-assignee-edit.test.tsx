@@ -84,6 +84,7 @@ function deliveryJob(overrides: Partial<JobCard> = {}): JobCard {
     dueDate: null, scheduledAt: '2026-07-20T09:00:00.000Z',
     assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' },
     contact: null, followUpContext: null,
+    hasOpenOverdueIncident: false, correctionDueAt: null,
     workflowContext: deliveryContext('NEW'),
     ...overrides,
   };

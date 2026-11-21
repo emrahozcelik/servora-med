@@ -18,6 +18,7 @@ import {
   type InAppNotification,
 } from '../services/notifications-api';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
+import { DrawerCloseButton } from '../ui/DrawerCloseButton';
 import { CompactConfirmationAction } from '../ui/antd';
 import { restoreFocus, trapTabKey } from '../ui/antd/overlay-focus';
 import { useWebPush } from '../web-push/WebPushProvider';
@@ -325,11 +326,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
         <div className="notification-center-heading">
           <div className={`notification-center-heading-main${view === 'notifications' ? ' notification-center-heading-main--notifications' : ''}`}>
             <h2 id={titleId}>{view === 'settings' ? 'Kurulum ve cihaz bildirimleri' : 'Bildirimler'}</h2>
-            <button ref={closeRef} type="button" className="drawer-close" aria-label="Bildirimleri kapat" onClick={close}>
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
+            <DrawerCloseButton ref={closeRef} label="Bildirimleri kapat" onClick={close} />
           </div>
           {view === 'notifications' && (
             <div className="notification-center-bulk-actions">

@@ -243,8 +243,13 @@ describe('NotificationCenter visual contracts (T2C)', () => {
     const notificationsClose = exactRuleBody(stylesCss, '.notification-center-heading-main--notifications .drawer-close');
     expect(notificationsClose).toMatch(/grid-column:\s*3/);
     expect(notificationsClose).toMatch(/justify-self:\s*end/);
-    expect(notificationsClose).toMatch(/width:\s*100%/);
-    expect(notificationsClose).toMatch(/min-width:\s*0/);
+    // The close control keeps the shared square geometry; it must not stretch
+    // across the grid column (the oversized bordered box regression).
+    expect(notificationsClose).not.toMatch(/(?:^|[^-])width:\s*100%/);
+    expect(notificationsClose).toMatch(/max-width:\s*100%/);
+    const sharedClose = exactRuleBody(stylesCss, '.drawer-close');
+    expect(sharedClose).toMatch(/width:\s*var\(--control-height\)/);
+    expect(sharedClose).toMatch(/height:\s*var\(--control-height\)/);
 
     const title = exactRuleBody(stylesCss, '.notification-center-heading-main > h2');
     expect(title).toMatch(/overflow-wrap:\s*normal/);

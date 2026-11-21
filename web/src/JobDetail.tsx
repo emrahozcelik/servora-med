@@ -45,10 +45,14 @@ import {
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
 import {
+  defaultCorrectionDueLocalValue,
   defaultDeliveredAtLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './jobs/scheduling';
+import { hasOriginalSubmissionDeadline, formatCorrectionDueAt } from './jobs/overdue-correction';
+import { apiFieldError } from './jobs/api-field-error';
+import type { RevisionCorrectionDraft } from './jobs/RevisionCorrectionDueField';
 import { hasValidPlannedIntervalForStart, plannedIntervalShape } from './jobs/job-schedule-integrity';
 import { ResultState } from './ui/antd/ResultState';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
@@ -251,6 +255,15 @@ function isManagementUser(user: CurrentUser): boolean {
   return user.role === 'MANAGER' || user.role === 'ADMIN';
 }
 
+/** Reads one server `fieldErrors` entry, falling back to the contract message. */
+function deadlineFieldError(error: ApiError): string {
+  return apiFieldError(
+    error,
+    'deadlineExtensionReason',
+    'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.',
+  );
+}
+
 /**
  * Narrow job-detail composition: the same 64rem gate as the shell. When the
  * environment has no `matchMedia` (server rendering, non-browser tests) this
@@ -385,34 +398,75 @@ function DeliveryItemActualTimeForm({
   );
 }
 
+type DeadlineChangeOptions = {
+  /** OVR-5 §4.5: management reason for a deadline change that may end lateness. */
+  deadlineExtensionReason?: string;
+  /** OVR-5 §4.11: resolve the job's open change request in the same patch. */
+  changeRequestResolution?: { changeRequestId: string; resolution: 'RESCHEDULED' };
+};
+
 function JobScheduleEditForm({
   job,
   scheduleEdit,
   pending,
   user,
+  deadlineExtensionError = null,
   onSave,
 }: {
   job: JobCard;
   scheduleEdit: ScheduleEditPresentation;
   pending: boolean;
   user: CurrentUser;
+  /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
+  deadlineExtensionError?: string | null;
   onSave?: (
     scheduledAt: string | null,
     scheduledEndsAt?: string | null,
     overrideReason?: string | null,
+    deadlineChange?: DeadlineChangeOptions,
   ) => Promise<void> | void;
 }) {
   const intervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
   const intervalJobType: 'SALES_MEETING' | 'PRODUCT_DELIVERY' = intervalJob
     ? job.type as 'SALES_MEETING' | 'PRODUCT_DELIVERY'
     : 'SALES_MEETING';
+  const managementUser = user.role !== 'STAFF';
+  const hasOpenOverdueIncident = job.hasOpenOverdueIncident === true;
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  // OVR-5 §5.4: the reason surface appears with open lateness, or after the
+  // server answered DEADLINE_EXTENSION_REASON_REQUIRED (the scanner may not
+  // have ticked when the page loaded). Entered values are kept on failure.
+  const [reason, setReason] = useState('');
+  const [reasonVisible, setReasonVisible] = useState(managementUser && hasOpenOverdueIncident);
+  const [reasonError, setReasonError] = useState('');
+  // OVR-5 §4.11: checked by default; only sent when a deadline field changed.
+  const [resolveChangeRequest, setResolveChangeRequest] = useState(true);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const submitErrorRef = useRef<HTMLParagraphElement>(null);
   const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}`;
   const lastKey = useRef(canonicalKey);
+
+  useEffect(() => {
+    if (managementUser && hasOpenOverdueIncident) setReasonVisible(true);
+  }, [hasOpenOverdueIncident, managementUser]);
+
+  useEffect(() => {
+    if (!deadlineExtensionError) return;
+    setReasonVisible(true);
+    setReasonError(deadlineExtensionError);
+  }, [deadlineExtensionError]);
+
+  // OVR-5b visual review: while this form is open the invalid reason field owns
+  // focus on its client or server error, then the inline patch error does; the
+  // page feedback stays informational.
+  useEffect(() => {
+    if (reasonError) reasonRef.current?.focus();
+    else if (submitError) submitErrorRef.current?.focus();
+  }, [reasonError, submitError]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     engagementKind: job.engagementKind,
@@ -432,6 +486,9 @@ function JobScheduleEditForm({
   });
 
   function useAvailableSlot(slot: AvailableSlot) {
+    // OVR-5 §5.4: Staff cannot move the planned time of a job with open
+    // lateness; the disabled input must not change through the slot list.
+    if (!managementUser && hasOpenOverdueIncident) return;
     setLocalValue(isoInstantToLocalDateTime(slot.startsAt));
     setFieldError('');
     setSubmitError('');
@@ -443,12 +500,38 @@ function JobScheduleEditForm({
     setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
     setFieldError('');
     setSubmitError('');
+    setReason('');
+    setReasonError('');
+    setResolveChangeRequest(true);
   }, [canonicalKey, job.scheduledAt, intervalJob]);
+
+  const deadlineChanged = localValue.trim()
+    !== (job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+
+  function deadlineChangeOptions(): DeadlineChangeOptions | undefined {
+    const trimmedReason = managementUser && reasonVisible ? reason.trim() : '';
+    const resolution = managementUser && resolveChangeRequest && deadlineChanged && job.changeRequest
+      ? {
+          changeRequestId: job.changeRequest.id,
+          resolution: 'RESCHEDULED' as const,
+        }
+      : undefined;
+    if (!trimmedReason && !resolution) return undefined;
+    return {
+      ...(trimmedReason ? { deadlineExtensionReason: trimmedReason } : {}),
+      ...(resolution ? { changeRequestResolution: resolution } : {}),
+    };
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending || !onSave) return;
     setSubmitError('');
+    if (managementUser && reasonVisible && !reason.trim()) {
+      setReasonError('Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.');
+      return;
+    }
+    setReasonError('');
     if (!localValue.trim()) {
       if (!scheduleEdit.optional) {
         setFieldError(`${scheduleEdit.label} seçin.`);
@@ -456,7 +539,9 @@ function JobScheduleEditForm({
       }
       setFieldError('');
       try {
-        await onSave(null, null, undefined);
+        const options = deadlineChangeOptions();
+        if (options) await onSave(null, null, undefined, options);
+        else await onSave(null, null, undefined);
       } catch (caught) {
         setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
       }
@@ -464,11 +549,9 @@ function JobScheduleEditForm({
     }
     setFieldError('');
     try {
-      await onSave(
-        localDateTimeToIso(localValue),
-        undefined,
-        undefined,
-      );
+      const options = deadlineChangeOptions();
+      if (options) await onSave(localDateTimeToIso(localValue), undefined, undefined, options);
+      else await onSave(localDateTimeToIso(localValue), undefined, undefined);
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
     }
@@ -488,9 +571,12 @@ function JobScheduleEditForm({
             type="datetime-local"
             value={localValue}
             required={!scheduleEdit.optional}
-            disabled={pending}
+            disabled={pending || (!managementUser && hasOpenOverdueIncident)}
             aria-invalid={fieldError ? true : undefined}
-            aria-describedby={fieldError ? 'job-scheduled-at-error' : undefined}
+            aria-describedby={[
+              fieldError ? 'job-scheduled-at-error' : null,
+              !managementUser && hasOpenOverdueIncident ? 'job-scheduled-at-lateness-hint' : null,
+            ].filter(Boolean).join(' ') || undefined}
             onChange={(event) => {
               setLocalValue(event.target.value);
               setFieldError('');
@@ -498,7 +584,58 @@ function JobScheduleEditForm({
             }}
           />
           {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
+          {!managementUser && hasOpenOverdueIncident && (
+            <span className="form-help" id="job-scheduled-at-lateness-hint">
+              Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.
+            </span>
+          )}
         </div>
+        {managementUser && reasonVisible && (
+          <div className="field-group">
+            <label htmlFor="job-schedule-extension-reason">Tarih değişikliği gerekçesi</label>
+            <textarea
+              ref={reasonRef}
+              id="job-schedule-extension-reason"
+              name="deadlineExtensionReason"
+              rows={3}
+              value={reason}
+              maxLength={500}
+              disabled={pending}
+              required
+              aria-invalid={reasonError ? true : undefined}
+              aria-describedby={['job-schedule-extension-reason-help',
+                reasonError ? 'job-schedule-extension-reason-error' : null].filter(Boolean).join(' ')}
+              onChange={(event) => {
+                setReason(event.target.value);
+                setReasonError('');
+                setSubmitError('');
+              }}
+            />
+            <span className="form-help" id="job-schedule-extension-reason-help">
+              En fazla 500 karakter.
+            </span>
+            {reasonError && (
+              <span id="job-schedule-extension-reason-error" className="field-error" role="alert">
+                {reasonError}
+              </span>
+            )}
+          </div>
+        )}
+        {managementUser && job.changeRequest && deadlineChanged && (
+          <div className="form-checkbox-row">
+            <input
+              id="job-schedule-resolve-change-request"
+              name="resolveChangeRequest"
+              type="checkbox"
+              checked={resolveChangeRequest}
+              disabled={pending}
+              onChange={(event) => setResolveChangeRequest(event.target.checked)}
+            />
+            <label htmlFor="job-schedule-resolve-change-request">
+              Personelin önerisini “Yeniden planlandı” olarak sonuçlandır
+            </label>
+          </div>
+        )}
         <CustomerScheduleNotice
           evaluation={evaluation}
           mode={user.role === 'STAFF' ? 'staff' : 'manager'}
@@ -507,10 +644,12 @@ function JobScheduleEditForm({
         <AvailableSlotsNotice
           {...availableSlotSearch}
           onSelect={useAvailableSlot}
+          disabled={!managementUser && hasOpenOverdueIncident}
         />
-        {submitError && <p className="field-error" role="alert">{submitError}</p>}
+        {submitError && <p ref={submitErrorRef} className="field-error" role="alert" tabIndex={-1}>{submitError}</p>}
         <div className="review-buttons">
-          <button className="secondary-button" type="submit" disabled={pending || !onSave}>
+          <button className="secondary-button" type="submit"
+            disabled={pending || !onSave || (!managementUser && hasOpenOverdueIncident)}>
             {pending ? 'Kaydediliyor…' : 'Planlanan zamanı kaydet'}
           </button>
         </div>
@@ -526,6 +665,7 @@ export function JobDetailPanel({
   pendingLabel, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
+  deadlineExtensionError = null,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -543,6 +683,7 @@ export function JobDetailPanel({
     scheduledAt: string | null,
     scheduledEndsAt?: string | null,
     overrideReason?: string | null,
+    deadlineChange?: DeadlineChangeOptions,
   ) => Promise<void> | void;
   onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
   meetingDetails?: MeetingDetails | null;
@@ -568,6 +709,8 @@ export function JobDetailPanel({
   messagingActionVisible?: boolean;
   invalidationAction?: ReactNode;
   mutationLocked?: boolean;
+  /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
+  deadlineExtensionError?: string | null;
 }) {
   const presentation = deriveJobWorkflowPresentation({
     job,
@@ -628,6 +771,15 @@ export function JobDetailPanel({
       key: 'due-date', label: 'Son tarih',
       content: job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi',
     }]),
+    ...(job.correctionDueAt ? [{
+      key: 'correction-due-at',
+      label: 'Düzeltme son tarihi',
+      content: (
+        <time dateTime={job.correctionDueAt}>
+          {formatCorrectionDueAt(job.correctionDueAt, job.organizationTimezone)}
+        </time>
+      ),
+    }] : []),
     { key: 'customer', label: 'Müşteri', content: job.customer?.name ?? 'Belirtilmedi' },
     ...(job.type === 'SALES_MEETING' ? [
       {
@@ -818,6 +970,7 @@ export function JobDetailPanel({
               scheduleEdit={presentation.scheduleEdit}
               pending={localMutationPending}
               user={user}
+              deadlineExtensionError={deadlineExtensionError}
               onSave={onSaveSchedule}
             />
           )}
@@ -1023,6 +1176,7 @@ async function executeLifecycleCommand(
     followUpContinuity?: FollowUpCancelContinuity;
     followUp?: ApproveFollowUpInput;
     assignmentReason?: { code: AssignmentReasonCode; text: string };
+    correctionDueAt?: string;
   },
   reason: string,
 ): Promise<JobCard> {
@@ -1114,6 +1268,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [followUpChildrenCount, setFollowUpChildrenCount] = useState<number | null>(null);
   const [invalidationMutation, setInvalidationMutation] = useState<JobInvalidationMutationState>({ kind: 'idle' });
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
+  /**
+   * OVR-5 §3.9: correction deadline draft of the open revision dialog, present
+   * only when the job has an original submission deadline.
+   */
+  const [revisionCorrection, setRevisionCorrection] = useState<RevisionCorrectionDraft | null>(null);
+  /**
+   * OVR-5 §5.4: server `fieldErrors.deadlineExtensionReason` after a 400
+   * DEADLINE_EXTENSION_REASON_REQUIRED, so the reason field appears even when
+   * the scanner had not ticked when the page loaded.
+   */
+  const [deadlineExtensionError, setDeadlineExtensionError] = useState<string | null>(null);
   /** JOB-009: continuity draft, present only while cancelling a follow-up visit. */
   const [cancelContinuity, setCancelContinuity] = useState<{
     draft: FollowUpCancelContinuityDraft;
@@ -1170,6 +1335,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       followUp?: ApproveFollowUpInput;
       followUpContinuity?: FollowUpCancelContinuity;
       assignmentReason?: { code: AssignmentReasonCode; text: string };
+      correctionDueAt?: string;
     };
     reason: string;
   } | null>(null);
@@ -1335,6 +1501,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setFollowUp(null);
     setCancelContinuity(null);
     setAssignmentReason(null);
+    setRevisionCorrection(null);
   }
   async function refreshTruth(): Promise<boolean> {
     const operationJobId = jobId;
@@ -1644,6 +1811,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       followUp?: ApproveFollowUpInput;
       followUpContinuity?: FollowUpCancelContinuity;
       assignmentReason?: { code: AssignmentReasonCode; text: string };
+      correctionDueAt?: string;
     },
   ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
@@ -1662,6 +1830,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         followUp?: ApproveFollowUpInput;
         followUpContinuity?: FollowUpCancelContinuity;
         assignmentReason?: { code: AssignmentReasonCode; text: string };
+        correctionDueAt?: string;
       } = input;
       if (!retained && command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
@@ -1696,6 +1865,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }
         if (extra?.assignmentReason) {
           commandInput = { ...commandInput, assignmentReason: extra.assignmentReason };
+        }
+        if (extra?.correctionDueAt !== undefined) {
+          commandInput = { ...commandInput, correctionDueAt: extra.correctionDueAt };
         }
         lifecycleAttempt.current = { command, input: structuredClone(commandInput), reason };
       }
@@ -1736,6 +1908,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setFollowUp(null);
         setCancelContinuity(null);
         setAssignmentReason(null);
+        setRevisionCorrection(null);
       }
       const transition = findTransition(presentation, command);
       if (transition) setMessage(transition.successMessage);
@@ -1784,6 +1957,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }
         if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
+        setRevisionCorrection(null);
         setFollowUp(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
@@ -1819,6 +1993,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED', 'ASSIGNEE_NOT_FOUND',
           'CUSTOMER_VISIT_DUPLICATE', 'CALENDAR_CONFLICT',
         ];
+        if (caught instanceof ApiError && caught.code === 'VALIDATION_ERROR'
+          && dialog?.kind === 'revision' && revisionCorrection) {
+          // OVR-5 §3.9: the correction deadline bound/syntax error belongs to
+          // the picker, not the page feedback behind the modal. The dialog and
+          // the entered reason stay open for correction.
+          const message = apiFieldError(caught, 'correctionDueAt', '');
+          if (message) {
+            setRevisionCorrection((current) => current ? { ...current, fieldError: message } : current);
+            return;
+          }
+        }
         if (caught instanceof ApiError && dialogErrorCodes.includes(caught.code)
           && dialog !== null && (dialog.kind === 'submit' || dialog.kind === 'approve')) {
           // FOLLOW_UP_PROPOSAL_INVALID carries no structured no-slot
@@ -1879,6 +2064,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     if (state.kind !== 'ready'
       || !['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'].includes(state.detail.kind)) return;
     if (action === 'EDIT_JOB_FIELDS') {
+      setDeadlineExtensionError(null);
       setEditing(true);
       return;
     }
@@ -1978,6 +2164,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     input: PatchJobCardInput,
     successMessage: string,
     acknowledgement?: PastStartAcknowledgement,
+    /**
+     * OVR-5b visual review: `form` means the caller keeps an inline editor open
+     * and renders the patch error beside its fields, so the page feedback must
+     * neither take focus from that form nor swallow the error.
+     */
+    errorOwner: 'page' | 'form' = 'page',
   ): Promise<boolean> {
     if (state.kind !== 'ready'
       || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return false;
@@ -1986,6 +2178,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    setDeadlineExtensionError(null);
     try {
       const patched = await patchJobCard(operationJobId, acknowledgement
         ? { ...input, ...pastStartAcknowledgementPayload(acknowledgement) }
@@ -2016,7 +2209,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         openPastStartAcknowledgement({
           title: 'Başlangıç saati geçti',
           description: 'Planlanan başlangıç saati geçti. Değişikliği kaydetmek için müşterinin güncel durumunu onaylayın.',
-          run: (next) => saveJobPatch(input, successMessage, next),
+          // The drawer expects a boolean; a form-owned failure must not reject
+          // its promise (the page feedback already carries the message).
+          run: async (next) => {
+            try {
+              return await saveJobPatch(input, successMessage, next, errorOwner);
+            } catch {
+              return false;
+            }
+          },
         });
         return false;
       }
@@ -2029,9 +2230,22 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
         }
+        if (caught instanceof ApiError && caught.code === 'DEADLINE_EXTENSION_REASON_REQUIRED') {
+          // OVR-5 §5.4: the deadline change would end open lateness and needs
+          // a reason the form did not offer yet. Keep the entered values and
+          // surface the server field error on the reason field.
+          setDeadlineExtensionError(deadlineFieldError(caught));
+        }
         setMessage(assignmentWindowErrorMessage(caught, 'İş güncellenemedi.'));
       }
-      setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
+      setMessageIsError(true);
+      if (errorOwner === 'form'
+        && !(caught instanceof ApiError && caught.code === 'VERSION_CONFLICT')) {
+        // Only a version conflict closes the editor; for every other failure the
+        // open form owns the message and the focus.
+        throw new Error(assignmentWindowErrorMessage(caught, 'İş güncellenemedi.'));
+      }
+      setFeedbackFocusRequest((value) => value + 1);
       return false;
     } finally { endMutationOperation(owner); }
   }
@@ -2050,12 +2264,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     await saveJobPatch(
       { expectedVersion: state.detail.job.version, ...input },
       'Görev bilgileri güncellendi.',
+      undefined,
+      'form',
     );
   }
   async function saveSchedule(
     scheduledAt: string | null,
     scheduledEndsAt?: string | null,
     overrideReason?: string | null,
+    deadlineChange?: DeadlineChangeOptions,
     acknowledgement?: PastStartAcknowledgement,
   ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
@@ -2068,6 +2285,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    setDeadlineExtensionError(null);
     try {
       await patchJobCard(operationJobId, {
         expectedVersion: state.detail.job.version,
@@ -2077,6 +2295,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           ? { scheduledEndsAt }
           : {},
         ...(overrideReason?.trim() ? { overrideReason: overrideReason.trim() } : {}),
+        ...(deadlineChange?.deadlineExtensionReason?.trim()
+          ? { deadlineExtensionReason: deadlineChange.deadlineExtensionReason.trim() }
+          : {}),
+        ...(deadlineChange?.changeRequestResolution
+          ? { changeRequestResolution: deadlineChange.changeRequestResolution }
+          : {}),
         ...pastStartAcknowledgementPayload(acknowledgement),
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
@@ -2097,7 +2321,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           description: 'Planlanan başlangıç saati geçti. Yeni zamanı kaydetmek için müşterinin güncel durumunu onaylayın.',
           run: async (next) => {
             try {
-              await saveSchedule(scheduledAt, scheduledEndsAt, overrideReason, next);
+              await saveSchedule(scheduledAt, scheduledEndsAt, overrideReason, deadlineChange, next);
               return true;
             } catch {
               return false;
@@ -2121,10 +2345,14 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (hasPendingRealtimeInvalidation()) {
         setRealtimeStale(true);
       }
+      if (caught instanceof ApiError && caught.code === 'DEADLINE_EXTENSION_REASON_REQUIRED') {
+        setDeadlineExtensionError(deadlineFieldError(caught));
+      }
       const message = assignmentWindowErrorMessage(caught, 'Planlanan zaman kaydedilemedi.');
       setMessage(message);
       setMessageIsError(true);
-      setFeedbackFocusRequest((value) => value + 1);
+      // OVR-5b visual review: this form renders the failure inline and focuses
+      // it, so the page feedback stays informational instead of taking focus.
       throw caught instanceof Error ? caught : new Error('Planlanan zaman kaydedilemedi.');
     } finally {
       endMutationOperation(owner);
@@ -2213,6 +2441,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!transition) return;
       dialogTriggerRef.current = trigger;
       dialogFocusRestoreEnabledRef.current = true;
+      setRevisionCorrection(hasOriginalSubmissionDeadline(state.detail.job)
+        ? { value: defaultCorrectionDueLocalValue(), fieldError: null }
+        : null);
       setDialog({ kind: 'revision', presentation: transition });
       return;
     }
@@ -2438,6 +2669,27 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       return;
     }
     if (dialog.kind === 'revision') {
+      if (revisionCorrection) {
+        if (!revisionCorrection.value.trim()) {
+          setRevisionCorrection({
+            ...revisionCorrection,
+            fieldError: 'Geçerli bir düzeltme son tarihi seçin.',
+          });
+          return;
+        }
+        let correctionDueAt: string;
+        try {
+          correctionDueAt = localDateTimeToIso(revisionCorrection.value);
+        } catch {
+          setRevisionCorrection({
+            ...revisionCorrection,
+            fieldError: 'Geçerli bir düzeltme son tarihi seçin.',
+          });
+          return;
+        }
+        void execute('REQUEST_REVISION', reason, { correctionDueAt });
+        return;
+      }
       void execute('REQUEST_REVISION', reason);
       return;
     }
@@ -2547,7 +2799,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
         : editing && detail.kind === 'GENERAL_TASK'
           ? <GeneralTaskEditForm job={detail.job} user={user}
-            pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
+            pending={invalidationLocked}
+            deadlineExtensionError={deadlineExtensionError}
+            onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
           : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
           ? <MeetingDetailsSection
             job={detail.job}
@@ -2639,6 +2893,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }}
     onSaveSchedule={saveSchedule}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
+    deadlineExtensionError={deadlineExtensionError}
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
     mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked}
@@ -2734,6 +2989,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
                 : current),
             }
           : undefined)
+        : undefined}
+      revisionCorrection={dialog.kind === 'revision' && revisionCorrection
+        ? {
+            draft: revisionCorrection,
+            onChange: setRevisionCorrection,
+          }
         : undefined}
       returnFocusRef={dialogTriggerRef}
       restoreFocusEnabledRef={dialogFocusRestoreEnabledRef}

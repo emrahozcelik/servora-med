@@ -59,6 +59,7 @@ body {
   margin: 0;
   min-width: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: clip;
   color: var(--ink);
   background: var(--paper);
@@ -218,6 +219,37 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .field-group input:hover, .field-group select:hover, .field-group textarea:hover, .form-control:hover { border-color: var(--border-control-hover); }
 .field-group input:focus, .field-group select:focus, .field-group textarea:focus, .form-control:focus { border-color: var(--accent); }
 .field-group input:disabled, .field-group select:disabled, .field-group textarea:disabled, .form-control:disabled { background: var(--canvas); }
+/* Standalone checkbox row (not .field-group: the generic full-width control
+   rules must not restyle the checkbox; input { min-height } is scoped out).
+   The row and its label keep the 44px target: the label fills the remaining
+   width so the whole row toggles the checkbox. */
+.form-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: var(--control-height);
+  margin-top: 1rem;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+.form-checkbox-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.form-checkbox-row label {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  margin: 0;
+  cursor: pointer;
+}
 /* Password visibility toggle (UI audit F-16): a real 44px control inside the
    field row, joined to the same border/radius/focus language as inputs. */
 .password-field {
@@ -435,6 +467,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .report-nav { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .report-nav a { display: inline-flex; align-items: center; min-height: var(--control-height); padding: 0.55rem 0.75rem; border-radius: 0.5rem; color: var(--accent-hover); font-weight: 700; text-decoration: none; }
 .report-nav a:hover { background: var(--accent-soft); }
+/* Mobile/tablet: one horizontally scrollable row of report sections instead of a
+   two-row wrap; the next tab stays partly visible as the scroll cue. */
+@media (width < 64rem) {
+  .page-header-actions:has(> .report-nav) { min-width: 0; max-width: 100%; }
+  .report-nav { flex-wrap: nowrap; min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scroll-padding-inline: 0.5rem; }
+  .report-nav a { flex: 0 0 auto; white-space: nowrap; }
+}
 .report-filters { display: grid; grid-template-columns: repeat(2, minmax(10rem, 1fr)) auto; align-items: end; gap: 0.75rem; padding-block: 1rem; margin-bottom: 1.5rem; border-block: 1px solid var(--rule); }
 .report-filters-wide { grid-template-columns: repeat(4, minmax(9rem, 1fr)) auto; }
 .report-filters-wide--customer { grid-template-columns: repeat(4, minmax(8rem, 1fr)); }
@@ -793,7 +832,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .form-error h2 { margin: 0; font-size: 1rem; }
 .form-error p { margin: 0.35rem 0 0; }
 
-.identity-loading { display: grid; align-content: center; width: min(100% - 2rem, 28rem); min-height: 100vh; margin: auto; }
+.identity-loading { display: grid; align-content: center; width: min(100% - 2rem, 28rem); min-height: 100vh; min-height: 100dvh; margin: auto; }
 .identity-loading p { color: var(--muted); }
 .loading-line { width: 100%; height: 0.9rem; margin-bottom: 0.75rem; border-radius: 0.3rem; background: var(--canvas); }
 .loading-line-short { width: 42%; }
@@ -819,7 +858,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
 .servora-loading-skeleton__geometry { min-width: 0; }
 
-.authenticated-shell { min-width: 0; min-height: 100vh; }
+.authenticated-shell { min-width: 0; min-height: 100vh; min-height: 100dvh; }
 .shell-content { min-width: 0; }
 .compact-shell-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; min-height: 4.5rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); background: var(--canvas); }
 /* T2B: mobile top bar — balanced horizontal zones, safe-area, title truncation. */
@@ -829,8 +868,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   z-index: 10;
   flex-wrap: nowrap;
   gap: 0.55rem;
-  min-height: calc(4.5rem + env(safe-area-inset-top, 0px));
-  padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.85rem 0.65rem;
+  /* 44px notification target + 0.5rem block padding = 3.75rem; the bar still
+     grows with text resize because min-height never caps content. */
+  min-height: calc(3.75rem + env(safe-area-inset-top, 0px));
+  padding: calc(0.5rem + env(safe-area-inset-top, 0px)) 0.85rem 0.5rem;
 }
 .mobile-top-bar-start { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1 1 auto; overflow: hidden; }
 /* Keep the title zone flexible while action targets keep their 44px floor. */
@@ -840,6 +881,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   justify-content: flex-end;
   min-width: 0;
 }
+/* The bar's own 0.5rem block / 0.85rem inline padding already clears the
+   unread badge offset, so the wrapper adds no extra ring here. */
+.mobile-top-bar .notification-center { padding: 0; }
 .mobile-top-bar .shell-notification-trigger {
   flex: 0 0 min(2.75rem, 44px);
   width: min(2.75rem, 44px);
@@ -1148,9 +1192,14 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .shell-nav a, .shell-signout, .drawer-close { min-width: 2.75rem; min-height: var(--control-height); }
 .shell-signout, .drawer-close { display: inline-flex; align-items: center; justify-content: center; padding: 0.65rem 0.85rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); font-weight: 700; }
 .shell-signout:hover:not(:disabled), .drawer-close:hover:not(:disabled) { border-color: var(--border-control); background: var(--canvas); }
+/* Modal panel dismiss (DESIGN.md "Overlay dismiss control"): one icon-only
+   square target for the menu panel, notification center and form drawer. */
+.drawer-close { flex: 0 0 auto; width: var(--control-height); height: var(--control-height); padding: 0; }
+.drawer-close svg { width: 1rem; height: 1rem; }
 /* Shared nav/account baseline (sidebar + mobile drawer). T2A polish is scoped under .shell-sidebar. */
 .shell-sidebar {
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 0.65rem 0.65rem 1rem;
   border-right: 1px solid var(--rule);
   background: var(--canvas);
@@ -1373,22 +1422,14 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   justify-self: center;
   text-align: center;
 }
-.notification-center-heading-main .drawer-close {
-  flex: 0 0 auto;
-}
+/* Square by default; at extreme text scaling the 1fr column can be narrower
+   than the scaled target, so the control may shrink rather than overlap the
+   centred title. It never stretches to fill the column. */
 .notification-center-heading-main--notifications .drawer-close {
   grid-column: 3;
   justify-self: end;
-  width: 100%;
   min-width: 0;
-  padding-inline: 0;
-}
-.notification-center-heading-main--notifications .drawer-close svg {
   max-width: 100%;
-}
-.notification-center-heading-main .drawer-close svg {
-  width: 1rem;
-  height: 1rem;
 }
 .notification-center-bulk-actions {
   display: grid;
@@ -3287,6 +3328,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .reason-dialog h2, .workflow-dialog h2 { margin: 0; }
 .reason-dialog > p, .workflow-dialog > p { color: var(--muted); line-height: 1.5; }
 .reason-dialog .review-buttons, .workflow-dialog .review-buttons { margin-top: 1rem; }
+/* The dialogs wrap optional prelude fields in a fieldset only to lock them
+   while pending/uncertain; the browser-default frame would add a second box. */
+.reason-dialog fieldset, .workflow-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .follow-up-proposal-card { margin: 1rem 0; padding: 0.9rem; border: 1px solid var(--border-accent); border-radius: 0.6rem; background: var(--accent-soft); }
 .follow-up-proposal-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .follow-up-proposal-heading h3 { margin: 0; font-size: 1rem; }
@@ -4958,10 +5002,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 
-.form-drawer-header .compact-button {
-  min-width: var(--control-height);
-}
-
 .form-drawer-body {
   min-height: 0;
 }
@@ -5834,4 +5874,10 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   background: var(--frame);
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+@media (max-width: 48rem) {
+  /* A compact button in a stacked mobile form footer keeps the 44px target
+     (UI-003 OVR-5b review); desktop compact sizing is unchanged. */
+  .review-buttons .compact-button { min-height: var(--control-height); }
 }
