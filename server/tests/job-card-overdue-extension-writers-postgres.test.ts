@@ -247,6 +247,12 @@ async function submitJob(ctx: Ctx, job: { id: string; version: number }): Promis
   })) as unknown as JobCard;
 }
 
+async function resumeJob(ctx: Ctx, job: { id: string; version: number }): Promise<JobCard> {
+  return (await ctx.service.resume(ctx.staff, job.id, {
+    clientActionId: randomUUID(), expectedVersion: job.version,
+  })) as unknown as JobCard;
+}
+
 async function acceptJob(ctx: Ctx, job: { id: string; version: number }): Promise<JobCard> {
   return (await ctx.service.acceptAssignment(ctx.staff, job.id, {
     clientActionId: randomUUID(), expectedVersion: job.version,
@@ -820,13 +826,14 @@ describe.skipIf(!databaseUrl)('OVR-5b authorized deadline extension (PostgreSQL)
 
       ctx.clock.now = await dbBaseline(pool);
       const nextDueDate = dateKeyShift(ctx.clock.now, 4);
-      // A reason sent when nothing ends is validated and then ignored.
-      const patched = await patchJob(ctx, ctx.manager, submitted, {
+      // A job in review is not editable (existing rule), so no field edit can
+      // reach — let alone end — its management APPROVAL_WAIT.
+      await expect(patchJob(ctx, ctx.manager, submitted, {
         dueDate: nextDueDate,
         deadlineExtensionReason: 'Onay beklemesi uzatılmaz.',
-      });
-      expect(patched.status).toBe('WAITING_APPROVAL');
-      expect((await selectJobRow(pool, ctx.organizationId, job.id)).due_date).toBe(nextDueDate);
+      })).rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE' });
+      expect((await selectJobRow(pool, ctx.organizationId, job.id)).due_date)
+        .not.toBe(nextDueDate);
 
       const after = await selectIncidents(pool, ctx.organizationId, job.id);
       const approvalWaitAfter = after.find((row) => row.id === approvalWait.id)!;
@@ -1202,6 +1209,7 @@ describe.skipIf(!databaseUrl)('OVR-5b authorized deadline extension (PostgreSQL)
       expect(detail.correctionDueAt).toBe(supplied.toISOString());
 
       // Outside REVISION_REQUESTED/IN_PROGRESS the field is null.
+      current = await resumeJob(ctx, current);
       current = await submitJob(ctx, current);
       detail = (await ctx.service.detail(ctx.manager, job.id)) as unknown as Ovr5bDetail;
       expect(detail.status).toBe('WAITING_APPROVAL');

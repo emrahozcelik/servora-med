@@ -830,6 +830,16 @@ describe.skipIf(!databaseUrl)('OVR-5b revision correction deadline writers (Post
          RETURNING id`,
         [organizationId, staffId, new Date('2026-08-03T06:00:00.000Z')],
       )).rows[0]!.id;
+      for (const revisionNo of [1, 2]) {
+        await pool.query(
+          `INSERT INTO job_card_schedule_revisions
+             (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+              organization_timezone, source, created_by, created_at)
+           VALUES ($1, $2, $3, NULL, NULL, 'Europe/Istanbul', $4, $5, $6)`,
+          [organizationId, jobId, revisionNo, revisionNo === 1 ? 'CREATE' : 'RESCHEDULE',
+            staffId, new Date('2026-08-03T05:00:00.000Z')],
+        );
+      }
       const incidents = await Promise.all([1, 2].map((revisionNo) => pool.query<{ id: string }>(
         `INSERT INTO job_card_overdue_incidents
            (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
