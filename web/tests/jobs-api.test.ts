@@ -43,6 +43,9 @@ const job = {
   submitLocationComparison: null,
   changeRequest: null,
   assignmentOffer: null,
+  // OVR-5 detail DTO: no open lateness and no correction deadline.
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',

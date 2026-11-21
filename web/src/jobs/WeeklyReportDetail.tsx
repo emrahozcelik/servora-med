@@ -33,6 +33,10 @@ import { JobDecisionPanel } from './JobDecisionPanel';
 import { JobTimeline } from './JobTimeline';
 import { isDefinitiveMutationError } from './mutation-attempt-error';
 import { captureActionLocation, type ActionLocationCapture } from './start-location-capture';
+import { defaultCorrectionDueLocalValue, localDateTimeToIso } from './scheduling';
+import { formatCorrectionDueAt, hasOriginalSubmissionDeadline } from './overdue-correction';
+import { apiFieldError } from './api-field-error';
+import type { RevisionCorrectionDraft } from './RevisionCorrectionDueField';
 import { submitComparisonWarning } from './location-distance-format';
 import {
   classifyDevice,
@@ -148,6 +152,8 @@ type LifecycleAttempt = {
     expectedVersion: number;
     note?: string;
     revisionReason?: string;
+    /** OVR-5 §3: optional revision correction deadline (ISO instant). */
+    correctionDueAt?: string;
     cancelReason?: string;
     locationCapture?: ActionLocationCapture;
   };
@@ -245,6 +251,8 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const [ambiguous, setAmbiguous] = useState(false);
   const [pending, setPending] = useState(false);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
+  /** OVR-5 §3.9: correction deadline draft of the open revision dialog. */
+  const [revisionCorrection, setRevisionCorrection] = useState<RevisionCorrectionDraft | null>(null);
   const [timelineKey, setTimelineKey] = useState(0);
   const loadGeneration = useRef(0);
   const formRef = useRef<FormState | null>(null);
@@ -487,7 +495,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     }
   }
 
-  async function runLifecycle(command: LifecycleCommand, reason: string) {
+  async function runLifecycle(command: LifecycleCommand, reason: string, correctionDueAt?: string) {
     // Synchronous claim BEFORE any awaited location capture: a second trigger
     // in the same tick must not mint another clientActionId/capture.
     if (lifecycleInFlight.current) return;
@@ -514,7 +522,10 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           }
         }
         else if (command === 'APPROVE' && reason.trim()) input.note = reason.trim();
-        else if (command === 'REQUEST_REVISION') input.revisionReason = reason;
+        else if (command === 'REQUEST_REVISION') {
+          input.revisionReason = reason;
+          if (correctionDueAt !== undefined) input.correctionDueAt = correctionDueAt;
+        }
         else if (command === 'CANCEL') input.cancelReason = reason;
         else if (command === 'START' && startLocationCaptureEnabled) {
           input.locationCapture = await captureActionLocation();
@@ -529,6 +540,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       attemptRef.current = null;
       setAmbiguous(false);
       setDialog(null);
+      setRevisionCorrection(null);
       await refresh();
       if (!isLifecycleCurrent(operationJobId)) return;
       // The shared activity timeline (SUBMIT location evidence included)
@@ -558,12 +570,29 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         attemptRef.current = null;
         setAmbiguous(false);
         setDialog(null);
+        setRevisionCorrection(null);
         await refresh();
         setActionError('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
         setActionNotice('');
       } else if (isDefinitiveMutationError(caught)) {
         attemptRef.current = null;
         setAmbiguous(false);
+        // OVR-5 §3.9: the correction deadline error belongs to the picker; the
+        // dialog and the entered reason stay open for correction.
+        const correctionMessage = caught instanceof ApiError
+          && caught.code === 'VALIDATION_ERROR'
+          && dialog?.kind === 'revision'
+          && revisionCorrection
+          ? apiFieldError(caught, 'correctionDueAt', '')
+          : '';
+        if (correctionMessage) {
+          setRevisionCorrection((current) => current
+            ? { ...current, fieldError: correctionMessage }
+            : current);
+          setActionError('');
+          setActionNotice('');
+          return;
+        }
         setActionError(caught instanceof Error ? caught.message : 'İşlem tamamlanamadı. Tekrar deneyin.');
         setActionNotice('');
       } else {
@@ -589,6 +618,13 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     const kind = command === 'SUBMIT_FOR_APPROVAL' ? 'submit'
       : command === 'APPROVE' ? 'approve'
       : command === 'REQUEST_REVISION' ? 'revision' : 'cancel';
+    if (command === 'REQUEST_REVISION') {
+      setRevisionCorrection(hasOriginalSubmissionDeadline(loadedJob)
+        ? { value: defaultCorrectionDueLocalValue(), fieldError: null }
+        : null);
+    } else {
+      setRevisionCorrection(null);
+    }
     setDialog({ kind, presentation: transition } as JobWorkflowDialogKind);
   }
 
@@ -614,6 +650,21 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     const command = commandOf(dialog);
     if (command === null) return;
     if (ambiguous) { retryAttempt(); return; }
+    if (dialog.kind === 'revision' && revisionCorrection) {
+      if (!revisionCorrection.value.trim()) {
+        setRevisionCorrection({ ...revisionCorrection, fieldError: 'Geçerli bir düzeltme son tarihi seçin.' });
+        return;
+      }
+      let correctionDueAt: string;
+      try {
+        correctionDueAt = localDateTimeToIso(revisionCorrection.value);
+      } catch {
+        setRevisionCorrection({ ...revisionCorrection, fieldError: 'Geçerli bir düzeltme son tarihi seçin.' });
+        return;
+      }
+      void runLifecycle(command, reason, correctionDueAt);
+      return;
+    }
     void runLifecycle(command, reason);
   }
 
@@ -643,6 +694,15 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       label: 'Teslim son tarihi',
       content: loadedReport.dueDate ?? 'Belirtilmedi',
     },
+    ...(loadedJob.correctionDueAt ? [{
+      key: 'correction-due-at',
+      label: 'Düzeltme son tarihi',
+      content: (
+        <time dateTime={loadedJob.correctionDueAt}>
+          {formatCorrectionDueAt(loadedJob.correctionDueAt, loadedJob.organizationTimezone)}
+        </time>
+      ),
+    }] : []),
     { key: 'version', label: 'Rapor sürümü', content: `v${loadedReport.version}` },
   ];
 
@@ -991,8 +1051,11 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         dialog={dialog}
         pending={pending}
         uncertain={ambiguous}
-        onClose={() => setDialog(null)}
+        onClose={() => { setDialog(null); setRevisionCorrection(null); }}
         onConfirm={confirmDialog}
+        revisionCorrection={dialog.kind === 'revision' && revisionCorrection
+          ? { draft: revisionCorrection, onChange: setRevisionCorrection }
+          : undefined}
       />
     )}
   </main>;
