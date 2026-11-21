@@ -1,6 +1,6 @@
 import type { JobCardStatus, JobCardType } from '../job-cards/types.js';
 
-/** Canonical Monday-Sunday reporting week, both bounds as local `YYYY-MM-DD`. */
+/** Canonical reporting period (Monday–Friday workweek, or legacy Monday–Sunday), both bounds as local `YYYY-MM-DD`. */
 export type WeeklyReportPeriod = {
   periodStart: string;
   periodEnd: string;

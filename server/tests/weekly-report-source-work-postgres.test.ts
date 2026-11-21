@@ -16,10 +16,13 @@ import { validateSourceWorkSnapshot } from '../src/modules/weekly-reports/valida
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 
-// Reporting week Monday 2026-08-03 (Europe/Istanbul, permanent +03:00).
+// Reporting workweek Monday 2026-08-03 to Friday 2026-08-07 (Europe/Istanbul, permanent +03:00).
 const PERIOD_START = '2026-08-03';
+const PERIOD_END = '2026-08-07';
+const LEGACY_PERIOD_END = '2026-08-09';
 const WEEK_START_ISO = '2026-08-02T21:00:00.000Z';
-const WEEK_END_ISO = '2026-08-09T21:00:00.000Z';
+const WEEK_END_ISO = '2026-08-07T21:00:00.000Z';
+const LEGACY_WEEK_END_ISO = '2026-08-09T21:00:00.000Z';
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
   const adminPool = new Pool({ connectionString: databaseUrl });
@@ -124,13 +127,17 @@ async function insertJob(
 }
 
 describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
-  it('derives org-local Monday boundaries without session timezone assumptions', () => {
-    const { weekStart, weekEnd } = weekInstants(PERIOD_START, 'Europe/Istanbul');
+  it('derives org-local Monday->Saturday boundaries for workweeks and keeps Monday->Monday for legacy 7-day periods', () => {
+    const { weekStart, weekEnd } = weekInstants(PERIOD_START, PERIOD_END, 'Europe/Istanbul');
     expect(weekStart.toISOString()).toBe(WEEK_START_ISO);
     expect(weekEnd.toISOString()).toBe(WEEK_END_ISO);
+
+    const legacy = weekInstants(PERIOD_START, LEGACY_PERIOD_END, 'Europe/Istanbul');
+    expect(legacy.weekStart.toISOString()).toBe(WEEK_START_ISO);
+    expect(legacy.weekEnd.toISOString()).toBe(LEGACY_WEEK_END_ISO);
   });
 
-  it('includes exactly the qualifying week slice with deterministic order', async () => {
+  it('includes exactly the qualifying workweek slice with deterministic order and excludes weekend completions', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const staffId = await insertUser(pool, organizationId);
@@ -138,7 +145,7 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
       const otherOrgId = await insertOrg(pool, 'Europe/Istanbul');
       const otherOrgStaffId = await insertUser(pool, otherOrgId);
       const customerId = await insertCustomer(pool, organizationId, 'Örnek Klinik');
-      const { weekStart, weekEnd } = weekInstants(PERIOD_START, 'Europe/Istanbul');
+      const { weekStart, weekEnd } = weekInstants(PERIOD_START, PERIOD_END, 'Europe/Istanbul');
       const repo = new PostgresJobCardRepository(pool);
       const query = () => repo.listWeeklySourceWorkSnapshot({
         organizationId, staffUserId: staffId, weekStart, weekEnd,
@@ -169,10 +176,14 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
         completedAt: '2026-08-02T20:59:59.000Z',
       });
-      // 10: exactly next Monday 00:00 org-local (exclusive) → excluded.
-      await insertJob(pool, {
+      // 10: Saturday 00:00 org-local (exclusive) and Sunday → excluded from workweek, included in legacy 7-day.
+      const saturdayId = await insertJob(pool, {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
         completedAt: WEEK_END_ISO,
+      });
+      const sundayId = await insertJob(pool, {
+        organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
+        completedAt: '2026-08-09T10:00:00.000Z',
       });
       // 5: CANCELLED / INVALIDATED with in-week completion → excluded.
       for (const status of ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED', 'CANCELLED', 'INVALIDATED']) {
@@ -214,17 +225,26 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
       const items = rows.map(mapSourceWorkRow);
       expect(() => validateSourceWorkSnapshot(items)).not.toThrow();
       expect(items[0]!.staffCompletedAt).toBe(WEEK_START_ISO);
+
+      // Legacy 7-day period still includes Saturday/Sunday completions.
+      const legacyWindow = weekInstants(PERIOD_START, LEGACY_PERIOD_END, 'Europe/Istanbul');
+      const legacyRows = await repo.listWeeklySourceWorkSnapshot({
+        organizationId, staffUserId: staffId, weekStart: legacyWindow.weekStart, weekEnd: legacyWindow.weekEnd,
+      });
+      expect(legacyRows.map((row) => row.jobCardId)).toContain(saturdayId);
+      expect(legacyRows.map((row) => row.jobCardId)).toContain(sundayId);
     });
   });
 
   it('honours DST when converting the org-local week window', async () => {
     await withSchema(async (pool) => {
-      // America/New_York springs forward 2026-03-08; Monday 2026-03-09 00:00 EDT = 04:00Z.
+      // America/New_York springs forward 2026-03-08; Monday 2026-03-09 00:00 EDT = 04:00Z,
+      // Saturday 2026-03-14 00:00 EDT = 04:00Z.
       const organizationId = await insertOrg(pool, 'America/New_York');
       const staffId = await insertUser(pool, organizationId);
-      const { weekStart, weekEnd } = weekInstants('2026-03-09', 'America/New_York');
+      const { weekStart, weekEnd } = weekInstants('2026-03-09', '2026-03-13', 'America/New_York');
       expect(weekStart.toISOString()).toBe('2026-03-09T04:00:00.000Z');
-      expect(weekEnd.toISOString()).toBe('2026-03-16T04:00:00.000Z');
+      expect(weekEnd.toISOString()).toBe('2026-03-14T04:00:00.000Z');
       await insertJob(pool, {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
         completedAt: '2026-03-09T03:59:59.000Z',
@@ -245,7 +265,7 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const staffId = await insertUser(pool, organizationId);
-      const { weekStart, weekEnd } = weekInstants(PERIOD_START, 'Europe/Istanbul');
+      const { weekStart, weekEnd } = weekInstants(PERIOD_START, PERIOD_END, 'Europe/Istanbul');
       const first = await insertJob(pool, {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
         completedAt: '2026-08-05T09:00:00.000Z',

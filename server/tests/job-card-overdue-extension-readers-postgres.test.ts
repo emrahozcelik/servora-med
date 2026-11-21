@@ -352,12 +352,12 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
   it('M1: migration 067 is the schema head and keeps the ending and correction columns', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('067_overdue_delivery_identity_per_incident');
+      expect(catalog.head?.version).toBe('068_weekly_report_workweek');
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.at(-1)?.version)
-        .toBe('067_overdue_delivery_identity_per_incident');
+        .toBe('068_weekly_report_workweek');
 
       const columns = await pool.query<{
         table_name: string; column_name: string; data_type: string; is_nullable: string;

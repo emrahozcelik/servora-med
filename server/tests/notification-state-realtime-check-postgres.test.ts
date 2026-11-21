@@ -119,9 +119,9 @@ describe.skipIf(!databaseUrl)('046 notification state CHECK matrix (live Postgre
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(applied.rows[0]!.version).toBe('067_overdue_delivery_identity_per_incident');
+      expect(applied.rows[0]!.version).toBe('068_weekly_report_workweek');
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('067_overdue_delivery_identity_per_incident');
+      expect(catalog.head?.version).toBe('068_weekly_report_workweek');
     });
   });
 
