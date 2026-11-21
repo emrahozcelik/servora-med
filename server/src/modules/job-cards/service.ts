@@ -165,7 +165,6 @@ import {
   parsePastStartAcknowledgement,
   priority as normalizePriority,
 } from './create-input.js';
-import { localDateKey } from './local-calendar.js';
 import type { ManagerQuestion } from '../weekly-reports/types.js';
 import type {
   WeeklyReportDetail,
@@ -1828,15 +1827,12 @@ export class JobCardService {
         : validateManagerQuestions(input.questions);
     }
     // Deadline authority is SERVER-ONLY (field-test product decision, WR-WEEK):
-    // the submission deadline is the Monday after the Monday–Saturday period
-    // (`periodEnd + 2`), or the organization-local creation date if requested
-    // later so a late request is never born overdue. The public request shape
-    // carries no dueDate field at all (the parser rejects one as an unknown
-    // field), so no caller, staff or manager, can move their own or anyone's
-    // accountability deadline.
+    // always the Monday after the period (`periodEnd + 2`); a later request
+    // opens overdue. The public request shape carries no dueDate field at all
+    // (the parser rejects one as an unknown field), so no caller, staff or
+    // manager, can move their own or anyone's accountability deadline.
+    const dueDate = weeklyReportDueDate(input.periodEnd);
     const requestTime = this.now();
-    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
-    const dueDate = weeklyReportDueDate(input.periodEnd, localDateKey(requestTime, timezone));
     const result = await this.repository.executeCriticalAction<WeeklyReportCreateResult>(
       {
         organizationId: actor.organizationId, userId: actor.id,
@@ -2048,12 +2044,10 @@ export class JobCardService {
     const questions = input.questions === undefined || input.questions === null
       ? []
       : validateManagerQuestions(input.questions);
-    // Same server-only deadline authority as the single create: the Monday
-    // after the Monday–Saturday period (`periodEnd + 2`), or the
-    // organization-local creation date if later.
+    // Same server-only deadline authority as the single create: always the
+    // Monday after the period (`periodEnd + 2`); a later request opens overdue.
+    const dueDate = weeklyReportDueDate(input.periodEnd);
     const requestTime = this.now();
-    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
-    const dueDate = weeklyReportDueDate(input.periodEnd, localDateKey(requestTime, timezone));
     const result = await this.repository.executeCriticalAction<WeeklyReportBulkRequestResult>(
       {
         organizationId: actor.organizationId, userId: actor.id,

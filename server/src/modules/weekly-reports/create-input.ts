@@ -81,7 +81,7 @@ export type WeeklyReportBulkRequestInput = {
    * so the caller's intent is never reinterpreted.
    */
   staffUserIds: string[];
-  /** Canonical Monday; periodEnd derives +5 and the canonical deadline max(periodEnd + 2, creationDate). */
+  /** Canonical Monday; periodEnd derives +5 and the canonical deadline +2 (Monday after the period). */
   periodStart: string;
   periodEnd: string;
   /** Raw question definitions; copied independently into each report row. */
@@ -187,8 +187,8 @@ export function weeklyReportCreateRequestHash(input: {
   // intent only (clientActionId/requestTime/generated ids never hashed).
   // Callers pass validated canonical questions, never raw input. The deadline
   // is deliberately NOT part of the identity: it is server-canonical
-  // (max(periodEnd + 2, requestDate)) so there is no caller-provided dueDate
-  // dimension.
+  // (periodEnd + 2, always the Monday after the period) so there is no
+  // caller-provided dueDate dimension.
   return hashRequestIdentity({
     operation: 'WEEKLY_REPORT_CREATE:v1',
     periodStart: input.periodStart,
@@ -212,9 +212,9 @@ export function weeklyReportBulkRequestHash(input: {
   questions: unknown;
   instructions: string | null;
 }): string {
-  // The deadline is server-canonical (max(periodEnd + 2, requestDate)), so —
-  // exactly like the single create — the request identity carries no
-  // caller-provided dueDate dimension.
+  // The deadline is server-canonical (periodEnd + 2, always the Monday after
+  // the period), so — exactly like the single create — the request identity
+  // carries no caller-provided dueDate dimension.
   return hashRequestIdentity({
     operation: 'WEEKLY_REPORT_BULK_REQUEST:v1',
     staffUserIds: [...input.staffUserIds].sort(),
