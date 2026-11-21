@@ -3227,3 +3227,7 @@ management decision list.
   edited.
 - The weekly-report reference read gains an additive `today` field.
 - Reports open at deploy time keep their 7-day period and deadline.
+- Historical production labels are one week ahead of the work they describe.
+  Right after the release, old-convention reports labelled with the release
+  week or later are removed with the Admin removal command (history kept);
+  older reports are untouched. Release order: 066 → 067 → 068.

@@ -204,5 +204,23 @@ re-checked for a number collision with any branch merged first.
   `LATE_SUBMISSION` at Tuesday 00:00, so OVR-4 reminds Staff at about 00:15 and
   escalates at about 01:00. This is today's behaviour as well; quiet hours are
   stage 2 of the lateness plan and out of scope here.
+- **Production label shift (read-only inspection, 2026-11-21).** Production
+  (release `b0d3341`, schema 065) holds 57 Weekly Reports, all 7-day, none open.
+  The team has created each report on Friday/Saturday with the **next** Monday as
+  `period_start`, so every historical label is one week ahead of the work it
+  describes (e.g. reports created 21 Nov for 16–21 Nov work carry 23 Nov). The
+  data is compatible with 068 (0 period mismatches, 0 orphans), but at the
+  switch each Staff member's last old-convention report occupies the first
+  new-convention week (current/active identity is Staff + `period_start`).
+- **Transition step (owner decision 2026-11-21, "Yayın günü sınır raporları"):**
+  nothing is removed before the release. Immediately after the WR-WEEK release,
+  every report whose `period_start` is the release week or later and that was
+  created under the old convention is removed with the existing Admin "Raporu
+  kaldır" command (mandatory reason, history kept, readable in personnel
+  history). Older reports are not touched. The list is produced by a read-only
+  query at release time and the removals need the owner's go for that list.
+- **Release order:** production is at schema 065; OVR-5a (066) and OVR-5b (067)
+  must be released first, each separately as the OVR-5 contract requires, then
+  WR-WEEK (068).
 - **Production:** migration, deploy and any production read remain separate
   owner-approved gates (one-click deploy contract).
