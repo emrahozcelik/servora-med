@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import Fastify from 'fastify';
@@ -20,6 +23,7 @@ import {
   parseWeeklyReportBulkRequestInput,
   parseWeeklyReportCreateInput,
 } from '../src/modules/weekly-reports/create-input.js';
+import { buildWeeklyReportPdfDocumentModel } from '../src/modules/weekly-reports/pdf/document-model.js';
 import { weekInstants } from '../src/modules/weekly-reports/source-work.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -894,5 +898,243 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
         dueDate: '2026-11-30',
       });
     });
+  });
+
+  it('A18 (near-midnight UTC vs org-local): 2026-11-23T21:30:00Z (= 2026-11-24 00:30 Istanbul) derives due 2026-11-24 for both create and bulk', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'Europe/Istanbul');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffA = await insertUser(pool, organizationId, 'STAFF');
+      const staffB = await insertUser(pool, organizationId, 'STAFF');
+      const staffC = await insertUser(pool, organizationId, 'STAFF');
+      const manager = actor(organizationId, managerId, 'MANAGER');
+
+      // 2026-11-23T21:30:00.000Z is still Monday 2026-11-23 in UTC,
+      // but already Tuesday 2026-11-24 00:30 in Europe/Istanbul.
+      const midnightService = buildServiceAt(pool, '2026-11-23T21:30:00.000Z');
+      const ref = await midnightService.weeklyReportReference(manager);
+      expect(ref.today).toBe('2026-11-24');
+
+      const single = await midnightService.createWeeklyReport(
+        manager,
+        parseWeeklyReportCreateInput({
+          clientActionId: randomUUID(),
+          periodStart: '2026-11-16',
+          assignedTo: staffA,
+        }),
+      );
+      expect(single.periodEnd).toBe('2026-11-21');
+      expect(single.dueDate).toBe('2026-11-24');
+
+      const bulk = await midnightService.bulkRequestWeeklyReports(
+        manager,
+        parseWeeklyReportBulkRequestInput({
+          clientActionId: randomUUID(),
+          periodStart: '2026-11-16',
+          staffUserIds: [staffB, staffC],
+        }),
+      );
+      expect(bulk.periodEnd).toBe('2026-11-21');
+      expect(bulk.dueDate).toBe('2026-11-24');
+
+      const stored = (await pool.query<{ due_date: string }>(
+        `SELECT due_date::text AS due_date FROM job_cards
+          WHERE organization_id = $1 AND type = 'WEEKLY_REPORT'`,
+        [organizationId],
+      )).rows;
+      expect(stored).toHaveLength(3);
+      expect(stored.every((row) => row.due_date === '2026-11-24')).toBe(true);
+
+      // Neither single nor bulk is born overdue on 2026-11-24 00:30 Istanbul.
+      const overdue = await midnightService.list(manager, {
+        q: null, type: null, assignedTo: null, customerId: null, priority: null,
+        dueBefore: null, dueAfter: null, followUp: null,
+        status: 'active', limit: 20, offset: 0, overdue: true,
+      });
+      expect(overdue.items).toEqual([]);
+    });
+  });
+
+  it('A19: working-week (+5) submission preserves supportNeeded in frozen body and PDF V1 fallback label', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'Europe/Istanbul');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const staff = actor(organizationId, staffId, 'STAFF');
+      const service = buildServiceAt(pool, '2026-11-20T07:00:00.000Z');
+
+      const created = await service.createWeeklyReport(
+        staff,
+        parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart: '2026-11-16' }),
+      );
+      expect(created.periodEnd).toBe('2026-11-21');
+
+      await service.start(staff, created.jobCardId, {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+      });
+
+      const supportText = 'Stok ve teslimat onayı için yönetici desteği gerekiyor.';
+      await service.updateWeeklyReportDraft(staff, created.jobCardId, {
+        expectedVersion: 1,
+        draft: {
+          ...VALID_BODY,
+          supportNeeded: supportText,
+        },
+        answers: [],
+      });
+
+      await service.submitForApproval(staff, created.jobCardId, {
+        clientActionId: randomUUID(),
+        expectedVersion: 2,
+        note: 'A19 gönderimi.',
+      });
+
+      const submissions = await service.listWeeklyReportSubmissions(staff, created.jobCardId);
+      expect(submissions).toHaveLength(1);
+      const sub = submissions[0]!;
+      expect(sub.periodStart).toBe('2026-11-16');
+      expect(sub.periodEnd).toBe('2026-11-21');
+      expect(sub.body.supportNeeded).toBe(supportText);
+
+      const model = buildWeeklyReportPdfDocumentModel({
+        submission: sub,
+        staffName: 'A19 Personel',
+      });
+      expect(model.sections).toEqual([
+        { label: 'Bu hafta', value: VALID_BODY.summary },
+        { label: 'Sorunlar ve destek ihtiyacı', value: null },
+        { label: 'Gelecek hafta planı', value: VALID_BODY.nextWeekPlan },
+        { label: 'Yöneticiden destek beklenen konular', value: supportText },
+      ]);
+
+      const pdf = await service.weeklyReportSubmissionPdf(staff, created.jobCardId, 1);
+      expect(pdf.buffer.subarray(0, 5).toString('utf8')).toBe('%PDF-');
+    });
+  });
+
+  it('068 migration upgrade: preserves pre-068 +6 report/submission and enforces composite FK afterwards', async () => {
+    const prevDir = await mkdtemp(path.join(tmpdir(), 'wr-week-head067-'));
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `wr_week_mig_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+    try {
+      const files = (await readdir(MIGRATIONS_DIRECTORY))
+        .filter((name) => /^\d{3}_.+\.sql$/.test(name) && Number(name.slice(0, 3)) <= 67);
+      for (const filename of files) {
+        await copyFile(path.join(MIGRATIONS_DIRECTORY, filename), path.join(prevDir, filename));
+      }
+
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      const store = new PostgresMigrationStore(pool);
+      await runMigrations({ migrationsDirectory: prevDir, store });
+
+      const organizationId = await insertOrg(pool, 'Europe/Istanbul');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+
+      // At 067: +5 is rejected by the old weekly_reports_period_end_check (+6 only).
+      const preJob5 = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (organization_id, type, status, title, assigned_to, created_by)
+         VALUES ($1, 'WEEKLY_REPORT', 'NEW', 'Pre-068 +5 probe', $2, $3) RETURNING id`,
+        [organizationId, staffId, managerId],
+      )).rows[0]!.id;
+      await expect(pool.query(
+        `INSERT INTO weekly_reports (organization_id, job_card_id, staff_user_id, period_start, period_end)
+         VALUES ($1, $2, $3, '2026-11-16', '2026-11-21')`,
+        [organizationId, preJob5, staffId],
+      )).rejects.toMatchObject({ code: '23514' });
+
+      // Seed an existing pre-068 legacy +6 report and matching +6 submission.
+      const legacyJobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, assigned_to, created_by, due_date,
+            accepted_at, accepted_by, started_at, staff_completed_at, staff_completed_by)
+         VALUES ($1, 'WEEKLY_REPORT', 'WAITING_APPROVAL', 'Haftalık Rapor (2026-11-09 – 2026-11-15)', $2, $3, '2026-11-16',
+                 '2026-11-09T09:00:00.000Z', $2, '2026-11-09T09:05:00.000Z', '2026-11-15T12:00:00.000Z', $2)
+         RETURNING id`,
+        [organizationId, staffId, managerId],
+      )).rows[0]!.id;
+      const legacyReportId = (await pool.query<{ id: string }>(
+        `INSERT INTO weekly_reports (organization_id, job_card_id, staff_user_id, period_start, period_end)
+         VALUES ($1, $2, $3, '2026-11-09', '2026-11-15') RETURNING id`,
+        [organizationId, legacyJobId, staffId],
+      )).rows[0]!.id;
+      const legacyActivityId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_activity_logs (organization_id, job_card_id, actor_id, event_type)
+         VALUES ($1, $2, $3, 'JOB_SUBMITTED_FOR_APPROVAL') RETURNING id`,
+        [organizationId, legacyJobId, staffId],
+      )).rows[0]!.id;
+      const legacySubId = (await pool.query<{ id: string }>(
+        `INSERT INTO weekly_report_submissions
+           (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by, submitted_at,
+            period_start, period_end, frozen_body, frozen_questions, frozen_answers,
+            frozen_source_work, job_version, source_activity_id)
+         VALUES ($1, $2, $3, 1, $4, NOW(), '2026-11-09', '2026-11-15',
+                 '{"summary":"Eski"}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 1, $5)
+         RETURNING id`,
+        [organizationId, legacyReportId, legacyJobId, staffId, legacyActivityId],
+      )).rows[0]!.id;
+
+      // Apply 068 on top of the 067 schema with legacy +6 data present.
+      const upgrade = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
+      expect(upgrade).toEqual({ appliedVersions: ['068_weekly_report_workweek'] });
+
+      // Legacy +6 rows remain untouched and valid.
+      const legacyReport = (await pool.query<{ period_start: string; period_end: string }>(
+        `SELECT period_start::text AS period_start, period_end::text AS period_end
+           FROM weekly_reports WHERE id = $1`,
+        [legacyReportId],
+      )).rows[0]!;
+      expect(legacyReport).toEqual({ period_start: '2026-11-09', period_end: '2026-11-15' });
+      const legacySub = (await pool.query<{ period_start: string; period_end: string }>(
+        `SELECT period_start::text AS period_start, period_end::text AS period_end
+           FROM weekly_report_submissions WHERE id = $1`,
+        [legacySubId],
+      )).rows[0]!;
+      expect(legacySub).toEqual({ period_start: '2026-11-09', period_end: '2026-11-15' });
+
+      // After 068: +5 report is accepted, and a mismatched submission under either report is rejected by composite FK.
+      const postReportId = (await pool.query<{ id: string }>(
+        `INSERT INTO weekly_reports (organization_id, job_card_id, staff_user_id, period_start, period_end)
+         VALUES ($1, $2, $3, '2026-11-16', '2026-11-21') RETURNING id`,
+        [organizationId, preJob5, staffId],
+      )).rows[0]!.id;
+      const postActivityId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_activity_logs (organization_id, job_card_id, actor_id, event_type)
+         VALUES ($1, $2, $3, 'JOB_SUBMITTED_FOR_APPROVAL') RETURNING id`,
+        [organizationId, preJob5, staffId],
+      )).rows[0]!.id;
+
+      // Mismatched +6 submission under +5 report -> rejected by composite FK (23503).
+      await expect(pool.query(
+        `INSERT INTO weekly_report_submissions
+           (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by, submitted_at,
+            period_start, period_end, frozen_body, frozen_questions, frozen_answers,
+            frozen_source_work, job_version, source_activity_id)
+         VALUES ($1, $2, $3, 1, $4, NOW(), '2026-11-16', '2026-11-22',
+                 '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 1, $5)`,
+        [organizationId, postReportId, preJob5, staffId, postActivityId],
+      )).rejects.toMatchObject({ code: '23503' });
+
+      // Mismatched +5 submission under legacy +6 report -> rejected by composite FK (23503).
+      await expect(pool.query(
+        `INSERT INTO weekly_report_submissions
+           (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by, submitted_at,
+            period_start, period_end, frozen_body, frozen_questions, frozen_answers,
+            frozen_source_work, job_version, source_activity_id)
+         VALUES ($1, $2, $3, 2, $4, NOW(), '2026-11-09', '2026-11-14',
+                 '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 1, $5)`,
+        [organizationId, legacyReportId, legacyJobId, staffId, legacyActivityId],
+      )).rejects.toMatchObject({ code: '23503' });
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+      await rm(prevDir, { recursive: true, force: true });
+    }
   });
 });
