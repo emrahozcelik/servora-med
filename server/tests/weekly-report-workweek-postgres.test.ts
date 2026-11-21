@@ -836,7 +836,14 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         `UPDATE job_cards SET started_at = '2026-11-23T07:06:00.000Z' WHERE id = $1`,
         [monSingle.jobCardId],
       );
-      expect((await scanner.runOnce(new Date('2026-11-23T07:10:00.000Z'))).inserted).toBe(0);
+      // The Saturday report (due 2026-11-21, still IN_PROGRESS) is legitimately
+      // late by Monday, so the scan may insert its incident; only the Monday
+      // request itself must not be born late.
+      await scanner.runOnce(new Date('2026-11-23T07:10:00.000Z'));
+      expect((await pool.query(
+        `SELECT COUNT(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id = $1`,
+        [satSingle.jobCardId],
+      )).rows[0]!.n).toBe(1);
       expect((await pool.query(
         `SELECT COUNT(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id = $1`,
         [monSingle.jobCardId],
