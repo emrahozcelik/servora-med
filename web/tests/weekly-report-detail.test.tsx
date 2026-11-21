@@ -64,15 +64,15 @@ const managerUser: CurrentUser = {
   ...staffUser, id: 'manager-1', name: 'Murat Yönetici', role: 'MANAGER',
 };
 
-const WEEK = { periodStart: '2026-08-03', periodEnd: '2026-08-07' };
+const WEEK = { periodStart: '2026-08-03', periodEnd: '2026-08-08' };
 
 function makeJob(overrides: Partial<JobCard> = {}): JobCard {
   const { workflowContext: workflowOverrides, ...rest } = overrides;
   return {
     id: 'job-1', organizationId: 'org-1', type: 'WEEKLY_REPORT', status: 'IN_PROGRESS',
-    version: 3, title: 'Haftalık Rapor (2026-08-03 – 2026-08-07)', description: null,
+    version: 3, title: 'Haftalık Rapor (2026-08-03 – 2026-08-08)', description: null,
     customerId: null, contactId: null, assignedTo: 'staff-1', createdBy: 'manager-1',
-    priority: 'normal', dueDate: '2026-08-07', scheduledAt: null, scheduledEndsAt: null,
+    priority: 'normal', dueDate: '2026-08-10', scheduledAt: null, scheduledEndsAt: null,
     engagementKind: null,
     assignee: { id: 'staff-1', name: 'Ayşe Personel' },
     customer: null, contact: null,
@@ -103,7 +103,7 @@ function makeDetail(overrides: Partial<WeeklyReportDetailDto> = {}): WeeklyRepor
     questions: [{ key: 'q1', prompt: 'Bu hafta ne öğrendin?' }],
     answers: [{ questionKey: 'q1', answer: 'Yanıt.' }],
     version: 2, jobStatus: 'IN_PROGRESS', jobVersion: 3,
-    dueDate: '2026-08-07', assignedTo: 'staff-1', instructions: null,
+    dueDate: '2026-08-10', assignedTo: 'staff-1', instructions: null,
     liveSourceWork: [], submissionSummaries: [],
     canRemove: false, removal: null,
     createdAt: '2026-08-03T09:00:00.000Z', updatedAt: '2026-08-04T10:00:00.000Z',
@@ -1798,15 +1798,16 @@ describe('WeeklyReportDetail', () => {
     await render();
     const header = host.querySelector('[data-job-detail-section="heading"] header');
     expect(header).not.toBeNull();
-    expect(header!.querySelector('h1')?.textContent).toBe('Haftalık Rapor · 3–7 Ağustos 2026');
+    expect(header!.querySelector('h1')?.textContent).toBe('Haftalık Rapor · 3–8 Ağustos 2026');
     expect(header!.querySelector('.page-header-description')).toBeNull();
     expect(header!.textContent).not.toContain('2026-08-03');
 
     const facts = host.querySelector('[data-job-detail-block="record-facts"]')!;
-    expect(facts.textContent).toContain('3–7 Ağustos 2026');
-    expect(facts.textContent).toContain('7 Ağustos 2026 Cuma');
+    expect(facts.textContent).toContain('3–8 Ağustos 2026');
+    expect(facts.textContent).toContain('10 Ağustos 2026 Pazartesi');
     expect(facts.textContent).not.toContain('2026-08-03');
-    expect(facts.textContent).not.toContain('2026-08-07');
+    expect(facts.textContent).not.toContain('2026-08-08');
+    expect(facts.textContent).not.toContain('2026-08-10');
   });
 
   // 42
@@ -1953,7 +1954,7 @@ describe('WeeklyReportDetail', () => {
     expect(historyFactsEl.textContent).toContain('Destek ihtiyacı.');
     expect(historyFactsEl.textContent).toContain('Hazır yanıt.');
 
-    // Workweek submission uses D5 labels.
+    // Working-week submission (+5) uses D5 labels.
     await act(async () => root.unmount());
     root = createRoot(host);
     weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED' }));
@@ -1961,7 +1962,7 @@ describe('WeeklyReportDetail', () => {
       makeSubmission({
         seqNo: 1,
         periodStart: '2026-08-03',
-        periodEnd: '2026-08-07',
+        periodEnd: '2026-08-08',
         body: {
           summary: 'Çalışma haftası özeti.',
           blockers: null,

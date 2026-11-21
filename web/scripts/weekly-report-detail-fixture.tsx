@@ -23,8 +23,8 @@ const MANAGER_ID = 'manager-1';
 const params = new URLSearchParams(window.location.search);
 const legacy = params.get('legacy') === '1';
 const PERIOD_START = '2026-08-03';
-const PERIOD_END = legacy ? '2026-08-09' : '2026-08-07';
-const DUE_DATE = legacy ? '2026-08-10' : '2026-08-07';
+const PERIOD_END = legacy ? '2026-08-09' : '2026-08-08';
+const DUE_DATE = '2026-08-10';
 
 type StateName =
   | 'NEW'

@@ -62,9 +62,10 @@ const ZEYNEP = staffProfile('staff-3', 'Zeynep Personel');
  */
 const REFERENCE = {
   timezone: 'Europe/Istanbul',
+  today: '2026-08-07',
   periodStart: '2026-08-03',
-  periodEnd: '2026-08-07',
-  dueDate: '2026-08-07',
+  periodEnd: '2026-08-08',
+  dueDate: '2026-08-10',
 };
 
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
@@ -101,10 +102,10 @@ describe('Weekly report create screen', () => {
     weeklyApi.getWeeklyReportReference.mockResolvedValue(REFERENCE);
     weeklyApi.createWeeklyReport.mockResolvedValue({
       jobCardId: 'job-1', reportId: 'report-1', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-07', status: 'ACCEPTED', dueDate: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', status: 'ACCEPTED', dueDate: '2026-08-10',
     });
     weeklyApi.bulkRequestWeeklyReports.mockResolvedValue({
-      periodStart: '2026-08-03', periodEnd: '2026-08-07', dueDate: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [{ staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' }],
     });
     onCreated = vi.fn();
@@ -201,50 +202,65 @@ describe('Weekly report create screen', () => {
 
   // --- Week choice & D9 preview ---
 
-  it('defaults to "Bu hafta" from the server reference and formats Turkish ranges', async () => {
+  it('defaults to "Bu hafta" from the server reference and formats Turkish Monday-Saturday ranges', async () => {
     weeklyApi.getWeeklyReportReference.mockResolvedValueOnce({
       timezone: 'Europe/Istanbul',
+      today: '2026-11-20',
       periodStart: '2026-11-16',
-      periodEnd: '2026-11-20',
-      dueDate: '2026-11-20',
+      periodEnd: '2026-11-21',
+      dueDate: '2026-11-23',
     });
     await render(staffUser);
     expect(weekRadio('this_week').checked).toBe(true);
-    expect(host.textContent).toContain('Bu hafta · 16–20 Kasım');
-    expect(host.textContent).toContain('Geçen hafta · 9–13 Kasım');
+    expect(host.textContent).toContain('Bu hafta · 16–21 Kasım');
+    expect(host.textContent).toContain('Geçen hafta · 9–14 Kasım');
     expect(host.textContent).toContain('Başka hafta');
     // Date input is hidden unless "Başka hafta" is selected.
     expect(host.querySelector('#weekly-period')).toBeNull();
     expect(host.querySelector('#weekly-period-preview')?.textContent)
-      .toBe('Dönem 16–20 Kasım 2026 · Son teslim 20 Kasım Cuma');
+      .toBe('Dönem 16–21 Kasım 2026 · Son teslim 23 Kasım Pazartesi');
     expect(host.textContent).toContain('organizasyon takvimine göre');
-    expect(host.textContent).toContain('Pazartesi–Cuma çalışma haftasını kapsar');
+    expect(host.textContent).toContain('Pazartesi–Cumartesi çalışma haftasını kapsar');
   });
 
-  it('computes D9 preview deadline for reference week (including Saturday), past week and future week', async () => {
-    // Saturday 2026-11-21: server reference week 16-20 has dueDate 2026-11-21.
+  it('computes D9 preview deadline via max(selectedMonday + 7, reference.today) across Friday, Monday, Tuesday (A18/A18b/A21)', async () => {
+    // Tuesday 2026-11-24: reference week is 23-28 Nov, "Geçen hafta" (16-21 Nov) has Monday deadline 23 Nov < today 24 Nov => 24 Nov Salı (A21).
     weeklyApi.getWeeklyReportReference.mockResolvedValueOnce({
       timezone: 'Europe/Istanbul',
-      periodStart: '2026-11-16',
-      periodEnd: '2026-11-20',
-      dueDate: '2026-11-21',
+      today: '2026-11-24',
+      periodStart: '2026-11-23',
+      periodEnd: '2026-11-28',
+      dueDate: '2026-11-30',
     });
     await render(staffUser);
     expect(host.querySelector('#weekly-period-preview')?.textContent)
-      .toBe('Dönem 16–20 Kasım 2026 · Son teslim 21 Kasım Cumartesi');
+      .toBe('Dönem 23–28 Kasım 2026 · Son teslim 30 Kasım Pazartesi');
 
-    // Past week ("Geçen hafta · 9–13 Kasım"): Friday 13 Nov < reference date 21 Nov => 21 Nov.
     await selectWeekChoice('last_week');
     expect(host.querySelector('#weekly-period-preview')?.textContent)
-      .toBe('Dönem 9–13 Kasım 2026 · Son teslim 21 Kasım Cumartesi');
+      .toBe('Dönem 16–21 Kasım 2026 · Son teslim 24 Kasım Salı');
 
-    // Future week via "Başka hafta": 2026-11-23 => Friday 27 Nov > 21 Nov => 27 Nov.
+    // Future week via "Başka hafta": 2026-11-30 => Monday after period 2026-12-07.
     await selectWeekChoice('custom');
     const dateInput = host.querySelector('#weekly-period') as HTMLInputElement;
     expect(dateInput).not.toBeNull();
-    change(dateInput, '2026-11-23');
+    change(dateInput, '2026-11-30');
     expect(host.querySelector('#weekly-period-preview')?.textContent)
-      .toBe('Dönem 23–27 Kasım 2026 · Son teslim 27 Kasım Cuma');
+      .toBe('Dönem 30 Kasım – 5 Aralık 2026 · Son teslim 7 Aralık Pazartesi');
+  });
+
+  it('keeps Monday after the period when choosing "Geçen hafta" on Monday (A18)', async () => {
+    weeklyApi.getWeeklyReportReference.mockResolvedValueOnce({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-23',
+      periodStart: '2026-11-23',
+      periodEnd: '2026-11-28',
+      dueDate: '2026-11-30',
+    });
+    await render(staffUser);
+    await selectWeekChoice('last_week');
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 16–21 Kasım 2026 · Son teslim 23 Kasım Pazartesi');
   });
 
   it('rejects a non-Monday date entered under "Başka hafta"', async () => {
@@ -335,7 +351,7 @@ describe('Weekly report create screen', () => {
     const firstInput = weeklyApi.createWeeklyReport.mock.calls[0]![0];
     weeklyApi.createWeeklyReport.mockResolvedValueOnce({
       jobCardId: 'job-2', reportId: 'report-2', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-07', status: 'ACCEPTED', dueDate: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', status: 'ACCEPTED', dueDate: '2026-08-10',
     });
     const retry = buttonByText('Özgün isteği tekrar dene');
     expect(retry).toBeDefined();
@@ -479,7 +495,7 @@ describe('Weekly report create screen', () => {
   it('does not navigate for a single "existing" outcome and shows link + admin removal hint (D8 / A12)', async () => {
     await render(manager);
     weeklyApi.bulkRequestWeeklyReports.mockResolvedValueOnce({
-      periodStart: '2026-08-03', periodEnd: '2026-08-07', dueDate: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [{ staffUserId: 'staff-1', jobCardId: 'job-9', reportId: 'report-9', outcome: 'existing' }],
     });
     await chooseStaff(['Ayşe Personel']);
@@ -497,7 +513,7 @@ describe('Weekly report create screen', () => {
   it('summarises mixed created and existing outcomes accurately in Turkish without false claims (D8 / A13)', async () => {
     await render(manager);
     weeklyApi.bulkRequestWeeklyReports.mockResolvedValueOnce({
-      periodStart: '2026-08-03', periodEnd: '2026-08-07', dueDate: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [
         { staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' },
         { staffUserId: 'staff-2', jobCardId: 'job-9', reportId: 'report-9', outcome: 'existing' },
@@ -510,7 +526,7 @@ describe('Weekly report create screen', () => {
       .toBe('2 haftalık rapor isteği işlendi');
     expect(host.querySelector('#weekly-bulk-created')?.textContent).toBe('1 oluşturuldu');
     expect(host.querySelector('#weekly-bulk-existing')?.textContent).toBe('1 zaten mevcuttu');
-    expect(host.textContent).toContain('3–7 Ağustos 2026');
+    expect(host.textContent).toContain('3–8 Ağustos 2026');
     expect(host.textContent).not.toContain('Her personel için ayrı bir haftalık rapor oluşturuldu');
     expect(host.textContent).toContain('Admin');
     const rows = Array.from(host.querySelectorAll('#weekly-bulk-result-items li'));
@@ -532,7 +548,7 @@ describe('Weekly report create screen', () => {
     expect(host.querySelector('#weekly-bulk-result-title')).toBeNull();
 
     weeklyApi.bulkRequestWeeklyReports.mockResolvedValueOnce({
-      periodStart: '2026-08-03', periodEnd: '2026-08-07', dueDate: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [
         { staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' },
         { staffUserId: 'staff-2', jobCardId: 'job-2', reportId: 'report-2', outcome: 'created' },
@@ -651,7 +667,7 @@ describe('Weekly report create screen', () => {
     const { parseWeeklyReportDetail } = await import('../src/jobs/weekly-report-api');
     const serverDetail = {
       id: 'report-1', organizationId: 'org-1', jobCardId: 'job-1', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08',
       draft: {
         summary: 'Özet.', blockers: null, nextWeekPlan: 'Plan.',
         highlights: null, fieldObservations: null, supportNeeded: null,
@@ -661,14 +677,14 @@ describe('Weekly report create screen', () => {
       ],
       answers: [], version: 1,
       createdAt: '2026-08-03T09:00:00.000Z', updatedAt: '2026-08-03T09:00:00.000Z',
-      jobStatus: 'NEW', jobVersion: 1, dueDate: '2026-08-07', assignedTo: 'staff-1',
+      jobStatus: 'NEW', jobVersion: 1, dueDate: '2026-08-10', assignedTo: 'staff-1',
       instructions: 'Lütfen doldurun.', liveSourceWork: [], submissionSummaries: [],
       canRemove: false, removal: null,
     };
     const parsed = parseWeeklyReportDetail(serverDetail);
     expect(parsed.organizationId).toBe('org-1');
-    expect(parsed.periodEnd).toBe('2026-08-07');
-    expect(parsed.dueDate).toBe('2026-08-07');
+    expect(parsed.periodEnd).toBe('2026-08-08');
+    expect(parsed.dueDate).toBe('2026-08-10');
 
     await render(manager);
     await chooseStaff(['Ayşe Personel']);
@@ -680,14 +696,14 @@ describe('Weekly report create screen', () => {
     const { parseWeeklyReportDetail } = await import('../src/jobs/weekly-report-api');
     const serverDetail = {
       id: 'report-2', organizationId: 'org-1', jobCardId: 'job-2', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-07',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08',
       draft: {
         summary: null, blockers: null, nextWeekPlan: null,
         highlights: null, fieldObservations: null, supportNeeded: null,
       },
       questions: [], answers: [], version: 1,
       createdAt: '2026-08-03T09:00:00.000Z', updatedAt: '2026-08-03T09:00:00.000Z',
-      jobStatus: 'ACCEPTED', jobVersion: 1, dueDate: '2026-08-07', assignedTo: 'staff-1',
+      jobStatus: 'ACCEPTED', jobVersion: 1, dueDate: '2026-08-10', assignedTo: 'staff-1',
       instructions: null, liveSourceWork: [], submissionSummaries: [],
       canRemove: false, removal: null,
     };

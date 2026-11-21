@@ -302,15 +302,15 @@ describe('StaffWeeklyReportHistory (profile read model)', () => {
         reportId: 'report-workweek',
         jobCardId: 'job-workweek',
         periodStart: '2026-08-03',
-        periodEnd: '2026-08-07',
-        dueDate: '2026-08-07',
+        periodEnd: '2026-08-08',
+        dueDate: '2026-08-10',
       }),
     ]));
     await render(staffUser, 'staff-1');
     expect(host.textContent).toContain('21–27 Eylül 2026');
     expect(host.textContent).toContain('Teslim son tarihi 28 Eylül 2026');
-    expect(host.textContent).toContain('3–7 Ağustos 2026');
-    expect(host.textContent).toContain('Teslim son tarihi 7 Ağustos 2026');
+    expect(host.textContent).toContain('3–8 Ağustos 2026');
+    expect(host.textContent).toContain('Teslim son tarihi 10 Ağustos 2026');
   });
 
   // 14

@@ -48,15 +48,15 @@ const manager: CurrentUser = {
   role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
 };
 
-const WEEK = { periodStart: '2026-11-16', periodEnd: '2026-11-20' };
+const WEEK = { periodStart: '2026-11-16', periodEnd: '2026-11-21' };
 
 function makeJob(overrides: Partial<JobCard> = {}): JobCard {
   return {
     id: 'job-1', organizationId: 'org-1', organizationTimezone: 'Europe/Istanbul',
     type: 'WEEKLY_REPORT', status: 'WAITING_APPROVAL', version: 3,
-    title: 'Haftalık Rapor (2026-11-16 – 2026-11-20)', description: null,
+    title: 'Haftalık Rapor (2026-11-16 – 2026-11-21)', description: null,
     customerId: null, contactId: null, assignedTo: 'staff-1', createdBy: 'manager-1',
-    priority: 'normal', dueDate: '2026-11-20', scheduledAt: null, scheduledEndsAt: null,
+    priority: 'normal', dueDate: '2026-11-23', scheduledAt: null, scheduledEndsAt: null,
     engagementKind: null,
     assignee: { id: 'staff-1', name: 'Ayşe Personel' },
     customer: null, contact: null,
@@ -89,7 +89,7 @@ function makeDetail(overrides: Partial<WeeklyReportDetailDto> = {}): WeeklyRepor
     },
     questions: [], answers: [],
     version: 2, jobStatus: 'WAITING_APPROVAL', jobVersion: 3,
-    dueDate: '2026-11-20', assignedTo: 'staff-1', instructions: null,
+    dueDate: '2026-11-23', assignedTo: 'staff-1', instructions: null,
     liveSourceWork: [], submissionSummaries: [],
     canRemove: false, removal: null,
     createdAt: '2026-11-16T09:00:00.000Z', updatedAt: '2026-11-16T10:00:00.000Z',
