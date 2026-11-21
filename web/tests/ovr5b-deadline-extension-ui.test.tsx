@@ -81,6 +81,16 @@ const staffProfiles = [
       open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0,
     },
   },
+  {
+    id: 'staff-s2', user: {
+      ...staffUser, id: 's2', name: 'Burak Personel', email: 'burak@example.test', lastLoginAt: null,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    title: null, phone: null, region: null, managerUserId: null, managerName: null,
+    version: 1, counters: {
+      open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0,
+    },
+  },
 ];
 
 function json(body: unknown, status = 200) {
@@ -170,11 +180,23 @@ describe('OVR-5 deadline extension UI', () => {
   }
 
   async function setInput(selector: string, value: string) {
-    const field = host.querySelector<HTMLInputElement>(selector);
+    const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
     if (!field) throw new Error(`field ${selector} not found`);
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, value);
+      const prototype = field instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(field, value);
       field.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+  }
+  async function setSelect(selector: string, value: string) {
+    const field = host.querySelector<HTMLSelectElement>(selector);
+    if (!field) throw new Error(`field ${selector} not found`);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(field, value);
+      field.dispatchEvent(new Event('change', { bubbles: true }));
       await Promise.resolve();
     });
   }
@@ -230,6 +252,45 @@ describe('OVR-5 deadline extension UI', () => {
       dueDate: '2026-12-05',
       deadlineExtensionReason: 'Müşteri yeni teslim tarihini onayladı.',
     });
+  });
+
+  it('submits title, description, priority and assignee without a reason on a lateness-open task', async () => {
+    const harness = makeFetch({ card: generalTask({ hasOpenOverdueIncident: true }) });
+    await render(managerUser, harness);
+    await openEdit();
+
+    const reason = host.querySelector<HTMLTextAreaElement>('#general-task-edit-extension-reason')!;
+    expect(reason).not.toBeNull();
+    expect(reason.required).toBe(false);
+
+    await setInput('#general-task-edit-title', 'Güncel teklif takibi');
+    await setInput('#general-task-edit-description', 'Yeni açıklama');
+    await setSelect('#general-task-edit-priority', 'high');
+    await setSelect('#general-task-edit-assignee', 's2');
+    await submit('Değişiklikleri kaydet');
+
+    expect(host.textContent)
+      .not.toContain('Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.');
+    expect(harness.patchBodies).toHaveLength(1);
+    expect(harness.patchBodies[0]).toMatchObject({
+      title: 'Güncel teklif takibi',
+      description: 'Yeni açıklama',
+      priority: 'high',
+      assignedTo: 's2',
+    });
+    expect(harness.patchBodies[0]).not.toHaveProperty('deadlineExtensionReason');
+    expect(harness.patchBodies[0]).not.toHaveProperty('dueDate');
+  });
+
+  it('requires the reason once the due date actually changes on a lateness-open task', async () => {
+    const harness = makeFetch({ card: generalTask({ hasOpenOverdueIncident: true }) });
+    await render(managerUser, harness);
+    await openEdit();
+
+    await setInput('#general-task-edit-due-date', '2026-12-05');
+    expect(
+      host.querySelector<HTMLTextAreaElement>('#general-task-edit-extension-reason')!.required,
+    ).toBe(true);
   });
 
   it('reveals the reason field after 400 DEADLINE_EXTENSION_REASON_REQUIRED and keeps values', async () => {
@@ -357,5 +418,70 @@ describe('OVR-5 deadline extension UI', () => {
       deadlineExtensionReason: 'Başlangıç müşteri talebiyle ertelendi.',
       changeRequestResolution: { changeRequestId: 'request-1', resolution: 'RESCHEDULED' },
     });
+  });
+
+  it('treats clearing an optional planned time as a deadline change', async () => {
+    const harness = makeFetch({
+      card: generalTask({
+        scheduledAt: '2026-11-20T09:00:00.000Z',
+        changeRequest: openRequest,
+      }),
+    });
+    await render(managerUser, harness);
+
+    expect(host.querySelector('#job-schedule-resolve-change-request')).toBeNull();
+    await setInput('#job-scheduled-at', '');
+    await settle();
+
+    const checkbox = host.querySelector<HTMLInputElement>('#job-schedule-resolve-change-request');
+    expect(checkbox).not.toBeNull();
+    expect(checkbox!.checked).toBe(true);
+    await submit('Planlanan zamanı kaydet');
+
+    expect(harness.patchBodies).toHaveLength(1);
+    expect(harness.patchBodies[0]).toMatchObject({
+      scheduledAt: null,
+      changeRequestResolution: { changeRequestId: 'request-1', resolution: 'RESCHEDULED' },
+    });
+  });
+
+  it('shows DEADLINE_CHANGE_REQUIRES_MANAGEMENT for a Staff deadline edit', async () => {
+    const harness = makeFetch({
+      card: generalTask({ hasOpenOverdueIncident: false }),
+      patchResult: () => json({
+        error: 'Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.',
+        code: 'DEADLINE_CHANGE_REQUIRES_MANAGEMENT',
+      }, 409),
+    });
+    await render(staffUser, harness);
+    await openEdit();
+    await setInput('#general-task-edit-due-date', '2026-12-05');
+    await submit('Değişiklikleri kaydet');
+
+    expect(harness.patchBodies).toHaveLength(1);
+    expect(host.textContent).toContain(
+      'Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.',
+    );
+  });
+
+  it('shows CHANGE_REQUEST_NOT_OPEN when the open request was resolved meanwhile', async () => {
+    const harness = makeFetch({
+      card: generalTask({ changeRequest: openRequest }),
+      patchResult: () => json({
+        error: 'Bu öneri zaten sonuçlandırılmış.',
+        code: 'CHANGE_REQUEST_NOT_OPEN',
+      }, 409),
+    });
+    await render(managerUser, harness);
+    await openEdit();
+    await setInput('#general-task-edit-due-date', '2026-12-05');
+    await settle();
+    await submit('Değişiklikleri kaydet');
+
+    expect(harness.patchBodies).toHaveLength(1);
+    expect(harness.patchBodies[0]).toMatchObject({
+      changeRequestResolution: { changeRequestId: 'request-1', resolution: 'RESCHEDULED' },
+    });
+    expect(host.textContent).toContain('Bu öneri zaten sonuçlandırılmış.');
   });
 });

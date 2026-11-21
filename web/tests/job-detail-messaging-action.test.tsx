@@ -69,6 +69,7 @@ function jobWith(status: JobCard['status'], lifecycle: Partial<JobLifecycleFacts
     dueDate: null, scheduledAt: null,
     assignee: { id: 's1', name: 'Ayşe Personel' }, customer: null, contact: null,
     followUpContext: null,
+    hasOpenOverdueIncident: false, correctionDueAt: null,
     workflowContext: contextWith({
       allowedCommands: commandsByStatus[status],
       allowedActions: status === 'COMPLETED' || status === 'CANCELLED'

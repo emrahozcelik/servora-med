@@ -70,6 +70,7 @@ const rootJob: JobCard = {
   scheduledAt: '2026-08-01T09:00:00.000Z', engagementKind: null,
   assignee: { id: 'staff-2', name: 'Bora' }, customer: { id: 'customer-1', name: 'Klinik' },
   contact: null, workflowContext: completedContext, followUpContext: null,
+  hasOpenOverdueIncident: false, correctionDueAt: null,
 };
 const fullFollowUp: JobCard = {
   ...rootJob, id: 'follow-up-1', title: 'Bağlantılı takip', followUpContext: {

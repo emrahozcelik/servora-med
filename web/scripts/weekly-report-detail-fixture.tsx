@@ -144,6 +144,8 @@ function jobFor(state: StateName) {
     },
     followUpContext: null,
     followUpProposal: null,
+    hasOpenOverdueIncident: false,
+    correctionDueAt: null,
   };
 }
 

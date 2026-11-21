@@ -62,6 +62,8 @@ const source: JobCard = {
     lifecycle: { ...workflowContext.lifecycle, approvedAt: '2026-08-01T10:00:00.000Z' },
   },
   followUpContext: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 };
 const profile = {
   id: 'profile-2', user: { id: 'staff-2', organizationId: 'org-1', name: 'Bora Personel',

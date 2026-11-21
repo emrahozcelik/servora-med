@@ -36,6 +36,8 @@ const job = {
   submitLocationComparison: null,
   earlyStartAuthorization: null,
   changeRequest: openRequest,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 } as JobCard;
 
 function json(body: unknown, status = 200) {

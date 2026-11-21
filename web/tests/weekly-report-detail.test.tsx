@@ -87,6 +87,7 @@ function makeJob(overrides: Partial<JobCard> = {}): JobCard {
     },
     followUpContext: null, followUpProposal: null,
     submitLocationComparison: null,
+    hasOpenOverdueIncident: false, correctionDueAt: null,
     ...rest,
   };
 }
