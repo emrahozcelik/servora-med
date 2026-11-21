@@ -254,6 +254,6 @@ describe('shared accessibility CSS contract', () => {
   it('lets form drawer headings and close controls reflow at extreme text scaling', () => {
     expect(css).toMatch(/\.form-drawer-header \{[^}]*min-width:\s*0;[^}]*gap:/s);
     expect(css).toMatch(/\.form-drawer-header h2 \{[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere;/s);
-    expect(css).toMatch(/\.form-drawer-header \.compact-button \{[^}]*min-width:\s*var\(--control-height\);/s);
+    expect(css).toMatch(/\.drawer-close \{[^}]*width:\s*var\(--control-height\);[^}]*height:\s*var\(--control-height\);/s);
   });
 });

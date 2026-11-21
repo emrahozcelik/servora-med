@@ -279,6 +279,10 @@ Variants: **primary**, **secondary**, **destructive**, **ghost**. Sizes: **btn-s
 **Width is content by default.** Full width is explicit (`.btn-full`) or reserved for stacked form footers (login, people/task/delivery forms). Primary does not mean "span the row."
 This slice keeps a **CSS class contract**; it does not introduce a separate React `Button` abstraction.
 
+### Overlay dismiss control
+
+Modal panel headers (Menü panel, notification center, form drawer) dismiss through one shared icon-only control, `DrawerCloseButton` (`.drawer-close`): a fixed square `var(--control-height)` target (44 × 44 CSS px at default text size) with a 1rem stroke X glyph that is `aria-hidden`. The accessible name names the panel (`Menüyü kapat`, `Bildirimleri kapat`, `Formu kapat`). The control never stretches to fill a grid column or flex track, never shows a visible `Kapat` text label in a modal panel header, and never uses a text glyph such as `✕` in place of the SVG. Backdrop dismiss, Escape and focus return stay owned by the panel. Inline, non-modal notices and dialog footers keep visible text actions (`Kapat`, `Vazgeç`).
+
 ### Surfaces
 
 - **Section**: broad grouping that may rely on spacing and heading hierarchy.
