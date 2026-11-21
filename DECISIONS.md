@@ -3185,9 +3185,7 @@ management decision list.
   "önerinle a ile devam edelim"; period and deadline revised the same day,
   before any release: "raporlar pazartesiden cumartesiye olacakmış. haftalık
   rapor istendiğinde cumartesi gününü kapsayacak. rapor pazar ve pazartesiye
-  kadar gönderilebilecek."; revised decisions approved with one change: "salı
-  günü iptal. son gönderim tarihi pazartesi olmalı." — the late-request rule is
-  withdrawn); implementation pending. Ships with the code in one
+  kadar gönderilebilecek."); implementation pending. Ships with the code in one
   PR. Contract: [weekly-report-workweek.md](./docs/features/weekly-report-workweek.md).
 
 ### Decision
@@ -3209,8 +3207,8 @@ management decision list.
    with their original labels.
 6. A manager request that resolves to an existing report never navigates as if
    one was created; bulk results state created and existing counts separately.
-7. The deadline is always that Monday, also for a request created later; such
-   a report opens overdue and the create screen warns before sending.
+7. A request created after the deadline of its week is never born overdue:
+   `due_date = max(period_end + 2, organization-local creation date)`.
 8. Weekly-report screens get the accepted UI changes: week choice, period and
    deadline preview, Turkish calendar dates, and mobile-reachable Staff actions.
 
@@ -3225,6 +3223,5 @@ management decision list.
 - Migration 068 widens the period constraints so that old 7-day rows stay valid
   and binds each submission's period to its report; applied migrations are not
   edited.
-- The weekly-report reference read gains an additive `today` field for the
-  create-screen warning.
+- The weekly-report reference read gains an additive `today` field.
 - Reports open at deploy time keep their 7-day period and deadline.

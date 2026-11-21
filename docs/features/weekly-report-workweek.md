@@ -7,10 +7,7 @@
   "raporlar pazartesiden cumartesiye olacakmış. haftalık rapor istendiğinde
   cumartesi gününü kapsayacak. rapor pazar ve pazartesiye kadar
   gönderilebilecek." (This supersedes the earlier same-day Monday–Friday /
-  Friday-deadline draft, which was never released.) Owner approval of the
-  revised decisions with one change, same day: "salı günü iptal. son gönderim
-  tarihi pazartesi olmalı." — the deadline is always the Monday; the earlier
-  late-request rule (D9 option (a)) is withdrawn. Ships with the code in one
+  Friday-deadline draft, which was never released.) Ships with the code in one
   PR (no docs-only PR).
 - **Date:** 2026-11-21
 - **Scope:** period, deadline and automatic work-list window of **new** Weekly
@@ -49,7 +46,7 @@ the fixed sections.
 | D6 | The five preset manager questions are removed. Managers add only report-specific custom questions. |
 | D7 | Historical data is never rewritten: existing 7-day reports, their due dates, drafts, submissions, frozen questions/answers, source-work snapshots and PDFs remain exactly as stored and keep rendering all their original fields **with their original labels** (a 7-day record shows the six V1 sections as "Haftanın özeti", "Sorunlar / engeller", …; only working-week records use the D5 labels). |
 | D8 | A manager request that resolves to an **existing** report never navigates as if a report had been created; the screen states that the report already exists, links to it, and says that a cancelled report can be replaced only after an Admin removes it. A bulk result states created and existing counts separately. |
-| D9 | The deadline is **always** the Monday after the period (D2), also for a request created after that Monday (e.g. Tuesday for the previous week via "Geçen hafta"). Such a report opens overdue: OVR-3 opens `LATE_SUBMISSION` when it starts and OVR-4 reminds/escalates as for any overdue job. The create screen therefore warns before sending when the selected week's deadline is already past: "Bu dönemin son teslim tarihi (23 Kasım Pazartesi) geçti; rapor gecikmiş olarak açılır." Withdrawn: option (a) `max(period_end + 2, creation date)`. |
+| D9 | A request created after the deadline of its week (e.g. Tuesday or later for the previous week via "Geçen hafta") is never born overdue: `due_date = max(period_end + 2, organization-local creation date)`. A normal request (any day up to and including the Monday after the period) is due on that Monday. Rejected (b): always the Monday with an "opens overdue" warning, because OVR-3/OVR-4 would open `LATE_SUBMISSION`, remind Staff after 15 min and escalate after 60 min on a report that was requested late. |
 | D10 | Create and report screens use the owner-accepted UI proposals of 2026-11-21: week choice "Bu hafta / Geçen hafta / Başka hafta", a period + deadline preview before sending, Turkish calendar dates instead of raw ISO dates on weekly-report surfaces, and Staff save/submit actions reachable on mobile without scrolling past the form. |
 
 ### Rationale and rejected alternatives
@@ -107,9 +104,9 @@ insert and never updated.
 | Area | Change |
 |---|---|
 | `weekly-reports/validation.ts` `parsePeriodStart` | `periodEnd = periodStart + 5`; ISO-Monday check unchanged. |
-| `weekly-reports/reference.ts` | `weeklyReportDueDate(periodEnd) = periodEnd + 2` (Monday). `currentWeeklyReportPeriod` returns `{ timezone, today, periodStart, periodEnd: start + 5, dueDate }` where `today` is the organization-local date key the create screen uses for the D9 warning. The Monday offset already returns the just-ended week on Sunday (D4). |
-| Reference DTO | Gains `today` (organization-local `YYYY-MM-DD`) so the create preview can show the D9 "opens overdue" warning for any selected week without the device clock. Additive field; the web parser is updated in the same PR. |
-| `job-cards/service.ts` single create and bulk request | `dueDate = weeklyReportDueDate(input.periodEnd)` (both call sites; no request-date dependency). Comments say "Monday after the Monday–Saturday period", also in `weekly-reports/create-input.ts` and `weekly-reports/repository.ts`. |
+| `weekly-reports/reference.ts` | `weeklyReportDueDate(periodEnd, requestDateKey) = max(periodEnd + 2, requestDateKey)`. `currentWeeklyReportPeriod` returns `{ timezone, today, periodStart, periodEnd: start + 5, dueDate }` where `today` is the organization-local date key used for D9. The Monday offset already returns the just-ended week on Sunday (D4). |
+| Reference DTO | Gains `today` (organization-local `YYYY-MM-DD`) so the create preview can apply D9 for any selected week without the device clock. Additive field; the web parser is updated in the same PR. |
+| `job-cards/service.ts` single create and bulk request | `dueDate = weeklyReportDueDate(input.periodEnd, organization-local date of the request instant)` (both call sites). Comments say "Monday after the Monday–Saturday period", also in `weekly-reports/create-input.ts` and `weekly-reports/repository.ts`. |
 | `weekly-reports/source-work.ts` `weekInstants` | Exact signature `weekInstants(periodStart: string, periodEnd: string, timezone: string)`; window end = `periodEnd + 1` 00:00 organization-local: Sunday 00:00 for working-week reports, Monday 00:00 for open legacy 7-day reports. All callers pass the stored period. |
 | Body validation | Unchanged API shape: drafts still accept the six optional keys and submission still requires `summary` + `nextWeekPlan`. Old web bundles and open legacy drafts keep working; the reduction to three sections is a presentation decision (§5). |
 | Idempotency hashes | Unchanged. A create request sent before the deploy and retried with the same `clientActionId` after it gets `CLIENT_ACTION_REUSED` (its derived `periodEnd` differs); this is the safe outcome and is documented in the release note. |
@@ -122,7 +119,7 @@ insert and never updated.
 |---|---|
 | `WeeklyReportQuestionEditor.tsx` | Remove `WEEKLY_REPORT_PRESET_QUESTIONS` and the preset checkboxes; keep custom question add/edit/remove. Remove the now-unused `.weekly-question-preset*` styles. |
 | `WeeklyReportCreate.tsx` week choice | Choices "Bu hafta · 16–21 Kasım", "Geçen hafta · 9–14 Kasım" and "Başka hafta" (date input kept for the last one), computed from the server reference. |
-| `WeeklyReportCreate.tsx` preview | Before submit: "Dönem 16–21 Kasım 2026 · Son teslim 23 Kasım Pazartesi"; deadline = selected Monday + 7. When that deadline is before `reference.today`, a warning (not an error) states that the report opens overdue (D9); sending stays possible. Intro copy describes the Monday–Saturday week and the Monday deadline. |
+| `WeeklyReportCreate.tsx` preview | Before submit: "Dönem 16–21 Kasım 2026 · Son teslim 23 Kasım Pazartesi"; deadline = `max(selected Saturday + 2, reference.today)` (D9). Intro copy describes the Monday–Saturday week and the Monday deadline. |
 | `WeeklyReportCreate.tsx` outcomes (D8) | Navigate only when the single item's outcome is `created`. For `existing`, show "Bu personelin bu hafta için raporu zaten var" with "Mevcut rapora git", plus the hint that a cancelled report can be replaced only after an Admin removes it. Bulk result copy reports created and existing counts separately. |
 | `WeeklyReportDetail.tsx` editor | Working-week report (`periodEnd = periodStart + 5`): three fields: **Bu hafta** (`summary`, required), **Sorunlar ve destek ihtiyacı** (`blockers`, optional), **Gelecek hafta planı** (`nextWeekPlan`, required). A legacy field with stored text stays visible and editable under "Önceki form alanları" until submission (complete-replacement PATCH must not null it). `draftsEqual` compares all six keys. An open 7-day report keeps the six-field V1 editor and labels. |
 | `WeeklyReportDetail.tsx` mobile actions | On narrow viewports the save/submit actions are reachable without scrolling past the form (sticky action bar following DESIGN.md); readiness checklist summary shown above the form. |
@@ -153,11 +150,11 @@ Organization timezone `Europe/Istanbul`; dates are organization-local.
 | A15 | two parallel creates for the same staff/week | create | exactly one report (existing locking/uniqueness unchanged) |
 | A16 | organization timezone `America/New_York`, week 2026-03-09 (DST starts Sunday 2026-03-08) | window | Monday 2026-03-09 00:00 EDT → Sunday 2026-03-15 00:00 EDT |
 | A17 | a submission row whose period differs from its report row; `+4` or `+7` periods | direct insert | rejected (composite foreign key, CHECK) |
-| A18 | Monday 2026-11-23 requests week 2026-11-16 ("Geçen hafta"); Tuesday 2026-11-24 requests week 2026-11-16 | create | due `2026-11-23` in both cases; the Monday request is not overdue on Monday; the Tuesday request is overdue at creation (D9) |
+| A18 | Monday 2026-11-23 requests week 2026-11-16 ("Geçen hafta"); Tuesday 2026-11-24 requests week 2026-11-16 | create and reference | due `2026-11-23` (normal); due `2026-11-24` (late, D9), not overdue at creation, no immediate `LATE_SUBMISSION` |
 | A18b | Wednesday 2026-11-18, request for a future week 2026-11-23 | create | due `2026-11-30` (Monday after that week) |
 | A19 | legacy draft text in `supportNeeded` | Staff edits only that field | form becomes dirty, save keeps all six keys, submit includes it |
 | A20 | 7-day historical submission | history view and PDF | six V1 labels; working-week submission shows the three D5 labels |
-| A21 | create screen on Friday 2026-11-20 | open | "Bu hafta · 16–21 Kasım" preselected; preview "Son teslim 23 Kasım Pazartesi"; on Tuesday 2026-11-24 choosing "Geçen hafta" previews "Son teslim 23 Kasım Pazartesi" with the "opens overdue" warning |
+| A21 | create screen on Friday 2026-11-20 | open | "Bu hafta · 16–21 Kasım" preselected; preview "Son teslim 23 Kasım Pazartesi"; on Tuesday 2026-11-24 choosing "Geçen hafta" previews "Son teslim 24 Kasım Salı" |
 | A22 | Staff in IN_PROGRESS at 390 px | open report | save and submit reachable without scrolling past the form; readiness summary visible above it |
 
 ## 7. Implementation plan and fleet split
