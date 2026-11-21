@@ -1654,17 +1654,39 @@ export type OverdueIncidentHistoryItem = {
   recordedAt: string;
   recoveredAt: string | null;
   recoveryActor: RelatedName | null;
+  /**
+   * OVR-5a: an authorized deadline extension ends the obligation without
+   * touching the breach evidence. Ended rows keep the ending facts and never
+   * become recovered or on-time rows.
+   */
+  endedAt: string | null;
+  endedBy: { id: string; name: string | null } | null;
+  endReason: 'DEADLINE_EXTENDED' | null;
+  endNote: string | null;
+  endedByScheduleRevisionNo: number | null;
+  endedDurationSeconds: number | null;
   totalDelaySeconds: number | null;
   manualReminderSentAt: string | null;
   manualReminderCount: number;
   postReminderDelaySeconds: number | null;
 };
 
+function nullableActor(value: unknown, field: string): { id: string; name: string | null } | null {
+  if (value === null) return null;
+  const v = exactObject(value, field, ['id', 'name']);
+  return {
+    id: string(v.id, `${field}.id`),
+    name: v.name === null ? null : string(v.name, `${field}.name`),
+  };
+}
+
 function parseOverdueIncidentHistoryItem(value: unknown): OverdueIncidentHistoryItem {
   const v = exactObject(value, 'incident', [
     'id', 'delayType', 'episodeNo', 'scheduleRevisionNo', 'deadlineAt',
     'breachedAt', 'accountableRole', 'accountableSource', 'accountableUser',
     'source', 'recordedAt', 'recoveredAt', 'recoveryActor',
+    'endedAt', 'endedBy', 'endReason', 'endNote', 'endedByScheduleRevisionNo',
+    'endedDurationSeconds',
     'totalDelaySeconds', 'manualReminderSentAt', 'manualReminderCount',
     'postReminderDelaySeconds',
   ]);
@@ -1686,6 +1708,16 @@ function parseOverdueIncidentHistoryItem(value: unknown): OverdueIncidentHistory
     recordedAt: canonicalInstant(v.recordedAt, 'recordedAt'),
     recoveredAt: nullableCanonicalInstant(v.recoveredAt, 'recoveredAt'),
     recoveryActor: nullableRelated(v.recoveryActor, 'recoveryActor'),
+    endedAt: nullableCanonicalInstant(v.endedAt, 'endedAt'),
+    endedBy: nullableActor(v.endedBy, 'endedBy'),
+    endReason: v.endReason === null
+      ? null
+      : oneOf(v.endReason, 'endReason', ['DEADLINE_EXTENDED'] as const),
+    endNote: nullableString(v.endNote, 'endNote'),
+    endedByScheduleRevisionNo: v.endedByScheduleRevisionNo === null
+      ? null
+      : positiveCount(v.endedByScheduleRevisionNo, 'endedByScheduleRevisionNo'),
+    endedDurationSeconds: nullableCount(v.endedDurationSeconds, 'endedDurationSeconds'),
     totalDelaySeconds: nullableCount(v.totalDelaySeconds, 'totalDelaySeconds'),
     manualReminderSentAt: nullableCanonicalInstant(v.manualReminderSentAt, 'manualReminderSentAt'),
     manualReminderCount: count(v.manualReminderCount, 'manualReminderCount'),

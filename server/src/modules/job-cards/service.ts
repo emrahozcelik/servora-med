@@ -3016,7 +3016,6 @@ export class JobCardService {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
     }
 
-    const requestTime = this.now();
     return this.repository.executeTransaction(async (transaction) => {
       const snapshot = await transaction.getJob(actor.organizationId, jobCardId);
       if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -3074,6 +3073,12 @@ export class JobCardService {
         throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       }
       assertCanEdit(actor, job);
+      // OVR-5 §4.0: the patch samples its business instant only now, after the
+      // users (ARC-003) and the JobCard row are locked. A patch that waited
+      // behind another transaction is judged at the moment it actually
+      // applies, so a deadline that has already passed by then is never
+      // treated as future.
+      const requestTime = this.now();
 
       if (job.type === 'PRODUCT_DELIVERY'
         && fields.contactId !== undefined
@@ -3775,57 +3780,99 @@ export class JobCardService {
       actor.organizationId, jobCardId,
     );
     const statsByEpisode = new Map(stats.map((entry) => [entry.episodeNo, entry]));
-    return {
-      items: result.items.map((item) => {
+    // One reminder read per ended episode, shared by its rows (Promise.all).
+    const remindersByEpisode = new Map<number, ReturnType<
+      JobCardRepository['listSubmissionRemindersForEpisode']
+    >>();
+    const items = await Promise.all(result.items.map(async (item) => {
+      // Only reminders sent at or before the closing instant measure the
+      // nudge effect; a reminder sent afterwards belongs to a later cycle.
+      // OVR-5 (§6): an ended row stops its statistics at `endedAt`, a
+      // recovered row at `recoveredAt`. The rollup only carries the latest
+      // overall instant, so an ended episode needs its reminder rows to count
+      // the ones that predate the ending.
+      const endedAtMs = item.endedAt === null ? null : item.endedAt.getTime();
+      const recoveredAtMs = item.recoveredAt === null ? null : item.recoveredAt.getTime();
+      let manualReminderCount = 0;
+      let latestManualReminderAt: Date | null = null;
+      if (endedAtMs !== null) {
+        let pending = remindersByEpisode.get(item.episodeNo);
+        if (pending === undefined) {
+          pending = this.repository.listSubmissionRemindersForEpisode(
+            actor.organizationId, jobCardId, item.episodeNo,
+          );
+          remindersByEpisode.set(item.episodeNo, pending);
+        }
+        const reminders = await pending;
+        const beforeEnding = reminders.filter(
+          (reminder) => reminder.sentAt.getTime() <= endedAtMs,
+        );
+        manualReminderCount = beforeEnding.length;
+        latestManualReminderAt = beforeEnding[0]?.sentAt ?? null;
+      } else {
         const episodeStats = statsByEpisode.get(item.episodeNo) ?? null;
-        // Only reminders sent at or before recovery measure the nudge effect;
-        // a reminder sent after recovery belongs to a later episode (or is
-        // impossible under the fail-closed manual path, which requires an
-        // open incident). Stats carry the latest overall instant, so clamp:
-        // a latest instant after recovery means this recovered incident has
-        // no proven pre-recovery reminder.
-        const recoveredAtMs = item.recoveredAt === null ? null : item.recoveredAt.getTime();
         const reminderBeforeRecovery = episodeStats !== null
           && (recoveredAtMs === null || episodeStats.latestSentAt.getTime() <= recoveredAtMs)
           ? episodeStats
           : null;
-        const totalDelaySeconds = recoveredAtMs === null
+        manualReminderCount = episodeStats?.count ?? 0;
+        latestManualReminderAt = reminderBeforeRecovery?.latestSentAt ?? null;
+      }
+      const manualReminderSentAt = latestManualReminderAt === null
+        ? null
+        : latestManualReminderAt.toISOString();
+      // An ended obligation is neither recovered nor on time: the delay ends
+      // at ending, so the recovery-based metrics stay null and the ended
+      // duration (ended - breached, same rounding) is the measurement.
+      const totalDelaySeconds = endedAtMs === null && recoveredAtMs !== null
+        ? Math.max(0, Math.floor((recoveredAtMs - item.breachedAt.getTime()) / 1000))
+        : null;
+      const postReminderDelaySeconds = endedAtMs === null
+        && latestManualReminderAt !== null && recoveredAtMs !== null
+        ? Math.max(
+          0,
+          Math.floor(
+            (recoveredAtMs - latestManualReminderAt.getTime()) / 1000,
+          ),
+        )
+        : null;
+      const endedDurationSeconds = endedAtMs === null
+        ? null
+        : Math.max(0, Math.floor((endedAtMs - item.breachedAt.getTime()) / 1000));
+      return {
+        id: item.id,
+        delayType: item.delayType,
+        episodeNo: item.episodeNo,
+        scheduleRevisionNo: item.scheduleRevisionNo,
+        deadlineAt: item.deadlineAt.toISOString(),
+        breachedAt: item.breachedAt.toISOString(),
+        accountableRole: item.accountableRole,
+        accountableSource: item.accountableSource,
+        accountableUser: item.accountableUserId === null
           ? null
-          : Math.max(0, Math.floor((recoveredAtMs - item.breachedAt.getTime()) / 1000));
-        const postReminderDelaySeconds = reminderBeforeRecovery !== null && recoveredAtMs !== null
-          ? Math.max(
-            0,
-            Math.floor(
-              (recoveredAtMs - reminderBeforeRecovery.latestSentAt.getTime()) / 1000,
-            ),
-          )
-          : null;
-        return {
-          id: item.id,
-          delayType: item.delayType,
-          episodeNo: item.episodeNo,
-          scheduleRevisionNo: item.scheduleRevisionNo,
-          deadlineAt: item.deadlineAt.toISOString(),
-          breachedAt: item.breachedAt.toISOString(),
-          accountableRole: item.accountableRole,
-          accountableSource: item.accountableSource,
-          accountableUser: item.accountableUserId === null
-            ? null
-            : { id: item.accountableUserId, name: item.accountableUserName },
-          source: item.source,
-          recordedAt: item.recordedAt.toISOString(),
-          recoveredAt: item.recoveredAt === null ? null : item.recoveredAt.toISOString(),
-          recoveryActor: item.recoveryActorUserId === null
-            ? null
-            : { id: item.recoveryActorUserId, name: item.recoveryActorUserName },
-          totalDelaySeconds,
-          manualReminderSentAt: reminderBeforeRecovery === null
-            ? null
-            : reminderBeforeRecovery.latestSentAt.toISOString(),
-          manualReminderCount: episodeStats?.count ?? 0,
-          postReminderDelaySeconds,
-        };
-      }),
+          : { id: item.accountableUserId, name: item.accountableUserName },
+        source: item.source,
+        recordedAt: item.recordedAt.toISOString(),
+        recoveredAt: item.recoveredAt === null ? null : item.recoveredAt.toISOString(),
+        recoveryActor: item.recoveryActorUserId === null
+          ? null
+          : { id: item.recoveryActorUserId, name: item.recoveryActorUserName },
+        endedAt: item.endedAt === null ? null : item.endedAt.toISOString(),
+        endedBy: item.endedByUserId === null
+          ? null
+          : { id: item.endedByUserId, name: item.endedByUserName },
+        endReason: item.endReason,
+        endNote: item.endNote,
+        endedByScheduleRevisionNo: item.endedByScheduleRevisionNo,
+        endedDurationSeconds,
+        totalDelaySeconds,
+        manualReminderSentAt,
+        manualReminderCount,
+        postReminderDelaySeconds,
+      };
+    }));
+    return {
+      items,
       total: result.total,
       limit: result.limit,
       offset: result.offset,
@@ -3864,16 +3911,12 @@ export class JobCardService {
       .sort((left, right) => left.breachedAt.getTime() - right.breachedAt.getTime())[0]!;
     const staffDelivery = await this.repository.getOverdueNotificationDelivery({
       organizationId: actor.organizationId,
-      jobCardId,
-      delayType: 'LATE_SUBMISSION',
-      episodeNo: current.episodeNo,
+      incidentId: current.id,
       kind: 'STAFF_REMINDER',
     });
     const escalationDelivery = await this.repository.getOverdueNotificationDelivery({
       organizationId: actor.organizationId,
-      jobCardId,
-      delayType: 'LATE_SUBMISSION',
-      episodeNo: current.episodeNo,
+      incidentId: current.id,
       kind: 'MANAGEMENT_ESCALATION',
     });
     const reminders = await this.repository.listSubmissionRemindersForEpisode(

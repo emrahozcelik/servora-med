@@ -1154,6 +1154,77 @@ describe('OVR-1 overdue snapshot transport', () => {
   });
 });
 
+describe('OVR-5a overdue incident history ending transport', () => {
+  const historyItem = {
+    id: 'incident-1',
+    delayType: 'LATE_SUBMISSION',
+    episodeNo: 2,
+    scheduleRevisionNo: 3,
+    deadlineAt: '2026-11-20T09:00:00.000Z',
+    breachedAt: '2026-11-20T10:00:00.000Z',
+    accountableRole: 'STAFF',
+    accountableSource: 'ASSIGNMENT_AT_BREACH',
+    accountableUser: related('s1', 'Ayşe Personel'),
+    source: 'MUTATION',
+    recordedAt: '2026-11-20T10:00:01.000Z',
+    recoveredAt: null,
+    recoveryActor: null,
+    endedAt: '2026-11-21T08:30:00.000Z',
+    endedBy: { id: 'm1', name: 'Dr. Mert Yönetici' },
+    endReason: 'DEADLINE_EXTENDED',
+    endNote: 'Müşteri yeni tarihi onayladı',
+    endedByScheduleRevisionNo: 4,
+    endedDurationSeconds: 81_000,
+    totalDelaySeconds: null,
+    manualReminderSentAt: '2026-11-21T08:00:00.000Z',
+    manualReminderCount: 1,
+    postReminderDelaySeconds: null,
+  };
+
+  it('accepts the ended-row fields next to the untouched breach evidence', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [historyItem], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listOverdueIncidents('job-1')).resolves.toEqual({
+      items: [historyItem], total: 1, limit: 25, offset: 0,
+    });
+  });
+
+  it('accepts recovered rows that carry the ending fields as explicit nulls', async () => {
+    const recovered = {
+      ...historyItem,
+      recoveredAt: '2026-11-21T09:00:00.000Z',
+      recoveryActor: related('s1', 'Ayşe Personel'),
+      endedAt: null,
+      endedBy: null,
+      endReason: null,
+      endNote: null,
+      endedByScheduleRevisionNo: null,
+      endedDurationSeconds: null,
+      totalDelaySeconds: 3600,
+      postReminderDelaySeconds: 1800,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [recovered], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listOverdueIncidents('job-1')).resolves.toEqual({
+      items: [recovered], total: 1, limit: 25, offset: 0,
+    });
+  });
+
+  it('still rejects unknown keys and unknown end reasons on an incident row', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...historyItem, rawEndNote: 'gizli' }], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listOverdueIncidents('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...historyItem, endReason: 'MANUAL' }], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listOverdueIncidents('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+});
+
 
 it('parses Sale activity quantities with the integer detail contract', async () => {
   const activity = {

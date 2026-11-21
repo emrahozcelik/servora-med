@@ -4,6 +4,7 @@ import type {
   OverdueAccountableRole,
   OverdueAccountableSource,
   OverdueIncidentDelayType,
+  OverdueIncidentEndReason,
   OverdueIncidentSource,
 } from './overdue-incidents.js';
 
@@ -251,6 +252,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_ASSIGNMENT_RELEASED',
   'JOB_ASSIGNMENT_OFFER_EXPIRED',
   'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+  'JOB_OVERDUE_ENDED_BY_EXTENSION',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -850,12 +852,22 @@ export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
  *
  * OVR-4 measurement appendix (server-computed, never client-derived):
  * - `totalDelaySeconds` = recoveredAt - breachedAt for recovered incidents,
- *   null while open;
+ *   null while open and null for an ended incident (an ending is never a
+ *   recovery or an on-time result);
  * - `manualReminderSentAt` = latest manual manager reminder for the episode
- *   at or before recovery (or the latest overall while open), null when the
- *   episode was never manually nudged — never guessed for legacy history;
+ *   at or before the closing instant (recovery or ending; the latest overall
+ *   while open), null when the episode was never manually nudged — never
+ *   guessed for legacy history;
  * - `postReminderDelaySeconds` = recoveredAt - manualReminderSentAt, null
- *   unless both endpoints are proven.
+ *   unless both endpoints are proven and the incident was not ended.
+ *
+ * OVR-5 ending appendix: an authorized deadline extension ends an open
+ * obligation without erasing its evidence. Every ending field is null on a
+ * non-ended row and all of them are set on an ended row:
+ * - `endedAt` / `endedBy` / `endedByScheduleRevisionNo` = the ending instant,
+ *   actor and the schedule revision that proved the new boundary;
+ * - `endReason` = 'DEADLINE_EXTENDED'; `endNote` = the mandatory reason;
+ * - `endedDurationSeconds` = endedAt - breachedAt (same rounding as above).
  */
 export type OverdueIncidentHistoryItem = {
   id: string;
@@ -871,6 +883,12 @@ export type OverdueIncidentHistoryItem = {
   recordedAt: string;
   recoveredAt: string | null;
   recoveryActor: { id: string; name: string | null } | null;
+  endedAt: string | null;
+  endedBy: { id: string; name: string | null } | null;
+  endReason: OverdueIncidentEndReason | null;
+  endNote: string | null;
+  endedByScheduleRevisionNo: number | null;
+  endedDurationSeconds: number | null;
   totalDelaySeconds: number | null;
   manualReminderSentAt: string | null;
   manualReminderCount: number;

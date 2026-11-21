@@ -3020,9 +3020,11 @@ still be visited.
   shipped in PR #470; release 2a (change/termination request, management
   decision path, not-held visit) shipped in PR #471; release 2b (offers,
   deadline, decline/release, re-offer, expiry worker, flag-gated Staff
-  `CANCEL` removal) ships behind `JOB_ASSIGNMENT_WINDOW_ENABLED=false`; 2c
-  (activation) needs owner approval. The docs ship with the code (release plan
-  below).
+  `CANCEL` removal) shipped behind `JOB_ASSIGNMENT_WINDOW_ENABLED=false` in PR
+  #472; 2c was activated in production on 2026-11-21 with the owner's approval
+  (one environment line, one restart; see
+  [the activation record](./docs/operations/2026-11-21-job010-assignment-window-activation.md)).
+  The docs ship with the code (release plan below).
 - **Owner:** [Assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
   The contract holds the full rules, producers, edge cases, acceptance
   scenarios and slice order.
@@ -3133,3 +3135,43 @@ management decision list.
   the new endpoints in the release that adds them.
 - Drift reported separately, not changed here: JOB-006 §6 allows Staff
   `ADD_NOTE` in `NEW`, but `policy.ts` does not.
+
+## OVR-5 — Revision correction deadline and authorized deadline extension
+
+- **Date:** 2026-11-21
+- **Status:** Accepted product contract (owner: lateness direction 2026-11-20,
+  items 1 "A + B" and 2 "A"; Q1–Q4 answered 2026-11-21; design review the same
+  day, "Kabul, 5a başla"). Ships in two releases: OVR-5a (readers, migration
+  066) and OVR-5b (writers and UI, migration 067). Contract:
+  [overdue-correction-deadline-and-extension.md](./docs/features/overdue-correction-deadline-and-extension.md).
+
+### Decision
+
+1. `REQUEST_REVISION` carries a correction deadline (default 24 h, management
+   may choose 1 h–14 d). The revision episode's submission deadline is the
+   later of the original deadline and the correction deadline. A job without
+   any deadline gets none. `WITHDRAW_FROM_APPROVAL` keeps today's deadline.
+2. Lateness evidence and the current obligation are separate. A MANAGER/ADMIN
+   deadline move that makes an open `LATE_START` / `LATE_SUBMISSION` no longer
+   late **ends** it with a mandatory reason (`ended_at`, actor, reason,
+   revision). Evidence is never erased, rewritten or recovered;
+   an ended incident is never on time or successful. `APPROVAL_WAIT` is never
+   ended this way. This amends the OVR-2 rule that only a lifecycle recovery
+   closes an incident.
+3. Staff cannot change deadline fields of a job with open lateness; they use
+   the JOB-010 change request. Management may resolve that request as
+   `RESCHEDULED` in the same patch, explicitly and atomically.
+4. OVR-4 sends a new reminder cycle only after an ending; delivery identity is
+   per incident.
+5. The patch business instant is sampled after the JobCard lock.
+6. A started job whose submission deadline is its planned interval cannot be
+   extended by this decision; a separate submission-obligation deadline is a
+   later decision.
+
+### Consequences
+
+- Migration 066 is additive; 067 drops the 053 per-episode delivery key.
+- The previous release `b0d3341` is a safe repoint target only while OVR-5a is
+  live and 067 is not applied; after OVR-5b, fixes go forward.
+- Reports are unchanged (stage 3 of the lateness plan).
+

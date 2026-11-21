@@ -193,7 +193,16 @@ export function historyDetail(item: OverdueIncidentHistoryItem): string {
   const parts: string[] = [];
   parts.push(`${DEADLINE_LABELS[item.delayType]}: ${formatInstant(item.deadlineAt)}`);
   parts.push(`Gecikme başlangıcı: ${formatInstant(item.breachedAt)}`);
-  if (item.recoveredAt) {
+  if (item.endedAt) {
+    // OVR-5a: an authorized deadline extension ends the obligation. The breach
+    // evidence stays; the row is never presented as recovered or on time.
+    parts.push(`Tarih uzatılmasıyla sonlandırıldı: ${formatInstant(item.endedAt)}`);
+    parts.push(`Sonlandıran: ${item.endedBy?.name ?? 'Belirtilmedi'}`);
+    if (item.endNote) parts.push(`Gerekçe: ${item.endNote}`);
+    if (item.endedDurationSeconds !== null) {
+      parts.push(`Sonlandırılana kadar: ${formatDurationSeconds(item.endedDurationSeconds)}`);
+    }
+  } else if (item.recoveredAt) {
     parts.push(`Gecikme bitişi: ${formatInstant(item.recoveredAt)}`);
   } else {
     parts.push('Devam eden gecikme');

@@ -127,6 +127,7 @@ import type {
   OverdueAccountableRole,
   OverdueAccountableSource,
   OverdueIncidentDelayType,
+  OverdueIncidentEndReason,
   OverdueIncidentIdentity,
   OverdueIncidentSource,
 } from './overdue-incidents.js';
@@ -419,9 +420,11 @@ export type LatestSubmittedFact = {
 };
 
 /**
- * OVR-4: durable once-per-episode automatic delivery state. `sentAt` is the
- * injected domain clock (never DB NOW()); `incidentId` is the canonical
- * (earliest open) incident the delivery was anchored to.
+ * OVR-4: durable automatic delivery state. `sentAt` is the injected domain
+ * clock (never DB NOW()); `incidentId` is the canonical (earliest open)
+ * incident the delivery was anchored to. OVR-5 keys the identity on
+ * (organization, incident, kind); the episode columns stay for provenance and
+ * the 053 compatibility key.
  */
 export type OverdueNotificationDelivery = {
   id: string;
@@ -523,7 +526,63 @@ export type PersistedOverdueIncident = {
   recoveredAt: Date | null;
   recoveryActorUserId: string | null;
   recoveryActorUserName: string | null;
+  /**
+   * OVR-5: a reasoned ending by an authorized deadline extension. Separate
+   * from recovery and mutually exclusive with it; an ended row keeps every
+   * evidence column untouched and is never open again.
+   */
+  endedAt: Date | null;
+  endedByUserId: string | null;
+  endedByUserName: string | null;
+  endReason: OverdueIncidentEndReason | null;
+  endNote: string | null;
+  endedByScheduleRevisionNo: number | null;
 };
+
+/** One joined incident row; actor names come from the users projection. */
+type OverdueIncidentRow = {
+  id: string; organization_id: string; job_card_id: string;
+  delay_type: OverdueIncidentDelayType; episode_no: number; schedule_revision_no: number;
+  deadline_at: Date; breached_at: Date;
+  accountable_user_id: string | null; accountable_user_name: string | null;
+  accountable_role: OverdueAccountableRole; accountable_source: OverdueAccountableSource;
+  source: OverdueIncidentSource; recorded_at: Date;
+  recovered_at: Date | null; recovery_actor_user_id: string | null;
+  recovery_actor_user_name: string | null;
+  ended_at: Date | null; ended_by_user_id: string | null;
+  ended_by_user_name: string | null; end_reason: OverdueIncidentEndReason | null;
+  end_note: string | null; ended_by_schedule_revision_no: number | null;
+};
+
+function mapPersistedOverdueIncident(row: OverdueIncidentRow): PersistedOverdueIncident {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    jobCardId: row.job_card_id,
+    delayType: row.delay_type,
+    episodeNo: Number(row.episode_no),
+    scheduleRevisionNo: Number(row.schedule_revision_no),
+    deadlineAt: row.deadline_at,
+    breachedAt: row.breached_at,
+    accountableUserId: row.accountable_user_id,
+    accountableUserName: row.accountable_user_name,
+    accountableRole: row.accountable_role,
+    accountableSource: row.accountable_source,
+    source: row.source,
+    recordedAt: row.recorded_at,
+    recoveredAt: row.recovered_at,
+    recoveryActorUserId: row.recovery_actor_user_id,
+    recoveryActorUserName: row.recovery_actor_user_name,
+    endedAt: row.ended_at,
+    endedByUserId: row.ended_by_user_id,
+    endedByUserName: row.ended_by_user_name,
+    endReason: row.end_reason,
+    endNote: row.end_note,
+    endedByScheduleRevisionNo: row.ended_by_schedule_revision_no === null
+      ? null
+      : Number(row.ended_by_schedule_revision_no),
+  };
+}
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
   jobCardId: string;
@@ -1038,7 +1097,13 @@ export interface JobCardTransaction extends SubmissionReader {
     organizationId: string,
     jobCardId: string,
     episodeNo: number,
-  ): Promise<{ episodeNo: number; activatedAt: Date; activatedByCommand: string } | null>;
+  ): Promise<{
+    episodeNo: number;
+    activatedAt: Date;
+    activatedByCommand: string;
+    /** OVR-5: management correction deadline of the episode; null when unarmed. */
+    correctionDueAt: Date | null;
+  } | null>;
   /**
    * OVR-2: staff assignee exactly at an instant from immutable assignment
    * history. Null when unprovable — never the current assignee.
@@ -1070,20 +1135,33 @@ export interface JobCardTransaction extends SubmissionReader {
     jobCardId: string,
   ): Promise<readonly PersistedOverdueIncident[]>;
   /**
-   * OVR-4: idempotent automatic-delivery insert. The UNIQUE episode identity
+   * OVR-4: idempotent automatic-delivery insert. The UNIQUE incident identity
    * absorbs replays and concurrent workers; losers report created=false.
    */
   insertOverdueNotificationDelivery(
     input: InsertOverdueNotificationDeliveryInput,
   ): Promise<{ id: string; created: boolean }>;
-  /** OVR-4: one automatic delivery by its episode identity, or null. */
+  /**
+   * OVR-4: one automatic delivery of a kind anchored to a canonical incident,
+   * or null. OVR-5 keys the identity on the incident, not the episode.
+   */
   getOverdueNotificationDelivery(input: {
+    organizationId: string;
+    incidentId: string;
+    kind: OverdueReminderKind;
+  }): Promise<OverdueNotificationDelivery | null>;
+  /**
+   * OVR-5 (§4.9): a delivery kind is due for an episode only when no delivery
+   * of that kind references an incident of the same (job, delay type, episode)
+   * that is still open. Callers hold the JobCard row lock.
+   */
+  hasOpenIncidentDeliveryForEpisode(input: {
     organizationId: string;
     jobCardId: string;
     delayType: OverdueIncidentDelayType;
     episodeNo: number;
     kind: OverdueReminderKind;
-  }): Promise<OverdueNotificationDelivery | null>;
+  }): Promise<boolean>;
   /**
    * OVR-4: idempotent manual-reminder insert. The UNIQUE manager action
    * identity absorbs double-click replays; losers report created=false with
@@ -1329,9 +1407,7 @@ export interface JobCardRepository extends SubmissionReader {
   ): Promise<readonly PersistedOverdueIncident[]>;
   getOverdueNotificationDelivery(input: {
     organizationId: string;
-    jobCardId: string;
-    delayType: OverdueIncidentDelayType;
-    episodeNo: number;
+    incidentId: string;
     kind: OverdueReminderKind;
   }): Promise<OverdueNotificationDelivery | null>;
   listSubmissionRemindersForEpisode(
@@ -3707,11 +3783,14 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     recoveredAt: Date;
     recoveryActorUserId: string;
   }) {
+    // OVR-5 (§6): recovery closes only obligations that are still open. An
+    // ended row is evidence that stays ended; recovering it would also violate
+    // the recovery/ending exclusivity CHECK and fail the lifecycle transaction.
     await this.client.query(
       `UPDATE job_card_overdue_incidents
           SET recovered_at = $5, recovery_actor_user_id = $6
         WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
-          AND episode_no = $4 AND recovered_at IS NULL`,
+          AND episode_no = $4 AND recovered_at IS NULL AND ended_at IS NULL`,
       [input.organizationId, input.jobCardId, input.delayType, input.episodeNo,
         input.recoveredAt, input.recoveryActorUserId],
     );
@@ -3765,8 +3844,9 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   ) {
     const result = await this.client.query<{
       episode_no: number; activated_at: Date; activated_by_command: string;
+      correction_due_at: Date | null;
     }>(
-      `SELECT episode_no, activated_at, activated_by_command
+      `SELECT episode_no, activated_at, activated_by_command, correction_due_at
          FROM job_card_submission_episode_activations
         WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = $3`,
       [organizationId, jobCardId, episodeNo],
@@ -3777,6 +3857,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       episodeNo: Number(row.episode_no),
       activatedAt: row.activated_at,
       activatedByCommand: row.activated_by_command,
+      correctionDueAt: row.correction_due_at,
     };
   }
 
@@ -3829,7 +3910,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   ): Promise<readonly PersistedOverdueIncident[]> {
     // Callers hold the JobCard row lock. Open LATE_SUBMISSION rows of every
     // revision share one episode; earliest breach first so the first row is
-    // the canonical operational signal.
+    // the canonical operational signal. OVR-5 (§6): an ended row is closed.
     const result = await this.client.query<{
       id: string; organization_id: string; job_card_id: string;
       delay_type: OverdueIncidentDelayType; episode_no: number; schedule_revision_no: number;
@@ -3839,56 +3920,46 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       source: OverdueIncidentSource; recorded_at: Date;
       recovered_at: Date | null; recovery_actor_user_id: string | null;
       recovery_actor_user_name: string | null;
+      ended_at: Date | null; ended_by_user_id: string | null;
+      ended_by_user_name: string | null; end_reason: OverdueIncidentEndReason | null;
+      end_note: string | null; ended_by_schedule_revision_no: number | null;
     }>(
       `SELECT i.id, i.organization_id, i.job_card_id, i.delay_type, i.episode_no,
               i.schedule_revision_no, i.deadline_at, i.breached_at,
               i.accountable_user_id, au.name AS accountable_user_name,
               i.accountable_role, i.accountable_source, i.source, i.recorded_at,
-              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name
+              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name,
+              i.ended_at, i.ended_by_user_id, eu.name AS ended_by_user_name,
+              i.end_reason, i.end_note, i.ended_by_schedule_revision_no
          FROM job_card_overdue_incidents i
          LEFT JOIN users au
            ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
          LEFT JOIN users ru
            ON ru.organization_id = i.organization_id AND ru.id = i.recovery_actor_user_id
+         LEFT JOIN users eu
+           ON eu.organization_id = i.organization_id AND eu.id = i.ended_by_user_id
         WHERE i.organization_id = $1 AND i.job_card_id = $2
           AND i.delay_type = 'LATE_SUBMISSION'
-          AND i.recovered_at IS NULL
+          AND i.recovered_at IS NULL AND i.ended_at IS NULL
         ORDER BY i.breached_at ASC, i.id ASC`,
       [organizationId, jobCardId],
     );
-    return result.rows.map((row) => ({
-      id: row.id,
-      organizationId: row.organization_id,
-      jobCardId: row.job_card_id,
-      delayType: row.delay_type,
-      episodeNo: Number(row.episode_no),
-      scheduleRevisionNo: Number(row.schedule_revision_no),
-      deadlineAt: row.deadline_at,
-      breachedAt: row.breached_at,
-      accountableUserId: row.accountable_user_id,
-      accountableUserName: row.accountable_user_name,
-      accountableRole: row.accountable_role,
-      accountableSource: row.accountable_source,
-      source: row.source,
-      recordedAt: row.recorded_at,
-      recoveredAt: row.recovered_at,
-      recoveryActorUserId: row.recovery_actor_user_id,
-      recoveryActorUserName: row.recovery_actor_user_name,
-    }));
+    return result.rows.map(mapPersistedOverdueIncident);
   }
 
   async insertOverdueNotificationDelivery(
     input: InsertOverdueNotificationDeliveryInput,
   ): Promise<{ id: string; created: boolean }> {
-    // Callers hold the JobCard row lock (FOR UPDATE); the UNIQUE episode
-    // identity additionally absorbs replays and concurrent workers, so the
-    // same breach episode can never produce duplicate delivery state.
+    // Callers hold the JobCard row lock (FOR UPDATE); the UNIQUE incident
+    // identity additionally absorbs replays and concurrent workers. OVR-5
+    // (§4.9) keys delivery state on the canonical open incident so a later
+    // breach of the same episode can start its own reminder cycle.
     const inserted = await this.client.query<{ id: string }>(
       `INSERT INTO job_card_overdue_notification_deliveries
          (organization_id, job_card_id, delay_type, episode_no, kind,
           incident_id, sent_at, recipient_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (organization_id, job_card_id, delay_type, episode_no, kind)
+       ON CONFLICT (organization_id, incident_id, kind)
        DO NOTHING
        RETURNING id`,
       [input.organizationId, input.jobCardId, input.delayType, input.episodeNo,
@@ -3897,19 +3968,15 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
     const existing = await this.client.query<{ id: string }>(
       `SELECT id FROM job_card_overdue_notification_deliveries
-        WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
-          AND episode_no = $4 AND kind = $5`,
-      [input.organizationId, input.jobCardId, input.delayType,
-        input.episodeNo, input.kind],
+        WHERE organization_id = $1 AND incident_id = $2 AND kind = $3`,
+      [input.organizationId, input.incidentId, input.kind],
     );
     return { id: existing.rows[0]!.id, created: false };
   }
 
   async getOverdueNotificationDelivery(input: {
     organizationId: string;
-    jobCardId: string;
-    delayType: OverdueIncidentDelayType;
-    episodeNo: number;
+    incidentId: string;
     kind: OverdueReminderKind;
   }): Promise<OverdueNotificationDelivery | null> {
     const result = await this.client.query<{
@@ -3921,10 +3988,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       `SELECT id, organization_id, job_card_id, delay_type, episode_no, kind,
               incident_id, sent_at, recipient_user_id
          FROM job_card_overdue_notification_deliveries
-        WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
-          AND episode_no = $4 AND kind = $5`,
-      [input.organizationId, input.jobCardId, input.delayType,
-        input.episodeNo, input.kind],
+        WHERE organization_id = $1 AND incident_id = $2 AND kind = $3`,
+      [input.organizationId, input.incidentId, input.kind],
     );
     const row = result.rows[0];
     if (!row) return null;
@@ -3939,6 +4004,34 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       sentAt: row.sent_at,
       recipientUserId: row.recipient_user_id,
     };
+  }
+
+  async hasOpenIncidentDeliveryForEpisode(input: {
+    organizationId: string;
+    jobCardId: string;
+    delayType: OverdueIncidentDelayType;
+    episodeNo: number;
+    kind: OverdueReminderKind;
+  }): Promise<boolean> {
+    // OVR-5 (§4.9): a delivery of a kind is due for an episode only when no
+    // delivery of that kind references an incident of the same (job, delay
+    // type, episode) that is still open. A shift of the canonical row alone
+    // can therefore never start a second reminder cycle.
+    const result = await this.client.query<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM job_card_overdue_notification_deliveries d
+           JOIN job_card_overdue_incidents di
+             ON di.organization_id = d.organization_id
+            AND di.id = d.incident_id
+          WHERE d.organization_id = $1 AND d.job_card_id = $2
+            AND d.delay_type = $3 AND d.episode_no = $4 AND d.kind = $5
+            AND di.recovered_at IS NULL AND di.ended_at IS NULL
+       ) AS present`,
+      [input.organizationId, input.jobCardId, input.delayType,
+        input.episodeNo, input.kind],
+    );
+    return result.rows[0]?.present === true;
   }
 
   async insertSubmissionReminder(
@@ -5305,48 +5398,26 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
        WHERE organization_id=$1 AND job_card_id=$2`,
       [organizationId, jobCardId],
     );
-    const result = await this.pool.query<{
-      id: string; organization_id: string; job_card_id: string;
-      delay_type: OverdueIncidentDelayType; episode_no: number; schedule_revision_no: number;
-      deadline_at: Date; breached_at: Date;
-      accountable_user_id: string | null; accountable_user_name: string | null;
-      accountable_role: OverdueAccountableRole; accountable_source: OverdueAccountableSource;
-      source: OverdueIncidentSource; recorded_at: Date;
-      recovered_at: Date | null; recovery_actor_user_id: string | null;
-      recovery_actor_user_name: string | null;
-    }>(`SELECT i.id, i.organization_id, i.job_card_id, i.delay_type, i.episode_no,
+    const result = await this.pool.query<OverdueIncidentRow>(
+      `SELECT i.id, i.organization_id, i.job_card_id, i.delay_type, i.episode_no,
               i.schedule_revision_no, i.deadline_at, i.breached_at,
               i.accountable_user_id, au.name AS accountable_user_name,
               i.accountable_role, i.accountable_source, i.source, i.recorded_at,
-              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name
+              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name,
+              i.ended_at, i.ended_by_user_id, eu.name AS ended_by_user_name,
+              i.end_reason, i.end_note, i.ended_by_schedule_revision_no
          FROM job_card_overdue_incidents i
          LEFT JOIN users au
            ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
          LEFT JOIN users ru
            ON ru.organization_id = i.organization_id AND ru.id = i.recovery_actor_user_id
+         LEFT JOIN users eu
+           ON eu.organization_id = i.organization_id AND eu.id = i.ended_by_user_id
         WHERE i.organization_id=$1 AND i.job_card_id=$2
         ORDER BY i.breached_at DESC, i.id DESC
         LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
     return {
-      items: result.rows.map((row) => ({
-        id: row.id,
-        organizationId: row.organization_id,
-        jobCardId: row.job_card_id,
-        delayType: row.delay_type,
-        episodeNo: Number(row.episode_no),
-        scheduleRevisionNo: Number(row.schedule_revision_no),
-        deadlineAt: row.deadline_at,
-        breachedAt: row.breached_at,
-        accountableUserId: row.accountable_user_id,
-        accountableUserName: row.accountable_user_name,
-        accountableRole: row.accountable_role,
-        accountableSource: row.accountable_source,
-        source: row.source,
-        recordedAt: row.recorded_at,
-        recoveredAt: row.recovered_at,
-        recoveryActorUserId: row.recovery_actor_user_id,
-        recoveryActorUserName: row.recovery_actor_user_name,
-      })),
+      items: result.rows.map(mapPersistedOverdueIncident),
       total: Number(count.rows[0]?.total ?? 0),
       limit: page.limit,
       offset: page.offset,
@@ -5380,9 +5451,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
 
   async getOverdueNotificationDelivery(input: {
     organizationId: string;
-    jobCardId: string;
-    delayType: OverdueIncidentDelayType;
-    episodeNo: number;
+    incidentId: string;
     kind: OverdueReminderKind;
   }): Promise<OverdueNotificationDelivery | null> {
     return this.withTransactionRead((tx) => tx.getOverdueNotificationDelivery(input));
@@ -5456,13 +5525,19 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
              SELECT 1 FROM job_card_overdue_incidents i
               WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
                 AND i.delay_type = 'LATE_START' AND i.episode_no = 1
-                AND i.schedule_revision_no = ${currentRevisionSql})
+                AND i.schedule_revision_no = ${currentRevisionSql}
+                AND i.ended_at IS NULL)
          ORDER BY j.scheduled_ends_at ASC, j.id ASC
          LIMIT $1`;
         values = [input.limit, input.scanTime];
         break;
       }
       case 'LATE_SUBMISSION': {
+        // OVR-5 (§3.6): the evaluated (next) episode's correction deadline is
+        // read from its activation row and rendered by the single SQL owner,
+        // so the prefilter cannot drift from the TypeScript evaluator. The
+        // activation row is unique per (job, episode), so the join cannot
+        // duplicate candidates.
         const firstLateSql = submissionBreachInstantSql(effectiveSubmissionDeadlineSql({
           scheduledEndsAt: 'j.scheduled_ends_at',
           scheduledAt: 'j.scheduled_at',
@@ -5470,28 +5545,29 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
           dueDate: 'j.due_date',
           timezone: 'o.timezone',
           requestTime: '$2',
+          correctionDueAt: 'a.correction_due_at',
         }));
         sql = `SELECT j.organization_id, j.id AS job_card_id
           FROM job_cards j
           JOIN organizations o ON o.id = j.organization_id
+          LEFT JOIN job_card_submission_episode_activations a
+            ON a.organization_id = j.organization_id AND a.job_card_id = j.id
+           AND a.episode_no = ${nextEpisodeSql}
          WHERE j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
            AND ${firstLateSql} <= $2
            AND EXISTS (
              SELECT 1 FROM job_card_schedule_revisions r
               WHERE r.organization_id = j.organization_id AND r.job_card_id = j.id)
            AND (
-             EXISTS (
-               SELECT 1 FROM job_card_submission_episode_activations a
-                WHERE a.organization_id = j.organization_id AND a.job_card_id = j.id
-                  AND a.episode_no = ${nextEpisodeSql}
-                  AND a.activated_at <= $2)
+             (a.activated_at IS NOT NULL AND a.activated_at <= $2)
              OR (${nextEpisodeSql} = 1 AND j.started_at IS NOT NULL AND j.started_at <= $2))
            AND NOT EXISTS (
              SELECT 1 FROM job_card_overdue_incidents i
               WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
                 AND i.delay_type = 'LATE_SUBMISSION'
                 AND i.episode_no = ${nextEpisodeSql}
-                AND i.schedule_revision_no = ${currentRevisionSql})
+                AND i.schedule_revision_no = ${currentRevisionSql}
+                AND i.ended_at IS NULL)
          ORDER BY ${firstLateSql} ASC, j.id ASC
          LIMIT $1`;
         values = [input.limit, input.scanTime];
@@ -5521,7 +5597,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
               WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
                 AND i.delay_type = 'APPROVAL_WAIT'
                 AND i.schedule_revision_no = fact.schedule_revision_no
-                AND i.episode_no = fact.seq_no)
+                AND i.episode_no = fact.seq_no
+                AND i.ended_at IS NULL)
          ORDER BY fact.occurred_at ASC, j.id ASC
          LIMIT $1`;
         values = [input.limit, input.scanTime, APPROVAL_WAIT_BREACH_HOURS];
@@ -5565,20 +5642,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
            JOIN job_cards j
              ON j.organization_id = i.organization_id
             AND j.id = i.job_card_id
-           LEFT JOIN job_card_overdue_notification_deliveries staff_delivery
-             ON staff_delivery.organization_id = i.organization_id
-            AND staff_delivery.job_card_id = i.job_card_id
-            AND staff_delivery.delay_type = i.delay_type
-            AND staff_delivery.episode_no = i.episode_no
-            AND staff_delivery.kind = 'STAFF_REMINDER'
-           LEFT JOIN job_card_overdue_notification_deliveries escalation_delivery
-             ON escalation_delivery.organization_id = i.organization_id
-            AND escalation_delivery.job_card_id = i.job_card_id
-            AND escalation_delivery.delay_type = i.delay_type
-            AND escalation_delivery.episode_no = i.episode_no
-            AND escalation_delivery.kind = 'MANAGEMENT_ESCALATION'
           WHERE i.delay_type = 'LATE_SUBMISSION'
             AND i.recovered_at IS NULL
+            AND i.ended_at IS NULL
             AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
             -- JOB-010 release 2a (D1 §5): while a change/termination request
             -- is OPEN, automatic OVR-4 reminders stop for that job. The
@@ -5594,7 +5660,6 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
             AND (
               (
                 i.breached_at <= $2
-                AND staff_delivery.id IS NULL
                 AND EXISTS (
                   SELECT 1
                     FROM users assignee
@@ -5603,9 +5668,41 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
                      AND assignee.is_active
                      AND assignee.role = 'STAFF'
                 )
+                -- OVR-5 (§4.9): a delivery kind is due only while no delivery
+                -- of that kind references an incident of this episode that is
+                -- still open. An ended obligation therefore frees the kind
+                -- for a later breach of the same episode, while a shift of
+                -- the canonical open row alone cannot start a second cycle.
+                AND NOT EXISTS (
+                  SELECT 1
+                    FROM job_card_overdue_notification_deliveries staff_delivery
+                    JOIN job_card_overdue_incidents staff_incident
+                      ON staff_incident.organization_id = staff_delivery.organization_id
+                     AND staff_incident.id = staff_delivery.incident_id
+                   WHERE staff_delivery.organization_id = i.organization_id
+                     AND staff_delivery.job_card_id = i.job_card_id
+                     AND staff_delivery.delay_type = i.delay_type
+                     AND staff_delivery.episode_no = i.episode_no
+                     AND staff_delivery.kind = 'STAFF_REMINDER'
+                     AND staff_incident.recovered_at IS NULL
+                     AND staff_incident.ended_at IS NULL
+                )
               ) OR (
                 i.breached_at <= $3
-                AND escalation_delivery.id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1
+                    FROM job_card_overdue_notification_deliveries escalation_delivery
+                    JOIN job_card_overdue_incidents escalation_incident
+                      ON escalation_incident.organization_id = escalation_delivery.organization_id
+                     AND escalation_incident.id = escalation_delivery.incident_id
+                   WHERE escalation_delivery.organization_id = i.organization_id
+                     AND escalation_delivery.job_card_id = i.job_card_id
+                     AND escalation_delivery.delay_type = i.delay_type
+                     AND escalation_delivery.episode_no = i.episode_no
+                     AND escalation_delivery.kind = 'MANAGEMENT_ESCALATION'
+                     AND escalation_incident.recovered_at IS NULL
+                     AND escalation_incident.ended_at IS NULL
+                )
               )
             )
        )
@@ -5642,6 +5739,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
             AND i.job_card_id = j.id
             AND i.delay_type = 'LATE_SUBMISSION'
             AND i.recovered_at IS NULL
+            AND i.ended_at IS NULL
           WHERE j.organization_id = $1
             AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
        ) open_jobs`,
@@ -5668,6 +5766,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
               AND i.job_card_id = j.id
               AND i.delay_type = 'LATE_SUBMISSION'
               AND i.recovered_at IS NULL
+              AND i.ended_at IS NULL
             ORDER BY i.breached_at ASC, i.id ASC
             LIMIT 1
          ) open_ep ON TRUE

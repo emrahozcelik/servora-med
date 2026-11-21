@@ -65,6 +65,10 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   JOB_ASSIGNMENT_RELEASED: 'job.updated',
   JOB_ASSIGNMENT_OFFER_EXPIRED: 'job.updated',
   JOB_ASSIGNMENT_OFFER_WITHDRAWN: 'job.updated',
+  // OVR-5: ending an obligation by an authorized deadline extension is not a
+  // lifecycle transition either. It invalidates the job views and the
+  // management open-late list through the same transport.
+  JOB_OVERDUE_ENDED_BY_EXTENSION: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([

@@ -20,7 +20,8 @@ defines authority, accepted amendments, and how to report policy/code drift.
 | Verified activity performer, visit-to-sale reporting and optional lateness explanations | [Reporting contract](features/reporting/README.md), REPORT-001; accepted product contract, implementation pending |
 | Duplicate customer detection/review, persistent decisions and the PR3 register workbench | [CRM Slice 4A owning package](features/crm-duplicate-review/README.md) |
 | Admin removal of an incorrect Weekly Report and reuse of its Staff/week | [Feature contract](features/weekly-report-removal.md) and DECISIONS.md 2026-11-07 record |
-| Assignment acceptance window, decline/release and delivery rescue | [Feature contract](features/assignment-acceptance-sla.md), DECISIONS.md JOB-010; accepted product contract, implementation pending |
+| Assignment acceptance window, decline/release and delivery rescue | [Feature contract](features/assignment-acceptance-sla.md), DECISIONS.md JOB-010; releases 1, 2a, 2b shipped, 2c activated 2026-11-21 ([activation record](operations/2026-11-21-job010-assignment-window-activation.md)) |
+| Revision correction deadline and authorized deadline extension | [Feature contract](features/overdue-correction-deadline-and-extension.md), DECISIONS.md OVR-5; accepted, OVR-5a in progress |
 | Local setup | [README](../README.md#configure-the-development-database) and [isolated test environment](operations/local-test-environment.md) |
 | Deploy and CI recovery | [Production deployment](operations/production-deployment.md), [local CI recovery](operations/local-ci-resource-recovery.md), [local CI caches](operations/local-ci-caches.md), and [local CI source](../ops/local-ci/) |
 | Bootstrap management fence | [B1-01 persistent bootstrap fence, entrypoint inventory and first-activation protocol](operations/b1-01-persistent-bootstrap-fence.md) — source implementation; production NO-GO |

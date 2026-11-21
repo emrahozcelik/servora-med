@@ -302,6 +302,10 @@ function details(
     case 'JOB_ASSIGNMENT_RELEASED':
     case 'JOB_ASSIGNMENT_OFFER_EXPIRED':
     case 'JOB_ASSIGNMENT_OFFER_WITHDRAWN':
+    // OVR-5: the deadline-extension ending carries its reason and incident
+    // facts in metadata; the timeline renders a plain fact and the
+    // management-only incident history owns the details.
+    case 'JOB_OVERDUE_ENDED_BY_EXTENSION':
       return { kind: 'NONE' };
     case 'JOB_ASSIGNED':
     case 'JOB_FIELDS_UPDATED':

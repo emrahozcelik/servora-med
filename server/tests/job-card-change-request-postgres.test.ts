@@ -300,7 +300,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2a — Staff change/termination r
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]?.version).toMatch(/^065_/);
+      expect(head.rows[0]?.version).toMatch(/^066_/);
       const table = await pool.query<{ table: string | null }>(
         "SELECT to_regclass('job_card_change_requests')::text AS table",
       );

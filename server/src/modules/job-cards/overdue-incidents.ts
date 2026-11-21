@@ -62,6 +62,18 @@ export const OVERDUE_INCIDENT_SOURCES: readonly OverdueIncidentSource[] = [
   'TRANSITION', 'MUTATION', 'SCANNER',
 ] as const satisfies readonly OverdueIncidentSource[];
 
+/**
+ * OVR-5: how an open obligation stopped being late without being recovered.
+ * The only accepted reason is an authorized deadline extension; an ended
+ * incident is never presented as on time, successful or recovered.
+ */
+export type OverdueIncidentEndReason = 'DEADLINE_EXTENDED';
+
+/** Every end reason accepted by the incident CHECK (migration 066). */
+export const OVERDUE_INCIDENT_END_REASONS: readonly OverdueIncidentEndReason[] = [
+  'DEADLINE_EXTENDED',
+] as const satisfies readonly OverdueIncidentEndReason[];
+
 export type OverdueAccountableRole = 'STAFF' | 'MANAGEMENT';
 export type OverdueAccountableSource =
   | 'ASSIGNMENT_AT_BREACH'
@@ -92,6 +104,12 @@ export function lateStartDeadlineAt(scheduledEndsAt: string | null): Date | null
  * ineligible), with the specified fallback to the timezone-safe due_date
  * local-end boundary when the phase deadline is absent. Returns null only
  * when no deadline of any kind can be established.
+ *
+ * OVR-5: a `REQUEST_REVISION`-armed episode may carry a management correction
+ * deadline (`correction_due_at`, optional here). The episode's deadline is the
+ * later of the original deadline and the correction deadline (contract Q1).
+ * A correction deadline never creates lateness where none existed: when the
+ * original deadline is null the result stays null.
  */
 export function effectiveSubmissionDeadlineAt(input: {
   scheduledEndsAt: string | null;
@@ -99,12 +117,19 @@ export function effectiveSubmissionDeadlineAt(input: {
   type: JobCardType;
   dueDate: string | null;
   timezone: string;
+  /** OVR-5 correction deadline of the evaluated episode; null when unarmed. */
+  correctionDueAt?: string | Date | null;
 }): Date | null {
   const phase = input.scheduledEndsAt
     ?? (input.type === 'SALES_MEETING' ? null : input.scheduledAt);
-  if (phase !== null) return new Date(phase);
-  if (input.dueDate === null) return null;
-  return overdueSinceFor(input.dueDate, input.timezone);
+  const original = phase !== null
+    ? new Date(phase)
+    : input.dueDate === null ? null : overdueSinceFor(input.dueDate, input.timezone);
+  if (original === null) return null;
+  const correction = input.correctionDueAt;
+  if (correction === undefined || correction === null) return original;
+  const correctionAt = correction instanceof Date ? correction : new Date(correction);
+  return correctionAt.getTime() > original.getTime() ? correctionAt : original;
 }
 
 /**
@@ -215,6 +240,12 @@ export function lateStartBoundarySql(refs: { scheduledEndsAt: string }): string 
  * the same priority as {@link effectiveSubmissionDeadlineAt}: phase end, else
  * phase start for non-SALES_MEETING, else the organization-local due-date
  * midnight. `NULL` when no deadline of any kind is representable.
+ *
+ * OVR-5: when the caller passes the episode's `correction_due_at` reference
+ * the result is the later of the original deadline and the correction
+ * deadline. PostgreSQL `GREATEST(NULL, x)` returns `x`, so a null original
+ * deadline stays null explicitly instead of being invented by the correction
+ * deadline (contract §3.6).
  */
 export function effectiveSubmissionDeadlineSql(refs: {
   scheduledEndsAt: string;
@@ -223,11 +254,17 @@ export function effectiveSubmissionDeadlineSql(refs: {
   dueDate: string;
   timezone: string;
   requestTime: string;
+  /** SQL ref of the evaluated episode's correction deadline, when joined. */
+  correctionDueAt?: string;
 }): string {
-  return `COALESCE(
+  const original = `COALESCE(
     ${refs.scheduledEndsAt},
     CASE WHEN ${refs.type} = 'SALES_MEETING' THEN NULL ELSE ${refs.scheduledAt} END,
     ${overdueSinceSql({ dueDate: refs.dueDate, timezone: refs.timezone })})`;
+  if (refs.correctionDueAt === undefined) return original;
+  return `CASE WHEN (${original}) IS NULL THEN NULL
+    WHEN (${refs.correctionDueAt}) IS NULL THEN (${original})
+    ELSE GREATEST((${original}), (${refs.correctionDueAt})) END`;
 }
 
 /** SQL `timestamptz` expression for the first-late submission instant (+1 ms). */
