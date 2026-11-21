@@ -124,3 +124,10 @@ describe('JOB-010 release 2b assignment offer copy', () => {
     expect(jobActivityLabel('JOB_ASSIGNMENT_OFFER_WITHDRAWN')).toBe('Kabul teklifi geri çekildi');
   });
 });
+
+describe('OVR-5a deadline-extension activity copy', () => {
+  it('labels the ending event with the canonical Turkish wording', () => {
+    expect(jobActivityLabel('JOB_OVERDUE_ENDED_BY_EXTENSION'))
+      .toBe('Gecikme, tarih uzatılmasıyla sonlandırıldı');
+  });
+});
