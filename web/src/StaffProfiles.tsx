@@ -17,6 +17,7 @@ import type { Paginated } from './services/crm-api';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
 import { StaffConfidentialNotesSection } from './StaffConfidentialNotes';
 import { PageHeader } from './ui/PageHeader';
+import { formatCalendarDay, formatCalendarRange } from './ui/calendar-date';
 import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
@@ -94,26 +95,17 @@ export function OwnStaffProfileView({ profile, actor }: { profile: StaffProfile;
 }
 
 /**
- * Formats a server-provided calendar date (`YYYY-MM-DD`) as `DD.MM.YYYY`.
- * Deliberately textual: the value is never re-parsed into a `Date`, so no
- * timezone can shift the day the server reported.
- */
-function formatCalendarDay(value: string): string {
-  const [year, month, day] = value.split('-');
-  return `${day}.${month}.${year}`;
-}
-
-/**
  * Personnel-profile Weekly Report history. A read model over canonical
  * WeeklyReports: every canonical lifecycle status is shown, a report with zero
  * submissions is a valid row (no PDF action), and the PDF action always targets
  * the latest immutable submission seq.
  *
- * `dueDate` is the server's calendar date and is formatted textually. A null
- * `dueDate` means no deadline was ever set on the report's JobCard, so the row
- * simply omits the label rather than inventing a placeholder. `completedAt` is
- * a real instant (the report JobCard's approval time) and is rendered as
- * `Tamamlandı <date>` only when the report actually reached that state.
+ * `dueDate` is the server's calendar date and is formatted via the shared
+ * Turkish calendar helper. A null `dueDate` means no deadline was ever set on
+ * the report's JobCard, so the row simply omits the label rather than inventing
+ * a placeholder. `completedAt` is a real instant (the report JobCard's approval
+ * time) and is rendered as `Tamamlandı <date>` only when the report actually
+ * reached that state.
  */
 export function StaffWeeklyReportHistory({ actor, staffUserId }: { actor: CurrentUser; staffUserId: string }) {
   const [page, setPage] = useState<Paginated<WeeklyReportHistoryItem> | null>(null);
@@ -165,7 +157,7 @@ export function StaffWeeklyReportHistory({ actor, staffUserId }: { actor: Curren
     {!loading && !error && items.length === 0 && <p className="muted-copy">Görüntüleyebileceğiniz haftalık rapor bulunmuyor.</p>}
     {!loading && !error && items.length > 0 && <ul className="job-history-list">{items.map((item) => <li key={item.reportId} className="job-history-row">
       <div>
-        <Link to={paths.job(item.jobCardId)}>{`${item.periodStart} – ${item.periodEnd}`}</Link>
+        <Link to={paths.job(item.jobCardId)}>{formatCalendarRange(item.periodStart, item.periodEnd)}</Link>
         <p>{item.removedAt ? 'Kaldırıldı · Geçmiş kayıt' : jobCardStatusLabel(item.status)} · {item.submissionCount === 0 ? 'Gönderim yok' : `${item.submissionCount} gönderim`}
           {item.latestSubmittedAt ? ` · Son gönderim ${new Date(item.latestSubmittedAt).toLocaleDateString('tr-TR')}` : ''}
           {item.dueDate ? ` · Teslim son tarihi ${formatCalendarDay(item.dueDate)}` : ''}

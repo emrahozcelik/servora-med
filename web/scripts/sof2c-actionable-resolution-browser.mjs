@@ -193,9 +193,15 @@ async function resolveAndOffboard(browser, f, origin, width, target, jobCardId, 
     await expect(page.locator('.offboarding-blockers')).toHaveCount(0);
     await page.screenshot({ path: resolve(evidence, `${profile}-fresh-preview.png`), fullPage: true });
     await activate(page.getByRole('link', { name: 'Gerekirse yeni personel için bağımsız haftalık rapor oluştur' }));
-    await expect(page.locator('#weekly-period')).toBeVisible();
-    if (replacementPeriod) await page.locator('#weekly-period').fill(replacementPeriod);
-    else replacementPeriod = await page.locator('#weekly-period').inputValue();
+    if (replacementPeriod) {
+      await activate(page.locator('input[name="weeklyPeriodChoice"][value="custom"]'));
+      await expect(page.locator('#weekly-period')).toBeVisible();
+      await page.locator('#weekly-period').fill(replacementPeriod);
+    } else {
+      await activate(page.locator('input[name="weeklyPeriodChoice"][value="custom"]'));
+      await expect(page.locator('#weekly-period')).toBeVisible();
+      replacementPeriod = await page.locator('#weekly-period').inputValue();
+    }
     const selectChecks = await selectReplacement(page, replacementUser, profile, motion, activate, keyboardOnly);
     await enterText(page, page.locator('#weekly-instructions'), 'Yeni personel için bağımsız saha raporu.', keyboardOnly);
     await activate(page.getByRole('button', { name: 'Rapor isteklerini oluştur' }));

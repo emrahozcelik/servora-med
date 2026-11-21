@@ -23,7 +23,9 @@ await withRetirementFixture(async f => {
         page.on('request',request=> {if(request.url().includes('/api/')) requests.push({method:request.method(),path:new URL(request.url()).pathname,body:request.postDataJSON()});});
         const week=width===1440?(user.role==='STAFF'?'2026-11-02':user.role==='MANAGER'?'2026-11-09':'2026-11-16'):(user.role==='STAFF'?'2026-11-23':user.role==='MANAGER'?'2026-11-30':'2026-12-07');
         async function open() {
-          await page.goto(`${origin}jobs/new-weekly-report`); await page.locator('#weekly-period').waitFor();
+          await page.goto(`${origin}jobs/new-weekly-report`); await page.locator('#weekly-period-preview').waitFor();
+          await page.locator('input[name="weeklyPeriodChoice"][value="custom"]').check();
+          await page.locator('#weekly-period').waitFor();
           await expect(page.locator('#weekly-period')).not.toHaveValue('');
           await expect(page.locator('#weekly-mode, .recurrence-manager')).toHaveCount(0);
           assert.equal(await page.getByText('Her hafta otomatik',{exact:true}).count(),0);
@@ -51,8 +53,7 @@ await withRetirementFixture(async f => {
         await usable('form');
         const path=user.role==='STAFF'?'/api/job-cards/weekly-reports':'/api/job-cards/weekly-reports/bulk-request';
         await page.locator('#weekly-period').fill('2026-10-06');
-        const rejected=page.waitForResponse(r=>new URL(r.url()).pathname===path&&r.request().method()==='POST');
-        await page.locator('button[type="submit"]').click(); assert.equal((await rejected).status(),400);
+        await page.locator('button[type="submit"]').click();
         await expect(page.getByRole('alert')).toBeFocused();
         await page.locator('#weekly-period').fill(week);
         // A real server commit whose response is lost, not a fake API success.

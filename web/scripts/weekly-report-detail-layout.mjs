@@ -141,6 +141,18 @@ const states = [
     destructive: null,
   },
   {
+    name: 'COMPLETED',
+    labelSuffix: '-legacy',
+    query: '&legacy=1',
+    role: 'MANAGER',
+    sections: ['heading', 'lifecycle', 'terminal', 'facts', 'timeline'],
+    rail: false,
+    editor: false,
+    locked: false,
+    primary: null,
+    destructive: null,
+  },
+  {
     name: 'CANCELLED',
     role: 'STAFF',
     sections: ['heading', 'lifecycle', 'terminal', 'facts', 'timeline'],
@@ -301,10 +313,27 @@ async function measure(page) {
 
     const primaryButton = decisionPanel?.querySelector('.primary-button') ?? null;
 
+    const editorBlock = host.querySelector('[data-job-detail-block="weekly-report-editor"]');
+    const editorForm = editorBlock?.querySelector('form') ?? null;
+    const readiness = host.querySelector('[data-weekly-mobile-readiness="true"]');
+    const readinessStyle = readiness ? getComputedStyle(readiness) : null;
+    const stickyBar = host.querySelector('[data-weekly-editor-actions="true"]');
+    const stickyButtons = stickyBar
+      ? [...stickyBar.querySelectorAll('button')].map((button) => ({
+        text: text(button),
+        visible: getComputedStyle(button).display !== 'none',
+        ...rect(button),
+      }))
+      : [];
+    const header = host.querySelector('[data-job-detail-section="heading"] header');
+    const frozenText = text(host.querySelector('[data-job-detail-block="weekly-frozen-report"]') ?? document.createElement('div'));
+
     return {
       overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       viewportHeight: window.innerHeight,
       sections,
+      headerText: header ? text(header) : '',
+      frozenText,
       steps: stepsHost ? {
         present: true,
         host: rect(stepsHost),
@@ -333,7 +362,12 @@ async function measure(page) {
       widestTextarea: textareas.length
         ? Math.max(...textareas.map((area) => area.getBoundingClientRect().width))
         : 0,
-      editor: host.querySelector('[data-job-detail-block="weekly-report-editor"]') !== null,
+      editor: editorBlock !== null,
+      editorForm: editorForm ? rect(editorForm) : null,
+      readiness: readiness && readinessStyle && readinessStyle.display !== 'none'
+        ? { ...rect(readiness), text: text(readiness) }
+        : null,
+      stickyBar: stickyBar ? { ...rect(stickyBar), position: getComputedStyle(stickyBar).position, buttons: stickyButtons } : null,
       locked: host.querySelector('[data-job-detail-block="weekly-report-locked"]') !== null,
       lockedNotice: text(host.querySelector('.weekly-report-locked-notice') ?? document.createElement('p')),
       historyEmpty: text(host.querySelector('.weekly-history-empty') ?? document.createElement('p')),
@@ -343,7 +377,7 @@ async function measure(page) {
 }
 
 function checkState(measurement, spec, viewport, failures) {
-  const label = `${spec.name} @ ${viewport.name}`;
+  const label = `${spec.name}${spec.labelSuffix ?? ''} @ ${viewport.name}`;
   if (!measurement) {
     failures.push(`${label}: weekly report detail root not found`);
     return;
@@ -405,8 +439,40 @@ function checkState(measurement, spec, viewport, failures) {
   if (!spec.editor && measurement.formCount !== 0) {
     failures.push(`${label}: ${measurement.formCount} form(s) rendered without an editable report`);
   }
-  if (spec.editor && measurement.textareaCount < 7) {
+  // Workweek editable reports render 3 body fields + 1 manager question = 4 textareas.
+  if (spec.editor && measurement.textareaCount < 4) {
     failures.push(`${label}: editable report rendered only ${measurement.textareaCount} textarea(s)`);
+  }
+  if (spec.labelSuffix === '-legacy' && !measurement.frozenText.includes('Eski dönem öne çıkan çalışmalar.')) {
+    failures.push(`${label}: legacy 7-day frozen report omitted stored legacy body field`);
+  }
+  if (spec.editor) {
+    if (viewport.width <= 767) {
+      if (!measurement.readiness || !measurement.editorForm || measurement.readiness.bottom > measurement.editorForm.top + 1) {
+        failures.push(`${label}: mobile readiness summary missing or not above editor form`);
+      }
+      if (!measurement.stickyBar || measurement.stickyBar.position !== 'sticky') {
+        failures.push(`${label}: mobile sticky editor actions bar missing or not sticky`);
+      } else {
+        const visibleSticky = measurement.stickyBar.buttons.filter((b) => b.visible);
+        if (visibleSticky.length < 2) {
+          failures.push(`${label}: expected save + primary action in mobile sticky bar, got ${JSON.stringify(visibleSticky)}`);
+        }
+        for (const btn of visibleSticky) {
+          if (btn.width < 44 || btn.height < 44) {
+            failures.push(`${label}: mobile sticky button "${btn.text}" target too small (${btn.width.toFixed(1)}x${btn.height.toFixed(1)})`);
+          }
+        }
+      }
+    } else {
+      if (measurement.readiness !== null) {
+        failures.push(`${label}: mobile readiness summary should be hidden on desktop`);
+      }
+      const visibleStickySubmit = measurement.stickyBar?.buttons.filter((b) => b.visible && b.text !== 'Taslağı kaydet') ?? [];
+      if (visibleStickySubmit.length > 0) {
+        failures.push(`${label}: mobile sticky submit button should be hidden on desktop`);
+      }
+    }
   }
 
   if (measurement.textareaOverflow > 0) {
@@ -492,15 +558,31 @@ async function runCase(browser, baseUrl, viewport, spec, failures) {
   const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height }, reducedMotion: 'reduce' });
   const diagnostics = { pageErrors: [], consoleErrors: [], requestFailures: [], badResponses: [] };
   attachDiagnostics(page, diagnostics);
-  const label = `${spec.name} @ ${viewport.name}`;
+  const label = `${spec.name}${spec.labelSuffix ?? ''} @ ${viewport.name}`;
   try {
-    await page.goto(`${baseUrl}?state=${spec.name}&role=${spec.role}`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}?state=${spec.name}&role=${spec.role}${spec.query ?? ''}`, { waitUntil: 'networkidle' });
     await page.waitForSelector('html[data-weekly-detail-ready="true"]');
     await page.waitForSelector('[data-weekly-report-detail="true"]');
     await page.waitForSelector('.servora-workflow-steps');
 
     const measurement = await measure(page);
     checkState(measurement, spec, viewport, failures);
+
+    if (spec.editor && viewport.width === 390) {
+      await page.locator('[data-job-detail-block="weekly-report-editor"]').scrollIntoViewIfNeeded();
+      const stickyInViewport = await page.evaluate(() => {
+        const bar = document.querySelector('[data-weekly-editor-actions="true"]');
+        if (!bar) return null;
+        const buttons = [...bar.querySelectorAll('button')].filter((b) => getComputedStyle(b).display !== 'none');
+        return buttons.map((b) => {
+          const r = b.getBoundingClientRect();
+          return { text: b.textContent, top: r.top, bottom: r.bottom, viewportHeight: window.innerHeight };
+        });
+      });
+      if (!stickyInViewport || stickyInViewport.some((b) => b.top < 0 || b.bottom > b.viewportHeight + 1)) {
+        failures.push(`${label}: sticky save/submit actions not reachable inside viewport while editing form (${JSON.stringify(stickyInViewport)})`);
+      }
+    }
 
     console.log(JSON.stringify({
       case: label,
@@ -519,7 +601,7 @@ async function runCase(browser, baseUrl, viewport, spec, failures) {
 
     try {
       await page.screenshot({
-        path: join(tmpdir(), `servora-weekly-detail-${spec.name}-${viewport.name}.png`),
+        path: join(tmpdir(), `servora-weekly-detail-${spec.name}${spec.labelSuffix ?? ''}-${viewport.name}.png`),
         fullPage: true,
       });
     } catch (error) {
