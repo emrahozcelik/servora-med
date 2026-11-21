@@ -9,9 +9,9 @@ import {
  * The browser must not derive this from device-local calendar arithmetic:
  * the organization timezone is the single authority for what "this week" and
  * `today` mean. This is the same Monday → Saturday working week + Monday
- * after the period (`periodEnd + 2`) contract the create service enforces, so
- * the UI default/preview (including the overdue-on-open warning) and the
- * server derivation cannot drift.
+ * after the period (`max(periodEnd + 2, requestDateKey)`) contract the create
+ * service enforces, so the UI default/preview and the server derivation
+ * cannot drift.
  */
 export type WeeklyReportReference = {
   timezone: string;
@@ -22,13 +22,14 @@ export type WeeklyReportReference = {
 };
 
 /**
- * Canonical server-only submission deadline for a Weekly Report: always the
- * Monday after the period (`periodEnd + 2`); a request created after that
- * Monday opens overdue. `periodEnd` is a canonical `YYYY-MM-DD` calendar date
- * key.
+ * Canonical server-only submission deadline for a Weekly Report: the Monday
+ * after the period (`periodEnd + 2`), or `requestDateKey` when created after
+ * that Monday so a late request is never born overdue. Both inputs are
+ * canonical `YYYY-MM-DD` calendar date keys.
  */
-export function weeklyReportDueDate(periodEnd: string): string {
-  return addCalendarDaysToDateKey(periodEnd, 2);
+export function weeklyReportDueDate(periodEnd: string, requestDateKey: string): string {
+  const mondayAfterPeriod = addCalendarDaysToDateKey(periodEnd, 2);
+  return requestDateKey > mondayAfterPeriod ? requestDateKey : mondayAfterPeriod;
 }
 
 export function currentWeeklyReportPeriod(
@@ -45,6 +46,6 @@ export function currentWeeklyReportPeriod(
     today,
     periodStart,
     periodEnd,
-    dueDate: weeklyReportDueDate(periodEnd),
+    dueDate: weeklyReportDueDate(periodEnd, today),
   };
 }

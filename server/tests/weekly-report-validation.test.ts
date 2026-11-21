@@ -227,10 +227,13 @@ describe('weekly report reference and due date (WR-WEEK)', () => {
     });
   });
 
-  it('derives dueDate as always the Monday after the period (periodEnd + 2) regardless of request timing (A18, A18b)', () => {
-    // Week 2026-11-16..2026-11-21 -> Monday after = 2026-11-23
-    expect(weeklyReportDueDate('2026-11-21')).toBe('2026-11-23');
-    // Future week 2026-11-23..2026-11-28 -> Monday after = 2026-11-30
-    expect(weeklyReportDueDate('2026-11-28')).toBe('2026-11-30');
+  it('derives dueDate as max(periodEnd + 2, requestDateKey) for on-time, late and future weeks (A18, A18b)', () => {
+    // Week 2026-11-16..2026-11-21, Monday after = 2026-11-23
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-18')).toBe('2026-11-23');
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-21')).toBe('2026-11-23');
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-23')).toBe('2026-11-23');
+    expect(weeklyReportDueDate('2026-11-21', '2026-11-24')).toBe('2026-11-24');
+    // Future week 2026-11-23..2026-11-28 requested on 2026-11-18 -> 2026-11-30
+    expect(weeklyReportDueDate('2026-11-28', '2026-11-18')).toBe('2026-11-30');
   });
 });
