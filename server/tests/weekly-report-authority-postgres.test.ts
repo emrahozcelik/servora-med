@@ -16,8 +16,8 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 
 const WEEK_A = '2026-08-03';
-const WEEK_A_END = '2026-08-07';
-const WEEK_A_DUE = '2026-08-07';
+const WEEK_A_END = '2026-08-08';
+const WEEK_A_DUE = '2026-08-10';
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
   const adminPool = new Pool({ connectionString: databaseUrl });
@@ -97,7 +97,7 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
       const organizationId = await insertOrg(pool);
       const staffId = await insertUser(pool, organizationId, 'STAFF');
       const service = buildService(pool);
-      // The deadline is server-canonical (max(periodEnd, requestDate)): the public request
+      // The deadline is server-canonical (max(periodEnd + 2, requestDate)): the public request
       // shape has no dueDate field, so the exact parser rejects it before any
       // service logic or idempotency state is touched — for every role.
       expect(() => parseWeeklyReportCreateInput({
@@ -118,6 +118,7 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
       const service = buildServiceAt(pool, '2026-08-02T22:30:00.000Z');
       const expected = {
         timezone: 'Europe/Istanbul',
+        today: '2026-08-03',
         periodStart: WEEK_A,
         periodEnd: WEEK_A_END,
         dueDate: WEEK_A_DUE,
@@ -178,7 +179,7 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
       const staffId = await insertUser(pool, organizationId, 'STAFF');
       const service = buildService(pool);
-      // CREATION deadline is server-canonical (max(periodEnd, requestDate)): no caller
+      // CREATION deadline is server-canonical (max(periodEnd + 2, requestDate)): no caller
       // override exists at request time any more.
       const created = await service.createWeeklyReport(
         managerActor(organizationId, managerId),
