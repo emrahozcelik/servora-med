@@ -16,12 +16,12 @@ import { validateSourceWorkSnapshot } from '../src/modules/weekly-reports/valida
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 
-// Reporting workweek Monday 2026-08-03 to Friday 2026-08-07 (Europe/Istanbul, permanent +03:00).
+// Reporting working week Monday 2026-08-03 to Saturday 2026-08-08 (Europe/Istanbul, permanent +03:00).
 const PERIOD_START = '2026-08-03';
-const PERIOD_END = '2026-08-07';
+const PERIOD_END = '2026-08-08';
 const LEGACY_PERIOD_END = '2026-08-09';
 const WEEK_START_ISO = '2026-08-02T21:00:00.000Z';
-const WEEK_END_ISO = '2026-08-07T21:00:00.000Z';
+const WEEK_END_ISO = '2026-08-08T21:00:00.000Z';
 const LEGACY_WEEK_END_ISO = '2026-08-09T21:00:00.000Z';
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
@@ -127,7 +127,7 @@ async function insertJob(
 }
 
 describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
-  it('derives org-local Monday->Saturday boundaries for workweeks and keeps Monday->Monday for legacy 7-day periods', () => {
+  it('derives org-local Monday->Sunday boundaries for working weeks and keeps Monday->Monday for legacy 7-day periods', () => {
     const { weekStart, weekEnd } = weekInstants(PERIOD_START, PERIOD_END, 'Europe/Istanbul');
     expect(weekStart.toISOString()).toBe(WEEK_START_ISO);
     expect(weekEnd.toISOString()).toBe(WEEK_END_ISO);
@@ -137,7 +137,7 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
     expect(legacy.weekEnd.toISOString()).toBe(LEGACY_WEEK_END_ISO);
   });
 
-  it('includes exactly the qualifying workweek slice with deterministic order and excludes weekend completions', async () => {
+  it('includes exactly the qualifying working-week slice (including Saturday) and excludes Sunday completions', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const staffId = await insertUser(pool, organizationId);
@@ -166,6 +166,11 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
         organizationId, type: 'SALES_MEETING', status: 'COMPLETED', staffId,
         completedAt: '2026-08-07T09:00:00.000Z', managerApprovedAt: '2026-08-12T09:00:00.000Z',
       });
+      // 3b: Saturday completion → included in Monday–Saturday working week.
+      const saturdayId = await insertJob(pool, {
+        organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
+        completedAt: '2026-08-08T10:00:00.000Z',
+      });
       // 9: exactly Monday 00:00 org-local (inclusive) → included.
       const boundaryInId = await insertJob(pool, {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
@@ -176,8 +181,8 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
         completedAt: '2026-08-02T20:59:59.000Z',
       });
-      // 10: Saturday 00:00 org-local (exclusive) and Sunday → excluded from workweek, included in legacy 7-day.
-      const saturdayId = await insertJob(pool, {
+      // 10: Sunday 00:00 org-local (exclusive) and Sunday daytime → excluded from working week, included in legacy 7-day.
+      const sundayBoundaryId = await insertJob(pool, {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
         completedAt: WEEK_END_ISO,
       });
@@ -210,10 +215,11 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
       const rows = await query();
       expect(rows.map((row) => row.jobCardId)).toEqual([
         boundaryInId, completedId, waitingId,
-        // 2026-08-07 sales meeting sorts after 2026-08-06 waiting row.
+        // 2026-08-07 sales meeting sorts after 2026-08-06 waiting row, before Saturday.
         rows.find((row) => row.type === 'SALES_MEETING')!.jobCardId,
+        saturdayId,
       ]);
-      expect(rows).toHaveLength(4);
+      expect(rows).toHaveLength(5);
       const completed = rows.find((row) => row.jobCardId === completedId)!;
       expect(completed.customerName).toBe('Örnek Klinik');
       expect(completed.status).toBe('COMPLETED');
@@ -226,12 +232,12 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
       expect(() => validateSourceWorkSnapshot(items)).not.toThrow();
       expect(items[0]!.staffCompletedAt).toBe(WEEK_START_ISO);
 
-      // Legacy 7-day period still includes Saturday/Sunday completions.
+      // Legacy 7-day period still includes Sunday completions.
       const legacyWindow = weekInstants(PERIOD_START, LEGACY_PERIOD_END, 'Europe/Istanbul');
       const legacyRows = await repo.listWeeklySourceWorkSnapshot({
         organizationId, staffUserId: staffId, weekStart: legacyWindow.weekStart, weekEnd: legacyWindow.weekEnd,
       });
-      expect(legacyRows.map((row) => row.jobCardId)).toContain(saturdayId);
+      expect(legacyRows.map((row) => row.jobCardId)).toContain(sundayBoundaryId);
       expect(legacyRows.map((row) => row.jobCardId)).toContain(sundayId);
     });
   });
@@ -239,12 +245,12 @@ describe.skipIf(!databaseUrl)('weekly source-work query (PostgreSQL)', () => {
   it('honours DST when converting the org-local week window', async () => {
     await withSchema(async (pool) => {
       // America/New_York springs forward 2026-03-08; Monday 2026-03-09 00:00 EDT = 04:00Z,
-      // Saturday 2026-03-14 00:00 EDT = 04:00Z.
+      // Sunday 2026-03-15 00:00 EDT = 04:00Z.
       const organizationId = await insertOrg(pool, 'America/New_York');
       const staffId = await insertUser(pool, organizationId);
-      const { weekStart, weekEnd } = weekInstants('2026-03-09', '2026-03-13', 'America/New_York');
+      const { weekStart, weekEnd } = weekInstants('2026-03-09', '2026-03-14', 'America/New_York');
       expect(weekStart.toISOString()).toBe('2026-03-09T04:00:00.000Z');
-      expect(weekEnd.toISOString()).toBe('2026-03-14T04:00:00.000Z');
+      expect(weekEnd.toISOString()).toBe('2026-03-15T04:00:00.000Z');
       await insertJob(pool, {
         organizationId, type: 'GENERAL_TASK', status: 'COMPLETED', staffId,
         completedAt: '2026-03-09T03:59:59.000Z',

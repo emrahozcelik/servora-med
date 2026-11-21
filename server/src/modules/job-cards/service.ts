@@ -1828,11 +1828,12 @@ export class JobCardService {
         : validateManagerQuestions(input.questions);
     }
     // Deadline authority is SERVER-ONLY (field-test product decision, WR-WEEK):
-    // the submission deadline is Friday of the workweek (`periodEnd`), or the
-    // organization-local creation date if requested later so a late request is
-    // never born overdue. The public request shape carries no dueDate field at
-    // all (the parser rejects one as an unknown field), so no caller, staff or
-    // manager, can move their own or anyone's accountability deadline.
+    // the submission deadline is the Monday after the Monday–Saturday period
+    // (`periodEnd + 2`), or the organization-local creation date if requested
+    // later so a late request is never born overdue. The public request shape
+    // carries no dueDate field at all (the parser rejects one as an unknown
+    // field), so no caller, staff or manager, can move their own or anyone's
+    // accountability deadline.
     const requestTime = this.now();
     const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
     const dueDate = weeklyReportDueDate(input.periodEnd, localDateKey(requestTime, timezone));
@@ -2047,8 +2048,9 @@ export class JobCardService {
     const questions = input.questions === undefined || input.questions === null
       ? []
       : validateManagerQuestions(input.questions);
-    // Same server-only deadline authority as the single create: Friday of the
-    // period (`periodEnd`), or the organization-local creation date if later.
+    // Same server-only deadline authority as the single create: the Monday
+    // after the Monday–Saturday period (`periodEnd + 2`), or the
+    // organization-local creation date if later.
     const requestTime = this.now();
     const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
     const dueDate = weeklyReportDueDate(input.periodEnd, localDateKey(requestTime, timezone));

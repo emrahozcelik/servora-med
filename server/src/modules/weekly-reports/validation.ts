@@ -41,8 +41,8 @@ const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * Canonical Weekly Report period parser (single SSOT for Monday arithmetic).
  *
- * Input is a local `YYYY-MM-DD`; output derives `periodEnd = start + 4 days`
- * (Monday–Friday workweek) with calendar-day arithmetic from
+ * Input is a local `YYYY-MM-DD`; output derives `periodEnd = start + 5 days`
+ * (Monday–Saturday working week) with calendar-day arithmetic from
  * `local-calendar.ts` (DST-independent). Never guesses timezones from
  * `new Date('YYYY-MM-DD')`.
  */
@@ -60,7 +60,7 @@ export function parsePeriodStart(value: unknown): WeeklyReportPeriod {
       { fieldErrors: { periodStart: 'Rapor haftası Pazartesi günü başlamalıdır.' } },
     );
   }
-  return { periodStart, periodEnd: addCalendarDaysToDateKey(periodStart, 4) };
+  return { periodStart, periodEnd: addCalendarDaysToDateKey(periodStart, 5) };
 }
 
 const QUESTION_KEY_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;

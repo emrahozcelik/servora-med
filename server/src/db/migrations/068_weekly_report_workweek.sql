@@ -1,17 +1,17 @@
--- WR-WEEK: Weekly Report workweek period (Monday-Friday) and submission-period
--- agreement. Accepted contract: DECISIONS.md WR-WEEK and
+-- WR-WEEK: Weekly Report working-week period (Monday-Saturday) and
+-- submission-period agreement. Accepted contract: DECISIONS.md WR-WEEK and
 -- docs/features/weekly-report-workweek.md (§3).
 --
 -- Widens weekly_reports and weekly_report_submissions period CHECKs so both
--- new 5-day workweek reports (period_end = period_start + 4) and historical
--- 7-day calendar-week reports (period_end = period_start + 6) are valid, and
--- binds each submission's period to its owning report via a composite foreign
--- key. No existing rows are rewritten or backfilled.
+-- new 6-day working-week reports (period_end = period_start + 5) and
+-- historical 7-day calendar-week reports (period_end = period_start + 6) are
+-- valid, and binds each submission's period to its owning report via a
+-- composite foreign key. No existing rows are rewritten or backfilled.
 
 ALTER TABLE weekly_reports
   DROP CONSTRAINT weekly_reports_period_end_check,
   ADD CONSTRAINT weekly_reports_period_end_check
-    CHECK (period_end = period_start + 4 OR period_end = period_start + 6),
+    CHECK (period_end = period_start + 5 OR period_end = period_start + 6),
   ADD CONSTRAINT weekly_reports_period_identity_key
     UNIQUE (organization_id, id, period_start, period_end);
 
@@ -20,7 +20,7 @@ ALTER TABLE weekly_report_submissions
   ADD CONSTRAINT weekly_report_submissions_period_check
     CHECK (
       EXTRACT(ISODOW FROM period_start) = 1
-      AND (period_end = period_start + 4 OR period_end = period_start + 6)
+      AND (period_end = period_start + 5 OR period_end = period_start + 6)
     ),
   ADD CONSTRAINT weekly_report_submissions_report_period_fk
     FOREIGN KEY (organization_id, weekly_report_id, period_start, period_end)
@@ -36,10 +36,10 @@ BEGIN
      WHERE conrelid = 'weekly_reports'::regclass
        AND conname = 'weekly_reports_period_end_check'
        AND contype = 'c'
-       AND pg_get_constraintdef(oid) LIKE '%period_start + 4%'
+       AND pg_get_constraintdef(oid) LIKE '%period_start + 5%'
        AND pg_get_constraintdef(oid) LIKE '%period_start + 6%'
   ) THEN
-    RAISE EXCEPTION 'weekly_reports_period_end_check must accept + 4 or + 6';
+    RAISE EXCEPTION 'weekly_reports_period_end_check must accept + 5 or + 6';
   END IF;
 
   IF NOT EXISTS (
@@ -57,10 +57,10 @@ BEGIN
        AND conname = 'weekly_report_submissions_period_check'
        AND contype = 'c'
        AND pg_get_constraintdef(oid) ILIKE '%isodow%'
-       AND pg_get_constraintdef(oid) LIKE '%period_start + 4%'
+       AND pg_get_constraintdef(oid) LIKE '%period_start + 5%'
        AND pg_get_constraintdef(oid) LIKE '%period_start + 6%'
   ) THEN
-    RAISE EXCEPTION 'weekly_report_submissions_period_check must bind ISODOW=1 and + 4 or + 6';
+    RAISE EXCEPTION 'weekly_report_submissions_period_check must bind ISODOW=1 and + 5 or + 6';
   END IF;
 
   IF NOT EXISTS (

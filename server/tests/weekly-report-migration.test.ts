@@ -66,17 +66,17 @@ describe('068 weekly report workweek migration', () => {
     sql = await readFile(fileURLToPath(migration068Url), 'utf8');
   });
 
-  it('widens weekly_reports_period_end_check for both +4 workweeks and +6 legacy weeks', () => {
+  it('widens weekly_reports_period_end_check for both +5 working weeks and +6 legacy weeks', () => {
     expect(sql).toContain('DROP CONSTRAINT weekly_reports_period_end_check');
     expect(sql).toContain('ADD CONSTRAINT weekly_reports_period_end_check');
-    expect(sql).toContain('CHECK (period_end = period_start + 4 OR period_end = period_start + 6)');
+    expect(sql).toContain('CHECK (period_end = period_start + 5 OR period_end = period_start + 6)');
   });
 
   it('widens weekly_report_submissions_period_check and binds submission periods to their report', () => {
     expect(sql).toContain('DROP CONSTRAINT weekly_report_submissions_period_check');
     expect(sql).toContain('ADD CONSTRAINT weekly_report_submissions_period_check');
     expect(sql).toContain('EXTRACT(ISODOW FROM period_start) = 1');
-    expect(sql).toContain('period_end = period_start + 4 OR period_end = period_start + 6');
+    expect(sql).toContain('period_end = period_start + 5 OR period_end = period_start + 6');
     expect(sql).toContain('UNIQUE (organization_id, id, period_start, period_end)');
     expect(sql).toContain(
       'FOREIGN KEY (organization_id, weekly_report_id, period_start, period_end)',
