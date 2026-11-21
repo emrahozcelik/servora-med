@@ -39,6 +39,7 @@ const job = () => ({ id,organizationId: user.organizationId,type: 'WEEKLY_REPORT
   assignedTo: staff.id,createdBy: staff.id,priority: 'normal',dueDate: '2026-11-09',scheduledAt: null,
   scheduledEndsAt: null,engagementKind: null,assignee: staff,customer: null,contact: null,
   followUpContext: null,followUpProposal: null,submitLocationComparison: null,
+  hasOpenOverdueIncident: false,correctionDueAt: null,
   workflowContext: { ...workflowContext,allowedCommands: [],allowedActions: ['VIEW_NOTES'],submissionReadiness: null,
     lifecycle: { ...workflowContext.lifecycle,createdAt: stamp,acceptedAt: stamp,acceptedBy: staff,startedAt: stamp,
       submittedAt: cancelled ? null : stamp,submittedBy: cancelled ? null : staff,

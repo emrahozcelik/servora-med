@@ -111,7 +111,9 @@ async function selectIncidents(pool: Pool, organizationId: string, jobId: string
     `SELECT id, delay_type, episode_no, schedule_revision_no,
             deadline_at, breached_at,
             accountable_user_id, accountable_role, accountable_source,
-            source, recorded_at, recovered_at, recovery_actor_user_id
+            source, recorded_at, recovered_at, recovery_actor_user_id,
+            ended_at, ended_by_user_id, end_reason, end_note,
+            ended_by_schedule_revision_no
        FROM job_card_overdue_incidents
       WHERE organization_id = $1 AND job_card_id = $2
       ORDER BY breached_at DESC, id DESC`,
@@ -191,10 +193,10 @@ async function rewindSubmissionTo(
 }
 
 describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
-  it('migration 053 is the schema head with 050 present', async () => {
+  it('migration 067 is the schema head with 050 present', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('066_overdue_correction_deadline_and_extension');
+      expect(catalog.head?.version).toBe('067_overdue_delivery_identity_per_incident');
       // The 049 lifecycle-intent prerequisite stays applied beneath OVR-3.
       expect(catalog.entries.map((entry) => entry.version))
         .toContain('049_job_card_lifecycle_intents');
@@ -202,7 +204,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.map((row) => row.version).at(-1))
-        .toBe('066_overdue_correction_deadline_and_extension');
+        .toBe('067_overdue_delivery_identity_per_incident');
     });
   });
 
@@ -392,7 +394,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
     });
   });
 
-  it('deadline revision after breach preserves the old-revision incident', async () => {
+  it('deadline revision after breach preserves the old-revision evidence and ends the obligation', async () => {
     await withSchema(async (pool) => {
       const organizationId = (await pool.query<{ id: string }>(
         `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Org', 'Europe/Istanbul') RETURNING id`,
@@ -406,22 +408,43 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
 
       let job = await createLateDelivery(service, staffA, customerId);
       clock.now = LATE_AT;
-      // Deadline (07:30Z) already passed; manager moves it forward.
+      // Deadline (07:30Z) already passed; management extends it to 09:30Z
+      // with the reason the extension rule requires.
       job = await service.patch(manager, job.id, {
         expectedVersion: job.version,
         scheduledAt: '2026-08-03T09:00:00.000Z',
+        deadlineExtensionReason: 'Müşteri teslimi iki saat erteledi.',
       } as never);
 
       const incidents = await selectIncidents(pool, organizationId, job.id);
       expect(incidents).toHaveLength(1);
+      // OVR-5b §4.6: the evidence is never erased or rewritten; the obligation
+      // is ended separately, with the actor, instant, reason and revision.
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_START',
         episode_no: 1,
         schedule_revision_no: 1,
         accountable_user_id: staffAId,
+        recovered_at: null,
+        ended_at: LATE_AT,
+        ended_by_user_id: managerId,
+        end_reason: 'DEADLINE_EXTENDED',
+        end_note: 'Müşteri teslimi iki saat erteledi.',
+        ended_by_schedule_revision_no: 2,
       });
       expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-03T07:30:00.000Z'));
-      expect(incidents[0]!.recovered_at).toBeNull();
+      const activity = await pool.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM job_card_activity_logs
+          WHERE organization_id = $1 AND job_card_id = $2
+            AND event_type = 'JOB_OVERDUE_ENDED_BY_EXTENSION'`,
+        [organizationId, job.id],
+      );
+      expect(activity.rows).toHaveLength(1);
+      expect(activity.rows[0]!.metadata).toMatchObject({
+        delayTypes: ['LATE_START'],
+        reason: 'Müşteri teslimi iki saat erteledi.',
+        scheduleRevisionNo: 2,
+      });
     });
   });
 
@@ -438,15 +461,35 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const service = buildService(pool, clock);
 
       let job = await createLateDelivery(service, staffA, customerId);
-      clock.now = new Date('2026-08-03T10:00:00.000Z');
+      // Pre-breach revisions: Staff deadline edits stay legal while nothing is
+      // late yet (OVR-5b §5 only blocks edits on a job with open lateness).
+      clock.now = new Date('2026-08-03T06:10:00.000Z');
       job = await service.patch(staffA, job.id, {
         expectedVersion: job.version,
-        scheduledAt: '2026-08-03T08:00:00.000Z',
+        scheduledAt: '2026-08-03T06:30:00.000Z',
       } as never);
+      clock.now = new Date('2026-08-03T06:20:00.000Z');
       job = await service.patch(staffA, job.id, {
         expectedVersion: job.version,
-        scheduledAt: '2026-08-03T06:00:00.000Z',
+        scheduledAt: '2026-08-03T06:40:00.000Z',
       } as never);
+      // Three revision-bound open LATE_START rows of episode 1. The writer
+      // under test is START's episode-wide recovery, not the patch producers.
+      for (const [revisionNo, deadlineAt] of [
+        [1, '2026-08-03T07:30:00.000Z'],
+        [2, '2026-08-03T07:00:00.000Z'],
+        [3, '2026-08-03T07:10:00.000Z'],
+      ] as const) {
+        await pool.query(
+          `INSERT INTO job_card_overdue_incidents
+             (organization_id, job_card_id, delay_type, episode_no,
+              schedule_revision_no, deadline_at, breached_at,
+              accountable_user_id, accountable_role, accountable_source, source)
+           VALUES ($1, $2, 'LATE_START', 1, $3, $4, $5, $6,
+                   'STAFF', 'ASSIGNMENT_AT_BREACH', 'MUTATION')`,
+          [organizationId, job.id, revisionNo, deadlineAt, deadlineAt, staffAId],
+        );
+      }
 
       const open = await selectIncidents(pool, organizationId, job.id);
       expect(open).toHaveLength(3);
@@ -621,21 +664,34 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const service = buildService(pool, clock);
 
       let job = await createLateDelivery(service, staffA, customerId);
-      clock.now = new Date('2026-08-03T08:00:00.000Z');
+      // Pre-breach revisions (nothing is late yet, so Staff edits are legal).
+      clock.now = new Date('2026-08-03T06:10:00.000Z');
       job = await service.patch(staffA, job.id, {
         expectedVersion: job.version,
-        scheduledAt: '2026-08-03T09:00:00.000Z',
+        scheduledAt: '2026-08-03T06:30:00.000Z',
       } as never);
-      clock.now = new Date('2026-08-03T10:00:00.000Z');
+      clock.now = new Date('2026-08-03T06:20:00.000Z');
       job = await service.patch(staffA, job.id, {
         expectedVersion: job.version,
-        scheduledAt: '2026-08-03T07:00:00.000Z',
+        scheduledAt: '2026-08-03T06:40:00.000Z',
       } as never);
-      // Same request clock produces a breached_at tie for the next revision.
-      job = await service.patch(staffA, job.id, {
-        expectedVersion: job.version,
-        scheduledAt: '2026-08-03T06:00:00.000Z',
-      } as never);
+      // Three revision-bound rows, the last two sharing one breach instant so
+      // the reader's breached_at DESC, id DESC tie-break is exercised.
+      for (const [revisionNo, deadlineAt, breachedAt] of [
+        [1, '2026-08-03T07:30:00.000Z', '2026-08-03T09:00:00.000Z'],
+        [2, '2026-08-03T07:00:00.000Z', '2026-08-03T10:00:00.000Z'],
+        [3, '2026-08-03T07:10:00.000Z', '2026-08-03T10:00:00.000Z'],
+      ] as const) {
+        await pool.query(
+          `INSERT INTO job_card_overdue_incidents
+             (organization_id, job_card_id, delay_type, episode_no,
+              schedule_revision_no, deadline_at, breached_at,
+              accountable_user_id, accountable_role, accountable_source, source)
+           VALUES ($1, $2, 'LATE_START', 1, $3, $4, $5, $6,
+                   'STAFF', 'ASSIGNMENT_AT_BREACH', 'MUTATION')`,
+          [organizationId, job.id, revisionNo, deadlineAt, breachedAt, staffAId],
+        );
+      }
 
       const expected = await pool.query<{ id: string; breached_at: Date }>(
         `SELECT id, breached_at
@@ -806,7 +862,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       let incidents = await selectIncidents(pool, organizationId, job.id);
       expect(incidents).toHaveLength(1);
 
-      // Genuine second cycle: revision -> resume -> late submit again.
+      // Genuine second cycle: revision -> resume -> submit again.
       job = await service.requestRevision(manager, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         revisionReason: 'Detay ekleyin.',
@@ -818,10 +874,34 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ikinci gonderim.',
       });
+      // OVR-5b §3: the revision episode is armed with a correction deadline
+      // (reserved_at + 24h), so the same-instant resubmission is no longer
+      // late against the original deadline and produces no second incident.
       incidents = await selectIncidents(pool, organizationId, job.id);
-      expect(incidents).toHaveLength(2);
-      const episodes = incidents.map((row) => row.episode_no).sort();
-      expect(episodes).toEqual([1, 2]);
+      expect(incidents).toHaveLength(1);
+      expect(incidents[0]).toMatchObject({
+        delay_type: 'LATE_SUBMISSION',
+        episode_no: 1,
+      });
+      const activation = await pool.query<{ activated_at: Date; correction_due_at: Date }>(
+        `SELECT activated_at, correction_due_at
+           FROM job_card_submission_episode_activations
+          WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = 2`,
+        [organizationId, job.id],
+      );
+      expect(activation.rows).toHaveLength(1);
+      expect(activation.rows[0]!.correction_due_at)
+        .toEqual(shiftMs(activation.rows[0]!.activated_at, 24 * 3_600_000));
+      const revisionActivity = await pool.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM job_card_activity_logs
+          WHERE organization_id = $1 AND job_card_id = $2
+            AND event_type = 'JOB_REVISION_REQUESTED'
+          ORDER BY created_at DESC, id DESC LIMIT 1`,
+        [organizationId, job.id],
+      );
+      expect(revisionActivity.rows[0]!.metadata).toMatchObject({
+        correctionDueAt: activation.rows[0]!.correction_due_at.toISOString(),
+      });
       const facts = await pool.query<{ seq_no: number }>(
         `SELECT seq_no FROM job_card_accountability_facts
           WHERE organization_id = $1 AND job_card_id = $2 AND fact_type = 'SUBMITTED'
@@ -953,7 +1033,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
     });
   });
 
-  it('revision before breach creates nothing; later breach binds the new revision', async () => {
+  it('revision before breach creates nothing; a Staff move after a provable breach is refused', async () => {
     await withSchema(async (pool) => {
       const organizationId = (await pool.query<{ id: string }>(
         `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Org', 'Europe/Istanbul') RETURNING id`,
@@ -976,37 +1056,25 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       } as never);
       expect(await selectIncidents(pool, organizationId, job.id)).toHaveLength(0);
 
-      // Move the deadline into the past: the 09:30 breach binds revision 2
-      // (it governed at 10:00) while the new 07:30 deadline binds revision 3.
-      // Revision 3 was only activated at 10:00, so its breach starts there —
-      // never backdated to the nominal 07:30.
-      // Both stay open: no lifecycle recovery happened.
+      // Move the deadline into the past: the current obligation is lateness
+      // the server can prove, so Staff may no longer move the deadline
+      // (OVR-5b §5). The patch — including the pre-mutation incident it just
+      // materialized — rolls back and writes nothing.
       clock.now = new Date('2026-08-03T10:00:00.000Z');
-      await service.patch(staffA, moved.id, {
+      await expect(service.patch(staffA, moved.id, {
         expectedVersion: moved.version,
         scheduledAt: '2026-08-03T07:00:00.000Z',
-      } as never);
-      const incidents = await selectIncidents(pool, organizationId, job.id);
-      expect(incidents).toHaveLength(2);
-      const byRev = new Map(incidents.map((row) => [row.schedule_revision_no, row]));
-      expect(byRev.get(2)).toMatchObject({
-        delay_type: 'LATE_START',
-        episode_no: 1,
-        schedule_revision_no: 2,
-        accountable_user_id: staffAId,
+      } as never)).rejects.toMatchObject({
+        code: 'DEADLINE_CHANGE_REQUIRES_MANAGEMENT',
+        statusCode: 409,
       });
-      expect(byRev.get(2)!.deadline_at).toEqual(new Date('2026-08-03T09:30:00.000Z'));
-      expect(byRev.get(2)!.breached_at).toEqual(new Date('2026-08-03T09:30:00.000Z'));
-      expect(byRev.get(2)!.recovered_at).toBeNull();
-      expect(byRev.get(3)).toMatchObject({
-        delay_type: 'LATE_START',
-        episode_no: 1,
-        schedule_revision_no: 3,
-        accountable_user_id: staffAId,
-      });
-      expect(byRev.get(3)!.deadline_at).toEqual(new Date('2026-08-03T07:30:00.000Z'));
-      expect(byRev.get(3)!.breached_at).toEqual(new Date('2026-08-03T10:00:00.000Z'));
-      expect(byRev.get(3)!.recovered_at).toBeNull();
+      expect(await selectIncidents(pool, organizationId, job.id)).toHaveLength(0);
+      const revisions = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [organizationId, job.id],
+      );
+      expect(revisions.rows[0]!.count).toBe('2');
     });
   });
 
@@ -1620,20 +1688,19 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('B1 candidate RED: START recovers an older revision even when the current revision is on time', async () => {
+  it('B1 candidate RED: a forward extension ends the older revision incident and START never resurrects it', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: CREATE_AT };
       const service = buildService(pool, clock);
 
       // The self-created delivery starts ACCEPTED, so the manager edit below
-      // preserves a provable LATE_START incident for revision 1 while moving
-      // the job back to NEW under revision 2.
+      // first preserves a provable LATE_START incident for revision 1, then
+      // extends the deadline (OVR-5b §4.1) and returns the job to NEW.
       let job = await createLateDelivery(service, ctx.staffA, ctx.customerId);
       clock.now = LATE_AT;
       // Revision 2 straddles the reservation (PD canonical end is start +
-      // 30m): START lands on time for the current revision while resolving
-      // the older open LATE_START episode.
+      // 30m): START lands on time for the current revision.
       const baseline = await dbBaseline(pool);
       // The current-revision START must land on time inside a slot that
       // straddles the real reservation instant; the human patch path imposes
@@ -1642,42 +1709,50 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
         scheduledAt: rev2Start.toISOString(),
+        deadlineExtensionReason: 'Yeni teslim penceresi verildi.',
       } as never);
       expect(job.status).toBe('NEW');
       const beforeStart = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(beforeStart).toHaveLength(1);
+      // OVR-5b §4.6: the older revision's evidence stays; the obligation is
+      // ended by the extension instead of being left open for START.
       expect(beforeStart[0]).toMatchObject({
         delay_type: 'LATE_START',
         schedule_revision_no: 1,
         recovered_at: null,
+        ended_at: LATE_AT,
+        ended_by_user_id: ctx.managerId,
+        end_reason: 'DEADLINE_EXTENDED',
+        ended_by_schedule_revision_no: 2,
       });
 
-      // START is on time for the current revision, but resolves the older
-      // open LATE_START episode.
+      // START is on time for the current revision and must not recover (or
+      // otherwise touch) the ended row: ending and recovery are exclusive.
       clock.now = new Date('2026-08-03T09:00:00.000Z');
       job = await service.acceptAssignment(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      const startActionId = randomUUID();
       job = await service.start(ctx.staffA, job.id, {
-        clientActionId: startActionId, expectedVersion: job.version,
+        clientActionId: randomUUID(), expectedVersion: job.version,
       });
 
       expect(job.status).toBe('IN_PROGRESS');
       const afterStart = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(afterStart).toHaveLength(1);
-      const reservedStart = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_START:${job.id}`);
       expect(afterStart[0]).toMatchObject({
         delay_type: 'LATE_START',
         episode_no: 1,
         schedule_revision_no: 1,
-        recovered_at: reservedStart,
-        recovery_actor_user_id: ctx.staffAId,
+        recovered_at: null,
+        ended_at: LATE_AT,
+        ended_by_user_id: ctx.managerId,
+        end_reason: 'DEADLINE_EXTENDED',
+        ended_by_schedule_revision_no: 2,
       });
     });
   });
 
-  it('B1 regression: on-time SUBMIT recovers an older LATE_SUBMISSION revision', async () => {
+  it('B1 regression: an on-time SUBMIT never resurrects a LATE_SUBMISSION revision ended by an extension', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
@@ -1687,15 +1762,15 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
 
-      // A single dueDate move: the elapsed old deadline binds revision 1
-      // while the future new deadline keeps the submit on time. The patch
-      // requestTime must postdate the START reservation (see syncClock).
+      // Management extends the elapsed deadline into the future with the
+      // required reason: the old revision evidence stays, the obligation ends.
       const baseline = await dbBaseline(pool);
       const futureDue = shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
       await syncClock(pool, clock);
-      job = await service.patch(ctx.staffA, job.id, {
+      job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
         dueDate: futureDue,
+        deadlineExtensionReason: 'Müşteri yeni tarih verdi.',
       } as never);
       const beforeSubmit = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(beforeSubmit).toHaveLength(1);
@@ -1703,27 +1778,28 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         delay_type: 'LATE_SUBMISSION',
         schedule_revision_no: 1,
         recovered_at: null,
+        ended_at: clock.now,
+        ended_by_user_id: ctx.managerId,
+        end_reason: 'DEADLINE_EXTENDED',
+        ended_by_schedule_revision_no: 2,
       });
 
-      // The new deadline is still in the future at the DB reservation
-      // instant, so discovery returns null; semantic recovery must
-      // nevertheless close the old revision row.
-      const submitActionId = randomUUID();
+      // The new deadline is in the future at the DB reservation instant, so
+      // the submit is on time; recovery only closes rows that are still open
+      // and never turns an ended row into a recovered one (§4.8 / §6).
       job = await service.submitForApproval(ctx.staffA, job.id, {
-        clientActionId: submitActionId, expectedVersion: job.version,
+        clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ikinci gonderim.',
       });
       expect(job.status).toBe('WAITING_APPROVAL');
       const afterSubmit = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(afterSubmit).toHaveLength(1);
-      const reservedSubmit = await reservedAtFor(
-        pool, ctx.organizationId, job.id, `JOB_SUBMIT_FOR_APPROVAL:${job.id}`, submitActionId,
-      );
       expect(afterSubmit[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         schedule_revision_no: 1,
-        recovered_at: reservedSubmit,
-        recovery_actor_user_id: ctx.staffAId,
+        recovered_at: null,
+        ended_at: clock.now,
+        end_reason: 'DEADLINE_EXTENDED',
       });
     });
   });
@@ -1735,14 +1811,18 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const service = buildService(pool, clock);
       let job = await createLateDelivery(service, ctx.staffA, ctx.customerId);
       clock.now = LATE_AT;
+      // The revised interval (07:10–07:40Z) is still past at the patch
+      // instant, so nothing is ended (OVR-5b §4.2): the incident stays open
+      // and the job returns to NEW.
       job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
-        scheduledAt: '2026-08-03T09:00:00.000Z',
+        scheduledAt: '2026-08-03T07:10:00.000Z',
       } as never);
       expect(job.status).toBe('NEW');
       expect((await selectIncidents(pool, ctx.organizationId, job.id))[0]).toMatchObject({
         delay_type: 'LATE_START',
         recovered_at: null,
+        ended_at: null,
       });
 
       clock.now = new Date('2026-08-03T08:05:00.000Z');
@@ -1761,7 +1841,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('B2 candidate RED: IN_PROGRESS dueDate move preserves a breached old submission revision', async () => {
+  it('B2 candidate RED: IN_PROGRESS dueDate extension preserves the breached old submission evidence', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
@@ -1785,14 +1865,16 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       });
       expect(job.status).toBe('IN_PROGRESS');
 
-      // The old dueDate is already late. A staff-authorized dueDate-only edit
-      // must preserve the old revision-bound incident before appending rev 2.
+      // The old dueDate is already late. A management extension must preserve
+      // the old revision-bound evidence before appending rev 2, then end the
+      // obligation with the required reason (OVR-5b §4.1/§4.6).
       // Sync the patch clock past the START reservation first (see syncClock).
       await syncClock(pool, clock);
       const futureDue = shiftMs(clock.now, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
-      job = await service.patch(ctx.staffA, job.id, {
+      job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
         dueDate: futureDue,
+        deadlineExtensionReason: 'Yönetim yeni teslim tarihi verdi.',
       } as never);
 
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
@@ -1803,6 +1885,11 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         episode_no: 1,
         schedule_revision_no: 1,
         recovered_at: null,
+        ended_at: clock.now,
+        ended_by_user_id: ctx.managerId,
+        end_reason: 'DEADLINE_EXTENDED',
+        end_note: 'Yönetim yeni teslim tarihi verdi.',
+        ended_by_schedule_revision_no: 2,
       });
       expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-01T21:00:00.001Z'));
       // Breach = max(first late, episode start = START reservation).
@@ -1843,7 +1930,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('B2 regression: IN_PROGRESS dueDate removal preserves the old breached revision', async () => {
+  it('B2 regression: management dueDate removal on an open late obligation is refused', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
@@ -1854,27 +1941,32 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       });
       // Patch clock must postdate the START reservation (see syncClock).
       await syncClock(pool, clock);
-      job = await service.patch(ctx.staffA, job.id, {
+      // The dueDate governs the open lateness, so removing it is not an
+      // extension: OVR-5b §4.3 refuses the patch and writes nothing.
+      await expect(service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
         dueDate: null,
-      } as never);
-
-      const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
-      expect(incidents).toHaveLength(1);
-      const reservedStart = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_START:${job.id}`);
-      expect(incidents[0]).toMatchObject({
-        delay_type: 'LATE_SUBMISSION',
-        episode_no: 1,
-        schedule_revision_no: 1,
-        recovered_at: null,
+      } as never)).rejects.toMatchObject({
+        code: 'OPEN_LATENESS_DEADLINE_REQUIRED',
+        statusCode: 409,
       });
-      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-01T21:00:00.001Z'));
-      // Breach = max(first late, episode start = START reservation).
-      expect(incidents[0]!.breached_at).toEqual(reservedStart);
+
+      expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      const row = await pool.query<{ version: number }>(
+        'SELECT version FROM job_cards WHERE organization_id = $1 AND id = $2',
+        [ctx.organizationId, job.id],
+      );
+      expect(Number(row.rows[0]!.version)).toBe(job.version);
+      const revisions = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [ctx.organizationId, job.id],
+      );
+      expect(revisions.rows[0]!.count).toBe('1');
     });
   });
 
-  it('B2 regression: REVISION_REQUESTED uses pending episode for forward dueDate move', async () => {
+  it('B2 regression: REVISION_REQUESTED pending episode binds the old revision before an extension ends it', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const baseline = await dbBaseline(pool);
@@ -1888,12 +1980,14 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         service, clock, ctx.staffA, ctx.manager, due,
       );
       // Patch after the old deadline but with a forward move: the pending
-      // episode binds the OLD revision deadline, not the new one.
+      // episode binds the OLD revision deadline, which stays as the evidence
+      // of the breached obligation the extension then ends.
       clock.now = shiftMs(dueEnd, 60 * 60_000);
       const forwardDue = shiftMs(dueEnd, 24 * 60 * 60_000).toISOString().slice(0, 10);
-      job = await service.patch(ctx.staffA, job.id, {
+      job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
         dueDate: forwardDue,
+        deadlineExtensionReason: 'Personel için ek süre verildi.',
       } as never);
 
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
@@ -1903,6 +1997,10 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         episode_no: 2,
         schedule_revision_no: 1,
         recovered_at: null,
+        ended_at: clock.now,
+        ended_by_user_id: ctx.managerId,
+        end_reason: 'DEADLINE_EXTENDED',
+        ended_by_schedule_revision_no: 2,
       });
       expect(incidents[0]!.deadline_at).toEqual(shiftMs(dueEnd, 1));
       expect(incidents[0]!.breached_at).toEqual(shiftMs(dueEnd, 1));
@@ -1943,7 +2041,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('B2 regression: REVISION_REQUESTED dueDate removal preserves the pending old revision', async () => {
+  it('B2 regression: a Staff dueDate removal on an open late obligation is refused', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const baseline = await dbBaseline(pool);
@@ -1954,24 +2052,25 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       let job = await moveToRevisionRequested(
         service, clock, ctx.staffA, ctx.manager, due,
       );
-      // Remove the due date after the old deadline: the pending episode
-      // keeps the old revision binding.
+      // Remove the due date after the old deadline: the pending episode is
+      // already provably late, so Staff may not move the deadline; the whole
+      // patch (including the pre-mutation incident) rolls back (OVR-5b §5).
       clock.now = shiftMs(dueEnd, 60 * 60_000);
-      job = await service.patch(ctx.staffA, job.id, {
+      await expect(service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
         dueDate: null,
-      } as never);
-
-      const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
-      expect(incidents).toHaveLength(1);
-      expect(incidents[0]).toMatchObject({
-        delay_type: 'LATE_SUBMISSION',
-        episode_no: 2,
-        schedule_revision_no: 1,
-        recovered_at: null,
+      } as never)).rejects.toMatchObject({
+        code: 'DEADLINE_CHANGE_REQUIRES_MANAGEMENT',
+        statusCode: 409,
       });
-      expect(incidents[0]!.deadline_at).toEqual(shiftMs(dueEnd, 1));
-      expect(incidents[0]!.breached_at).toEqual(shiftMs(dueEnd, 1));
+
+      expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      const revisions = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [ctx.organizationId, job.id],
+      );
+      expect(revisions.rows[0]!.count).toBe('1');
     });
   });
 
@@ -2098,7 +2197,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('B3 regression: factless legacy REQUEST_REVISION arms episode 1 and CANCEL uses that activation', async () => {
+  it('B3 regression: factless legacy REQUEST_REVISION arms episode 1 with the default correction and CANCEL records no backdated breach', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const startedAt = new Date('2026-07-30T09:00:00.000Z');
@@ -2128,8 +2227,10 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         revisionReason: 'Legacy kaydı yeniden başlat.',
       });
       expect(job.status).toBe('REVISION_REQUESTED');
-      const activation = await pool.query<{ episode_no: number; activated_at: Date }>(
-        `SELECT episode_no, activated_at
+      const activation = await pool.query<{
+        episode_no: number; activated_at: Date; correction_due_at: Date | null;
+      }>(
+        `SELECT episode_no, activated_at, correction_due_at
            FROM job_card_submission_episode_activations
           WHERE organization_id = $1 AND job_card_id = $2`,
         [ctx.organizationId, job.id],
@@ -2137,7 +2238,13 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const reservedRevision = await reservedAtFor(
         pool, ctx.organizationId, job.id, `JOB_REQUEST_REVISION:${job.id}`, revisionActionId,
       );
-      expect(activation.rows).toEqual([{ episode_no: 1, activated_at: reservedRevision }]);
+      expect(activation.rows).toHaveLength(1);
+      expect(activation.rows[0]).toMatchObject({
+        episode_no: 1,
+        activated_at: reservedRevision,
+        // OVR-5b §3.2: the default is materialized, never stored as NULL.
+        correction_due_at: shiftMs(reservedRevision, 24 * 3_600_000),
+      });
 
       const cancelActionId = randomUUID();
       job = await service.cancel(ctx.manager, job.id, {
@@ -2145,18 +2252,10 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         cancelReason: 'Legacy iş iptal edildi.',
       });
       expect(job.status).toBe('CANCELLED');
-      const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
-      expect(incidents).toHaveLength(1);
-      const reservedCancel = await reservedAtFor(
-        pool, ctx.organizationId, job.id, `JOB_CANCEL:${job.id}`, cancelActionId,
-      );
-      expect(incidents[0]).toMatchObject({
-        delay_type: 'LATE_SUBMISSION',
-        episode_no: 1,
-        breached_at: reservedRevision,
-        recovered_at: reservedCancel,
-      });
-      expect(incidents[0]!.breached_at).not.toEqual(startedAt);
+      // The armed episode is not late yet (its correction deadline is in the
+      // future), so CANCEL truthfully records no incident at all — it never
+      // backdates the obligation to the old deadline or the old fact.
+      expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
     });
   });
 
@@ -2258,7 +2357,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('REVISION_REQUESTED late + CANCEL preserves the submission episode', async () => {
+  it('REVISION_REQUESTED arms the next episode with its correction deadline; CANCEL records no backdated breach', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
@@ -2306,23 +2405,26 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         cancelReason: 'Müşteri vazgeçti.',
       });
       expect(job.status).toBe('CANCELLED');
-      const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
-      expect(incidents).toHaveLength(1);
-      expect(incidents[0]).toMatchObject({
-        delay_type: 'LATE_SUBMISSION',
-        episode_no: 2,
-        schedule_revision_no: 1,
-        accountable_user_id: ctx.staffAId,
-      });
-      // The next obligation starts exactly when REQUEST_REVISION armed it;
-      // it must never be backdated to the previous SUBMITTED fact/deadline.
+      // The episode armed by REQUEST_REVISION carries the materialized 24h
+      // correction deadline, so the cancellation is not late against the old
+      // deadline: no incident is fabricated or backdated (§3.2, §3.5).
+      expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
       const reservedRevision = await reservedAtFor(
         pool, ctx.organizationId, job.id, `JOB_REQUEST_REVISION:${job.id}`,
       );
-      const reservedCancel = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_CANCEL:${job.id}`);
-      expect(incidents[0]!.breached_at).toEqual(reservedRevision);
-      expect(incidents[0]!.recovered_at).toEqual(reservedCancel);
-      expect(incidents[0]!.recovery_actor_user_id).toBe(ctx.managerId);
+      const activation = await pool.query<{
+        episode_no: number; activated_at: Date; correction_due_at: Date | null;
+      }>(
+        `SELECT episode_no, activated_at, correction_due_at
+           FROM job_card_submission_episode_activations
+          WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = 2`,
+        [ctx.organizationId, job.id],
+      );
+      expect(activation.rows).toHaveLength(1);
+      expect(activation.rows[0]).toMatchObject({
+        activated_at: reservedRevision,
+        correction_due_at: shiftMs(reservedRevision, 24 * 3_600_000),
+      });
     });
   });
 
@@ -2423,7 +2525,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('retroactive revision never backdates before revision activation', async () => {
+  it('a Staff deadline move after a provable breach writes nothing, so no breach is backdated', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: CREATE_AT };
@@ -2437,21 +2539,24 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       } as never);
       expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
 
+      // Moving the deadline back into the past is refused before the new
+      // revision is appended: no row can ever be backdated to a revision the
+      // refused patch never created (OVR-5b §5, S3).
       clock.now = new Date('2026-08-03T10:00:00.000Z');
-      job = await service.patch(ctx.staffA, job.id, {
+      await expect(service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
         scheduledAt: '2026-08-03T07:00:00.000Z',
-      } as never);
-      const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
-      expect(incidents).toHaveLength(2);
-      const byRev = new Map(incidents.map((row) => [row.schedule_revision_no, row]));
-      expect(byRev.get(2)!.deadline_at).toEqual(new Date('2026-08-03T09:30:00.000Z'));
-      expect(byRev.get(2)!.breached_at).toEqual(new Date('2026-08-03T09:30:00.000Z'));
-      // Nominal 07:30 predates the revision that introduced it: the breach
-      // starts at revision activation (10:00), never at 07:30.
-      expect(byRev.get(3)!.deadline_at).toEqual(new Date('2026-08-03T07:30:00.000Z'));
-      expect(byRev.get(3)!.breached_at).toEqual(new Date('2026-08-03T10:00:00.000Z'));
-      for (const row of incidents) expect(row.recovered_at).toBeNull();
+      } as never)).rejects.toMatchObject({
+        code: 'DEADLINE_CHANGE_REQUIRES_MANAGEMENT',
+        statusCode: 409,
+      });
+      expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      const revisions = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [ctx.organizationId, job.id],
+      );
+      expect(revisions.rows[0]!.count).toBe('2');
     });
   });
 

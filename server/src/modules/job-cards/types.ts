@@ -525,6 +525,19 @@ export type PersistedJobCardDetail = JobCard & {
    * projection: the detail presenter turns it into `JobAssignmentOfferView`.
    */
   assignmentOffer: JobAssignmentOfferRecord | null;
+  /**
+   * OVR-5b §5.3: an open (neither recovered nor ended) LATE_START or
+   * LATE_SUBMISSION incident exists right now. The Staff deadline rule and the
+   * management reason field read this server-computed fact.
+   */
+  hasOpenOverdueIncident: boolean;
+  /**
+   * OVR-5b §3.7: the effective submission deadline of the current submission
+   * episode — `max(original, stored correction)` — when that episode was armed
+   * by REQUEST_REVISION with a stored value and the job is REVISION_REQUESTED
+   * or IN_PROGRESS; otherwise null.
+   */
+  correctionDueAt: string | null;
 };
 
 /** JOB-010 release 2b: persisted latest offer, server-internal shape. */

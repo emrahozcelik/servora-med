@@ -32,6 +32,8 @@ const delivery = {
   },
   followUpContext: null,
   followUpProposal: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 } satisfies JobCard & { organizationTimezone: string };
 const item: DeliveryItem = {
   id: 'item-1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'product-1',

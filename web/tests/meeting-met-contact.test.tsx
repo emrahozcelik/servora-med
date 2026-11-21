@@ -20,6 +20,8 @@ const job = {
   createdBy: 'staff-1', priority: 'normal', dueDate: '2026-07-15',
   assignee: { id: 'staff-1', name: 'Ayşe' }, customer: { id: 'c1', name: 'Klinik' },
   contact: null, workflowContext,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 } satisfies JobCard;
 const details: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: null, outcome: null, unsuccessfulReason: null,

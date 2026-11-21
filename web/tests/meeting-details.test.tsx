@@ -14,7 +14,8 @@ const user: CurrentUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe
 const job = { id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', status: 'IN_PROGRESS', version: 3,
   title: 'Görüşme', description: null, customerId: 'c1', contactId: null, assignedTo: 'staff-1', createdBy: 'staff-1',
   priority: 'normal', dueDate: '2026-07-15', assignee: { id: 'staff-1', name: 'Ayşe' }, customer: { id: 'c1', name: 'Klinik' },
-  contact: null, workflowContext } satisfies JobCard;
+  contact: null, workflowContext,
+  hasOpenOverdueIncident: false, correctionDueAt: null } satisfies JobCard;
 const details: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: null, outcome: null, unsuccessfulReason: null,
   meetingSummary: null, nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,

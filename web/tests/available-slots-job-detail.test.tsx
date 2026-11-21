@@ -32,6 +32,7 @@ const job: JobCard = {
   scheduledAt: '2026-08-16T10:00:00.000Z', scheduledEndsAt: '2026-08-16T11:00:00.000Z',
   assignee: { id: user.id, name: user.name }, customer: { id: 'customer-1', name: 'Klinik' },
   contact: null, followUpContext: null, followUpProposal: null,
+  hasOpenOverdueIncident: false, correctionDueAt: null,
   workflowContext: {
     allowedCommands: [],
     allowedActions: ['EDIT_JOB_FIELDS'],
@@ -134,5 +135,37 @@ describe('JobDetail joint slot edit', () => {
       undefined,
       undefined,
     );
+  });
+
+  it('locks slot selection and the save button for Staff on a lateness-open job', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const locked = { ...job, hasOpenOverdueIncident: true };
+    await act(async () => root.render(<JobDetailPanel
+      job={locked}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onBack={() => {}}
+      onCommand={() => {}}
+      onSaveSchedule={onSave}
+    />));
+
+    const input = container.querySelector('#job-scheduled-at') as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    const before = input.value;
+
+    await act(async () => { vi.advanceTimersByTime(300); });
+    await act(async () => { await Promise.resolve(); });
+    const slot = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slot).toBeTruthy();
+    expect(slot.disabled).toBe(true);
+    await act(async () => slot.click());
+    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value).toBe(before);
+
+    const save = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Planlanan zamanı kaydet') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

@@ -698,6 +698,73 @@ post-revision MUTATION producers, the deadline-extension boundary comparison and
 change-request `resolved_at`. A patch that waited behind another transaction is judged at
 the moment it actually applies.
 
+### PATCH deadline extension and change-request resolution (OVR-5b)
+
+Two optional request keys carry the OVR-5 write intent. They are request intent, never
+JobCard columns:
+
+```ts
+type PatchDeadlineExtensionInput = {
+  expectedVersion: number
+  // ...ordinary editable fields
+  /** Required when the change ends at least one open deadline obligation. */
+  deadlineExtensionReason?: string
+  /** Resolves the job's OPEN change request atomically with a deadline move. */
+  changeRequestResolution?: {
+    changeRequestId: string
+    resolution: 'RESCHEDULED'
+    note?: string | null
+  }
+}
+```
+
+- `deadlineExtensionReason` is validated whenever it is sent: a non-string or more than
+  500 trimmed characters is `400 VALIDATION_ERROR` with
+  `fieldErrors.deadlineExtensionReason`. A blank string means "no reason". A reason sent
+  when nothing ends is ignored and never stored.
+- **Staff may not move a late deadline.** A STAFF patch that changes `dueDate`,
+  `scheduledAt` or `scheduledEndsAt` on a job with an open `LATE_START` or
+  `LATE_SUBMISSION` incident returns `409 DEADLINE_CHANGE_REQUIRES_MANAGEMENT`
+  ("Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi
+  gönderin.") and writes nothing. The rule runs after the existing `SALE` /
+  `WEEKLY_REPORT` / JOB-010 `CUSTOMER_TIME_MANAGEMENT_ONLY` / `JOB_NOT_EDITABLE` guards
+  and after the pre-mutation incident materialization, so its precedence is exact and a
+  breach the scanner has not ticked yet still rolls back. A STAFF patch that sends
+  `changeRequestResolution` is `400 VALIDATION_ERROR` with
+  `fieldErrors.changeRequestResolution`.
+- **Removing a governing deadline is refused (management).** A MANAGER/ADMIN patch that
+  would make the first-late boundary of an open obligation `NULL` (for example
+  `dueDate: null` on a General Task whose deadline is its due date) returns
+  `409 OPEN_LATENESS_DEADLINE_REQUIRED` ("Gecikmesi açık işin son tarihi kaldırılamaz;
+  ileri bir tarih seçin.") and writes nothing. Removing a field that is not the open
+  obligation's governing deadline is allowed and ends nothing.
+- **An extension ends the obligation.** A MANAGER/ADMIN patch that appends a schedule
+  revision ends every still-open row of an affected `(job, delayType, episodeNo)` in the
+  same transaction when the new first-late boundary is after the patch instant: the
+  current `LATE_SUBMISSION` episode (with its `correctionDueAt` included) and `LATE_START`
+  episode 1, in any status including `NEW`. Those rows receive `endedAt`, `endedBy`,
+  `endReason = 'DEADLINE_EXTENDED'`, `endNote` and the appended revision; evidence
+  (`deadlineAt`, `breachedAt`, accountability, `scheduleRevisionNo`, `source`) never
+  changes. A new deadline still at or before the patch instant ends nothing.
+  `APPROVAL_WAIT` is never ended. When at least one obligation ends without a reason the
+  patch returns `400 DEADLINE_EXTENSION_REASON_REQUIRED` with
+  `fieldErrors.deadlineExtensionReason` ("Gecikmeyi sonlandıran tarih değişikliği için
+  gerekçe yazın.") and nothing is written. One `JOB_OVERDUE_ENDED_BY_EXTENSION` activity
+  is appended per patch that ended something, with the delay types, per-episode old/new
+  boundary, reason and revision number.
+- **Atomic change-request resolution.** `changeRequestResolution` is accepted only from
+  MANAGER/ADMIN and only when the same patch appends a schedule revision; otherwise
+  `400 VALIDATION_ERROR` with `fieldErrors.changeRequestResolution`. The named request
+  must be this job's OPEN request: another job's or an unknown id is
+  `404 CHANGE_REQUEST_NOT_FOUND`, an already resolved one is
+  `409 CHANGE_REQUEST_NOT_OPEN`, and nothing is written. Only `RESCHEDULED` is accepted;
+  `note` is optional and at most 2 000 characters. The resolution commits inside the
+  patch transaction (state, resolution, `resolved_by`, `resolved_at` = the patch instant,
+  `JOB_CHANGE_REQUEST_RESOLVED` activity, Staff notification and realtime event), in the
+  users → JobCard → change-request lock order. The server never resolves a request the
+  patch did not name. A replay of the same patch fails with the ordinary
+  `409 VERSION_CONFLICT` and resolves nothing twice.
+
 ### Overdue incident history (OVR-2 / OVR-4 / OVR-5 readers)
 
 `GET /api/job-cards/:jobCardId/overdue-incidents?limit&offset`
@@ -878,6 +945,42 @@ Base lifecycle command body:
 ```
 
 `request-revision` requires `revisionReason`; `cancel` requires `cancelReason` according to cancellation policy.
+
+### Revision correction deadline (OVR-5b)
+
+`POST /api/job-cards/:id/request-revision` accepts one optional extra key:
+
+```json
+{
+  "clientActionId": "uuid",
+  "expectedVersion": 6,
+  "revisionReason": "Fotoğraflar eksik.",
+  "correctionDueAt": "2026-11-22T09:00:00.000Z"
+}
+```
+
+- **Syntax first.** `correctionDueAt` must be a valid ISO instant string. A `null`,
+  non-string or unparsable value returns `400 VALIDATION_ERROR` with
+  `fieldErrors.correctionDueAt` ("Geçerli bir düzeltme son tarihi seçin.") before the
+  lifecycle intent is claimed and before the request hash is computed.
+- **Bound under the 049 clock.** `reserved_at + 1 hour ≤ correctionDueAt ≤ reserved_at +
+  14 days`, checked in the reservation preflight and again in finalize against the same
+  `reserved_at`. Outside the bound returns `400 VALIDATION_ERROR` with
+  `fieldErrors.correctionDueAt` ("Düzeltme son tarihi en az 1 saat, en fazla 14 gün
+  sonrası olmalı.") and nothing is armed or written.
+- **Stored value.** The activation row of the armed episode records the supplied value,
+  or `reserved_at + 24 hours` when omitted. `WITHDRAW_FROM_APPROVAL` never stores one.
+  When the job has no original effective submission deadline (no `scheduledEndsAt`, no
+  `scheduledAt` except for SALES_MEETING, and no `dueDate`) nothing is stored and a
+  syntactically valid supplied value is ignored: a correction never creates lateness
+  where none existed. The bound is skipped in that case.
+- The armed episode's effective deadline is `max(original effective deadline,
+  correctionDueAt)`; equality at the effective deadline is still on time. The
+  `JOB_REVISION_REQUESTED` activity metadata records the stored `correctionDueAt` (or
+  `null`); the notification text is unchanged.
+- **Idempotency.** The request hash includes the normalized `correctionDueAt` only when
+  the client sent the key, so a pre-OVR-5b receipt recorded without it keeps replaying
+  byte-identically and the same `clientActionId` with a different value conflicts.
 
 `ACCEPT_ASSIGNMENT` is not gated by `scheduledAt`; the acceptance deadline belongs to
 JOB-010 release 2b. `START` for `PRODUCT_DELIVERY` and `SALES_MEETING` is allowed from
@@ -1295,6 +1398,15 @@ type JobCardDetail = {
     grantedAt: string
     grantedBy: { id: string; name: string | null }
   } | null
+  // OVR-5b §5.3: an open (neither recovered nor ended) LATE_START or
+  // LATE_SUBMISSION incident exists right now. The Staff deadline rule and the
+  // management reason field read this server-computed fact.
+  hasOpenOverdueIncident: boolean
+  // OVR-5b §3.7: the effective submission deadline of the current submission
+  // episode — max(original, stored correction) — when that episode was armed by
+  // REQUEST_REVISION with a stored value and the job is REVISION_REQUESTED or
+  // IN_PROGRESS; otherwise null.
+  correctionDueAt: string | null
 }
 ```
 

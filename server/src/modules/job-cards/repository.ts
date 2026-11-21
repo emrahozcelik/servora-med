@@ -392,6 +392,39 @@ export type InsertOverdueIncidentInput = {
   accountableSource: OverdueAccountableSource;
   source: OverdueIncidentSource;
 };
+
+/**
+ * OVR-5b §4.1: one still-open deadline incident of a job. `deadlineAt` is the
+ * row's own first-late boundary and `breachedAt` orders the canonical row of
+ * an episode (earliest breach), exactly as the reminder worker selects it.
+ */
+export type OpenDeadlineIncident = {
+  id: string;
+  delayType: Extract<OverdueIncidentDelayType, 'LATE_START' | 'LATE_SUBMISSION'>;
+  episodeNo: number;
+  deadlineAt: Date;
+  breachedAt: Date;
+};
+
+/** OVR-5b §4.6: the authorized extension that ends an open obligation. */
+export type EndOverdueIncidentEpisodeInput = {
+  organizationId: string;
+  jobCardId: string;
+  delayType: Extract<OverdueIncidentDelayType, 'LATE_START' | 'LATE_SUBMISSION'>;
+  episodeNo: number;
+  endedAt: Date;
+  endedByUserId: string;
+  endReason: OverdueIncidentEndReason;
+  endNote: string;
+  endedByScheduleRevisionNo: number;
+};
+
+/** OVR-5b §4.7: one ended row, enough to record the old boundary. */
+export type EndedOverdueIncident = {
+  id: string;
+  deadlineAt: Date;
+  breachedAt: Date;
+};
 /**
  * OVR-3 discovery candidate: organization + job identity only. Discovery must
  * never derive eligibility, so it carries no breach or evidence decision.
@@ -1075,6 +1108,30 @@ export interface JobCardTransaction extends SubmissionReader {
     recoveredAt: Date;
     recoveryActorUserId: string;
   }): Promise<void>;
+  /**
+   * OVR-5b §4.1: every open LATE_START / LATE_SUBMISSION row of one job, in
+   * identity order. The patch extension evaluator groups them by delay type
+   * and episode and decides the new first-late boundary of each group.
+   */
+  listOpenDeadlineIncidents(input: {
+    organizationId: string;
+    jobCardId: string;
+  }): Promise<readonly OpenDeadlineIncident[]>;
+  /**
+   * OVR-5b §4.1/§4.6: end every still-open row of one (job, delay type,
+   * episode) with the authorized extension. Evidence columns never change.
+   * Returns the ended rows so the activity can record the old boundary.
+   */
+  endOverdueIncidentEpisode(input: EndOverdueIncidentEpisodeInput): Promise<readonly EndedOverdueIncident[]>;
+  /**
+   * OVR-5b §5: does the job currently have an open (neither recovered nor
+   * ended) LATE_START or LATE_SUBMISSION incident? Read under the JobCard
+   * lock for the Staff deadline rule; the same predicate backs the DTO flag.
+   */
+  hasOpenDeadlineOverdueIncident(input: {
+    organizationId: string;
+    jobCardId: string;
+  }): Promise<boolean>;
   /** OVR-2: latest immutable SUBMITTED fact, or null for legacy uncertainty. */
   getLatestSubmittedFact(
     organizationId: string,
@@ -1091,6 +1148,8 @@ export interface JobCardTransaction extends SubmissionReader {
     episodeNo: number;
     activatedAt: Date;
     activatedByCommand: 'REQUEST_REVISION' | 'WITHDRAW_FROM_APPROVAL';
+    /** OVR-5b §3: management correction deadline; NULL when unarmed. */
+    correctionDueAt?: Date | null;
   }): Promise<{ id: string; created: boolean }>;
   /** OVR-2: activation row for a submission episode, or null when never armed. */
   getSubmissionEpisodeActivation(
@@ -1559,6 +1618,10 @@ type JobCardDetailRow = JobCardRow & {
   change_request_requested_at: Date | null;
   change_request_requested_by_id: string | null;
   change_request_requested_by_name: string | null;
+  /** OVR-5b §5.3: an open LATE_START / LATE_SUBMISSION incident exists. */
+  has_open_overdue_incident: boolean;
+  /** OVR-5b §3.7: effective deadline of the current revision episode. */
+  correction_due_at: Date | null;
   assignment_offer_id: string | null;
   assignment_offer_state: JobAssignmentOfferState | null;
   assignment_offer_opened_at: Date | null;
@@ -2193,6 +2256,16 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        change_request.requested_at AS change_request_requested_at,
        change_request.requested_by_id AS change_request_requested_by_id,
        change_request.requested_by_name AS change_request_requested_by_name,
+       (SELECT EXISTS (
+          SELECT 1
+            FROM job_card_overdue_incidents open_incident
+           WHERE open_incident.organization_id = j.organization_id
+             AND open_incident.job_card_id = j.id
+             AND open_incident.delay_type IN ('LATE_START', 'LATE_SUBMISSION')
+             AND open_incident.recovered_at IS NULL
+             AND open_incident.ended_at IS NULL
+        )) AS has_open_overdue_incident,
+       correction_due.correction_due_at,
        assignment_offer.id AS assignment_offer_id,
        assignment_offer.state AS assignment_offer_state,
        assignment_offer.opened_at AS assignment_offer_opened_at,
@@ -2273,6 +2346,36 @@ LEFT JOIN LATERAL (
   ORDER BY cr.requested_at DESC, cr.id DESC
   LIMIT 1
 ) change_request ON TRUE
+LEFT JOIN LATERAL (
+  -- OVR-5b §3.7: the effective submission deadline of the current submission
+  -- episode when it was armed by REQUEST_REVISION with a stored correction and
+  -- the job is still in that episode's lifecycle states. The shared SQL
+  -- renderer keeps the due-date fallback and the max(original, correction)
+  -- rule single-owner with the TypeScript producer. The renderer's request
+  -- time ref is part of its shape but is not rendered by this formula.
+  SELECT ${effectiveSubmissionDeadlineSql({
+    scheduledEndsAt: 'j.scheduled_ends_at',
+    scheduledAt: 'j.scheduled_at',
+    type: 'j.type',
+    dueDate: 'j.due_date',
+    timezone: 'org.timezone',
+    requestTime: 'NOW()',
+    correctionDueAt: 'episode.correction_due_at',
+  })} AS correction_due_at
+  FROM job_card_submission_episode_activations episode
+  WHERE episode.organization_id = j.organization_id
+    AND episode.job_card_id = j.id
+    AND episode.activated_by_command = 'REQUEST_REVISION'
+    AND episode.correction_due_at IS NOT NULL
+    AND j.status IN ('REVISION_REQUESTED', 'IN_PROGRESS')
+    AND episode.episode_no = (
+      SELECT COALESCE(MAX(submitted_fact.seq_no), 0) + 1
+        FROM job_card_accountability_facts submitted_fact
+       WHERE submitted_fact.organization_id = j.organization_id
+         AND submitted_fact.job_card_id = j.id
+         AND submitted_fact.fact_type = 'SUBMITTED'
+    )
+) correction_due ON TRUE
 LEFT JOIN LATERAL (
   SELECT o.id,
          o.state,
@@ -2410,6 +2513,12 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
             name: row.change_request_requested_by_name,
           },
         },
+    // OVR-5b: the server-computed open-lateness flag and the effective
+    // correction deadline of the current revision episode.
+    hasOpenOverdueIncident: row.has_open_overdue_incident === true,
+    correctionDueAt: row.correction_due_at == null
+      ? null
+      : row.correction_due_at.toISOString(),
     assignmentOffer: row.assignment_offer_id == null
       ? null
       : {
@@ -3796,6 +3905,82 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     );
   }
 
+  async listOpenDeadlineIncidents(input: {
+    organizationId: string;
+    jobCardId: string;
+  }): Promise<readonly OpenDeadlineIncident[]> {
+    // Callers hold the JobCard row lock. Ended and recovered rows are closed
+    // obligations and never take part in an extension decision (§6).
+    const result = await this.client.query<{
+      id: string; delay_type: OpenDeadlineIncident['delayType'];
+      episode_no: number; deadline_at: Date; breached_at: Date;
+    }>(
+      `SELECT id, delay_type, episode_no, deadline_at, breached_at
+         FROM job_card_overdue_incidents
+        WHERE organization_id = $1 AND job_card_id = $2
+          AND delay_type IN ('LATE_START', 'LATE_SUBMISSION')
+          AND recovered_at IS NULL AND ended_at IS NULL
+        ORDER BY delay_type ASC, episode_no ASC, breached_at ASC, id ASC`,
+      [input.organizationId, input.jobCardId],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      delayType: row.delay_type,
+      episodeNo: Number(row.episode_no),
+      deadlineAt: row.deadline_at,
+      breachedAt: row.breached_at,
+    }));
+  }
+
+  async endOverdueIncidentEpisode(
+    input: EndOverdueIncidentEpisodeInput,
+  ): Promise<readonly EndedOverdueIncident[]> {
+    // OVR-5b §4.6: ending is separate from recovery, one-way, and never
+    // rewrites evidence (deadline_at, breached_at, accountability, revision,
+    // source stay untouched). The WHERE is the same "open" predicate the
+    // readers use, so an already recovered or ended row is never re-closed.
+    const result = await this.client.query<{
+      id: string; deadline_at: Date; breached_at: Date;
+    }>(
+      `UPDATE job_card_overdue_incidents
+          SET ended_at = $5,
+              ended_by_user_id = $6,
+              end_reason = $7,
+              end_note = $8,
+              ended_by_schedule_revision_no = $9
+        WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
+          AND episode_no = $4 AND recovered_at IS NULL AND ended_at IS NULL
+        RETURNING id, deadline_at, breached_at`,
+      [input.organizationId, input.jobCardId, input.delayType, input.episodeNo,
+        input.endedAt, input.endedByUserId, input.endReason, input.endNote,
+        input.endedByScheduleRevisionNo],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      deadlineAt: row.deadline_at,
+      breachedAt: row.breached_at,
+    }));
+  }
+
+  async hasOpenDeadlineOverdueIncident(input: {
+    organizationId: string;
+    jobCardId: string;
+  }): Promise<boolean> {
+    // OVR-5b §5.3 / §6: the same predicate the DTO flag and the Staff deadline
+    // rule expose; APPROVAL_WAIT is deliberately not a deadline incident.
+    const result = await this.client.query<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM job_card_overdue_incidents
+          WHERE organization_id = $1 AND job_card_id = $2
+            AND delay_type IN ('LATE_START', 'LATE_SUBMISSION')
+            AND recovered_at IS NULL AND ended_at IS NULL
+       ) AS present`,
+      [input.organizationId, input.jobCardId],
+    );
+    return result.rows[0]?.present === true;
+  }
+
   async getLatestSubmittedFact(organizationId: string, jobCardId: string) {
     const result = await this.client.query<{
       seq_no: number; occurred_at: Date; schedule_revision_no: number;
@@ -3816,17 +4001,19 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     episodeNo: number;
     activatedAt: Date;
     activatedByCommand: 'REQUEST_REVISION' | 'WITHDRAW_FROM_APPROVAL';
+    correctionDueAt?: Date | null;
   }) {
     // Callers hold the JobCard row lock (FOR UPDATE); the UNIQUE identity
     // additionally absorbs replays, so the same arming can never duplicate.
     const inserted = await this.client.query<{ id: string }>(
       `INSERT INTO job_card_submission_episode_activations
-         (organization_id, job_card_id, episode_no, activated_at, activated_by_command)
-       VALUES ($1, $2, $3, $4, $5)
+         (organization_id, job_card_id, episode_no, activated_at, activated_by_command,
+          correction_due_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (organization_id, job_card_id, episode_no) DO NOTHING
        RETURNING id`,
       [input.organizationId, input.jobCardId, input.episodeNo,
-        input.activatedAt, input.activatedByCommand],
+        input.activatedAt, input.activatedByCommand, input.correctionDueAt ?? null],
     );
     if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
     const existing = await this.client.query<{ id: string }>(

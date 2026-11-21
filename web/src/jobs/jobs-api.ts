@@ -312,6 +312,20 @@ export type JobCard = {
    * window, or null. Visible to management and to the assigned Staff member.
    */
   assignmentOffer: AssignmentOffer | null;
+  /**
+   * OVR-5: an open (`recovered_at IS NULL AND ended_at IS NULL`)
+   * LATE_START / LATE_SUBMISSION incident exists. Server-computed; the web
+   * only uses it to disable Staff deadline fields and to ask management for an
+   * extension reason. The backend stays the authority.
+   */
+  hasOpenOverdueIncident: boolean;
+  /**
+   * OVR-5: effective correction deadline of the current submission episode
+   * (`max(original deadline, stored correction)`) when that episode was armed
+   * by REQUEST_REVISION and the job is REVISION_REQUESTED / IN_PROGRESS;
+   * otherwise null.
+   */
+  correctionDueAt: string | null;
 };
 /**
  * JOB-010 release 2b: one assignment offer as the server presents it. An OPEN
@@ -512,6 +526,18 @@ export type PatchJobCardInput = {
   overrideReason?: string | null;
   /** JOB-010 release 2b: sent only when the planned start already passed. */
   pastStartAcknowledgement?: PastStartAcknowledgement;
+  /** OVR-5 §4.5: management reason for a deadline change that ends lateness. */
+  deadlineExtensionReason?: string;
+  /**
+   * OVR-5 §4.11: resolve the job's open JOB-010 change request inside the same
+   * management deadline patch. The server validates id/state and the appended
+   * schedule revision.
+   */
+  changeRequestResolution?: {
+    changeRequestId: string;
+    resolution: 'RESCHEDULED';
+    note?: string | null;
+  };
 };
 
 export type JobCardListFilters = Partial<{
@@ -833,6 +859,16 @@ export function pastStartAcknowledgementPayload(
   if (text.length === 0) return {};
   return { pastStartAcknowledgement: { code: acknowledgement.code, text } };
 }
+/**
+ * OVR-5 detail DTO. Tolerant of an absent field (a previous backend keeps its
+ * old shape) but strictly typed when present; the server sends both.
+ */
+function parseHasOpenOverdueIncident(value: unknown): boolean {
+  return value === undefined ? false : boolean(value, 'hasOpenOverdueIncident');
+}
+function parseCorrectionDueAt(value: unknown): string | null {
+  return value === undefined ? null : nullableCanonicalInstant(value, 'correctionDueAt');
+}
 function parseEngagementKind(value: unknown, type: JobCardType): JobCardEngagementKind | null {
   if (type === 'SALES_MEETING') {
     return oneOf(value, 'engagementKind', JOB_CARD_ENGAGEMENT_KINDS);
@@ -991,6 +1027,8 @@ function parseJobCard(value: unknown): JobCard {
     submitLocationComparison: parseSubmitLocationComparison(v.submitLocationComparison),
     changeRequest: parseChangeRequest(v.changeRequest),
     assignmentOffer: parseAssignmentOffer(v.assignmentOffer),
+    hasOpenOverdueIncident: parseHasOpenOverdueIncident(v.hasOpenOverdueIncident),
+    correctionDueAt: parseCorrectionDueAt(v.correctionDueAt),
   };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
@@ -1828,7 +1866,18 @@ export const findAvailableSlots = async (input: AvailableSlotsInput) =>
   parseAvailableSlotsResponse(
     await request('/api/job-cards/available-slots', json('POST', input)),
   );
-export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
+export const requestJobCardRevision = (
+  id: string,
+  input: LifecycleInput & {
+    revisionReason: string;
+    /**
+     * OVR-5 §3: optional correction deadline (ISO instant). Omitted → the
+     * server materializes reserved_at + 24 h. Never sent for a job without an
+     * original submission deadline.
+     */
+    correctionDueAt?: string;
+  },
+) => lifecycle(id, 'request-revision', input);
 export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
 export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);
 export const cancelJobCard = async (

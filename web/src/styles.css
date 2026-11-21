@@ -216,6 +216,37 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .field-group input:hover, .field-group select:hover, .field-group textarea:hover, .form-control:hover { border-color: var(--border-control-hover); }
 .field-group input:focus, .field-group select:focus, .field-group textarea:focus, .form-control:focus { border-color: var(--accent); }
 .field-group input:disabled, .field-group select:disabled, .field-group textarea:disabled, .form-control:disabled { background: var(--canvas); }
+/* Standalone checkbox row (not .field-group: the generic full-width control
+   rules must not restyle the checkbox; input { min-height } is scoped out).
+   The row and its label keep the 44px target: the label fills the remaining
+   width so the whole row toggles the checkbox. */
+.form-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: var(--control-height);
+  margin-top: 1rem;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+.form-checkbox-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.form-checkbox-row label {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  margin: 0;
+  cursor: pointer;
+}
 /* Password visibility toggle (UI audit F-16): a real 44px control inside the
    field row, joined to the same border/radius/focus language as inputs. */
 .password-field {
@@ -3275,6 +3306,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .reason-dialog h2, .workflow-dialog h2 { margin: 0; }
 .reason-dialog > p, .workflow-dialog > p { color: var(--muted); line-height: 1.5; }
 .reason-dialog .review-buttons, .workflow-dialog .review-buttons { margin-top: 1rem; }
+/* The dialogs wrap optional prelude fields in a fieldset only to lock them
+   while pending/uncertain; the browser-default frame would add a second box. */
+.reason-dialog fieldset, .workflow-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .follow-up-proposal-card { margin: 1rem 0; padding: 0.9rem; border: 1px solid var(--border-accent); border-radius: 0.6rem; background: var(--accent-soft); }
 .follow-up-proposal-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .follow-up-proposal-heading h3 { margin: 0; font-size: 1rem; }
@@ -5529,3 +5563,9 @@ html .servora-result-state .servora-ant-result-title,
 html .servora-result-state .servora-ant-result-subtitle,
 html .servora-result-state .servora-ant-result-extra,
 html .servora-result-state .servora-ant-result-icon { text-align: left; }
+
+@media (max-width: 48rem) {
+  /* A compact button in a stacked mobile form footer keeps the 44px target
+     (UI-003 OVR-5b review); desktop compact sizing is unchanged. */
+  .review-buttons .compact-button { min-height: var(--control-height); }
+}
