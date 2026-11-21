@@ -380,7 +380,7 @@ async function loginBrowser(credentials) {
   await page.getByLabel('Parola').fill(credentials.password);
   await page.getByRole('button', { name: 'Giriş yap', exact: true }).click();
   await page.waitForURL((url) => !url.pathname.endsWith('/login'));
-  await page.getByRole('button', { name: 'Oturumu kapat', exact: true }).waitFor();
+  await page.getByRole('navigation', { name: 'Ana navigasyon' }).waitFor();
 }
 
 async function openWorkflow(targetId) {

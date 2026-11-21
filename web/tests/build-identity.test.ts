@@ -24,7 +24,7 @@ describe('frontend build identity metadata', () => {
     expect(identity.buildSha).toBe(RELEASE_SHA);
     expect(identity.buildShortSha).toBe('6325e44');
     expect(identity.buildShortSha).toHaveLength(BUILD_SHORT_SHA_LENGTH);
-    expect(identity.buildLabel).toBe('Servora Med 0.1.0 · Build 6325e44');
+    expect(identity.buildLabel).toBe('Dünya Dental 0.1.0 · 6325e44');
     expect(identity.isDevelopmentBuild).toBe(false);
     expect(identity.isValidRelease).toBe(true);
   });
@@ -43,7 +43,7 @@ describe('frontend build identity metadata', () => {
     const identity = createBuildIdentity({ appVersion: '0.1.0', rawBuildSha: '', development: true });
     expect(identity.buildSha).toBeNull();
     expect(identity.buildShortSha).toBe('dev');
-    expect(identity.buildLabel).toBe('Servora Med 0.1.0 · Build dev');
+    expect(identity.buildLabel).toBe('Dünya Dental 0.1.0 · dev');
     expect(identity.isDevelopmentBuild).toBe(true);
     expect(identity.isValidRelease).toBe(false);
   });

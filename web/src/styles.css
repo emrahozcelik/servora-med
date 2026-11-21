@@ -40,6 +40,7 @@
   --radius-button: 0.6rem;
   --radius-raised: 0.75rem;
   --radius-chip: 999px;
+  --shadow-card: 0 1px 2px rgba(22, 32, 40, 0.05), 0 2px 6px rgba(22, 32, 40, 0.03);
   --shadow-raised: 0 8px 24px rgba(30, 37, 43, 0.12);
   --shadow-overlay: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%);
   --shadow-drawer: -0.75rem 0 2rem oklch(26% 0.016 246deg / 18%);
@@ -48,7 +49,7 @@
 
   color: var(--ink);
   background: var(--frame);
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -131,6 +132,7 @@ html .servora-select:has(:focus-visible) {
   color: var(--muted);
   font-size: 0.75rem;
   line-height: 1.45;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .shell-sidebar-footer .build-identity {
@@ -369,6 +371,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--radius-control);
+  box-shadow: var(--shadow-card);
   padding: 1rem 1.15rem;
 }
 .surface-raised {
@@ -720,6 +723,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .servora-operational-table__desktop td {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.servora-operational-table__desktop td,
+.report-table td {
+  font-variant-numeric: tabular-nums;
 }
 .servora-operational-table__mobile {
   display: none;
@@ -1158,7 +1165,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .shell-nav-section { display: grid; gap: 0.35rem; min-width: 0; }
 .shell-nav-section h2 { margin: 0; padding-inline: 0.75rem; color: var(--muted); font-size: 0.75rem; font-weight: 740; letter-spacing: 0.065em; text-transform: uppercase; }
 .shell-nav-links { display: grid; gap: 0.25rem; min-width: 0; }
-.shell-nav a { display: flex; align-items: center; padding: 0.65rem 0.75rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.9rem; font-weight: 680; text-decoration: none; }
+.shell-nav a { display: flex; align-items: center; gap: 0.65rem; padding: 0.65rem 0.75rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.9rem; font-weight: 680; text-decoration: none; }
+.shell-nav-icon { flex: 0 0 auto; width: 1.125rem; height: 1.125rem; }
 .shell-nav a:hover { color: var(--ink); background: var(--paper); }
 .shell-nav a[aria-current="page"] { color: var(--accent-hover); background: var(--accent-soft); }
 .shell-sidebar-footer {
@@ -2083,6 +2091,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border: 1px solid var(--rule);
   border-radius: var(--radius-control);
   background: var(--paper);
+  transition: border-color 140ms ease;
+}
+.job-board-card:hover {
+  border-color: var(--border-accent);
 }
 .job-board-card > a {
   display: grid;
@@ -3803,7 +3815,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .authenticated-shell {
     display: grid;
     grid-template-columns: minmax(15rem, 17rem) minmax(0, 1fr);
-    grid-template-rows: 4.75rem minmax(0, 1fr);
+    grid-template-rows: 3.75rem minmax(0, 1fr);
   }
   /* Quiet canvas shell frame; paper content column is the operational surface. */
   .authenticated-shell--desktop { background: var(--canvas); }
@@ -3820,18 +3832,65 @@ label.field-group > input, label.field-group > select, label.field-group > texta
     overflow-y: auto;
   }
   .desktop-shell-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
     display: flex;
     grid-column: 2;
     grid-row: 1;
     align-items: center;
     justify-content: flex-end;
-    gap: 1rem;
+    gap: 0.75rem;
     min-width: 0;
-    padding: 0.75rem clamp(1rem, 3vw, 2.5rem);
+    padding: 0.5rem clamp(1rem, 3vw, 2.5rem);
     border-bottom: 1px solid var(--rule);
-    background: var(--canvas);
+    background: var(--paper);
   }
   .desktop-shell-topbar > .notification-center { flex: 0 0 auto; }
+  .desktop-shell-search-trigger {
+    margin-inline-end: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: min(100%, 21rem);
+    min-width: 13rem;
+    min-height: var(--control-height);
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-control);
+    background: var(--frame);
+    color: var(--muted);
+    font-size: 0.875rem;
+    text-align: left;
+  }
+  .desktop-shell-search-trigger:hover {
+    border-color: var(--border-control);
+    color: var(--ink);
+    background: var(--paper);
+  }
+  .desktop-shell-search-icon {
+    flex: 0 0 auto;
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+  .desktop-shell-search-placeholder {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .desktop-shell-new-job {
+    flex: 0 0 auto;
+  }
+  .desktop-shell-new-job .new-job-menu-trigger {
+    gap: 0.45rem;
+  }
+  .desktop-shell-create-icon {
+    flex: 0 0 auto;
+    width: 1rem;
+    height: 1rem;
+  }
   .shell-content {
     grid-column: 2;
     grid-row: 2;
@@ -3856,23 +3915,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   }
   /* Active uses accent soft fill + weight (not color alone) on desktop sidebar. */
   .shell-sidebar .shell-nav a[aria-current="page"] { font-weight: 760; }
-  .shell-sidebar .shell-account {
-    gap: 0.75rem;
-    min-width: 0;
-    margin-top: 0;
-  }
-  .shell-sidebar .shell-identity { min-width: 0; }
-  .shell-sidebar .shell-identity strong {
-    min-width: 0;
-    font-weight: 720;
-    overflow-wrap: anywhere;
-  }
-  .shell-sidebar .shell-identity span {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  /* Logout reachable but secondary to primary nav destinations. */
-  .shell-sidebar .shell-signout { font-weight: 680; }
 }
 
 @media (max-width: 390px) {
@@ -4674,6 +4716,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   container-type: inline-size;
   border: 1px solid var(--rule);
   border-radius: var(--radius-raised);
+  box-shadow: var(--shadow-card);
 }
 
 .servora-operational-card .servora-ant-card-head-wrapper {
@@ -5185,6 +5228,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--radius-raised);
+  box-shadow: var(--shadow-card);
+  font-variant-numeric: tabular-nums;
   padding: 1rem;
 }
 .servora-metric-statistic .servora-ant-statistic-title,
@@ -5529,3 +5574,264 @@ html .servora-result-state .servora-ant-result-title,
 html .servora-result-state .servora-ant-result-subtitle,
 html .servora-result-state .servora-ant-result-extra,
 html .servora-result-state .servora-ant-result-icon { text-align: left; }
+
+/* ── Desktop Topbar User Menu & Quick Search (Command Palette) ── */
+.shell-kbd {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.35rem;
+  background: var(--paper);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 680;
+  line-height: 1.25;
+}
+
+.shell-user-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+.shell-user-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  max-width: 15rem;
+  min-height: var(--control-height);
+  padding: 0.3rem 0.7rem 0.3rem 0.45rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 680;
+}
+.shell-user-menu-trigger:hover,
+.shell-user-menu-trigger[aria-expanded="true"] {
+  border-color: var(--border-control);
+  background: var(--surface-hover);
+}
+.shell-user-menu-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-user-menu-chevron {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  color: var(--muted);
+}
+.shell-user-menu-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 45;
+  display: grid;
+  gap: 0.45rem;
+  min-width: 15.5rem;
+  max-width: min(20rem, calc(100vw - 2rem));
+  padding: 0.75rem;
+}
+.shell-user-menu-header {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.25rem 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--rule);
+}
+.shell-user-menu-header strong {
+  font-size: 0.925rem;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+.shell-user-menu-header span {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.shell-user-menu-email {
+  font-size: 0.75rem;
+}
+.shell-user-menu-links {
+  display: grid;
+  gap: 0.2rem;
+}
+.shell-user-menu-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.5rem;
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.shell-user-menu-link:hover {
+  background: var(--surface-hover);
+  color: var(--accent-hover);
+}
+.shell-user-menu-footer {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+}
+.shell-user-menu-signout {
+  gap: 0.5rem;
+  width: 100%;
+}
+.shell-user-menu-signout-icon {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+}
+
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(2.5rem, 9vh, 6rem) 1rem 1.5rem;
+  background: var(--scrim);
+}
+.command-palette-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(100%, 38rem);
+  max-height: min(36rem, calc(100dvh - 5rem));
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-raised);
+  background: var(--paper);
+  box-shadow: var(--shadow-overlay);
+}
+.command-palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--rule);
+}
+.command-palette-search-icon {
+  flex: 0 0 auto;
+  width: 1.2rem;
+  height: 1.2rem;
+  color: var(--muted);
+}
+.command-palette-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--control-height);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+.command-palette-input:focus-visible {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 0.35rem;
+}
+.command-palette-input::placeholder {
+  color: var(--muted);
+}
+.command-palette-close {
+  flex: 0 0 auto;
+  min-width: 3.25rem;
+  min-height: var(--control-height);
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-button);
+  background: var(--frame);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 680;
+}
+.command-palette-close:hover {
+  border-color: var(--border-control);
+  color: var(--ink);
+  background: var(--paper);
+}
+.command-palette-results {
+  overflow-y: auto;
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+.command-palette-status,
+.command-palette-empty {
+  margin: 0;
+  padding: 0.75rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.command-palette-group {
+  display: grid;
+  gap: 0.25rem;
+}
+.command-palette-group-title {
+  margin: 0;
+  padding: 0.25rem 0.65rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 740;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.command-palette-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.15rem;
+}
+.command-palette-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.9rem;
+  text-align: left;
+}
+.command-palette-option:hover,
+.command-palette-option[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+.command-palette-option-label {
+  font-weight: 650;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.command-palette-option-subtitle {
+  flex: 0 1 auto;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.command-palette-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid var(--rule);
+  background: var(--frame);
+  color: var(--muted);
+  font-size: 0.75rem;
+}

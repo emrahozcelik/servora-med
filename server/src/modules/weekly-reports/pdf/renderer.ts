@@ -190,14 +190,14 @@ function documentDefinition(model: WeeklyReportPdfDocumentModel) {
     info: {
       title: `Haftalık Rapor ${model.periodStart} - ${model.periodEnd}`,
       subject: `Gönderim #${model.seqNo}`,
-      creator: 'Servora-Med',
-      producer: 'Servora-Med',
+      creator: 'Dünya Dental',
+      producer: 'Dünya Dental',
     },
     pageSize: 'A4',
     pageMargins: [48, 52, 48, 52] as [number, number, number, number],
     defaultStyle: { font: 'Roboto', fontSize: 10, lineHeight: 1.3 },
     footer: (currentPage: number, pageCount: number) => ({
-      text: `Servora-Med · Haftalık Rapor · ${model.periodStart} · Sayfa ${currentPage}/${pageCount}`,
+      text: `Dünya Dental · Haftalık Rapor · ${model.periodStart} · Sayfa ${currentPage}/${pageCount}`,
       alignment: 'center',
       fontSize: 8,
       color: '#888888',

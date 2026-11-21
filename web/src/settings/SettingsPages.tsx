@@ -256,7 +256,6 @@ export function ApplicationSettingsPage() {
     <section className="app-about" aria-labelledby="app-about-title">
       <h2 id="app-about-title">Uygulama hakkında</h2>
       <p>Dünya Dental'in müşteri, iş ve operasyon süreçlerini yönetmek için kullandığı kurumsal uygulamadır.</p>
-      <p>Altyapı / Teknik ürün: <span className="app-about-platform">Servora-Med</span></p>
     </section>
     </div>
   </main>;

@@ -9,6 +9,7 @@ import {
   InstallOpportunityProvider,
 } from './install/InstallOpportunity';
 import { ServoraAntProvider } from './ui/antd/ServoraAntProvider';
+import '@fontsource-variable/plus-jakarta-sans';
 import './styles.css';
 
 const rootElement = document.getElementById('root');

@@ -102,12 +102,30 @@ const glyphs: Record<string, ReactNode> = {
       <path d="M4 7h16M4 12h16M4 17h16" />
     </>
   ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
+  ),
+  'chevron-down': (
+    <>
+      <path d="m6 9 6 6 6-6" />
+    </>
+  ),
+  'sign-out': (
+    <>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </>
+  ),
 };
 
-export function NavigationIcon({ id }: { id: string }) {
+export function NavigationIcon({ id, className = 'mobile-nav-icon' }: { id: string; className?: string }) {
   return (
     <svg
-      className="mobile-nav-icon"
+      className={className}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

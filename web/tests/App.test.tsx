@@ -54,7 +54,8 @@ describe('App', () => {
     }} />);
     expect(html).toContain('Emrah Admin');
     expect(html).toContain('İşler');
-    expect(html).toContain('Oturumu kapat');
+    expect(html).toContain('Ara… (müşteri, iş, sayfa)');
+    expect(html).toContain('Yeni iş');
     expect(html).toContain('İşler yükleniyor');
     expect(html).toContain('<aside');
     expect(html).toContain('aria-label="Ana navigasyon"');

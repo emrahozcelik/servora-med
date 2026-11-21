@@ -319,6 +319,16 @@ describe('Weekly Report PDF — rendering', () => {
     expect(text).not.toContain('COMPLETED');
     expect(text).not.toContain('WAITING_APPROVAL');
   });
+
+  it('uses Dünya Dental branding in the footer and PDF metadata without Servora-Med', async () => {
+    const model = buildWeeklyReportPdfDocumentModel({ submission: submission(), staffName: 'Ayşe' });
+    const buffer = await renderWeeklyReportPdf(model);
+    const decoded = pdfDecodedText(buffer);
+    const rawLatin1 = buffer.toString('latin1');
+    expect(decoded).toContain('Dünya Dental · Haftalık Rapor');
+    expect(decoded).not.toContain('Servora-Med');
+    expect(rawLatin1).not.toContain('Servora-Med');
+  });
 });
 
 describe('Weekly Report PDF — immutability', () => {

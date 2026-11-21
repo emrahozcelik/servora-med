@@ -34,6 +34,7 @@ describe('login screen release identity', () => {
 
     expect(container.querySelector('.build-identity')).toBeNull();
     expect(container.textContent).not.toContain('Servora Med');
+    expect(container.textContent).not.toContain('Servora-Med');
 
     // Login itself remains complete: title, fields, help and toggle.
     expect(container.querySelector('#login-title')).not.toBeNull();
@@ -53,6 +54,6 @@ describe('login screen release identity', () => {
     }));
 
     expect(element.dataset.buildSha).toBe('a'.repeat(40));
-    expect(element.dataset.buildLabel).toBe(`Servora Med 0.1.0 · Build ${'a'.repeat(7)}`);
+    expect(element.dataset.buildLabel).toBe(`Dünya Dental 0.1.0 · ${'a'.repeat(7)}`);
   });
 });
