@@ -344,6 +344,11 @@ type ChangeRequestResolutionInput = {
 
 /** OVR-5b §4.11: the only resolution a deadline patch may record. */
 const PATCH_CHANGE_REQUEST_RESOLUTIONS = ['RESCHEDULED'] as const;
+
+/** OVR-5b §4.11: the complete nested shape; no other key is accepted. */
+const CHANGE_REQUEST_RESOLUTION_FIELDS: readonly string[] = [
+  'changeRequestId', 'resolution', 'note',
+];
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
   deliveredAt: string | null; quantity: number; lotNo?: string | null; serialNo?: string | null;
@@ -640,13 +645,13 @@ function changeRequestResolutionError(message: string) {
 
 /**
  * OVR-5b §3.1 syntax gate. Runs before the lifecycle intent claim and the
- * request hash, so an invalid value never creates a reservation. Returns
- * undefined when the client did not send the key: the hash then stays
+ * request hash, so an invalid value never creates a reservation. An absent key
+ * and an explicit `undefined` both mean "not sent": the hash then stays
  * byte-identical to a pre-5b REQUEST_REVISION.
  */
 function revisionCorrectionDueAt(input: { correctionDueAt?: unknown }): string | undefined {
-  if (!Object.hasOwn(input, 'correctionDueAt')) return undefined;
   const value = input.correctionDueAt;
+  if (value === undefined) return undefined;
   if (typeof value !== 'string') throw correctionDueAtError(CORRECTION_DUE_AT_SYNTAX_MESSAGE);
   try {
     return isoInstant(value, 'correctionDueAt');
@@ -656,13 +661,13 @@ function revisionCorrectionDueAt(input: { correctionDueAt?: unknown }): string |
 }
 
 /**
- * OVR-5b §4.5: the optional deadline-extension reason. Missing and blank both
- * mean "no reason"; a non-string or more than 500 trimmed code points is a
- * validation failure whenever the key is sent.
+ * OVR-5b §4.5: the optional deadline-extension reason. Missing, explicit
+ * `undefined` and blank all mean "no reason"; a non-string or more than 500
+ * trimmed code points is a validation failure whenever a value is supplied.
  */
 function patchDeadlineExtensionReason(input: { deadlineExtensionReason?: unknown }): string | null {
-  if (!Object.hasOwn(input, 'deadlineExtensionReason')) return null;
   const value = input.deadlineExtensionReason;
+  if (value === undefined) return null;
   if (typeof value !== 'string') {
     const message = 'Tarih değişikliği gerekçesi geçersiz.';
     throw new AppError('VALIDATION_ERROR', 400, message, {
@@ -683,7 +688,8 @@ function patchDeadlineExtensionReason(input: { deadlineExtensionReason?: unknown
  * OVR-5b §4.11: the atomic change-request resolution carried by a deadline
  * patch. Shape errors are always the field-level validation failure; whether
  * the request exists, belongs to this job and is still open is decided under
- * the locks.
+ * the locks. Only the three accepted keys exist: an unknown nested key would
+ * otherwise be silently dropped by a direct caller.
  */
 function patchChangeRequestResolution(
   input: { changeRequestResolution?: unknown },
@@ -694,6 +700,9 @@ function patchChangeRequestResolution(
   const raw = input.changeRequestResolution;
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw fail();
   const record = raw as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !CHANGE_REQUEST_RESOLUTION_FIELDS.includes(key))) {
+    throw fail();
+  }
   try {
     uuidString(record.changeRequestId, 'changeRequestResolution');
   } catch {

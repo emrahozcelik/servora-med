@@ -1,7 +1,7 @@
 /**
  * OVR-5b writers: authorized deadline extension, the Staff deadline block, the
  * corrected job detail and the in-patch change-request resolution
- * (contract §4, §5, §6, §9 E1–E12, S1–S3, N1, J1–J4).
+ * (contract §4, §5, §6, §9 E1–E13, S1–S3, N1, J1–J5, T1, W1–W3, M1, V1).
  *
  * Every scenario drives the real `JobCardService` writers against PostgreSQL.
  * OVR-5a already read `ended_at`; OVR-5b makes `patch()` write the ending, so
@@ -70,7 +70,7 @@ type Ovr5bDetail = Awaited<ReturnType<JobCardService['detail']>> & {
   correctionDueAt: string | null;
 };
 
-async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
+async function withSchema(run: (pool: Pool, schema: string) => Promise<void>): Promise<void> {
   const adminPool = new Pool({ connectionString: databaseUrl });
   const schema = `ovr5b_ext_${randomUUID().replaceAll('-', '')}`;
   let pool: Pool | null = null;
@@ -84,7 +84,7 @@ async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
       migrationsDirectory: MIGRATIONS_DIRECTORY,
       store: new PostgresMigrationStore(pool),
     });
-    await run(pool);
+    await run(pool, schema);
   } finally {
     await pool?.end();
     await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
@@ -133,7 +133,11 @@ type Ctx = {
   service: JobCardService;
 };
 
-async function setup(pool: Pool, label: string): Promise<Ctx> {
+async function setup(
+  pool: Pool,
+  label: string,
+  options: { assignmentWindowEnabled?: boolean } = {},
+): Promise<Ctx> {
   const organizationId = await insertOrg(pool, `OVR5b ${label}`);
   const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
   const staffId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
@@ -150,11 +154,15 @@ async function setup(pool: Pool, label: string): Promise<Ctx> {
     otherStaff: { id: otherStaffId, organizationId, role: 'STAFF' } as JobCardActor,
     customerId,
     clock,
-    service: buildService(pool, () => clock.now),
+    service: buildService(pool, () => clock.now, options),
   };
 }
 
-function buildService(pool: Pool, now: () => Date): JobCardService {
+function buildService(
+  pool: Pool,
+  now: () => Date,
+  options: { assignmentWindowEnabled?: boolean } = {},
+): JobCardService {
   return new JobCardService(
     new PostgresJobCardRepository(pool),
     now,
@@ -162,6 +170,8 @@ function buildService(pool: Pool, now: () => Date): JobCardService {
     { enabled: false },
     { enabled: false },
     { enabled: false, reminderLeadMinutes: 30 },
+    {},
+    { enabled: options.assignmentWindowEnabled === true },
   );
 }
 
@@ -177,6 +187,20 @@ async function dbBaseline(pool: Pool): Promise<Date> {
   return (await pool.query<{ now: Date }>(
     "SELECT date_trunc('milliseconds', clock_timestamp()) AS now",
   )).rows[0]!.now;
+}
+
+/** Bounded poll for an observed state; never a sleep-based assumption. */
+async function waitFor(
+  predicate: () => Promise<boolean>,
+  timeoutMs: number,
+  label: string,
+): Promise<void> {
+  const expiresAt = Date.now() + timeoutMs;
+  for (;;) {
+    if (await predicate()) return;
+    if (Date.now() >= expiresAt) throw new Error(`timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 function shiftMs(base: Date, ms: number): Date {
@@ -409,6 +433,42 @@ async function selectNotifications(
       ORDER BY created_at ASC, id ASC`,
     [organizationId, jobId],
   )).rows as Array<{ recipient_user_id: string; kind: string }>;
+}
+
+type AssignmentOfferRow = {
+  id: string;
+  state: string;
+  opened_reason: string;
+  opened_at: Date;
+  acceptance_due_at: Date;
+  assignee_user_id: string;
+  closed_at: Date | null;
+  close_reason: string | null;
+};
+
+async function selectAssignmentOffers(
+  pool: Pool, organizationId: string, jobId: string,
+): Promise<AssignmentOfferRow[]> {
+  return (await pool.query(
+    `SELECT id, state, opened_reason, opened_at, acceptance_due_at,
+            assignee_user_id, closed_at, close_reason
+       FROM job_card_assignment_offers
+      WHERE organization_id = $1 AND job_card_id = $2
+      ORDER BY opened_at ASC, id ASC`,
+    [organizationId, jobId],
+  )).rows as AssignmentOfferRow[];
+}
+
+async function selectRevisionActivations(
+  pool: Pool, organizationId: string, jobId: string,
+): Promise<Array<{ episode_no: number; correction_due_at: Date | null }>> {
+  return (await pool.query(
+    `SELECT episode_no, correction_due_at
+       FROM job_card_submission_episode_activations
+      WHERE organization_id = $1 AND job_card_id = $2
+      ORDER BY episode_no ASC`,
+    [organizationId, jobId],
+  )).rows as Array<{ episode_no: number; correction_due_at: Date | null }>;
 }
 
 type ChangeRequestRow = {
@@ -1500,6 +1560,536 @@ describe.skipIf(!databaseUrl)('OVR-5b authorized deadline extension (PostgreSQL)
         .toBe(cleanStarted.version);
       expect(await selectChangeRequest(pool, ctx.organizationId, cleanRequestId))
         .toMatchObject({ state: 'OPEN' });
+    });
+  });
+
+  it('J5: an invalid resolution shape is rejected before anything is written', async () => {
+    await withSchema(async (pool) => {
+      const ctx = await setup(pool, 'J5');
+      const job = await createTask(ctx, { title: 'Geçersiz sonuç', dueDate: dateKeyShift(ctx.clock.now, -3) });
+      const current = await startJob(ctx, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      const requestId = await createChangeRequest(ctx, current);
+      const dueDateBefore = (await selectJobRow(pool, ctx.organizationId, job.id)).due_date;
+
+      ctx.clock.now = await dbBaseline(pool);
+      const nextDueDate = dateKeyShift(ctx.clock.now, 3);
+      const invalidResolution = {
+        changeRequestId: requestId,
+        resolution: 'APPROVED',
+      } as unknown as NonNullable<Ovr5bPatchInput['changeRequestResolution']>;
+      const oversizedNote = {
+        changeRequestId: requestId,
+        resolution: 'RESCHEDULED',
+        note: 'x'.repeat(2_001),
+      } as NonNullable<Ovr5bPatchInput['changeRequestResolution']>;
+      const unknownKey = {
+        changeRequestId: requestId,
+        resolution: 'RESCHEDULED',
+        unknownKey: 'extra',
+      } as unknown as NonNullable<Ovr5bPatchInput['changeRequestResolution']>;
+
+      for (const changeRequestResolution of [invalidResolution, oversizedNote, unknownKey]) {
+        await expect(patchJob(ctx, ctx.manager, current, {
+          dueDate: nextDueDate,
+          deadlineExtensionReason: EXTENSION_REASON,
+          changeRequestResolution,
+        })).rejects.toMatchObject({
+          code: 'VALIDATION_ERROR',
+          statusCode: 400,
+          details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
+        });
+      }
+
+      // No field edit, no revision, no ending and no resolution.
+      expect(await selectJobRow(pool, ctx.organizationId, job.id)).toMatchObject({
+        status: 'IN_PROGRESS', version: current.version, due_date: dueDateBefore,
+      });
+      expect(await selectScheduleRevisions(pool, ctx.organizationId, job.id)).toHaveLength(1);
+      const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
+      expect(incidents).toHaveLength(1);
+      expect(incidents[0]).toMatchObject({ ended_at: null, recovered_at: null });
+      expect(await selectActivities(
+        pool, ctx.organizationId, job.id, 'JOB_OVERDUE_ENDED_BY_EXTENSION',
+      )).toHaveLength(0);
+      expect(await selectChangeRequest(pool, ctx.organizationId, requestId)).toMatchObject({
+        state: 'OPEN', resolution: null, resolved_by: null, resolved_at: null,
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // T1: the patch instant is sampled after the JobCard lock (§4.0).
+  // -------------------------------------------------------------------------
+
+  it('T1: a management patch waiting on the JobCard lock ends nothing its deadline no longer extends', async () => {
+    await withSchema(async (pool, schema) => {
+      const ctx = await setup(pool, 'T1');
+      const job = await createTask(ctx, {
+        title: 'Kilit bekleyen uzatma', dueDate: dateKeyShift(ctx.clock.now, -3),
+      });
+      const current = await startJob(ctx, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      expect(openIncidents(await selectIncidents(pool, ctx.organizationId, job.id))).toHaveLength(1);
+
+      const preLock = await dbBaseline(pool);
+      // At `preLock` the proposed due date is still in the future (the
+      // organization-local midnight after today); the post-lock instant is
+      // already past that same boundary.
+      const newDueDate = dateKeyShift(preLock, 0);
+      const newBoundary = utcBoundaryAfter(newDueDate);
+      expect(newBoundary.getTime()).toBeGreaterThan(preLock.getTime());
+      const postLock = shiftMs(newBoundary, HOUR_MS);
+
+      ctx.clock.now = preLock;
+      const schemaOptions = `-c search_path=${schema},public`;
+      const holderPool = new Pool({
+        connectionString: databaseUrl, options: schemaOptions, max: 1,
+      });
+      const holder = await holderPool.connect();
+      const blockedPool = new Pool({
+        connectionString: databaseUrl,
+        options: schemaOptions,
+        max: 1,
+        application_name: 'ovr5b-t1-blocked',
+      });
+      try {
+        await holder.query('BEGIN');
+        await holder.query(
+          'SELECT id FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE',
+          [ctx.organizationId, job.id],
+        );
+        const blockedService = buildService(blockedPool, () => ctx.clock.now);
+        // No reason is sent on purpose: judged at `preLock` this patch would
+        // have to end the episode and be rejected with
+        // DEADLINE_EXTENSION_REASON_REQUIRED. Only the post-lock sample may
+        // succeed.
+        const pending = blockedService.patch(ctx.manager, job.id, {
+          expectedVersion: current.version,
+          dueDate: newDueDate,
+        });
+        // Prove the patch is blocked on the JobCard row lock before the
+        // business clock moves: never a sleep-based assumption.
+        await waitFor(async () => {
+          const waiting = await pool.query<{ n: string }>(
+            `SELECT COUNT(*)::text AS n FROM pg_stat_activity
+              WHERE application_name = 'ovr5b-t1-blocked'
+                AND wait_event_type = 'Lock'`,
+          );
+          return waiting.rows[0]!.n !== '0';
+        }, 5_000, 'patch waiting on the JobCard row lock');
+        ctx.clock.now = postLock;
+        await holder.query('COMMIT');
+        const patched = await pending as unknown as JobCard;
+        expect(patched.id).toBe(job.id);
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        holder.release();
+        await blockedPool.end();
+        await holderPool.end();
+      }
+
+      const revisions = await selectScheduleRevisions(pool, ctx.organizationId, job.id);
+      expect(revisions.map((revision) => revision.revision_no)).toEqual([1, 2]);
+      expect(revisions[1]!.created_at).toEqual(postLock);
+      expect(revisions[1]!.due_date).toBe(newDueDate);
+
+      const rows = await selectIncidents(pool, ctx.organizationId, job.id);
+      expect(rows).toHaveLength(2);
+      // Nothing ended: a pre-lock instant would have ended the episode.
+      expect(rows.every((row) => row.ended_at === null && row.end_reason === null)).toBe(true);
+      expect(rows.map((row) => row.schedule_revision_no).sort()).toEqual([1, 2]);
+      // The ordinary B2 behavior applies: the new revision gets its own row.
+      const b2Row = rows.find((row) => row.schedule_revision_no === 2)!;
+      expect(b2Row).toMatchObject({
+        delay_type: 'LATE_SUBMISSION',
+        episode_no: 1,
+        deadline_at: shiftMs(newBoundary, 1),
+        breached_at: postLock,
+        recovered_at: null,
+        ended_at: null,
+        ended_by_user_id: null,
+      });
+      expect(await selectActivities(
+        pool, ctx.organizationId, job.id, 'JOB_OVERDUE_ENDED_BY_EXTENSION',
+      )).toHaveLength(0);
+    });
+  }, 30_000);
+
+  // -------------------------------------------------------------------------
+  // W1: JOB-010 reschedule of an ACCEPTED delivery with open LATE_START.
+  // -------------------------------------------------------------------------
+
+  it('W1: a window-enabled reschedule ends LATE_START, returns NEW and re-offers', async () => {
+    await withSchema(async (pool) => {
+      const ctx = await setup(pool, 'W1', { assignmentWindowEnabled: true });
+      const firstStart = shiftMs(ctx.clock.now, 2 * HOUR_MS);
+      let job = await createDelivery(ctx, { title: 'Pencere içi teslim', scheduledAt: firstStart });
+      // A management create that lands in NEW records its answer window.
+      expect((await selectAssignmentOffers(pool, ctx.organizationId, job.id))
+        .map((offer) => offer.state)).toEqual(['OPEN']);
+      job = await acceptJob(ctx, job);
+      expect((await selectAssignmentOffers(pool, ctx.organizationId, job.id))
+        .map((offer) => offer.state)).toEqual(['ACCEPTED']);
+
+      // The planned window passes while the job is ACCEPTED.
+      const plannedEnd = shiftMs(firstStart, 30 * MINUTE_MS);
+      expect((await scanOnce(pool, shiftMs(plannedEnd, 1))).inserted).toBe(1);
+      const before = await selectIncidents(pool, ctx.organizationId, job.id);
+      expect(before).toHaveLength(1);
+      expect(before[0]).toMatchObject({ delay_type: 'LATE_START', ended_at: null });
+
+      // The story's instant lies after the breach (the ending row must satisfy
+      // ended_at >= breached_at); it is still derived from the DB sample.
+      ctx.clock.now = shiftMs(plannedEnd, 2 * HOUR_MS);
+      const patchInstant = ctx.clock.now;
+      const futureStart = shiftMs(patchInstant, 2 * HOUR_MS);
+      const rescheduled = await patchJob(ctx, ctx.manager, job, {
+        scheduledAt: futureStart.toISOString(),
+        scheduledEndsAt: shiftMs(futureStart, 30 * MINUTE_MS).toISOString(),
+        deadlineExtensionReason: EXTENSION_REASON,
+      });
+      expect(rescheduled.status).toBe('NEW');
+
+      const after = await selectIncidents(pool, ctx.organizationId, job.id);
+      expect(after).toHaveLength(1);
+      expect(after[0]).toMatchObject({
+        delay_type: 'LATE_START',
+        ended_at: patchInstant,
+        ended_by_user_id: ctx.managerId,
+        end_reason: 'DEADLINE_EXTENDED',
+        end_note: EXTENSION_REASON,
+        ended_by_schedule_revision_no: 2,
+        recovered_at: null,
+      });
+      expect(await selectActivities(
+        pool, ctx.organizationId, job.id, 'JOB_OVERDUE_ENDED_BY_EXTENSION',
+      )).toHaveLength(1);
+
+      // JOB-010 §4: the reschedule reopens the answer for the resulting NEW job.
+      const offers = await selectAssignmentOffers(pool, ctx.organizationId, job.id);
+      expect(offers).toHaveLength(2);
+      expect(offers[0]).toMatchObject({ state: 'ACCEPTED', opened_reason: 'CREATE' });
+      expect(offers[1]).toMatchObject({
+        state: 'OPEN',
+        opened_reason: 'RESCHEDULE',
+        opened_at: patchInstant,
+        assignee_user_id: ctx.staffId,
+        closed_at: null,
+        close_reason: null,
+      });
+      expect((await selectJobRow(pool, ctx.organizationId, job.id)).status).toBe('NEW');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // W2: a failed JOB-010 window decision rolls the ending back.
+  // -------------------------------------------------------------------------
+
+  it('W2: a failed assignment-window decision rolls the ending and its activity back', async () => {
+    await withSchema(async (pool) => {
+      const ctx = await setup(pool, 'W2', { assignmentWindowEnabled: true });
+      const firstStart = shiftMs(ctx.clock.now, 2 * HOUR_MS);
+      let job = await createDelivery(ctx, { title: 'Pencere hatası', scheduledAt: firstStart });
+      job = await acceptJob(ctx, job);
+      const plannedEnd = shiftMs(firstStart, 30 * MINUTE_MS);
+      expect((await scanOnce(pool, shiftMs(plannedEnd, 1))).inserted).toBe(1);
+
+      ctx.clock.now = shiftMs(plannedEnd, 2 * HOUR_MS);
+      const patchInstant = ctx.clock.now;
+      const jobRowBefore = await selectJobRow(pool, ctx.organizationId, job.id);
+
+      // (a) The planned window can no longer fit an on-time answer at all.
+      const tooShortStart = shiftMs(patchInstant, -2 * HOUR_MS);
+      await expect(patchJob(ctx, ctx.manager, job, {
+        scheduledAt: tooShortStart.toISOString(),
+        scheduledEndsAt: shiftMs(tooShortStart, 30 * MINUTE_MS).toISOString(),
+        deadlineExtensionReason: EXTENSION_REASON,
+      })).rejects.toMatchObject({
+        code: 'ASSIGNMENT_WINDOW_TOO_SHORT', statusCode: 409,
+      });
+
+      // (b) The planned start already passed without an acknowledgement. This
+      // reschedule would have ended the LATE_START, so the rollback covers the
+      // ending row and its activity too.
+      const passedStart = shiftMs(patchInstant, -5 * MINUTE_MS);
+      await expect(patchJob(ctx, ctx.manager, job, {
+        scheduledAt: passedStart.toISOString(),
+        scheduledEndsAt: shiftMs(passedStart, 30 * MINUTE_MS).toISOString(),
+        deadlineExtensionReason: EXTENSION_REASON,
+      })).rejects.toMatchObject({
+        code: 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', statusCode: 409,
+      });
+
+      // Neither attempt wrote a field, a revision, an ending or an offer.
+      expect(await selectJobRow(pool, ctx.organizationId, job.id)).toMatchObject({
+        status: 'ACCEPTED',
+        version: jobRowBefore.version,
+        scheduled_at: jobRowBefore.scheduled_at,
+        scheduled_ends_at: jobRowBefore.scheduled_ends_at,
+      });
+      expect(await selectScheduleRevisions(pool, ctx.organizationId, job.id)).toHaveLength(1);
+      const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
+      expect(incidents).toHaveLength(1);
+      expect(incidents[0]).toMatchObject({
+        delay_type: 'LATE_START',
+        ended_at: null,
+        end_reason: null,
+        end_note: null,
+        ended_by_user_id: null,
+        ended_by_schedule_revision_no: null,
+        recovered_at: null,
+      });
+      expect(await selectActivities(
+        pool, ctx.organizationId, job.id, 'JOB_OVERDUE_ENDED_BY_EXTENSION',
+      )).toHaveLength(0);
+      expect(await selectActivities(
+        pool, ctx.organizationId, job.id, 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+      )).toHaveLength(0);
+      expect(await selectActivities(
+        pool, ctx.organizationId, job.id, 'JOB_ASSIGNMENT_OFFER_OPENED',
+      )).toHaveLength(1);
+      expect((await selectAssignmentOffers(pool, ctx.organizationId, job.id))
+        .map((offer) => offer.state)).toEqual(['ACCEPTED']);
+
+      // Control: the very same deadline change succeeds once the missing
+      // acknowledgement is supplied, so (b) really reached the ending and the
+      // rollback above removed it instead of never attempting it.
+      const acknowledged = await patchJob(ctx, ctx.manager, job, {
+        scheduledAt: passedStart.toISOString(),
+        scheduledEndsAt: shiftMs(passedStart, 30 * MINUTE_MS).toISOString(),
+        deadlineExtensionReason: EXTENSION_REASON,
+        pastStartAcknowledgement: { code: 'CUSTOMER_WAITING', text: 'Müşteri bekliyor.' },
+      });
+      expect(acknowledged.status).toBe('NEW');
+      const acknowledgedIncident = (await selectIncidents(pool, ctx.organizationId, job.id))[0]!;
+      expect(acknowledgedIncident).toMatchObject({
+        delay_type: 'LATE_START',
+        ended_at: patchInstant,
+        end_reason: 'DEADLINE_EXTENDED',
+        ended_by_user_id: ctx.managerId,
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // W3: the JOB-010 window block precedes the OVR-5b Staff deadline block.
+  // -------------------------------------------------------------------------
+
+  it('W3: a Staff deadline edit in the window keeps the CUSTOMER_TIME_MANAGEMENT_ONLY precedence', async () => {
+    await withSchema(async (pool) => {
+      const ctx = await setup(pool, 'W3', { assignmentWindowEnabled: true });
+      const firstStart = shiftMs(ctx.clock.now, 2 * HOUR_MS);
+      let job = await createDelivery(ctx, { title: 'Pencere personeli', scheduledAt: firstStart });
+      job = await acceptJob(ctx, job);
+      const plannedEnd = shiftMs(firstStart, 30 * MINUTE_MS);
+      expect((await scanOnce(pool, shiftMs(plannedEnd, 1))).inserted).toBe(1);
+      expect(openIncidents(await selectIncidents(pool, ctx.organizationId, job.id))).toHaveLength(1);
+
+      ctx.clock.now = shiftMs(plannedEnd, 2 * HOUR_MS);
+      const jobRowBefore = await selectJobRow(pool, ctx.organizationId, job.id);
+      const nextStart = shiftMs(ctx.clock.now, 2 * HOUR_MS);
+      const rejection = await patchJob(ctx, ctx.staff, job, {
+        scheduledAt: nextStart.toISOString(),
+        scheduledEndsAt: shiftMs(nextStart, 30 * MINUTE_MS).toISOString(),
+      }).catch((error: unknown) => error as { code?: string; statusCode?: number });
+      expect(rejection).toMatchObject({
+        code: 'CUSTOMER_TIME_MANAGEMENT_ONLY', statusCode: 403,
+      });
+      expect((rejection as { code?: string }).code)
+        .not.toBe('DEADLINE_CHANGE_REQUIRES_MANAGEMENT');
+
+      expect(await selectJobRow(pool, ctx.organizationId, job.id)).toMatchObject({
+        status: 'ACCEPTED',
+        version: jobRowBefore.version,
+        scheduled_at: jobRowBefore.scheduled_at,
+      });
+      expect(await selectScheduleRevisions(pool, ctx.organizationId, job.id)).toHaveLength(1);
+      expect(openIncidents(await selectIncidents(pool, ctx.organizationId, job.id)))
+        .toHaveLength(1);
+      expect(await selectActivities(
+        pool, ctx.organizationId, job.id, 'JOB_OVERDUE_ENDED_BY_EXTENSION',
+      )).toHaveLength(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // E13: ADMIN is management for the extension path.
+  // -------------------------------------------------------------------------
+
+  it('E13: an ADMIN extension ends the episode and is attributed to the admin', async () => {
+    await withSchema(async (pool) => {
+      const ctx = await setup(pool, 'E13');
+      const adminId = await insertUser(pool, ctx.organizationId, 'ADMIN', 'Yönetici');
+      const admin = { id: adminId, organizationId: ctx.organizationId, role: 'ADMIN' } as JobCardActor;
+      const job = await createTask(ctx, { title: 'Yönetici uzatması', dueDate: dateKeyShift(ctx.clock.now, -3) });
+      const started = await startJob(ctx, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      expect(openIncidents(await selectIncidents(pool, ctx.organizationId, job.id))).toHaveLength(1);
+
+      ctx.clock.now = await dbBaseline(pool);
+      const patchInstant = ctx.clock.now;
+      await patchJob(ctx, admin, started, {
+        dueDate: dateKeyShift(patchInstant, 3),
+        deadlineExtensionReason: EXTENSION_REASON,
+      });
+
+      const rows = await selectIncidents(pool, ctx.organizationId, job.id);
+      expect(openIncidents(rows)).toHaveLength(0);
+      expect(rows[0]).toMatchObject({
+        delay_type: 'LATE_SUBMISSION',
+        ended_at: patchInstant,
+        ended_by_user_id: adminId,
+        end_reason: 'DEADLINE_EXTENDED',
+        end_note: EXTENSION_REASON,
+        ended_by_schedule_revision_no: 2,
+        recovered_at: null,
+      });
+      const history = await ctx.service.listOverdueIncidents(admin, job.id, { limit: 25, offset: 0 });
+      expect(history.items[0]).toMatchObject({
+        endedAt: patchInstant.toISOString(),
+        endedBy: { id: adminId, name: 'Yönetici' },
+        endReason: 'DEADLINE_EXTENDED',
+      });
+      const detail = (await ctx.service.detail(admin, job.id)) as unknown as Ovr5bDetail;
+      expect(detail.status).toBe('IN_PROGRESS');
+      expect(detail.hasOpenOverdueIncident).toBe(false);
+      expect((await selectJobRow(pool, ctx.organizationId, job.id)).due_date)
+        .toBe(dateKeyShift(patchInstant, 3));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // M1: the revision activity records the stored correction deadline.
+  // -------------------------------------------------------------------------
+
+  it('M1: JOB_REVISION_REQUESTED records the explicit, default and absent correctionDueAt', async () => {
+    await withSchema(async (pool) => {
+      const ctx = await setup(pool, 'M1');
+
+      // (a) Explicit value.
+      const explicitJob = await createTask(ctx, {
+        title: 'Açık düzeltme tarihi', dueDate: dateKeyShift(ctx.clock.now, 3),
+      });
+      let explicitCurrent = await startJob(ctx, explicitJob);
+      explicitCurrent = await submitJob(ctx, explicitCurrent);
+      const supplied = shiftMs(await dbBaseline(pool), 2 * HOUR_MS).toISOString();
+      await ctx.service.requestRevision(ctx.manager, explicitJob.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: explicitCurrent.version,
+        revisionReason: 'Belirli düzeltme tarihi.',
+        correctionDueAt: supplied,
+      });
+      const explicitActivation = (await selectRevisionActivations(
+        pool, ctx.organizationId, explicitJob.id,
+      ))[0]!;
+      expect(explicitActivation.correction_due_at).toEqual(new Date(supplied));
+      // (b) Omitted — sent explicitly as `undefined` here. MINOR #5: an
+      // explicit `undefined` is an absent value, never a syntax error, so the
+      // 24h default still materializes.
+      const defaultJob = await createTask(ctx, {
+        title: 'Varsayılan düzeltme tarihi', dueDate: dateKeyShift(ctx.clock.now, 3),
+      });
+      let defaultCurrent = await startJob(ctx, defaultJob);
+      defaultCurrent = await submitJob(ctx, defaultCurrent);
+      await ctx.service.requestRevision(ctx.manager, defaultJob.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: defaultCurrent.version,
+        revisionReason: 'Varsayılan düzeltme tarihi.',
+        correctionDueAt: undefined,
+      });
+      const defaultActivation = (await selectRevisionActivations(
+        pool, ctx.organizationId, defaultJob.id,
+      ))[0]!;
+      expect(defaultActivation.correction_due_at).toEqual(
+        shiftMs(await reservedAtFor(
+          pool, ctx.organizationId, defaultJob.id, `JOB_REQUEST_REVISION:${defaultJob.id}`,
+        ), 24 * HOUR_MS),
+      );
+
+      // (c) No original deadline: the activity states the truth, null.
+      const timelessJob = await createTask(ctx, { title: 'Tarihsiz düzeltme', dueDate: null });
+      let timelessCurrent = await startJob(ctx, timelessJob);
+      timelessCurrent = await submitJob(ctx, timelessCurrent);
+      await ctx.service.requestRevision(ctx.manager, timelessJob.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: timelessCurrent.version,
+        revisionReason: 'Tarihsiz iş düzeltmesi.',
+        correctionDueAt: shiftMs(await dbBaseline(pool), 3 * HOUR_MS).toISOString(),
+      });
+      expect((await selectRevisionActivations(pool, ctx.organizationId, timelessJob.id))[0]!
+        .correction_due_at).toBeNull();
+
+      for (const [jobId, expected] of [
+        [explicitJob.id, supplied],
+        [defaultJob.id, defaultActivation.correction_due_at!.toISOString()],
+        [timelessJob.id, null],
+      ] as const) {
+        const activities = await selectActivities(
+          pool, ctx.organizationId, jobId, 'JOB_REVISION_REQUESTED',
+        );
+        expect(activities).toHaveLength(1);
+        const metadata = activities[0]!.metadata;
+        expect(metadata).not.toBeNull();
+        expect(Object.hasOwn(metadata!, 'correctionDueAt')).toBe(true);
+        expect(metadata!.correctionDueAt).toBe(expected);
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // V1: the remaining syntax edges and an explicit undefined intent.
+  // -------------------------------------------------------------------------
+
+  it('V1: correctionDueAt syntax edges and explicit undefined intents are handled', async () => {
+    await withSchema(async (pool) => {
+      const ctx = await setup(pool, 'V1');
+      const revisionJob = await createTask(ctx, {
+        title: 'Sözdizimi kenarları', dueDate: dateKeyShift(ctx.clock.now, 3),
+      });
+      let revisionCurrent = await startJob(ctx, revisionJob);
+      revisionCurrent = await submitJob(ctx, revisionCurrent);
+
+      for (const invalid of ['', dateKeyShift(ctx.clock.now, 1)]) {
+        await expect(ctx.service.requestRevision(ctx.manager, revisionJob.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: revisionCurrent.version,
+          revisionReason: 'Geçersiz biçim.',
+          correctionDueAt: invalid,
+        })).rejects.toMatchObject({
+          code: 'VALIDATION_ERROR',
+          statusCode: 400,
+          details: { fieldErrors: { correctionDueAt: expect.any(String) } },
+        });
+      }
+      expect(await selectScheduleRevisions(pool, ctx.organizationId, revisionJob.id))
+        .toHaveLength(1);
+      expect(await selectRevisionActivations(pool, ctx.organizationId, revisionJob.id))
+        .toHaveLength(0);
+      expect(await selectActivities(
+        pool, ctx.organizationId, revisionJob.id, 'JOB_REVISION_REQUESTED',
+      )).toHaveLength(0);
+      expect((await selectJobRow(pool, ctx.organizationId, revisionJob.id)).status)
+        .toBe('WAITING_APPROVAL');
+
+      // MINOR #5: an explicit `undefined` reason is absent, so the semantic
+      // requirement still decides (never a syntax error).
+      const lateJob = await createTask(ctx, {
+        title: 'Tanımsız gerekçe', dueDate: dateKeyShift(ctx.clock.now, -3),
+      });
+      const lateCurrent = await startJob(ctx, lateJob);
+      await scanOnce(pool, await dbBaseline(pool));
+      ctx.clock.now = await dbBaseline(pool);
+      await expect(patchJob(ctx, ctx.manager, lateCurrent, {
+        dueDate: dateKeyShift(ctx.clock.now, 3),
+        deadlineExtensionReason: undefined,
+      })).rejects.toMatchObject({
+        code: 'DEADLINE_EXTENSION_REASON_REQUIRED',
+        statusCode: 400,
+        details: { fieldErrors: { deadlineExtensionReason: expect.any(String) } },
+      });
+      expect(openIncidents(await selectIncidents(pool, ctx.organizationId, lateJob.id)))
+        .toHaveLength(1);
     });
   });
 });
