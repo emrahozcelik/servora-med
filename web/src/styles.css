@@ -2196,39 +2196,91 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .record-commands:focus { outline: 3px solid var(--focus); outline-offset: 3px; }
 .delivery-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .task-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
-/* Weekly report manager-question editor.
-   The preset rows are AntD checkboxes, not text controls, but the editor root
-   is a .field-group (it owns the label/help/error rhythm). Two global rules
-   would otherwise reach AntD's visually hidden checkbox input: the generic
-   `.field-group input` full-width control box, and `input { min-height }`.
-   Both are scoped out below, so the checkbox keeps its own AntD geometry and
-   sits immediately left of its prompt instead of becoming a tall, misplaced
-   hit area. The text gap is AntD's own control gap
-   (.servora-ant-checkbox + span). */
-.weekly-question-presets {
+/* Weekly report manager-question editor and create week selector. */
+.weekly-period-choice-group {
   display: grid;
   gap: 0.55rem;
   min-width: 0;
+  margin-top: 1.25rem;
 }
-.weekly-question-preset {
+.weekly-period-choice-group > legend {
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 680;
+}
+.weekly-period-choices {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.weekly-period-choice {
   display: flex;
   align-items: center;
+  gap: 0.65rem;
+  min-height: var(--control-height);
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 550;
+  cursor: pointer;
+}
+.weekly-period-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+.weekly-period-choice input[type="radio"] {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  min-height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.weekly-period-meta {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
   min-width: 0;
 }
-.weekly-question-preset .servora-ant-checkbox-wrapper {
-  min-width: 0;
+.weekly-period-preview {
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  color: var(--ink);
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.weekly-existing-notice {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+  background: var(--warning-wash);
   color: var(--ink);
 }
-.weekly-question-preset .servora-ant-checkbox-wrapper .servora-ant-checkbox-input {
-  width: auto;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+.weekly-existing-notice-message {
+  margin: 0;
+  font-weight: 620;
+  line-height: 1.45;
+}
+.weekly-existing-notice-hint {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+.weekly-existing-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-weight: 450;
 }
 /* "+ Özel soru ekle" is a content-width action, not a stretched grid item. */
 .weekly-question-actions {
@@ -2308,6 +2360,88 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin: 0;
   font-size: 0.95rem;
   font-weight: 700;
+}
+.weekly-legacy-fields {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--rule);
+  min-width: 0;
+}
+.weekly-subsection-heading {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.weekly-mobile-readiness {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  min-width: 0;
+}
+.weekly-mobile-readiness--ready {
+  border-color: var(--border-success);
+  background: var(--success-soft);
+}
+.weekly-mobile-readiness-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.weekly-mobile-readiness--ready .weekly-mobile-readiness-summary {
+  color: var(--success);
+}
+.weekly-mobile-readiness-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.weekly-mobile-readiness-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.weekly-mobile-readiness-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+.weekly-mobile-readiness-item--met {
+  color: var(--success);
+}
+.weekly-mobile-readiness-item--invalid {
+  color: var(--warning);
+  font-weight: 650;
+}
+.weekly-mobile-readiness-state {
+  font-weight: 650;
+}
+.weekly-mobile-sticky-submit {
+  display: none;
+}
+@media (min-width: 768px) {
+  .weekly-mobile-readiness {
+    display: none;
+  }
 }
 .weekly-report-locked-notice {
   margin: 0;
@@ -5574,4 +5708,44 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   /* A compact button in a stacked mobile form footer keeps the 44px target
      (UI-003 OVR-5b review); desktop compact sizing is unchanged. */
   .review-buttons .compact-button { min-height: var(--control-height); }
+}
+
+@media (max-width: 767px) {
+  /* WR-WEEK mobile Staff save/submit bar: stays reachable while filling the
+     form without scrolling past it; clears .mobile-bottom-nav inside AppShell. */
+  .weekly-editor-actions.form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 15;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: stretch;
+    gap: 0.5rem;
+    margin: 1.25rem -1.15rem -1rem;
+    padding: 0.75rem 1.15rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--rule);
+    border-radius: 0 0 var(--radius-control) var(--radius-control);
+    background: var(--paper);
+    box-shadow: var(--shadow-raised);
+  }
+  .authenticated-shell--mobile .weekly-editor-actions.form-actions {
+    bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+  }
+  .weekly-editor-actions.form-actions button {
+    width: auto;
+    flex: 1 1 8.5rem;
+    min-height: var(--control-height);
+  }
+  .weekly-editor-actions[data-dirty="false"]:has(.weekly-mobile-sticky-submit) > button[type="submit"] {
+    border-color: var(--rule);
+    color: var(--ink);
+    background: var(--paper);
+  }
+  .weekly-editor-actions[data-dirty="false"]:has(.weekly-mobile-sticky-submit) > button[type="submit"]:hover:not(:disabled) {
+    background: var(--canvas);
+    border-color: var(--border-control);
+  }
+  .weekly-mobile-sticky-submit {
+    display: inline-flex;
+  }
 }

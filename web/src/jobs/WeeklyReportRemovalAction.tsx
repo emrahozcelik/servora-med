@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { paths } from '../paths';
 import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
 import { RecordDescriptions } from '../ui/antd/RecordDescriptions';
+import { formatCalendarRange } from '../ui/calendar-date';
 import { jobCardStatusLabel } from './job-labels';
 import { isDefinitiveMutationError } from './mutation-attempt-error';
 import {
@@ -109,7 +110,7 @@ export function WeeklyReportRemovalAction({ report, disabled, onRemoved, onBusyC
       {busy && !preview && <p role="status">Rapor bilgileri yükleniyor…</p>}
       {preview && <RecordDescriptions ariaLabel="Kaldırılacak rapor" maxColumns={1} items={[
         { key:'staff',label:'Personel',content:preview.staffName },
-        { key:'period',label:'Rapor haftası',content:`${preview.periodStart} – ${preview.periodEnd}` },
+        { key:'period',label:'Rapor haftası',content:formatCalendarRange(preview.periodStart, preview.periodEnd) },
         { key:'status',label:'Durum',content:jobCardStatusLabel(preview.status) },
         { key:'submissions',label:'Gönderim',content:preview.submissionCount===0 ? 'Henüz gönderilmedi' : `${preview.submissionCount} gönderim korunacak` },
       ]} />}
@@ -130,7 +131,7 @@ export function WeeklyReportRemovalAction({ report, disabled, onRemoved, onBusyC
     {attempt && !busy && <button type="button" className="secondary-button" onClick={()=>void execute(attempt)}>Özgün işlemi tekrar dene</button>}
     {!preview && error && !attempt && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void loadPreview()}>Tekrar dene</button>}
     <ConfirmationAction open={confirm} title="Rapor kaldırılsın mı?" destructive
-      description={preview ? `${preview.staffName} · ${preview.periodStart} – ${preview.periodEnd}` : ''}
+      description={preview ? `${preview.staffName} · ${formatCalendarRange(preview.periodStart, preview.periodEnd)}` : ''}
       details={['Rapor, gönderimleri ve işlem geçmişi korunacak.','Personelin yaptığı işler değişmeyecek.','Aynı hafta için yeni bir rapor oluşturulabilecek.',`Gerekçe: ${reason.trim()}`]}
       confirmLabel="Raporu kaldır ve haftayı aç" pendingLabel="Rapor kaldırılıyor…" pending={busy}
       confirmDisabled={disabled || stale || !preview?.canRemove}
