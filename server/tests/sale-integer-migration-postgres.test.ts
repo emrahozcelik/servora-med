@@ -25,9 +25,19 @@ async function at057(run: (pool: Pool, store: PostgresMigrationStore) => Promise
     const store = new PostgresMigrationStore(pool);
     await runMigrations({ migrationsDirectory: previous, store });
     // The fixture drives today's JobCard service, whose detail projection reads
-    // the 062 column. Provide it only while the 057-era rows are created; each
-    // test drops it again before the real 058+ upgrade re-adds it.
+    // the 062 column and whose overdue recovery/breach readers read the 066
+    // columns. Provide them only while the 057-era rows are created; each test
+    // drops them again before the real 058+ upgrade re-adds them.
     await pool.query('ALTER TABLE job_cards ADD COLUMN follow_up_cycle_end_reason VARCHAR(40)');
+    await pool.query(`ALTER TABLE job_card_overdue_incidents
+      ADD COLUMN ended_at TIMESTAMPTZ,
+      ADD COLUMN ended_by_user_id UUID,
+      ADD COLUMN end_reason VARCHAR(30),
+      ADD COLUMN end_note TEXT,
+      ADD COLUMN ended_by_schedule_revision_no INTEGER`);
+    await pool.query(
+      'ALTER TABLE job_card_submission_episode_activations ADD COLUMN correction_due_at TIMESTAMPTZ',
+    );
     await run(pool, store);
   } finally {
     await pool.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
@@ -36,6 +46,15 @@ async function at057(run: (pool: Pool, store: PostgresMigrationStore) => Promise
 }
 
 async function dropFixtureOnlyColumns(pool: Pool) {
+  await pool.query(`ALTER TABLE job_card_overdue_incidents
+    DROP COLUMN ended_at,
+    DROP COLUMN ended_by_user_id,
+    DROP COLUMN end_reason,
+    DROP COLUMN end_note,
+    DROP COLUMN ended_by_schedule_revision_no`);
+  await pool.query(
+    'ALTER TABLE job_card_submission_episode_activations DROP COLUMN correction_due_at',
+  );
   await pool.query('ALTER TABLE job_cards DROP COLUMN follow_up_cycle_end_reason');
 }
 
@@ -76,7 +95,7 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
         blocker.release();
         await upgrade;
       }
-      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers'] });
+      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension'] });
       const storageAfter = await tableStorage(pool);
       expect(storageBefore.typmod).toBe(786439); // NUMERIC(12,3)
       expect(storageAfter.typmod).toBe(-1); // unrestricted NUMERIC

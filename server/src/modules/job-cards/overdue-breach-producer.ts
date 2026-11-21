@@ -129,16 +129,41 @@ export async function resolveSubmissionEpisodeActivation(
   episodeNo: number,
   allowStartedAtFallback: boolean,
 ): Promise<Date | null> {
+  const facts = await resolveSubmissionEpisodeFact(
+    tx, organizationId, jobCardId, episodeNo, allowStartedAtFallback,
+  );
+  return facts === null ? null : facts.activatedAt;
+}
+
+/**
+ * OVR-5: the episode's durable activation facts in one read. `correctionDueAt`
+ * is the management correction deadline stored on a REQUEST_REVISION
+ * activation; it is null for a WITHDRAW_FROM_APPROVAL arming and for the
+ * started_at episode 1 (which has no activation row).
+ */
+export async function resolveSubmissionEpisodeFact(
+  tx: JobCardTransaction,
+  organizationId: string,
+  jobCardId: string,
+  episodeNo: number,
+  allowStartedAtFallback: boolean,
+): Promise<{ activatedAt: Date; correctionDueAt: Date | null } | null> {
   const activation = await tx.getSubmissionEpisodeActivation(
     organizationId, jobCardId, episodeNo,
   );
-  if (activation) return activation.activatedAt;
+  if (activation) {
+    return {
+      activatedAt: activation.activatedAt,
+      correctionDueAt: activation.correctionDueAt,
+    };
+  }
   // A missing activation on a reopened `REVISION_REQUESTED` episode is
   // ambiguous legacy history. `started_at` proves only the ordinary initial
   // episode; callers must opt into that fallback from the current lifecycle
   // state rather than treating it as universal evidence for episode 1.
   if (allowStartedAtFallback && episodeNo === 1) {
-    return (await tx.getJobLifecycleInstants(organizationId, jobCardId)).startedAt;
+    const startedAt = (await tx.getJobLifecycleInstants(organizationId, jobCardId)).startedAt;
+    return startedAt === null ? null : { activatedAt: startedAt, correctionDueAt: null };
   }
   return null;
 }
@@ -275,30 +300,34 @@ export async function planLateSubmissionBreach(
     requestTime: Date;
   },
 ): Promise<OverdueBreachPlan> {
-  const episodeActivationAt = await resolveSubmissionEpisodeActivation(
+  const episode = await resolveSubmissionEpisodeFact(
     tx, input.organizationId, input.jobCardId, input.episodeNo,
     input.allowStartedAtFallback,
   );
-  if (episodeActivationAt === null) {
+  if (episode === null) {
     return { kind: 'unprovable', reason: 'EPISODE_ACTIVATION_UNPROVABLE' };
   }
+  const episodeActivationAt = episode.activatedAt;
   // The phase deadline needs the org timezone only for the due_date
-  // fallback; resolve it lazily so phase-deadline jobs never pay for it.
+  // fallback; resolve it lazily so phase-deadline jobs never pay for it. The
+  // renderer reads `timezone` only on that fallback.
   const phaseDeadline = input.scheduledEndsAt
     ?? (input.type === 'SALES_MEETING' ? null : input.scheduledAt);
-  let effective: Date | null = phaseDeadline === null ? null : new Date(phaseDeadline);
-  if (effective === null) {
-    if (input.dueDate === null) return { kind: 'not-breached' };
-    const timezone = await tx.getOrganizationTimezone(input.organizationId);
-    effective = effectiveSubmissionDeadlineAt({
-      scheduledEndsAt: input.scheduledEndsAt,
-      scheduledAt: input.scheduledAt,
-      type: input.type,
-      dueDate: input.dueDate,
-      timezone,
-    });
-    if (effective === null) return { kind: 'not-breached' };
-  }
+  const timezone = phaseDeadline === null && input.dueDate !== null
+    ? await tx.getOrganizationTimezone(input.organizationId)
+    : 'UTC';
+  // OVR-5 (§3): the episode's deadline is the later of the original deadline
+  // and its stored correction deadline. A correction never creates lateness
+  // where no original deadline exists (the renderer returns null).
+  const effective = effectiveSubmissionDeadlineAt({
+    scheduledEndsAt: input.scheduledEndsAt,
+    scheduledAt: input.scheduledAt,
+    type: input.type,
+    dueDate: input.dueDate,
+    timezone,
+    correctionDueAt: episode.correctionDueAt,
+  });
+  if (effective === null) return { kind: 'not-breached' };
   const deadlineAt = submissionBreachInstant(effective);
   if (!isInstantBreached(deadlineAt, input.requestTime)) return { kind: 'not-breached' };
   let revisionNo = input.scheduleRevisionNo;

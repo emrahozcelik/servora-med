@@ -122,17 +122,17 @@ describe('loadMigrationCatalog', () => {
     expect(catalog.head?.version).toBe('003_c');
   });
 
-  it('proves real repository catalog: count 65, first 001_auth_foundation, last 065_job_card_assignment_offers', async () => {
+  it('proves real repository catalog: count 66, first 001_auth_foundation, last 066_overdue_correction_deadline_and_extension', async () => {
     const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.count).toBe(65);
+    expect(catalog.count).toBe(66);
     expect(catalog.entries[0]?.version).toBe('001_auth_foundation');
     expect(catalog.entries[0]?.number).toBe(1);
-    expect(catalog.head?.version).toBe('065_job_card_assignment_offers');
-    expect(catalog.head?.number).toBe(65);
+    expect(catalog.head?.version).toBe('066_overdue_correction_deadline_and_extension');
+    expect(catalog.head?.number).toBe(66);
     // No throw means validation PASS, contiguity enforced from 001
     expect(catalog.entries.map((e) => e.number)).toEqual(
-      Array.from({ length: 65 }, (_, i) => i + 1),
+      Array.from({ length: 66 }, (_, i) => i + 1),
     );
   });
 
@@ -271,7 +271,7 @@ describe('compareMigrationState', () => {
     expect(result.status).toBe('BEHIND');
     if (result.status === 'BEHIND') {
       expect(result.appliedHead).toBe('029_messaging_conversation_archive');
-      expect(result.expectedHead).toBe('065_job_card_assignment_offers');
+      expect(result.expectedHead).toBe('066_overdue_correction_deadline_and_extension');
       expect(result.pendingVersions).toEqual([
         '030_backup_domain_foundation',
         '031_backup_engine_failure_taxonomy_and_dump_version',
@@ -301,7 +301,7 @@ describe('compareMigrationState', () => {
         '055_job_submit_location_comparison',
         '056_meeting_met_contact',
         '057_sale_from_visit',
-        '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers',
+        '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension',
       ]);
     }
   });
@@ -352,10 +352,10 @@ describe('parseMigrationVersion / parseMigrationFilename', () => {
 });
 
 describe('compareMigrationState strict AHEAD (SD1 repair)', () => {
-  it('full catalog + 066_future → AHEAD', async () => {
+  it('full catalog + 067_future → AHEAD', async () => {
     const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '066_future'];
+    const applied = [...catalog.entries.map((e) => e.version), '067_future'];
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('AHEAD');
   });
@@ -403,10 +403,10 @@ describe('compareMigrationState strict AHEAD (SD1 repair)', () => {
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('DIVERGED');
   });
-  it('full catalog + 066_alpha + 066_beta (duplicate number) → DIVERGED', async () => {
+  it('full catalog + 067_alpha + 067_beta (duplicate number) → DIVERGED', async () => {
     const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '066_alpha', '066_beta'];
+    const applied = [...catalog.entries.map((e) => e.version), '067_alpha', '067_beta'];
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('DIVERGED');
     if (result.status === 'DIVERGED') expect(result.reason).toBe('DUPLICATE_APPLIED_MIGRATION_NUMBER');

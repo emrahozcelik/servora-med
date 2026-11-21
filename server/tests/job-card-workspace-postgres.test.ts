@@ -58,11 +58,12 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
   '048_overdue_episode_activation_legacy_first.sql',
   '049_job_card_lifecycle_intents.sql',
   '050_overdue_incident_scanner_source.sql',
+  '053_overdue_submission_reminders.sql',
   '054_job_action_locations_submit_approval.sql',
   '055_job_submit_location_comparison.sql',
   '056_meeting_met_contact.sql',
   '057_sale_from_visit.sql',
-  '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql',
+  '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql',
 
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));

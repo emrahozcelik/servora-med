@@ -691,6 +691,51 @@ field changes append `JOB_FIELDS_UPDATED` with bounded old/new values. A patch t
 assignment and other fields may append both canonical events in the same transaction
 because they represent different business facts.
 
+The patch samples its business instant **after** it holds the user locks and the JobCard
+`FOR UPDATE` lock (OVR-5 §4.0), not before the transaction. That single instant drives
+time validation, the appended schedule revision's `created_at`, the pre-mutation and
+post-revision MUTATION producers, the deadline-extension boundary comparison and the
+change-request `resolved_at`. A patch that waited behind another transaction is judged at
+the moment it actually applies.
+
+### Overdue incident history (OVR-2 / OVR-4 / OVR-5 readers)
+
+`GET /api/job-cards/:jobCardId/overdue-incidents?limit&offset`
+
+MANAGER/ADMIN only (`403 FORBIDDEN` for STAFF before any lookup), newest breach first
+(`breached_at DESC, id DESC`). An incident is one immutable breach fact: `delayType`
+(`LATE_START` / `LATE_SUBMISSION` / `APPROVAL_WAIT`), `episodeNo`, `scheduleRevisionNo`,
+`deadlineAt`, `breachedAt`, accountability (`accountableRole`, `accountableSource`,
+`accountableUser: { id, name } | null`), `source`, `recordedAt`. Identity and evidence
+fields never change.
+
+The one-way closing facts are reported next to it:
+
+- `recoveredAt: string | null`, `recoveryActor: { id, name } | null` — the lifecycle action
+  that resolved the obligation.
+- `endedAt: string | null`, `endedBy: { id, name } | null`,
+  `endReason: 'DEADLINE_EXTENDED' | null`, `endNote: string | null`,
+  `endedByScheduleRevisionNo: number | null` — OVR-5: an authorized deadline extension
+  ended the obligation. Recovery and ending are mutually exclusive; an ended incident is
+  never reported as recovered, on time or successfully completed. These five fields (and
+  `endedDurationSeconds` below) are null on a non-ended row.
+- `totalDelaySeconds` — `recoveredAt - breachedAt` in whole seconds; `null` while open and
+  `null` for an ended row.
+- `endedDurationSeconds` — `endedAt - breachedAt` in whole seconds (same rounding);
+  `null` for a non-ended row.
+- `manualReminderSentAt`, `manualReminderCount` — OVR-4 manual manager reminders of the
+  episode up to the closing instant (`recoveredAt` or `endedAt`); statistics stop at
+  `endedAt`. `postReminderDelaySeconds` = `recoveredAt - manualReminderSentAt`, `null` for
+  ended rows.
+
+`GET /api/job-cards/:jobCardId/submission-lateness` reports the canonical open
+`LATE_SUBMISSION` breach of the job and the automatic/manual reminder state. "Open" means
+`recovered_at IS NULL AND ended_at IS NULL` in every current-state reader: the open-late
+list, the per-job snapshot, the scanner and OVR-4 discovery, the manual reminder guard
+(`409 SUBMISSION_NOT_LATE`) and recovery. OVR-4 delivery state is keyed on the canonical
+open incident: a reminder/escalation kind is due for an episode only while no delivery of
+that kind references a still-open incident of the same `(job, delayType, episodeNo)`.
+
 ## 11. Delivery Items
 
 | Method | Path | Roles | Idempotency |

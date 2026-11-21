@@ -12,10 +12,12 @@
  * carries delivery state for the due kind.
  *
  * Concurrency: the per-candidate JobCard row lock serializes competing
- * workers, and the UNIQUE (job, delay, episode, kind) delivery identity
+ * workers, and the UNIQUE (organization, incident, kind) delivery identity
  * absorbs the residual race — losers converge instead of duplicating
- * activities, realtime events or notifications. Restarts are safe for the
- * same reason: delivery state is durable, so a re-scan never re-sends.
+ * activities, realtime events or notifications. A kind is due only while no
+ * delivery of that kind references a still-open incident of the episode
+ * (OVR-5 §4.9), so an ended obligation frees the next cycle. Restarts are safe
+ * for the same reason: delivery state is durable, so a re-scan never re-sends.
  *
  * Clock discipline: `scanTime` is the single injected clock. It anchors
  * due-ness, `sent_at`, activity metadata, realtime `occurredAt` and
@@ -213,7 +215,10 @@ implements OverdueReminderWorkerRepository {
     | { status: 'converged' | 'not-due' | 'recipient-unprovable'; realtimeEvent?: undefined }
   > {
     const { organizationId, jobCardId } = input.job;
-    const existing = await tx.getOverdueNotificationDelivery({
+    // OVR-5 (§4.9): a kind is due for the episode only while no delivery of
+    // that kind references an incident of the same episode that is still open.
+    // A shift of the canonical row alone can never start a second cycle.
+    const existing = await tx.hasOpenIncidentDeliveryForEpisode({
       organizationId,
       jobCardId,
       delayType: 'LATE_SUBMISSION',
