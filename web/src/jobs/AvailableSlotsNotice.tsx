@@ -25,6 +25,7 @@ export function AvailableSlotsNotice({
   slots,
   error,
   featureDisabled,
+  disabled = false,
   onSelect,
 }: {
   searched: boolean;
@@ -32,6 +33,8 @@ export function AvailableSlotsNotice({
   slots: AvailableSlot[];
   error: Error | null;
   featureDisabled: boolean;
+  /** OVR-5 §5.4: the planned time is locked, so slots must not be selectable. */
+  disabled?: boolean;
   onSelect: (slot: AvailableSlot) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -67,6 +70,7 @@ export function AvailableSlotsNotice({
                 data-available-slot
                 className={`available-slot-option${selected ? ' available-slot-option--selected' : ''}`}
                 type="button"
+                disabled={disabled}
                 aria-label={`${dateLabel}, ${timeLabel}`}
                 aria-pressed={selected}
                 onClick={() => {
@@ -84,6 +88,7 @@ export function AvailableSlotsNotice({
           <button
             className="available-slots-toggle secondary-button"
             type="button"
+            disabled={disabled}
             aria-expanded={expanded}
             onClick={() => setExpanded((current) => !current)}
           >

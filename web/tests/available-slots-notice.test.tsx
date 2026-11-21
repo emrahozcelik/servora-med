@@ -119,6 +119,36 @@ describe('AvailableSlotsNotice', () => {
     expect(container.querySelectorAll('button[data-available-slot]')).toHaveLength(6);
   });
 
+  it('never selects a slot while the planned time is locked', async () => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    const onSelect = vi.fn();
+    const slots = Array.from({ length: 7 }, (_, index) => ({
+      startsAt: `2026-08-${String(17 + index).padStart(2, '0')}T10:00:00.000Z`,
+      endsAt: `2026-08-${String(17 + index).padStart(2, '0')}T11:00:00.000Z`,
+    }));
+
+    await act(async () => root.render(<AvailableSlotsNotice
+      searched
+      searching={false}
+      slots={slots}
+      error={null}
+      featureDisabled={false}
+      disabled
+      onSelect={onSelect}
+    />));
+
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button[data-available-slot]'));
+    expect(buttons).toHaveLength(6);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    await act(async () => buttons[0]!.click());
+    expect(onSelect).not.toHaveBeenCalled();
+    const toggle = container.querySelector<HTMLButtonElement>('.available-slots-toggle')!;
+    expect(toggle.disabled).toBe(true);
+    expect(container.querySelectorAll('button[data-available-slot]')).toHaveLength(6);
+  });
+
   it('uses a responsive equal-column grid with a readable selected state', () => {
     expect(styles).toMatch(/\.available-slots-list\s*\{[^}]*display:\s*grid/s);
     expect(styles).toMatch(/\.available-slots-list\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);

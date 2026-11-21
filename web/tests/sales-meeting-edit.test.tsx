@@ -32,6 +32,9 @@ const job: JobCard = {
   engagementKind: 'SALES_MEETING',
   assignee: { id: 'staff-1', name: 'Sezer Dener' },
   customer: { id: 'customer-1', name: 'A Klinik' }, contact: { id: 'contact-1', name: 'Dr. A' },
+  followUpContext: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
   workflowContext,
 };
 const customer = (id: string, name: string) => ({

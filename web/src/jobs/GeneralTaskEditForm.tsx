@@ -66,6 +66,10 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
   }, [deadlineExtensionError]);
 
   const dueDateChanged = dueDate !== (job.dueDate ?? '');
+  // OVR-5 §4.5: the reason is only required for a deadline change that may end
+  // open lateness, or after the server asked for it. Open lateness alone must
+  // not block title/description/priority/assignee edits.
+  const deadlineExtensionRequired = dueDateChanged || Boolean(deadlineExtensionError);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (pending) return;
@@ -78,12 +82,14 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
       setFieldError('Aktif bir sorumlu personel seçin.');
       return;
     }
-    if (managementUser && reasonVisible && !reason.trim()) {
+    if (managementUser && reasonVisible && deadlineExtensionRequired && !reason.trim()) {
       setReasonError('Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.');
       return;
     }
     setFieldError(''); setError(''); setReasonError('');
-    const trimmedReason = managementUser && reasonVisible ? reason.trim() : '';
+    const trimmedReason = managementUser && reasonVisible && deadlineExtensionRequired
+      ? reason.trim()
+      : '';
     const resolution = managementUser && resolveChangeRequest && dueDateChanged && job.changeRequest
       ? {
           changeRequestId: job.changeRequest.id,
@@ -134,7 +140,7 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
       {managementUser && reasonVisible && (
         <div className="field-group"><label htmlFor="general-task-edit-extension-reason">Tarih değişikliği gerekçesi</label>
           <textarea id="general-task-edit-extension-reason" name="deadlineExtensionReason" rows={3}
-            value={reason} maxLength={500} required
+            value={reason} maxLength={500} required={deadlineExtensionRequired}
             aria-invalid={reasonError ? true : undefined}
             aria-describedby={reasonError ? 'general-task-edit-extension-reason-error' : undefined}
             onChange={(event) => { setReason(event.target.value); setReasonError(''); }} />

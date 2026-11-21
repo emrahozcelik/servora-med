@@ -35,6 +35,9 @@ const baseJob: JobCard = {
   contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' },
   contact: null, workflowContext,
+  followUpContext: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 };
 
 function contextWith(partial: Partial<JobWorkflowContext>): JobWorkflowContext {

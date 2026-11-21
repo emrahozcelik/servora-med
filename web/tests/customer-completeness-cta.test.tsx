@@ -19,6 +19,8 @@ const waitingJob = {
   createdBy: 'staff-1', priority: 'normal', dueDate: null,
   assignee: { id: 'staff-1', name: 'Ayşe' }, customer: { id: 'c1', name: 'Klinik' },
   contact: null, workflowContext,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 } satisfies JobCard;
 
 const contactPayload = (overrides: Record<string, unknown>) => ({

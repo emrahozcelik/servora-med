@@ -476,6 +476,9 @@ function JobScheduleEditForm({
   });
 
   function useAvailableSlot(slot: AvailableSlot) {
+    // OVR-5 §5.4: Staff cannot move the planned time of a job with open
+    // lateness; the disabled input must not change through the slot list.
+    if (!managementUser && hasOpenOverdueIncident) return;
     setLocalValue(isoInstantToLocalDateTime(slot.startsAt));
     setFieldError('');
     setSubmitError('');
@@ -492,8 +495,8 @@ function JobScheduleEditForm({
     setResolveChangeRequest(true);
   }, [canonicalKey, job.scheduledAt, intervalJob]);
 
-  const deadlineChanged = localValue.trim() !== ''
-    && localValue !== (job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+  const deadlineChanged = localValue.trim()
+    !== (job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
 
   function deadlineChangeOptions(): DeadlineChangeOptions | undefined {
     const trimmedReason = managementUser && reasonVisible ? reason.trim() : '';
@@ -626,10 +629,12 @@ function JobScheduleEditForm({
         <AvailableSlotsNotice
           {...availableSlotSearch}
           onSelect={useAvailableSlot}
+          disabled={!managementUser && hasOpenOverdueIncident}
         />
         {submitError && <p className="field-error" role="alert">{submitError}</p>}
         <div className="review-buttons">
-          <button className="secondary-button" type="submit" disabled={pending || !onSave}>
+          <button className="secondary-button" type="submit"
+            disabled={pending || !onSave || (!managementUser && hasOpenOverdueIncident)}>
             {pending ? 'Kaydediliyor…' : 'Planlanan zamanı kaydet'}
           </button>
         </div>
@@ -1937,6 +1942,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }
         if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
+        setRevisionCorrection(null);
         setFollowUp(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {

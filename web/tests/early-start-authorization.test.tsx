@@ -29,6 +29,8 @@ const job = {
   contact: null, workflowContext, followUpContext: null, followUpProposal: null,
   submitLocationComparison: null,
   earlyStartAuthorization: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 } as JobCard;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {

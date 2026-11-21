@@ -62,6 +62,8 @@ const job: JobCard = {
   priority: 'normal', dueDate: null, scheduledAt: null,
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'Klinik' }, contact: null,
   followUpContext: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
   workflowContext: waitingContext,
 };
 const item: DeliveryItem = {

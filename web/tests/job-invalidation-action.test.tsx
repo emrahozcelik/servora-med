@@ -10,6 +10,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const job = {
   id: 'job-1', status: 'NEW', version: 7,
+  hasOpenOverdueIncident: false, correctionDueAt: null,
 } as JobCard;
 
 describe('JobInvalidationAction', () => {

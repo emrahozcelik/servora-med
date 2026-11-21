@@ -66,6 +66,8 @@ function jobCard(overrides: Partial<JobCard> = {}): JobCard {
     submitLocationComparison: null,
     changeRequest: null,
     assignmentOffer: offer,
+    hasOpenOverdueIncident: false,
+    correctionDueAt: null,
     ...overrides,
   };
 }

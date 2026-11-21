@@ -65,6 +65,7 @@ function jobCard(
     assignee: { id: 's1', name: 'Ayşe Personel' },
     customer: { id: 'c1', name: 'ABC Klinik' }, contact: null,
     followUpContext: null,
+    hasOpenOverdueIncident: false, correctionDueAt: null,
     workflowContext: context(status, commands, lifecycle),
   };
 }

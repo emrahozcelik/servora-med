@@ -28,6 +28,8 @@ const job = {
   submitLocationComparison: null,
   earlyStartAuthorization: null,
   changeRequest: null,
+  hasOpenOverdueIncident: false,
+  correctionDueAt: null,
 } as JobCard;
 
 function json(body: unknown, status = 200) {
