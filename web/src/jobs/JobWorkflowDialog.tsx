@@ -18,6 +18,10 @@ import {
   type FollowUpDraft,
   type FollowUpProposalSectionProps,
 } from './FollowUpProposalSection';
+import {
+  RevisionCorrectionDueField,
+  type RevisionCorrectionDraft,
+} from './RevisionCorrectionDueField';
 
 export type JobWorkflowDialogKind =
   | { kind: 'submit'; presentation: TransitionPresentation }
@@ -47,12 +51,20 @@ export function JobWorkflowDialog(props: {
     inlineError: string | null;
     onChange: (patch: Partial<AssignmentReasonDraft>) => void;
   };
+  /**
+   * OVR-5 §3.9: present only for a revision when the job has an original
+   * submission deadline; a job without one never offers or sends the picker.
+   */
+  revisionCorrection?: {
+    draft: RevisionCorrectionDraft;
+    onChange: (next: RevisionCorrectionDraft) => void;
+  };
   returnFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusEnabledRef?: RefObject<boolean>;
 }): ReactNode {
   const {
     dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
-    assignmentReason, returnFocusRef, restoreFocusEnabledRef,
+    assignmentReason, revisionCorrection, returnFocusRef, restoreFocusEnabledRef,
   } = props;
   const continuity = dialog.kind === 'cancel' ? cancelContinuity : undefined;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
@@ -132,7 +144,14 @@ export function JobWorkflowDialog(props: {
               initialFocusRef={followUpInitialFocusRef}
             />
           </fieldset>
-        : undefined;
+        : dialog.kind === 'revision' && revisionCorrection
+          ? <fieldset disabled={pending || uncertain}>
+              <RevisionCorrectionDueField
+                draft={revisionCorrection.draft}
+                onChange={revisionCorrection.onChange}
+              />
+            </fieldset>
+          : undefined;
   const hasPreludeFocus = followUp !== undefined
     || continuity !== undefined
     || assignmentReason !== undefined;

@@ -31,6 +31,14 @@ export function defaultDeliveredAtLocalValue(now = new Date()): string {
 }
 
 /**
+ * OVR-5: default correction deadline for a revision request: now + 24 hours,
+ * device-local, matching the server's materialized default.
+ */
+export function defaultCorrectionDueLocalValue(now = new Date()): string {
+  return formatLocalDateTime(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+}
+
+/**
  * Default planned time: now + 1 hour, rounded up to the next 30-minute boundary.
  * Exact 30-minute boundaries (with zero seconds/ms after +1h) are kept.
  */
