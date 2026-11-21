@@ -3185,7 +3185,9 @@ management decision list.
   "önerinle a ile devam edelim"; period and deadline revised the same day,
   before any release: "raporlar pazartesiden cumartesiye olacakmış. haftalık
   rapor istendiğinde cumartesi gününü kapsayacak. rapor pazar ve pazartesiye
-  kadar gönderilebilecek."); implementation pending. Ships with the code in one
+  kadar gönderilebilecek."; clarified and approved the same day: overdue at the
+  end of Monday, submission allowed any time before, a late request due on its
+  creation day); implementation pending. Ships with the code in one
   PR. Contract: [weekly-report-workweek.md](./docs/features/weekly-report-workweek.md).
 
 ### Decision

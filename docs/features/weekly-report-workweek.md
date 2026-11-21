@@ -7,7 +7,13 @@
   "raporlar pazartesiden cumartesiye olacakmış. haftalık rapor istendiğinde
   cumartesi gününü kapsayacak. rapor pazar ve pazartesiye kadar
   gönderilebilecek." (This supersedes the earlier same-day Monday–Friday /
-  Friday-deadline draft, which was never released.) Ships with the code in one
+  Friday-deadline draft, which was never released.) Clarified and approved the
+  same day ("pazartesiden cumartesiye olan işler haftalık rapordur. cumartesi
+  günü akşam rapor gönderilebilir + 1 pazar günü gönderilebilir + 1 pazartesi
+  deadline akşam iş gecikmiş sayılmaya başlar"), with the owner's answers:
+  overdue starts at the end of Monday (Tuesday 00:00), submission is allowed at
+  any time before the deadline, and a late request is due on its creation day
+  (D9). A short-lived "always Monday, opens overdue" reading was withdrawn. Ships with the code in one
   PR (no docs-only PR).
 - **Date:** 2026-11-21
 - **Scope:** period, deadline and automatic work-list window of **new** Weekly
