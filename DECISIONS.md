@@ -3187,7 +3187,7 @@ management decision list.
   rapor istendiğinde cumartesi gününü kapsayacak. rapor pazar ve pazartesiye
   kadar gönderilebilecek."; clarified and approved the same day: overdue at the
   end of Monday, submission allowed any time before, a late request due on its
-  creation day); implementation pending. Ships with the code in one
+  creation day); implemented and verified locally, hosted CI pending. Ships with the code in one
   PR. Contract: [weekly-report-workweek.md](./docs/features/weekly-report-workweek.md).
 
 ### Decision

@@ -1,6 +1,6 @@
 # Weekly Report working-week period, Monday deadline and simplified content (WR-WEEK)
 
-- **Status:** Accepted product contract, implementation pending — `DECISIONS.md` WR-WEEK.
+- **Status:** Accepted product contract, implemented on branch `feat/weekly-report-workweek` and verified locally (2026-11-21); hosted CI, merge and production deploy are separate gates — `DECISIONS.md` WR-WEEK.
   Owner decisions, 2026-11-21: the proposed defaults accepted with "evet
   hazırla"; late-request rule D9 option (a) chosen with "önerinle a ile devam
   edelim"; the period and deadline **revised the same day** before any release:
