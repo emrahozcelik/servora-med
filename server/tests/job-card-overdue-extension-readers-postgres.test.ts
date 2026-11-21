@@ -988,7 +988,10 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
       expect(endedItem.manualReminderCount).toBe(1);
       expect(endedItem.manualReminderSentAt).toBe(reminderSentAt.toISOString());
 
-      // A row that is still open carries no ending fields at all.
+      // A row that is still open carries no ending fields at all. Reset the
+      // service clock to the DB baseline so the job's initial schedule revision
+      // precedes the scan instant.
+      clock.now = await dbBaseline(pool);
       let openJob = await createTask(service, staff, {
         title: 'Açık gecikme', dueDate: dateKeyShift(clock.now, -3),
       });

@@ -3780,6 +3780,10 @@ export class JobCardService {
       actor.organizationId, jobCardId,
     );
     const statsByEpisode = new Map(stats.map((entry) => [entry.episodeNo, entry]));
+    // One reminder read per ended episode, shared by its rows (Promise.all).
+    const remindersByEpisode = new Map<number, ReturnType<
+      JobCardRepository['listSubmissionRemindersForEpisode']
+    >>();
     const items = await Promise.all(result.items.map(async (item) => {
       // Only reminders sent at or before the closing instant measure the
       // nudge effect; a reminder sent afterwards belongs to a later cycle.
@@ -3792,9 +3796,14 @@ export class JobCardService {
       let manualReminderCount = 0;
       let latestManualReminderAt: Date | null = null;
       if (endedAtMs !== null) {
-        const reminders = await this.repository.listSubmissionRemindersForEpisode(
-          actor.organizationId, jobCardId, item.episodeNo,
-        );
+        let pending = remindersByEpisode.get(item.episodeNo);
+        if (pending === undefined) {
+          pending = this.repository.listSubmissionRemindersForEpisode(
+            actor.organizationId, jobCardId, item.episodeNo,
+          );
+          remindersByEpisode.set(item.episodeNo, pending);
+        }
+        const reminders = await pending;
         const beforeEnding = reminders.filter(
           (reminder) => reminder.sentAt.getTime() <= endedAtMs,
         );
