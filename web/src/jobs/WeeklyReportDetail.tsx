@@ -475,6 +475,11 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         return requestJobCardRevision(loadedJob.id, { ...input, revisionReason: input.revisionReason ?? '' });
       case 'CANCEL':
         return cancelJobCard(loadedJob.id, { ...input, cancelReason: input.cancelReason ?? '' });
+      case 'DECLINE_ASSIGNMENT':
+      case 'RELEASE_ASSIGNMENT':
+        // JOB-010 release 2b assignment answers belong to PRODUCT_DELIVERY /
+        // SALES_MEETING offers; a weekly report never carries one.
+        throw new Error(`Unsupported lifecycle command: ${command}`);
       default: {
         const exhaustive: never = command;
         throw new Error(`Unsupported lifecycle command: ${exhaustive}`);

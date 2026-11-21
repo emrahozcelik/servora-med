@@ -124,6 +124,30 @@ describe('JobCard routes', () => {
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni' });
   });
 
+  it('accepts the past-start acknowledgement on PATCH through the body allowlist', async () => {
+    const { app, service } = await createApp();
+    const acknowledgement = {
+      code: 'CUSTOMER_WAITING',
+      text: 'Müşteri teslimi bekliyor.',
+    };
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/job-cards/job-1',
+      payload: {
+        expectedVersion: 1,
+        scheduledAt: '2026-07-16T14:30:00+03:00',
+        pastStartAcknowledgement: acknowledgement,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-16T14:30:00+03:00',
+      pastStartAcknowledgement: acknowledgement,
+    });
+  });
+
   it('gates the SUBMIT capability flag behind an explicit reader opt-in', async () => {
     const { app, service } = await createApp();
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1?includeSubmitLocationCapability=true' });

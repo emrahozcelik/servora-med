@@ -4,11 +4,18 @@ import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
-import { JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from '../job-cards/job-card-duration.js';
+import {
+  canonicalScheduledEnd,
+  JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL,
+} from '../job-cards/job-card-duration.js';
 import { isTerminalJobStatus } from '../job-cards/policy.js';
+import {
+  decideAssignmentOfferOpen,
+  isAssignmentOfferJobType,
+} from '../job-cards/assignment-offer-policy.js';
 import { materializeLateStartIfBreached, overdueRevisionMissingError } from '../job-cards/overdue-breach-producer.js';
 import { PostgresJobCardTransaction } from '../job-cards/repository.js';
-import type { JobCardStatus } from '../job-cards/types.js';
+import type { JobCardStatus, JobCardType } from '../job-cards/types.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type { RealtimeService } from '../realtime/service.js';
 
@@ -232,6 +239,13 @@ export class PostgresStaffOffboardingService {
     private readonly pool: Pool,
     private readonly realtime?: Pick<RealtimeService, 'disconnectUser'>,
     private readonly now: () => Date = () => new Date(),
+    /**
+     * JOB-010 release 2b: when the assignment acceptance window is enabled, an
+     * offboarding transfer of a NEW/ACCEPTED job opens an assignment offer for
+     * the replacement (and notifies them), exactly like a management
+     * reassignment.
+     */
+    private readonly assignmentWindow: Readonly<{ enabled: boolean }> = { enabled: false },
   ) {}
 
   async preview(actor: SafeUser, targetUserId: string): Promise<StaffOffboardingPlan> {
@@ -517,11 +531,17 @@ export class PostgresStaffOffboardingService {
     for (const jobId of [...new Set([...jobDecision.keys(), ...followUpDecision.keys()])].sort()) {
       const replacementForJob = jobDecision.get(jobId);
       const previousJob = currentJobs.get(jobId);
+      let transferredJob: {
+        type: JobCardType | null;
+        scheduledAt: string | null;
+        scheduledEndsAt: string | null;
+      } | null = null;
       if (replacementForJob) {
         const jobInterval = await client.query<{
+          type: JobCardType;
           scheduled_at: Date | null; scheduled_ends_at: Date | null; occupied_ends_at: Date | null;
         }>(
-          `SELECT j.scheduled_at, j.scheduled_ends_at,
+          `SELECT j.type, j.scheduled_at, j.scheduled_ends_at,
                   ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL} AS occupied_ends_at
              FROM job_cards j WHERE j.organization_id = $1 AND j.id = $2`,
           [actor.organizationId, jobId],
@@ -529,6 +549,11 @@ export class PostgresStaffOffboardingService {
         const row = jobInterval.rows[0];
         const scheduledAt = row?.scheduled_at ? row.scheduled_at.toISOString() : null;
         const scheduledEndsAt = row?.scheduled_ends_at ? row.scheduled_ends_at.toISOString() : null;
+        transferredJob = {
+          type: row?.type ?? null,
+          scheduledAt,
+          scheduledEndsAt,
+        };
         // JOB-007: the replacement is checked against the transferred job's
         // occupied interval; lateness below keeps the planned end.
         const occupiedEndsAt = row?.scheduled_ends_at && row.occupied_ends_at
@@ -581,6 +606,27 @@ export class PostgresStaffOffboardingService {
       if (jobDecision.has(jobId) && previousJob) {
         await this.appendJobAssignmentEffect(client, actor, input, jobId, previousJob.assignedTo, jobDecision.get(jobId)!,
           previousJob.status === 'ACCEPTED' && previousJob.assignedTo !== jobDecision.get(jobId));
+        // JOB-010 release 2b: a NEW/ACCEPTED transfer is a management
+        // assignment, so the replacement receives an offer (compound rules:
+        // no acknowledgement, a planned window that no longer fits is
+        // recorded and withdrawn at once). Started jobs never get an offer.
+        const nextAssignee = jobDecision.get(jobId)!;
+        const resultingNew = previousJob.status === 'NEW'
+          || (previousJob.status === 'ACCEPTED' && previousJob.assignedTo !== nextAssignee);
+        if (this.assignmentWindow.enabled
+          && resultingNew
+          && transferredJob !== null
+          && transferredJob.type !== null
+          && isAssignmentOfferJobType(transferredJob.type)
+          && transferredJob.scheduledAt !== null) {
+          await this.appendAssignmentOfferEffect(client, actor, input, {
+            jobCardId: jobId,
+            assigneeUserId: nextAssignee,
+            type: transferredJob.type,
+            scheduledAt: transferredJob.scheduledAt,
+            scheduledEndsAt: transferredJob.scheduledEndsAt,
+          });
+        }
       }
       if (followUpDecision.has(jobId) && previousFollowUp) {
         await this.appendJobFieldsEffect(
@@ -682,15 +728,164 @@ export class PostgresStaffOffboardingService {
         activity.rows[0]!.created_at, activity.rows[0]!.id],
     );
     await acquireRealtimeOrderingLock(client, actor.organizationId);
-    await client.query(
+    // JOB-010 release 2b: only while the assignment window is enabled does the
+    // replacement receive the same `job.reassigned` notice a management
+    // reassignment sends. With the flag off this keeps the release 2a surface
+    // exactly: no notification row and unchanged realtime resource keys.
+    const notifyReplacement = this.assignmentWindow.enabled;
+    const realtime = await client.query<{ id: string }>(
       `INSERT INTO realtime_events
         (organization_id, source_activity_id, event_type, entity_type, entity_id, actor_user_id,
          audience_roles, audience_user_ids, resource_keys, created_at)
        VALUES ($1, $2, 'job.assignment_changed', 'job-card', $3::uuid, $4,
          ARRAY['ADMIN','MANAGER']::varchar(20)[], ARRAY[$5]::uuid[],
-         ARRAY['jobs','job:' || $3::text,'overview'], $6)`,
+         ARRAY['jobs','job:' || $3::text,'overview']
+           || CASE WHEN $7::boolean THEN ARRAY['notifications']::text[] ELSE ARRAY[]::text[] END,
+         $6)
+       RETURNING id`,
       [actor.organizationId, activity.rows[0]!.id, jobCardId, actor.id,
-        nextAssignee, activity.rows[0]!.created_at],
+        nextAssignee, activity.rows[0]!.created_at, notifyReplacement],
+    );
+    if (!notifyReplacement) return;
+    await client.query(
+      `INSERT INTO in_app_notifications
+        (organization_id, recipient_user_id, source_realtime_event_id, kind,
+         entity_type, entity_id, created_at)
+       VALUES ($1, $2, $3, 'job.reassigned', 'job-card', $4::uuid, $5)
+       ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING`,
+      [actor.organizationId, nextAssignee, realtime.rows[0]!.id, jobCardId,
+        activity.rows[0]!.created_at],
+    );
+  }
+
+  /**
+   * JOB-010 release 2b: offboarding transfer producer. Compound semantics:
+   * it cannot ask for a past-start acknowledgement, and a planned window that
+   * can no longer fit an on-time answer is recorded and closed at once as
+   * `PLANNED_WINDOW_PASSED`, putting the job in the management list.
+   */
+  private async appendAssignmentOfferEffect(
+    client: PoolClient,
+    actor: SafeUser,
+    input: OffboardingDecisionInput,
+    offer: {
+      jobCardId: string;
+      assigneeUserId: string;
+      type: JobCardType;
+      scheduledAt: string;
+      scheduledEndsAt: string | null;
+    },
+  ) {
+    const openedAt = this.now();
+    if (offer.assigneeUserId === actor.id) return;
+    // JOB-010 §3: the planned interval is canonical when the row carries no
+    // explicit end, exactly as the JobCardService producers compute it.
+    const scheduledEndsAt = offer.scheduledEndsAt
+      ?? canonicalScheduledEnd(offer.type, offer.scheduledAt);
+    const decision = decideAssignmentOfferOpen({
+      openedAt,
+      scheduledAt: new Date(offer.scheduledAt),
+      scheduledEndsAt: scheduledEndsAt === null ? null : new Date(scheduledEndsAt),
+      direct: false,
+      acknowledgement: null,
+    });
+    if (decision.kind === 'window-too-short' || decision.kind === 'acknowledgement-required') {
+      // Unreachable for a compound producer (it never rejects); fail closed.
+      throw new AppError('ASSIGNMENT_WINDOW_TOO_SHORT', 409, 'Planlanan zaman kabul için çok kısa.');
+    }
+    // A live OPEN offer of the offboarded Staff member is withdrawn first.
+    const open = await client.query<{ id: string }>(
+      `UPDATE job_card_assignment_offers
+          SET state = 'WITHDRAWN', closed_at = $3, closed_by = $4,
+              close_reason = 'OFFBOARDING_TRANSFER'
+        WHERE organization_id = $1 AND job_card_id = $2 AND state = 'OPEN'
+        RETURNING id`,
+      [actor.organizationId, offer.jobCardId, openedAt, actor.id],
+    );
+    for (const withdrawn of open.rows) {
+      await this.appendAssignmentOfferFact(client, actor, input, {
+        jobCardId: offer.jobCardId,
+        assigneeUserId: offer.assigneeUserId,
+        event: 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+        metadata: { offerId: withdrawn.id, closeReason: 'OFFBOARDING_TRANSFER' },
+        at: openedAt,
+        resourceKeySuffix: `offer-withdrawn:${withdrawn.id}`,
+      });
+    }
+    const plannedWindowPassed = decision.kind === 'planned-window-passed';
+    const inserted = await client.query<{ id: string; acceptance_due_at: Date }>(
+      `INSERT INTO job_card_assignment_offers
+          (organization_id, job_card_id, assignee_user_id, opened_at, opened_reason,
+           opened_by, assignment_history_id, acceptance_due_at, urgent_reason,
+           ack_code, ack_text, state, closed_at, closed_by, close_reason, close_text)
+       VALUES ($1, $2, $3, $4, 'OFFBOARDING_TRANSFER', $5, NULL, $6, $7,
+         NULL, NULL, $8::varchar(10), $9, $10, $11, NULL)
+       RETURNING id, acceptance_due_at`,
+      [actor.organizationId, offer.jobCardId, offer.assigneeUserId, openedAt, actor.id,
+        decision.acceptanceDueAt, decision.urgentReason,
+        plannedWindowPassed ? 'WITHDRAWN' : 'OPEN',
+        plannedWindowPassed ? openedAt : null,
+        plannedWindowPassed ? actor.id : null,
+        plannedWindowPassed ? 'PLANNED_WINDOW_PASSED' : null],
+    );
+    const created = inserted.rows[0]!;
+    await this.appendAssignmentOfferFact(client, actor, input, {
+      jobCardId: offer.jobCardId,
+      assigneeUserId: offer.assigneeUserId,
+      event: 'JOB_ASSIGNMENT_OFFER_OPENED',
+      metadata: {
+        offerId: created.id,
+        openedReason: 'OFFBOARDING_TRANSFER',
+        acceptanceDueAt: created.acceptance_due_at.toISOString(),
+        urgentReason: decision.urgentReason,
+      },
+      at: openedAt,
+      resourceKeySuffix: `offer-opened:${created.id}`,
+    });
+    if (plannedWindowPassed) {
+      await this.appendAssignmentOfferFact(client, actor, input, {
+        jobCardId: offer.jobCardId,
+        assigneeUserId: offer.assigneeUserId,
+        event: 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+        metadata: { offerId: created.id, closeReason: 'PLANNED_WINDOW_PASSED' },
+        at: openedAt,
+        resourceKeySuffix: `offer-window:${created.id}`,
+      });
+    }
+  }
+
+  private async appendAssignmentOfferFact(
+    client: PoolClient,
+    actor: SafeUser,
+    input: OffboardingDecisionInput,
+    fact: {
+      jobCardId: string;
+      assigneeUserId: string;
+      event: 'JOB_ASSIGNMENT_OFFER_OPENED' | 'JOB_ASSIGNMENT_OFFER_WITHDRAWN';
+      metadata: Record<string, unknown>;
+      at: Date;
+      resourceKeySuffix: string;
+    },
+  ) {
+    const activity = await client.query<{ id: string }>(
+      `INSERT INTO job_card_activity_logs
+        (organization_id, job_card_id, actor_id, event_type, metadata, client_action_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+       RETURNING id`,
+      [actor.organizationId, fact.jobCardId, actor.id, fact.event,
+        JSON.stringify(fact.metadata),
+        `${input.clientActionId}:${fact.resourceKeySuffix}`],
+    );
+    await acquireRealtimeOrderingLock(client, actor.organizationId);
+    await client.query(
+      `INSERT INTO realtime_events
+        (organization_id, source_activity_id, event_type, entity_type, entity_id, actor_user_id,
+         audience_roles, audience_user_ids, resource_keys, created_at)
+       VALUES ($1, $2, 'job.updated', 'job-card', $3::uuid, $4,
+         ARRAY['ADMIN','MANAGER']::varchar(20)[], ARRAY[$5]::uuid[],
+         ARRAY['jobs','job:' || $3::text,'overview','assignment-offers'], $6)`,
+      [actor.organizationId, activity.rows[0]!.id, fact.jobCardId, actor.id,
+        fact.assigneeUserId, fact.at],
     );
   }
 

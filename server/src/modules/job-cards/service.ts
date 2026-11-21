@@ -15,6 +15,8 @@ import {
   assertCanCreateChangeRequest,
   assertCanResolveChangeRequest,
   assertCanListOpenChangeRequests,
+  assertCanReofferAssignment,
+  assertCanListAssignmentOffersNeedingAction,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -42,6 +44,7 @@ import type {
   ProductReference,
   PersistedFollowUpListItem,
   SubmissionReader,
+  AssignmentOfferRecord,
 } from './repository.js';
 import {
   deliveryItemCreateRequestHash,
@@ -53,8 +56,16 @@ import {
   lifecycleRequestHash,
   meetingDetailsUpdateRequestHash,
   productDeliveryCreateRequestHash,
+  reofferAssignmentRequestHash,
   type LifecycleLocationCapture,
 } from './critical-action-request-hash.js';
+import {
+  assignmentOfferRequiredState,
+  decideAssignmentOfferOpen,
+  isAcceptanceOnTime,
+  isAssignmentOfferEligible,
+  isAssignmentOfferJobType,
+} from './assignment-offer-policy.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
   DELIVERY_PURPOSES,
@@ -120,8 +131,20 @@ import {
   type OpenChangeRequestItem,
   type JobChangeRequestDecision,
   type JobChangeRequestReasonCode,
+  type AssignmentOfferDecisionInput,
+  type JobAssignmentOfferOpenedReason,
+  type JobAssignmentOfferState,
+  type JobAssignmentOfferSummary,
+  type JobAssignmentOfferUrgentReason,
+  type JobAssignmentOfferWithdrawReasonCode,
+  type JobAssignmentOfferView,
+  type NeedsActionAssignmentOfferItem,
+  type PastStartAcknowledgementInput,
+  type ReofferAssignmentInput,
+  type ReofferAssignmentReceipt,
   JOB_CHANGE_REQUEST_DECISIONS,
   JOB_CHANGE_REQUEST_REASON_CODES,
+  JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES,
 } from './types.js';
 import {
   jobCardInvalidationRequestHash,
@@ -138,6 +161,7 @@ import {
 } from './validation.js';
 import {
   normalizeFollowUpDueDate,
+  parsePastStartAcknowledgement,
   priority as normalizePriority,
 } from './create-input.js';
 import { addCalendarDaysToDateKey } from './local-calendar.js';
@@ -295,6 +319,8 @@ type PatchInput = {
   scheduledEndsAt?: string | null;
   engagementKind?: JobCardEngagementKind;
   overrideReason?: string | null;
+  /** JOB-010 release 2b: required when a direct producer opens a passed-start offer. */
+  pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
 };
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
@@ -335,7 +361,7 @@ function assertFollowUpMinimumLead(input: {
 const JOB_CARD_PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'scheduledEndsAt',
-  'engagementKind', 'overrideReason',
+  'engagementKind', 'overrideReason', 'pastStartAcknowledgement',
 ] as const;
 type LifecycleDefinition = {
   command: LifecycleCommand;
@@ -349,6 +375,8 @@ type LifecycleDefinition = {
   followUpProposal?: FollowUpProposalInput;
   approveFollowUp?: ApproveFollowUpInput;
   cancelContinuity?: FollowUpCancelContinuity | null;
+  /** JOB-010 release 2b: the Staff decline/release reason, part of the hash. */
+  assignmentReason?: { code: string; text: string } | null;
 };
 
 type OverdueRecoveryTarget = Pick<
@@ -621,6 +649,14 @@ export class JobCardService {
     private readonly lifecycle: Readonly<{
       intentTtlMs?: number;
     }> = {},
+    /**
+     * JOB-010 release 2b: the assignment acceptance window. Off by default, so
+     * a deployment that never sets JOB_ASSIGNMENT_WINDOW_ENABLED keeps the
+     * release 2a behaviour exactly.
+     */
+    private readonly assignmentWindow: Readonly<{
+      enabled: boolean;
+    }> = { enabled: false },
   ) {
     this.notesService = new JobCardNotesService(repository);
     this.saleService = new JobCardSaleService(repository, now,
@@ -642,6 +678,11 @@ export class JobCardService {
    */
   private intentTtlMs(): number {
     return this.lifecycle.intentTtlMs ?? LIFECYCLE_INTENT_TTL_MS_DEFAULT;
+  }
+
+  /** JOB-010 release 2b: single read of the activation flag. */
+  private assignmentWindowEnabled(): boolean {
+    return this.assignmentWindow.enabled === true;
   }
 
   /**
@@ -696,6 +737,12 @@ export class JobCardService {
       notifyCalendarRescheduled?: boolean;
       sourceJobCardId?: string | null;
       customerId?: string | null;
+      /**
+       * JOB-010 release 2b: a management producer that supersedes its own
+       * overdue offer handles the recovery itself, so the derived in-app
+       * notification is suppressed while the activity and realtime event stay.
+       */
+      suppressNotifications?: boolean;
     },
   ): Promise<RealtimeEventRecord[]> {
     const mapped = mapJobCardActivityToRealtime({
@@ -712,19 +759,31 @@ export class JobCardService {
     });
     if (!mapped) return [];
 
-    const managementRecipients = input.event === 'JOB_SUBMITTED_FOR_APPROVAL'
-      || input.event === 'JOB_CHANGE_REQUESTED'
+    const managementNotification = input.suppressNotifications !== true
+      && (
+        input.event === 'JOB_SUBMITTED_FOR_APPROVAL'
+        || input.event === 'JOB_CHANGE_REQUESTED'
+        // JOB-010 release 2b: a declined/released offer and an expired
+        // acceptance must reach every active MANAGER/ADMIN.
+        || input.event === 'JOB_ASSIGNMENT_DECLINED'
+        || input.event === 'JOB_ASSIGNMENT_RELEASED'
+        || input.event === 'JOB_ASSIGNMENT_OFFER_EXPIRED'
+      );
+    const managementRecipients = managementNotification
       ? await transaction.listActiveManagementRecipients(input.organizationId)
       : [];
-    const drafts: NotificationDraft[] = [...createJobCardNotificationDrafts({
-      event: input.event,
-      actorUserId: input.actorUserId,
-      afterAssigneeId: input.afterAssigneeId,
-      jobCardId: input.jobCardId,
-      managementRecipients,
-    })];
+    const drafts: NotificationDraft[] = input.suppressNotifications === true
+      ? []
+      : [...createJobCardNotificationDrafts({
+        event: input.event,
+        actorUserId: input.actorUserId,
+        afterAssigneeId: input.afterAssigneeId,
+        jobCardId: input.jobCardId,
+        managementRecipients,
+      })];
     if (
-      input.notifyCalendarRescheduled
+      input.suppressNotifications !== true
+      && input.notifyCalendarRescheduled
       && !drafts.some((draft) => draft.recipientUserId === input.afterAssigneeId)
     ) {
       drafts.push({
@@ -839,6 +898,274 @@ export class JobCardService {
       });
     }
     return [realtimeEvent];
+  }
+
+  /**
+   * JOB-010 release 2b: open an assignment offer inside the caller's
+   * transaction. Returns null when the producer does not apply (flag off,
+   * job outside the offer rules, self-assignment).
+   *
+   * Direct producers (a management request) reject a planned window that can
+   * no longer fit an on-time answer and demand an explicit acknowledgement
+   * once the planned start passed. Compound producers (JOB-008 approval,
+   * JOB-009 replacement, offboarding transfer) cannot ask anyone, so they
+   * record the offer and close it at once as `PLANNED_WINDOW_PASSED`.
+   */
+  private async openAssignmentOffer(
+    tx: JobCardTransaction,
+    input: {
+      actor: JobCardActor;
+      job: JobCard;
+      openedReason: JobAssignmentOfferOpenedReason;
+      requestTime: Date;
+      direct: boolean;
+      acknowledgement?: PastStartAcknowledgementInput | null;
+    },
+  ): Promise<{ offer: AssignmentOfferRecord; realtimeEvents: RealtimeEventRecord[] } | null> {
+    if (!this.assignmentWindowEnabled()) return null;
+    if (!isAssignmentOfferEligible(input.job, input.actor.id)) return null;
+    const scheduledAt = input.job.scheduledAt;
+    if (scheduledAt === null) return null;
+    const scheduledEndsAt = input.job.scheduledEndsAt
+      ?? canonicalScheduledEnd(input.job.type, scheduledAt);
+    const decision = decideAssignmentOfferOpen({
+      openedAt: input.requestTime,
+      scheduledAt: new Date(scheduledAt),
+      scheduledEndsAt: scheduledEndsAt === null ? null : new Date(scheduledEndsAt),
+      direct: input.direct,
+      acknowledgement: input.acknowledgement ?? null,
+    });
+    if (decision.kind === 'window-too-short') {
+      throw new AppError(
+        'ASSIGNMENT_WINDOW_TOO_SHORT',
+        409,
+        'Planlanan zaman kabul için çok kısa; lütfen daha ileri bir zaman seçin.',
+      );
+    }
+    if (decision.kind === 'acknowledgement-required') {
+      throw new AppError(
+        'PAST_START_ACKNOWLEDGEMENT_REQUIRED',
+        409,
+        'Planlanan başlangıç geçti; müşteri onayı veya bekleme açıklaması zorunludur.',
+      );
+    }
+    const acknowledgement = decision.kind === 'open'
+      && decision.urgentReason === 'START_PASSED'
+      ? decision.acknowledgement
+      : null;
+    const offer = await tx.insertAssignmentOffer({
+      organizationId: input.actor.organizationId,
+      jobCardId: input.job.id,
+      assigneeUserId: input.job.assignedTo,
+      openedAt: input.requestTime,
+      openedReason: input.openedReason,
+      openedBy: input.actor.id,
+      assignmentHistoryId: null,
+      acceptanceDueAt: decision.acceptanceDueAt,
+      urgentReason: decision.urgentReason,
+      ackCode: acknowledgement?.code ?? null,
+      ackText: acknowledgement?.text ?? null,
+      closeImmediately: decision.kind === 'planned-window-passed'
+        ? {
+          closedAt: input.requestTime,
+          closedBy: input.actor.id,
+          closeReason: 'PLANNED_WINDOW_PASSED',
+        }
+        : null,
+    });
+    const realtimeEvents: RealtimeEventRecord[] = [];
+    const openedActivity = await tx.appendActivity({
+      organizationId: input.actor.organizationId,
+      jobCardId: input.job.id,
+      actorId: input.actor.id,
+      event: 'JOB_ASSIGNMENT_OFFER_OPENED',
+      metadata: {
+        offerId: offer.id,
+        openedReason: input.openedReason,
+        acceptanceDueAt: decision.acceptanceDueAt.toISOString(),
+        urgentReason: decision.urgentReason,
+      },
+    });
+    realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
+      activity: openedActivity,
+      organizationId: input.actor.organizationId,
+      jobCardId: input.job.id,
+      jobType: input.job.type,
+      actorUserId: input.actor.id,
+      event: 'JOB_ASSIGNMENT_OFFER_OPENED',
+      beforeAssigneeId: null,
+      afterAssigneeId: input.job.assignedTo,
+      customerId: input.job.customerId,
+    }));
+    if (decision.kind === 'planned-window-passed') {
+      const withdrawn = await tx.appendActivity({
+        organizationId: input.actor.organizationId,
+        jobCardId: input.job.id,
+        actorId: input.actor.id,
+        event: 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+        metadata: { offerId: offer.id, closeReason: 'PLANNED_WINDOW_PASSED' },
+      });
+      realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
+        activity: withdrawn,
+        organizationId: input.actor.organizationId,
+        jobCardId: input.job.id,
+        jobType: input.job.type,
+        actorUserId: input.actor.id,
+        event: 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+        beforeAssigneeId: null,
+        afterAssigneeId: input.job.assignedTo,
+        customerId: input.job.customerId,
+      }));
+    }
+    return { offer, realtimeEvents };
+  }
+
+  /**
+   * JOB-010 release 2b: close a live OPEN offer as WITHDRAWN when another
+   * producer replaces it (reassign, reschedule, cancel, invalidation,
+   * offboarding transfer). A no-op when the job is outside the window.
+   */
+  private async withdrawOpenAssignmentOffer(
+    tx: JobCardTransaction,
+    input: {
+      actor: JobCardActor;
+      job: JobCard;
+      requestTime: Date;
+      reason: Extract<
+        JobAssignmentOfferWithdrawReasonCode,
+        'REASSIGNED' | 'RESCHEDULED' | 'CANCELLED' | 'INVALIDATED'
+      >;
+    },
+  ): Promise<RealtimeEventRecord[]> {
+    if (!this.assignmentWindowEnabled()) return [];
+    const offer = await tx.getLatestAssignmentOffer(input.actor.organizationId, input.job.id);
+    if (offer === null || offer.state !== 'OPEN') return [];
+    const closed = await tx.closeAssignmentOffer({
+      organizationId: input.actor.organizationId,
+      jobCardId: input.job.id,
+      offerId: offer.id,
+      expectedState: 'OPEN',
+      state: 'WITHDRAWN',
+      closedAt: input.requestTime,
+      closedBy: input.actor.id,
+      closeReason: input.reason,
+      closeText: null,
+    });
+    if (!closed) return [];
+    const activity = await tx.appendActivity({
+      organizationId: input.actor.organizationId,
+      jobCardId: input.job.id,
+      actorId: input.actor.id,
+      event: 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+      metadata: { offerId: offer.id, closeReason: input.reason },
+    });
+    return this.appendRealtimeForActivity(tx, {
+      activity,
+      organizationId: input.actor.organizationId,
+      jobCardId: input.job.id,
+      jobType: input.job.type,
+      actorUserId: input.actor.id,
+      event: 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
+      beforeAssigneeId: null,
+      afterAssigneeId: input.job.assignedTo,
+      customerId: input.job.customerId,
+    });
+  }
+
+  /**
+   * JOB-010 release 2b: the offer state a lifecycle answer requires, checked
+   * in the reservation preflight and again in the finalize transaction.
+   * ACCEPT_ASSIGNMENT on a job outside the window is unchanged; DECLINE and
+   * RELEASE never exist there.
+   */
+  private async assertAssignmentOfferCommand(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    command: LifecycleCommand,
+    requestTime: Date,
+  ): Promise<AssignmentOfferRecord | null> {
+    if (!this.assignmentWindowEnabled()) return null;
+    if (command !== 'ACCEPT_ASSIGNMENT' && command !== 'DECLINE_ASSIGNMENT'
+      && command !== 'RELEASE_ASSIGNMENT') return null;
+    // Role/assignment denials stay the policy's job (403), exactly as before:
+    // the offer check only narrows a request the actor was otherwise allowed
+    // to make.
+    if (actor.role !== 'STAFF' || actor.id !== job.assignedTo) return null;
+    const offer = await tx.getLatestAssignmentOffer(actor.organizationId, job.id);
+    if (offer === null) {
+      if (command === 'ACCEPT_ASSIGNMENT') return null;
+      throw new AppError(
+        'ASSIGNMENT_OFFER_NOT_OPEN',
+        409,
+        'Bu iş için açık bir atama teklifi bulunmuyor.',
+      );
+    }
+    const requiredState = assignmentOfferRequiredState(command);
+    if (offer.state !== requiredState || offer.assigneeUserId !== actor.id) {
+      throw new AppError(
+        'ASSIGNMENT_OFFER_NOT_OPEN',
+        409,
+        'Atama teklifi bu işlem için uygun durumda değil.',
+      );
+    }
+    // JOB-010 §4: the canonical 049 reservation instant compared with the
+    // deadline; a late answer writes nothing whether or not the worker ran.
+    if (command !== 'RELEASE_ASSIGNMENT'
+      && !isAcceptanceOnTime(requestTime, offer.acceptanceDueAt)) {
+      throw new AppError(
+        'ACCEPTANCE_WINDOW_CLOSED',
+        409,
+        'Kabul süresi doldu; yönetici yeni bir teklif göndermelidir.',
+      );
+    }
+    return offer;
+  }
+
+  /** The offer summary `allowedCommands` reads, or null outside the window. */
+  private assignmentOfferSummary(
+    offer: {
+      state: JobAssignmentOfferState;
+      acceptanceDueAt: Date;
+      assigneeUserId: string;
+    } | null | undefined,
+  ): JobAssignmentOfferSummary | null {
+    if (offer === null || offer === undefined) return null;
+    return {
+      state: offer.state,
+      acceptanceDueAt: offer.acceptanceDueAt.toISOString(),
+      assigneeUserId: offer.assigneeUserId,
+    };
+  }
+
+  /**
+   * JOB-010 release 2b: job detail projection. An OPEN offer past its
+   * deadline is presented as EXPIRED at read time, so the client never
+   * computes a deadline with its own clock.
+   */
+  private presentAssignmentOffer(
+    offer: {
+      id: string;
+      state: JobAssignmentOfferState;
+      acceptanceDueAt: Date;
+      openedAt: Date;
+      urgentReason: JobAssignmentOfferUrgentReason | null;
+      assigneeId: string;
+      assigneeName: string | null;
+    } | null | undefined,
+    evaluatedAt: Date,
+  ): JobAssignmentOfferView | null {
+    if (offer === null || offer === undefined) return null;
+    const expired = offer.state === 'OPEN'
+      && evaluatedAt.valueOf() >= offer.acceptanceDueAt.valueOf();
+    return {
+      id: offer.id,
+      state: expired ? 'EXPIRED' : offer.state,
+      acceptanceDueAt: offer.acceptanceDueAt.toISOString(),
+      openedAt: offer.openedAt.toISOString(),
+      urgentReason: offer.urgentReason,
+      assignee: { id: offer.assigneeId, name: offer.assigneeName },
+    };
   }
 
   async listNotes(actor: JobCardActor, jobCardId: string, page: NotePageQuery) {
@@ -1016,6 +1343,14 @@ export class JobCardService {
           calendarAffected: true,
           customerId: updated.customerId,
         });
+        // JOB-010 release 2b: invalidation withdraws a live OPEN offer; the
+        // job can never be answered again.
+        realtimeEvents.push(...await this.withdrawOpenAssignmentOffer(tx, {
+          actor,
+          job: updated,
+          requestTime,
+          reason: 'INVALIDATED',
+        }));
         return {
           response: {
             jobCardId,
@@ -1194,6 +1529,17 @@ export class JobCardService {
           calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
           customerId: job.customerId,
         });
+        // JOB-010 release 2b: a management create that lands in NEW is a
+        // customer commitment; record its offer in this same transaction.
+        const assignmentOffer = await this.openAssignmentOffer(transaction, {
+          actor,
+          job,
+          openedReason: 'CREATE',
+          requestTime,
+          direct: true,
+          acknowledgement: input.pastStartAcknowledgement ?? null,
+        });
+        if (assignmentOffer) realtimeEvents.push(...assignmentOffer.realtimeEvents);
         return {
           response: { jobCardId: job.id },
           realtimeEvents,
@@ -2007,6 +2353,17 @@ export class JobCardService {
               },
             });
           }
+          // JOB-010 release 2b: the delivery create carries the same customer
+          // commitment as the generic create; its offer commits here too.
+          const assignmentOffer = await this.openAssignmentOffer(transaction, {
+            actor,
+            job,
+            openedReason: 'CREATE',
+            requestTime,
+            direct: true,
+            acknowledgement: input.pastStartAcknowledgement ?? null,
+          });
+          if (assignmentOffer) realtimeEvents.push(...assignmentOffer.realtimeEvents);
           return { response: { jobCardId: job.id, version }, realtimeEvents };
         },
       );
@@ -2135,6 +2492,11 @@ export class JobCardService {
           activityMetadata: {
             sourceJobCardId,
           },
+          assignmentOffer: {
+            openedReason: 'FOLLOW_UP_CREATE',
+            direct: true,
+            acknowledgement: input.pastStartAcknowledgement ?? null,
+          },
         });
         return { response: { jobCardId: job.id }, realtimeEvents };
       },
@@ -2177,6 +2539,15 @@ export class JobCardService {
         acceptedBy: string;
       };
       activityMetadata?: Record<string, unknown>;
+      /**
+       * JOB-010 release 2b: the offer this child producer opens, or null for
+       * producers whose child never starts in NEW (self-accepted follow-ups).
+       */
+      assignmentOffer?: {
+        openedReason: JobAssignmentOfferOpenedReason;
+        direct: boolean;
+        acknowledgement?: PastStartAcknowledgementInput | null;
+      } | null;
     },
   ): Promise<{ job: JobCard; realtimeEvents: RealtimeEventRecord[] }> {
     const assignee = input.assignee;
@@ -2299,6 +2670,17 @@ export class JobCardService {
       sourceJobCardId: input.sourceJobCardId,
       customerId: input.customerId,
     });
+    if (input.assignmentOffer) {
+      const assignmentOffer = await this.openAssignmentOffer(transaction, {
+        actor,
+        job,
+        openedReason: input.assignmentOffer.openedReason,
+        requestTime: input.requestTime,
+        direct: input.assignmentOffer.direct,
+        acknowledgement: input.assignmentOffer.acknowledgement ?? null,
+      });
+      if (assignmentOffer) realtimeEvents.push(...assignmentOffer.realtimeEvents);
+    }
     return { job, realtimeEvents };
   }
 
@@ -2611,6 +2993,12 @@ export class JobCardService {
       clearAcceptance?: boolean;
     };
     delete fields.overrideReason;
+    // JOB-010 release 2b: the past-start acknowledgement is request intent for
+    // a direct offer producer, never a JobCard column.
+    const pastStartAcknowledgement = parsePastStartAcknowledgement(
+      fields.pastStartAcknowledgement,
+    );
+    delete fields.pastStartAcknowledgement;
     if (Object.keys(fields).length === 0 || (fields.title !== undefined && !fields.title.trim()) ||
       (fields.priority !== undefined && !JOB_CARD_PRIORITIES.includes(fields.priority))) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
@@ -2862,6 +3250,23 @@ export class JobCardService {
       scheduleChanged = nextScheduledAt !== (job.scheduledAt ?? null)
         || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
       scheduleRevisionChanged = scheduleChanged || dueDateChanged;
+      const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
+      // JOB-010 §4 (Q9, P1-B): for a job in the window in NEW or ACCEPTED,
+      // only management changes the customer time. Staff edits therefore
+      // never move a deadline or open, withdraw or reopen an offer. This runs
+      // before the interval-shape invariants so a Staff request for a
+      // protected field is always the contract's 403, never a generic 400.
+      if (this.assignmentWindowEnabled()
+        && !management
+        && ['NEW', 'ACCEPTED'].includes(job.status)
+        && (await transaction.getLatestAssignmentOffer(actor.organizationId, jobCardId)) !== null
+        && (scheduleChanged || dueDateChanged)) {
+        throw new AppError(
+          'CUSTOMER_TIME_MANAGEMENT_ONLY',
+          403,
+          'Müşteri zamanı yalnız yönetici tarafından değiştirilebilir.',
+        );
+      }
       if (isCalendarIntervalJob && scheduleFieldProvided
         && (nextScheduledAt === null || nextScheduledEndsAt === null)) {
         throw new AppError(
@@ -2905,7 +3310,6 @@ export class JobCardService {
         && job.status !== 'NEW' && job.status !== 'ACCEPTED') {
         throw new AppError('JOB_NOT_EDITABLE', 409, 'JobCard bu durumda düzenlenemez.');
       }
-      const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
       if (management && job.status === 'ACCEPTED' && (scheduleChanged || assigneeChanged)) {
         fields.status = 'NEW';
         fields.clearAcceptance = true;
@@ -3132,6 +3536,27 @@ export class JobCardService {
           organizationId: actor.organizationId, jobCardId, voidedAt: requestTime,
           voidReason: assigneeChanged ? 'REASSIGNED' : 'RESCHEDULED',
         });
+      }
+      // JOB-010 release 2b: a reassignment or planned-interval change closes a
+      // live OPEN offer and opens a new one for the resulting assignment (the
+      // JOB-006 ACCEPTED->NEW reset is a reschedule). A dueDate-only revision
+      // moves no planned interval, so it never opens or withdraws an offer.
+      if (this.assignmentWindowEnabled() && (assigneeChanged || scheduleChanged)) {
+        realtimeEvents.push(...await this.withdrawOpenAssignmentOffer(transaction, {
+          actor,
+          job: updated,
+          requestTime,
+          reason: assigneeChanged ? 'REASSIGNED' : 'RESCHEDULED',
+        }));
+        const assignmentOffer = await this.openAssignmentOffer(transaction, {
+          actor,
+          job: updated,
+          openedReason: assigneeChanged ? 'REASSIGN' : 'RESCHEDULE',
+          requestTime,
+          direct: true,
+          acknowledgement: pastStartAcknowledgement,
+        });
+        if (assignmentOffer) realtimeEvents.push(...assignmentOffer.realtimeEvents);
       }
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
       if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -4130,6 +4555,200 @@ export class JobCardService {
     }));
   }
 
+  /**
+   * JOB-010 release 2b: management re-offers the same Staff member. A live
+   * OPEN offer is a 409; an overdue one is closed EXPIRED in this same
+   * transaction, so recovery never waits for the expiry worker.
+   */
+  async reofferAssignment(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: ReofferAssignmentInput,
+  ): Promise<ReofferAssignmentReceipt> {
+    assertCanReofferAssignment(actor);
+    if (!this.assignmentWindowEnabled()) {
+      throw new AppError(
+        'ASSIGNMENT_WINDOW_DISABLED',
+        409,
+        'Atama kabul penceresi etkin değil.',
+      );
+    }
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw validation('expectedVersion');
+    }
+    const acknowledgement = parsePastStartAcknowledgement(input.pastStartAcknowledgement);
+    const requestTime = this.now();
+    const operationKey = `JOB_ASSIGNMENT_REOFFER:${jobCardId}`;
+    const result = await this.repository.executeCriticalAction<ReofferAssignmentReceipt>(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+        requestHash: reofferAssignmentRequestHash(
+          jobCardId, input.expectedVersion, acknowledgement,
+        ),
+      },
+      async (tx) => {
+        const snapshot = await tx.getJob(actor.organizationId, jobCardId);
+        if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        // Assignee-before-JobCard lock order for every offer writer.
+        await this.lockUsersInOrder(tx, actor.organizationId, [snapshot.assignedTo]);
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (job.version !== input.expectedVersion) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+        if (job.status !== 'NEW'
+          || !isAssignmentOfferJobType(job.type)
+          || job.scheduledAt === null) {
+          throw new AppError(
+            'INVALID_TRANSITION',
+            409,
+            'Yalnız yeni durumdaki planlı ürün teslimi veya satış görüşmesi için teklif yenilenebilir.',
+          );
+        }
+        const realtimeEvents: RealtimeEventRecord[] = [];
+        const latest = await tx.getLatestAssignmentOffer(actor.organizationId, jobCardId);
+        if (latest !== null && latest.state === 'OPEN') {
+          if (isAcceptanceOnTime(requestTime, latest.acceptanceDueAt)) {
+            throw new AppError(
+              'ASSIGNMENT_OFFER_ALREADY_OPEN',
+              409,
+              'Bu iş için hâlâ yanıtlanmayı bekleyen bir atama teklifi var.',
+            );
+          }
+          const expired = await tx.closeAssignmentOffer({
+            organizationId: actor.organizationId,
+            jobCardId,
+            offerId: latest.id,
+            expectedState: 'OPEN',
+            state: 'EXPIRED',
+            closedAt: requestTime,
+            closedBy: null,
+            closeReason: null,
+            closeText: null,
+          });
+          if (!expired) {
+            throw new AppError(
+              'ASSIGNMENT_OFFER_ALREADY_OPEN',
+              409,
+              'Bu iş için hâlâ yanıtlanmayı bekleyen bir atama teklifi var.',
+            );
+          }
+          const expiredActivity = await tx.appendActivity({
+            organizationId: actor.organizationId,
+            jobCardId,
+            actorId: actor.id,
+            event: 'JOB_ASSIGNMENT_OFFER_EXPIRED',
+            metadata: {
+              offerId: latest.id,
+              acceptanceDueAt: latest.acceptanceDueAt.toISOString(),
+              supersededByReoffer: true,
+            },
+          });
+          realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
+            activity: expiredActivity,
+            organizationId: actor.organizationId,
+            jobCardId,
+            jobType: job.type,
+            actorUserId: actor.id,
+            event: 'JOB_ASSIGNMENT_OFFER_EXPIRED',
+            beforeAssigneeId: null,
+            afterAssigneeId: job.assignedTo,
+            customerId: job.customerId,
+            // The acting manager is already recovering this job with the new
+            // offer: the overdue close is history, not a fresh alarm.
+            suppressNotifications: true,
+          }));
+        }
+        const opened = await this.openAssignmentOffer(tx, {
+          actor,
+          job,
+          openedReason: 'REOFFER',
+          requestTime,
+          direct: true,
+          acknowledgement,
+        });
+        if (opened === null) {
+          throw new AppError(
+            'INVALID_TRANSITION',
+            409,
+            'Bu iş için yeni bir atama teklifi oluşturulamadı.',
+          );
+        }
+        const bumped = await tx.bumpVersion(
+          actor.organizationId, jobCardId, input.expectedVersion,
+        );
+        if (!bumped) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+        realtimeEvents.push(...opened.realtimeEvents);
+        return {
+          response: {
+            jobCardId,
+            offerId: opened.offer.id,
+            acceptanceDueAt: opened.offer.acceptanceDueAt.toISOString(),
+            urgentReason: opened.offer.urgentReason,
+          } satisfies ReofferAssignmentReceipt,
+          realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return result.response;
+  }
+
+  /**
+   * JOB-010 release 2b §8: the management needs-action list. Management-only;
+   * STAFF is rejected with 403 before the read. Deadlines are evaluated at
+   * read time, so the list stays correct while the expiry worker is off.
+   */
+  async listAssignmentOffersNeedingAction(
+    actor: JobCardActor,
+    page: PageQuery,
+  ): Promise<{
+    items: NeedsActionAssignmentOfferItem[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    assertCanListAssignmentOffersNeedingAction(actor);
+    const requestTime = this.now();
+    const result = await this.repository.listAssignmentOffersNeedingAction({
+      organizationId: actor.organizationId,
+      requestTime,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return {
+      items: result.items.map((item) => ({
+        jobCardId: item.jobCardId,
+        jobTitle: item.jobTitle,
+        jobType: item.jobType,
+        offerId: item.offerId,
+        state: item.state,
+        closeReason: item.closeReason,
+        closeText: item.closeText,
+        acceptanceDueAt: item.acceptanceDueAt.toISOString(),
+        urgentReason: item.urgentReason,
+        scheduledAt: item.scheduledAt?.toISOString() ?? null,
+        assignee: { id: item.assigneeId, name: item.assigneeName },
+        customer: item.customerId === null
+          ? null
+          : { id: item.customerId, name: item.customerName ?? 'Belirtilmedi' },
+        jobPath: `/jobs/${item.jobCardId}`,
+      })),
+      total: result.total,
+      limit: page.limit,
+      offset: page.offset,
+    };
+  }
+
   async acceptAssignment(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'ACCEPT_ASSIGNMENT', operationKey: 'JOB_ACCEPT_ASSIGNMENT',
@@ -4137,6 +4756,60 @@ export class JobCardService {
       note: null, revisionReason: null, cancelReason: null,
       noteContext: null,
     });
+  }
+
+  /**
+   * JOB-010 release 2b (§5): the assigned Staff member hands the assignment
+   * back before management acts. The job stays NEW and assigned; the offer is
+   * closed DECLINED with the structured reason and its mandatory text.
+   */
+  async declineAssignment(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: AssignmentOfferDecisionInput,
+  ) {
+    const assignmentReason = this.assignmentDecisionReason(input);
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'DECLINE_ASSIGNMENT', operationKey: 'JOB_DECLINE_ASSIGNMENT',
+      target: 'NEW', event: 'JOB_ASSIGNMENT_DECLINED',
+      note: null, revisionReason: null, cancelReason: null,
+      noteContext: null,
+      assignmentReason,
+    });
+  }
+
+  /**
+   * JOB-010 release 2b (§5): the assigned Staff member releases an accepted
+   * assignment before START. The LATE_START obligation of the pre-release
+   * acceptance is materialized first, then the job returns to NEW and the
+   * offer moves ACCEPTED -> RELEASED.
+   */
+  async releaseAssignment(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: AssignmentOfferDecisionInput,
+  ) {
+    const assignmentReason = this.assignmentDecisionReason(input);
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'RELEASE_ASSIGNMENT', operationKey: 'JOB_RELEASE_ASSIGNMENT',
+      target: 'NEW', event: 'JOB_ASSIGNMENT_RELEASED',
+      note: null, revisionReason: null, cancelReason: null,
+      noteContext: null,
+      assignmentReason,
+    });
+  }
+
+  private assignmentDecisionReason(
+    input: AssignmentOfferDecisionInput,
+  ): { code: string; text: string } {
+    if (!(JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES as readonly string[])
+      .includes(input.reasonCode)) {
+      throw validation('reasonCode');
+    }
+    return {
+      code: input.reasonCode,
+      text: requireLifecycleReason(input.reasonText, 'reasonText'),
+    };
   }
 
   async start(
@@ -4175,7 +4848,7 @@ export class JobCardService {
     const reserved = await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
       claim,
       { jobCardId, ttlMs: this.intentTtlMs(),
-        preflight: async (_tx, job, reservedAt) => this.assertLifecycleReservation(actor, job, definition, reservedAt),
+        preflight: async (tx, job, reservedAt) => this.assertLifecycleReservation(tx, actor, job, definition, reservedAt),
       },
     );
     if (reserved.kind === 'replay') {
@@ -4235,7 +4908,7 @@ export class JobCardService {
     const reserved = await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
       claim,
       { jobCardId, ttlMs: this.intentTtlMs(),
-        preflight: async (_tx, job, reservedAt) => this.assertLifecycleReservation(actor, job, definition, reservedAt),
+        preflight: async (tx, job, reservedAt) => this.assertLifecycleReservation(tx, actor, job, definition, reservedAt),
       },
     );
     if (reserved.kind === 'replay') {
@@ -4308,12 +4981,28 @@ export class JobCardService {
     return { clientActionId, expectedVersion: input.expectedVersion };
   }
 
-  private assertLifecycleReservation(
-    actor: JobCardActor, job: JobCard, definition: LifecycleDefinition, reservedAt: Date,
-  ): void {
+  private async assertLifecycleReservation(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    definition: LifecycleDefinition,
+    reservedAt: Date,
+  ): Promise<void> {
     if (definition.command === 'START') assertStaffStartActor(actor);
-    assertCanTransition(actor, job, definition.command,
-      definition.revisionReason ?? definition.cancelReason ?? undefined, reservedAt);
+    // JOB-010 release 2b: the offer state is read under the same JobCard lock
+    // and passed to the policy so the answer commands exist only in the
+    // window, then checked against the deadline (preflight).
+    const offer = await this.assertAssignmentOfferCommand(
+      tx, actor, job, definition.command, reservedAt,
+    );
+    assertCanTransition(
+      actor,
+      { ...job, assignmentOffer: this.assignmentOfferSummary(offer) },
+      definition.command,
+      definition.revisionReason ?? definition.cancelReason ?? undefined,
+      reservedAt,
+      { assignmentWindowEnabled: this.assignmentWindowEnabled() },
+    );
     if (definition.command === 'START') assertPlannedIntervalForStart(job);
     if (definition.command === 'CANCEL') {
       assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, reservedAt);
@@ -4350,7 +5039,7 @@ export class JobCardService {
       : await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
         claim,
         { jobCardId, ttlMs: this.intentTtlMs(),
-        preflight: async (_tx, job, reservedAt) => this.assertLifecycleReservation(actor, job, definition, reservedAt),
+        preflight: async (tx, job, reservedAt) => this.assertLifecycleReservation(tx, actor, job, definition, reservedAt),
       },
       );
     if (reserved.kind === 'replay') {
@@ -4373,16 +5062,39 @@ export class JobCardService {
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         if (definition.command === 'START' && actionLocation) assertStaffStartActor(actor);
+        // JOB-010 release 2b: re-check the offer state and the deadline in the
+        // finalize transaction. A stale view is a 409 and writes nothing.
+        const lifecycleAssignmentOffer = await this.assertAssignmentOfferCommand(
+          tx, actor, job, definition.command, requestTime,
+        );
         assertCanTransition(
-          actor, job, definition.command,
+          actor,
+          { ...job, assignmentOffer: this.assignmentOfferSummary(lifecycleAssignmentOffer) },
+          definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
           requestTime,
+          { assignmentWindowEnabled: this.assignmentWindowEnabled() },
         );
         if (definition.command === 'START') {
           assertPlannedIntervalForStart(job);
         }
         if (definition.command === 'CANCEL') {
           assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, requestTime);
+        }
+        // JOB-010 §5: releasing materializes the OVR-2 obligation of the
+        // acceptance that is about to be cleared, so handing the job back can
+        // never hide a breach. It runs BEFORE the transition, like the JOB-006
+        // management reset and the offboarding transfer.
+        if (definition.command === 'RELEASE_ASSIGNMENT') {
+          await this.materializeLateStartIfBreached(tx, {
+            organizationId: actor.organizationId,
+            jobCardId,
+            scheduledEndsAt: job.scheduledEndsAt,
+            scheduleRevisionNo: null,
+            revisionEffectiveAt: null,
+            source: 'MUTATION',
+            requestTime,
+          });
         }
         // OVR-2: derive the semantic obligation resolved by this command
         // independently from breach discovery. A current revision may be on
@@ -4484,6 +5196,58 @@ export class JobCardService {
           followUpProposal: persistedProposal,
         });
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        // JOB-010 release 2b: the answer commands close their offer in this
+        // same transaction. CANCEL takes a live OPEN offer back. The offer id
+        // rides the command's own activity so every close has an activity row
+        // that names it (the accepted one is JOB_ACCEPTED itself).
+        let assignmentOfferMetadata: Record<string, unknown> | null = null;
+        const lifecycleOfferEvents: RealtimeEventRecord[] = [];
+        if (lifecycleAssignmentOffer !== null
+          && (definition.command === 'ACCEPT_ASSIGNMENT'
+            || definition.command === 'DECLINE_ASSIGNMENT'
+            || definition.command === 'RELEASE_ASSIGNMENT')) {
+          const reasonCode = definition.assignmentReason?.code ?? null;
+          const reasonText = definition.assignmentReason?.text ?? null;
+          const closeState = definition.command === 'ACCEPT_ASSIGNMENT'
+            ? 'ACCEPTED' as const
+            : definition.command === 'DECLINE_ASSIGNMENT'
+              ? 'DECLINED' as const
+              : 'RELEASED' as const;
+          const closed = await tx.closeAssignmentOffer({
+            organizationId: actor.organizationId,
+            jobCardId,
+            offerId: lifecycleAssignmentOffer.id,
+            expectedState: definition.command === 'RELEASE_ASSIGNMENT' ? 'ACCEPTED' : 'OPEN',
+            state: closeState,
+            closedAt: requestTime,
+            closedBy: actor.id,
+            closeReason: closeState === 'ACCEPTED' ? null : reasonCode,
+            closeText: closeState === 'ACCEPTED' ? null : reasonText,
+          });
+          if (!closed) {
+            throw new AppError(
+              'ASSIGNMENT_OFFER_NOT_OPEN',
+              409,
+              'Atama teklifi bu işlem için uygun durumda değil.',
+            );
+          }
+          assignmentOfferMetadata = closeState === 'ACCEPTED'
+            ? { offerId: lifecycleAssignmentOffer.id }
+            : {
+                offerId: lifecycleAssignmentOffer.id,
+                reasonCode,
+                reasonText,
+              };
+        }
+        if (definition.command === 'CANCEL') {
+          // JOB-010 release 2b: cancellation withdraws a live OPEN offer.
+          lifecycleOfferEvents.push(...await this.withdrawOpenAssignmentOffer(tx, {
+            actor,
+            job: updated,
+            requestTime,
+            reason: 'CANCELLED',
+          }));
+        }
         // JOB-010 release 2a (D1): the command that ends the job's open
         // question also closes an OPEN change/termination request in this same
         // transaction — CANCEL truthfully as CANCELLED, APPROVE as SUPERSEDED.
@@ -4565,6 +5329,9 @@ export class JobCardService {
               ? { decision: 'RESCHEDULE', scheduledAt: definition.cancelContinuity.scheduledAt }
               : { decision: 'END_CYCLE', endReason: definition.cancelContinuity.endReason },
           };
+        }
+        if (assignmentOfferMetadata !== null) {
+          metadata = { ...(metadata ?? {}), ...assignmentOfferMetadata };
         }
 
         const activity = await tx.appendActivity({
@@ -4710,6 +5477,13 @@ export class JobCardService {
             activityMetadata: {
               sourceJobCardId: jobCardId,
             },
+            // JOB-010 release 2b: the approval-created child that starts in
+            // NEW is a compound producer — it can never ask for an
+            // acknowledgement.
+            assignmentOffer: {
+              openedReason: 'APPROVE_FOLLOW_UP',
+              direct: false,
+            },
           });
           followUpJobCardId = child.job.id;
           childRealtimeEvents = child.realtimeEvents;
@@ -4749,6 +5523,12 @@ export class JobCardService {
             activityMetadata: {
               replacesJobCardId: jobCardId,
             },
+            // JOB-010 release 2b: the JOB-009 replacement that starts in NEW
+            // is a compound producer.
+            assignmentOffer: {
+              openedReason: 'CANCEL_REPLACEMENT',
+              direct: false,
+            },
           });
           followUpJobCardId = replacement.job.id;
           childRealtimeEvents = replacement.realtimeEvents;
@@ -4771,7 +5551,7 @@ export class JobCardService {
             ...(followUpJobCardId ? { followUpJobCardId } : {}),
             ...(submitLocationComparison ? { submitLocationComparison } : {}),
           },
-          realtimeEvents: [...realtimeEvents, ...childRealtimeEvents],
+          realtimeEvents: [...realtimeEvents, ...childRealtimeEvents, ...lifecycleOfferEvents],
         };
       },
       {
@@ -5235,6 +6015,7 @@ export class JobCardService {
         approveFollowUp: definition.approveFollowUp ?? null,
         locationCapture: actionLocation ?? null,
         ...(definition.cancelContinuity ? { cancelContinuity: definition.cancelContinuity } : {}),
+        ...(definition.assignmentReason ? { assignmentReason: definition.assignmentReason } : {}),
       }),
     };
   }
@@ -6018,8 +6799,11 @@ export class JobCardService {
         // JOB-010 §1a: only a currently valid authorization widens START;
         // an absent fact defaults to false (never true).
         earlyStartAuthorized: (persistedJob.earlyStartAuthorization ?? null) !== null,
+        // JOB-010 release 2b: the latest offer (absent = outside the window).
+        assignmentOffer: this.assignmentOfferSummary(persisted.assignmentOffer),
       },
       evaluatedAt,
+      { assignmentWindowEnabled: this.assignmentWindowEnabled() },
     );
     let followUpContext: JobCardDetail['followUpContext'] = null;
     if (sourceJobCardId != null) {
@@ -6072,6 +6856,8 @@ export class JobCardService {
         // request means neither action exists.
         allowedActions: getAllowedJobActions(actor, {
           ...persistedJob,
+          // The offer fact only widens lifecycle commands.
+          assignmentOffer: null,
           hasOpenChangeRequest: (persistedJob.changeRequest ?? null) !== null,
         }),
         startLocationCaptureEnabled: this.geolocation.enabled
@@ -6099,6 +6885,9 @@ export class JobCardService {
         : {}),
       followUpContext,
       followUpProposal,
+      // JOB-010 release 2b: latest offer, EXPIRED at read time once its
+      // deadline passed.
+      assignmentOffer: this.presentAssignmentOffer(persisted.assignmentOffer, evaluatedAt),
     };
   }
 
@@ -6119,8 +6908,9 @@ export class JobCardService {
     rawItem: PersistedJobCardListItem,
     evaluatedAt = this.now(),
   ): JobCardListItem {
-    // JOB-010 §1a: the permission fact is server-internal; never serialized.
-    const { earlyStartAuthorized, ...item } = rawItem;
+    // JOB-010 §1a / release 2b: the permission facts are server-internal;
+    // never serialized.
+    const { earlyStartAuthorized, assignmentOffer, ...item } = rawItem;
     const subject: JobPermissionSubject = {
       organizationId: actor.organizationId,
       type: item.type,
@@ -6128,8 +6918,15 @@ export class JobCardService {
       assignedTo: item.assignee.id,
       scheduledAt: item.scheduledAt,
       earlyStartAuthorized,
+      assignmentOffer: assignmentOffer ?? null,
     };
-    return { ...item, allowedCommands: getAllowedLifecycleCommands(actor, subject, evaluatedAt) };
+    return {
+      ...item,
+      allowedCommands: getAllowedLifecycleCommands(
+        actor, subject, evaluatedAt,
+        { assignmentWindowEnabled: this.assignmentWindowEnabled() },
+      ),
+    };
   }
 
 }

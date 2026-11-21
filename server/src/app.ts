@@ -74,6 +74,7 @@ import { calendarRoutes } from './modules/calendar/routes.js';
 import type { CalendarReminderWorker } from './modules/calendar/reminder-worker.js';
 import type { OverdueBreachScanner } from './modules/job-cards/overdue-breach-scanner.js';
 import type { OverdueReminderWorker } from './modules/job-cards/overdue-reminder-worker.js';
+import type { AssignmentOfferExpiryWorker } from './modules/job-cards/assignment-offer-expiry-worker.js';
 import { MessagingService } from './modules/messaging/service.js';
 import { PostgresMessagingRepository } from './modules/messaging/repository.js';
 import { messagingRoutes } from './modules/messaging/routes.js';
@@ -166,6 +167,12 @@ export type AppDependencies = {
    * never starts a background notification writer implicitly.
    */
   overdueReminderWorker?: OverdueReminderWorker;
+  /**
+   * JOB-010 release 2b assignment offer expiry / reminder worker. Optional:
+   * present only when `JOB_ASSIGNMENT_WINDOW_ENABLED=true`, so the process
+   * never starts a background assignment writer implicitly.
+   */
+  assignmentOfferExpiryWorker?: AssignmentOfferExpiryWorker;
   staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
   backupRepository?: BackupRepository;
   demoDatasetRepository?: DemoDatasetRepository;
@@ -266,12 +273,25 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           reminderLeadMinutes: config.calendarReminderLeadMinutes ?? 30,
         },
         { intentTtlMs: config.lifecycleIntentTtlMs },
+        { enabled: config.assignmentWindow?.enabled === true },
       );
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',
         service: jobCardService,
         authenticate: authenticateDomain,
       });
+      // JOB-010 release 2b: the expiry / reminder worker is a clock-only
+      // system producer. It shares the process lifecycle so shutdown waits for
+      // an active iteration instead of cutting a transaction mid-write. It is
+      // constructed only when the activation flag is on.
+      if (dependencies.assignmentOfferExpiryWorker) {
+        app.addHook('onReady', () => {
+          dependencies.assignmentOfferExpiryWorker!.start();
+        });
+        app.addHook('onClose', async () => {
+          await dependencies.assignmentOfferExpiryWorker!.stop();
+        });
+      }
       await app.register(referenceRoutes, {
         prefix: '/api/reference',
         service: jobCardService,
@@ -292,7 +312,12 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         jobHistoryReadPort: dependencies.jobHistoryReadPort,
         weeklyReportHistoryReadPort: dependencies.weeklyReportHistoryReadPort,
         offboardingService: dependencies.pool
-          ? new PostgresStaffOffboardingService(dependencies.pool, dependencies.realtimeService)
+          ? new PostgresStaffOffboardingService(
+            dependencies.pool,
+            dependencies.realtimeService,
+            undefined,
+            { enabled: config.assignmentWindow?.enabled === true },
+          )
           : undefined,
       });
     }

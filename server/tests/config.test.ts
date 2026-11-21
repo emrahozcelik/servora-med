@@ -159,6 +159,11 @@ describe('loadConfig', () => {
       backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
       backupProvider: { provider: 'br5-r2', observationPath: null },
       demoDataCreationEnabled: false,
+      assignmentWindow: {
+        enabled: false,
+        offerExpiryPollIntervalMs: 60000,
+        offerExpiryBatchSize: 50,
+      },
     });
   });
 
@@ -213,7 +218,40 @@ describe('loadConfig', () => {
       backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
       backupProvider: { provider: 'br5-r2', observationPath: null },
       demoDataCreationEnabled: false,
+      assignmentWindow: {
+        enabled: false,
+        offerExpiryPollIntervalMs: 60000,
+        offerExpiryBatchSize: 50,
+      },
     });
+  });
+
+  it('reads the JOB-010 release 2b assignment window flag and tuning', () => {
+    expect(loadConfig(validEnvironment).assignmentWindow).toEqual({
+      enabled: false,
+      offerExpiryPollIntervalMs: 60000,
+      offerExpiryBatchSize: 50,
+    });
+    expect(loadConfig({
+      ...validEnvironment,
+      JOB_ASSIGNMENT_WINDOW_ENABLED: 'true',
+      JOB_ASSIGNMENT_OFFER_EXPIRY_POLL_INTERVAL_MS: '15000',
+      JOB_ASSIGNMENT_OFFER_EXPIRY_BATCH_SIZE: '10',
+    }).assignmentWindow).toEqual({
+      enabled: true,
+      offerExpiryPollIntervalMs: 15000,
+      offerExpiryBatchSize: 10,
+    });
+    expect(() => loadConfig({
+      ...validEnvironment,
+      JOB_ASSIGNMENT_WINDOW_ENABLED: 'yes',
+    })).toThrow('JOB_ASSIGNMENT_WINDOW_ENABLED must be true or false');
+    expect(() => loadConfig({
+      ...validEnvironment,
+      JOB_ASSIGNMENT_OFFER_EXPIRY_POLL_INTERVAL_MS: '0',
+    })).toThrow(
+      'JOB_ASSIGNMENT_OFFER_EXPIRY_POLL_INTERVAL_MS must be an integer between 1000 and 3600000',
+    );
   });
 
   it('keeps BR2 local engine paths optional (not configured is not invalid)', () => {

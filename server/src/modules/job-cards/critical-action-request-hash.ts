@@ -44,6 +44,7 @@ export const JOB_CARD_LIFECYCLE_REQUEST_VERSION = 'JOB_CARD_LIFECYCLE:v1';
 export const EARLY_START_AUTHORIZATION_REQUEST_VERSION = 'EARLY_START_AUTHORIZATION:v1';
 export const JOB_CHANGE_REQUEST_CREATE_REQUEST_VERSION = 'JOB_CHANGE_REQUEST_CREATE:v1';
 export const JOB_CHANGE_REQUEST_RESOLVE_REQUEST_VERSION = 'JOB_CHANGE_REQUEST_RESOLVE:v1';
+export const JOB_ASSIGNMENT_REOFFER_REQUEST_VERSION = 'JOB_ASSIGNMENT_REOFFER:v1';
 
 /** Deterministic one-way digest of an explicitly ordered identity object. */
 export function hashRequestIdentity(identity: Readonly<Record<string, unknown>>): string {
@@ -137,6 +138,11 @@ export type LifecycleRequestIdentity = {
   locationCapture?: LifecycleLocationCapture | null;
   /** JOB-009; omitted when absent so existing request hashes stay stable. */
   cancelContinuity?: FollowUpCancelContinuity | null;
+  /**
+   * JOB-010 release 2b: the deferred Staff decline/release reason. Omitted
+   * when absent so every pre-2b lifecycle hash stays byte-identical.
+   */
+  assignmentReason?: { code: string; text: string } | null;
 };
 
 export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string {
@@ -156,6 +162,14 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
         cancelContinuity: identity.cancelContinuity.decision === 'RESCHEDULE'
           ? { decision: 'RESCHEDULE', scheduledAt: identity.cancelContinuity.scheduledAt }
           : { decision: 'END_CYCLE', endReason: identity.cancelContinuity.endReason },
+      }
+      : {}),
+    ...(identity.assignmentReason
+      ? {
+        assignmentReason: {
+          code: identity.assignmentReason.code,
+          text: identity.assignmentReason.text.trim(),
+        },
       }
       : {}),
   });
@@ -199,6 +213,27 @@ export function noteAddRequestHash(
   });
 }
 
+/** Normalized past-start acknowledgement: code plus its trimmed mandatory text. */
+function normalizedPastStartAcknowledgement(value: unknown): unknown {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object') return { malformed: typeof value };
+  const record = value as Record<string, unknown>;
+  return {
+    code: typeof record.code === 'string' ? record.code : null,
+    text: trimmedTextOrNull(record.text),
+  };
+}
+
+/**
+ * JOB-010 release 2b: the acknowledgement participates in the request
+ * identity only when it was supplied, so every pre-2b create request hash
+ * stays byte-identical.
+ */
+function pastStartAcknowledgementIntent(value: unknown): Record<string, unknown> {
+  const normalized = normalizedPastStartAcknowledgement(value);
+  return normalized === null ? {} : { pastStartAcknowledgement: normalized };
+}
+
 /** Full normalized JobCard create intent (clientActionId excluded per contract). */
 export function jobCardCreateRequestHash(input: Record<string, unknown>): string {
   return hashRequestIdentity({
@@ -215,6 +250,7 @@ export function jobCardCreateRequestHash(input: Record<string, unknown>): string
     scheduledEndsAt: input.scheduledEndsAt ?? null,
     engagementKind: input.engagementKind ?? null,
     overrideReason: input.overrideReason ?? null,
+    ...pastStartAcknowledgementIntent(input.pastStartAcknowledgement),
   });
 }
 
@@ -232,6 +268,7 @@ export function productDeliveryCreateRequestHash(input: Record<string, unknown>)
     scheduledAt: input.scheduledAt ?? null,
     scheduledEndsAt: input.scheduledEndsAt ?? null,
     overrideReason: input.overrideReason ?? null,
+    ...pastStartAcknowledgementIntent(input.pastStartAcknowledgement),
     deliveryPurpose: input.deliveryPurpose,
     deliveryNote: input.deliveryNote ?? null,
     items: input.items,
@@ -255,6 +292,7 @@ export function followUpCreateRequestHash(
     contactId: input.contactId ?? null,
     engagementKind: input.engagementKind ?? null,
     overrideReason: input.overrideReason ?? null,
+    ...pastStartAcknowledgementIntent(input.pastStartAcknowledgement),
   });
 }
 
@@ -330,5 +368,23 @@ export function changeRequestResolveRequestHash(
     resolution: normalized.resolution,
     note: normalized.note,
     linkedJobCardId: normalized.linkedJobCardId,
+  });
+}
+
+/**
+ * JOB-010 release 2b: management re-offer intent. The acknowledgement is
+ * part of the request identity (a re-offer with a different past-start
+ * acknowledgement is a different request).
+ */
+export function reofferAssignmentRequestHash(
+  jobCardId: string,
+  expectedVersion: number,
+  pastStartAcknowledgement: unknown,
+): string {
+  return hashRequestIdentity({
+    operation: JOB_ASSIGNMENT_REOFFER_REQUEST_VERSION,
+    jobCardId,
+    expectedVersion,
+    pastStartAcknowledgement: normalizedPastStartAcknowledgement(pastStartAcknowledgement),
   });
 }

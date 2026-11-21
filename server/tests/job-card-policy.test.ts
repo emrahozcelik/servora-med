@@ -163,6 +163,31 @@ describe('JobCard policy', () => {
     expect(getAllowedLifecycleCommands(admin, accepted)).toEqual(['CANCEL']);
   });
 
+  /**
+   * JOB-010 release 2b activation gate: with the flag off the new commands and
+   * the offer facts change nothing — the release 2a behaviour is preserved
+   * verbatim even if an offer summary is present on the subject.
+   */
+  it('leaves the release 2a command set untouched while the assignment window is off', () => {
+    const offer = {
+      state: 'OPEN' as const,
+      acceptanceDueAt: '2026-07-20T10:40:00.000Z',
+      assigneeUserId: 'staff-1',
+    };
+    const assignedNew = { ...job, status: 'NEW' as const, assignmentOffer: offer };
+    const accepted = { ...job, status: 'ACCEPTED' as const, assignmentOffer: offer };
+    expect(getAllowedLifecycleCommands(staff, assignedNew)).toEqual(['ACCEPT_ASSIGNMENT', 'CANCEL']);
+    expect(getAllowedLifecycleCommands(staff, accepted)).toEqual(['START', 'CANCEL']);
+    expect(getAllowedLifecycleCommands(manager, assignedNew)).toEqual(['CANCEL']);
+    // The offer-aware behaviour only exists behind the activation flag.
+    expect(getAllowedLifecycleCommands(
+      staff,
+      { ...assignedNew, scheduledAt: '2026-07-20T11:30:00.000Z' },
+      new Date('2026-07-20T09:00:00.000Z'),
+      { assignmentWindowEnabled: true },
+    )).toEqual(['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT']);
+  });
+
   it('allows acceptance before scheduledAt and keeps the planned-time START floor', () => {
     const requestTime = new Date('2026-07-20T09:59:59.999Z');
     const scheduledAt = '2026-07-20T10:00:00.000Z';

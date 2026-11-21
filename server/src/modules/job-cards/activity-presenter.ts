@@ -293,6 +293,15 @@ function details(
     // renders them as plain facts.
     case 'JOB_CHANGE_REQUESTED':
     case 'JOB_CHANGE_REQUEST_RESOLVED':
+    // JOB-010 release 2b: assignment offer facts carry their semantics in
+    // metadata (offer id, reason code, deadline); the timeline renders them
+    // as plain facts.
+    case 'JOB_ASSIGNMENT_OFFER_OPENED':
+    case 'JOB_ASSIGNMENT_REMINDER_SENT':
+    case 'JOB_ASSIGNMENT_DECLINED':
+    case 'JOB_ASSIGNMENT_RELEASED':
+    case 'JOB_ASSIGNMENT_OFFER_EXPIRED':
+    case 'JOB_ASSIGNMENT_OFFER_WITHDRAWN':
       return { kind: 'NONE' };
     case 'JOB_ASSIGNED':
     case 'JOB_FIELDS_UPDATED':

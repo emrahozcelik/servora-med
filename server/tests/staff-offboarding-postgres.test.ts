@@ -500,6 +500,14 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
       expect(earlyStart.rows).toEqual([
         expect.objectContaining({ voided_at: expect.any(Date), void_reason: 'OFFBOARDING_TRANSFER' }),
       ]);
+      // JOB-010 release 2b flag off: the transfer keeps the release 2a
+      // notification surface exactly — no in-app notification row is written
+      // for the replacement.
+      const offboardingNotifications = await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM in_app_notifications WHERE organization_id = $1`,
+        [fixture.organizationId],
+      );
+      expect(offboardingNotifications.rows[0]!.count).toBe('0');
       const completedHistory = await fixture.pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count
            FROM job_card_assignment_history

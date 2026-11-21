@@ -55,6 +55,16 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   // list) and the management overview through the established transport.
   JOB_CHANGE_REQUESTED: 'job.updated',
   JOB_CHANGE_REQUEST_RESOLVED: 'job.updated',
+  // JOB-010 release 2b: offer facts are not lifecycle transitions either.
+  // They invalidate the job views, the management needs-action list and the
+  // overview through the same transport; the notification kinds carry the
+  // acceptance semantics.
+  JOB_ASSIGNMENT_OFFER_OPENED: 'job.updated',
+  JOB_ASSIGNMENT_REMINDER_SENT: 'job.updated',
+  JOB_ASSIGNMENT_DECLINED: 'job.updated',
+  JOB_ASSIGNMENT_RELEASED: 'job.updated',
+  JOB_ASSIGNMENT_OFFER_EXPIRED: 'job.updated',
+  JOB_ASSIGNMENT_OFFER_WITHDRAWN: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([

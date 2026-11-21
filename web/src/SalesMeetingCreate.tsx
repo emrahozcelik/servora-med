@@ -3,8 +3,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   createJobCard,
   JOB_CARD_ENGAGEMENT_KINDS,
+  pastStartAcknowledgementPayload,
   type JobCardEngagementKind,
   type JobCardPriority,
+  type PastStartAcknowledgement,
 } from './jobs/jobs-api';
 import { JOB_CARD_ENGAGEMENT_LABELS } from './jobs/job-labels';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
@@ -13,6 +15,8 @@ import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import type { AvailableSlot } from './jobs/jobs-api';
+import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
+import { assignmentWindowErrorMessage } from './jobs/assignment-window-errors';
 import {
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
@@ -57,6 +61,10 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
   const attemptRef = useRef<CreateAttempt | null>(null); const [ambiguous, setAmbiguous] = useState(false);
+  /** JOB-010 release 2b: create attempt waiting for the past-start acknowledgement. */
+  const [ackRequest, setAckRequest] = useState<CreateAttempt | null>(null);
+  const [ackPending, setAckPending] = useState(false);
+  const [ackError, setAckError] = useState('');
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -123,7 +131,18 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         const raw = caught.details?.conflicts;
         setCalendarConflicts(user.role === 'STAFF' ? [] : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
       }
-      setError(caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.');
+      if (!('pastStartAcknowledgement' in input && input.pastStartAcknowledgement)
+        && isPastStartAcknowledgementRequired(caught)) {
+        // The planned start already passed: the server needs the explicit
+        // customer acknowledgement before it can plan the visit.
+        setAckRequest({ input });
+        setError('');
+        return;
+      }
+      setError(assignmentWindowErrorMessage(
+        caught,
+        caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.',
+      ));
     } finally { setPending(false); }
   }
 
@@ -153,6 +172,28 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       } satisfies Parameters<typeof createJobCard>[0];
     attemptRef.current = { input };
     await sendAttempt(input);
+  }
+
+  async function confirmAcknowledgement(acknowledgement: PastStartAcknowledgement) {
+    const attempt = ackRequest;
+    if (!attempt) return;
+    setAckPending(true);
+    setAckError('');
+    try {
+      const job = await createJobCard({
+        ...attempt.input,
+        ...pastStartAcknowledgementPayload(acknowledgement),
+      } as Parameters<typeof createJobCard>[0]);
+      setAckRequest(null);
+      onCreated(job.id);
+    } catch (caught) {
+      setAckError(assignmentWindowErrorMessage(
+        caught,
+        'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.',
+      ));
+    } finally {
+      setAckPending(false);
+    }
   }
 
   const referencesUnavailable = !customerReady
@@ -261,6 +302,14 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       returnFocusRef={customerCreateTriggerRef}
       onCancel={() => setCustomerCreateOpen(false)}
       onCreated={addCreatedCustomer}
+    />
+    <PastStartAcknowledgementDrawer
+      open={ackRequest !== null}
+      description="Planlanan görüşme zamanı geçti. Kaydetmek için müşterinin güncel durumunu onaylayın."
+      pending={ackPending}
+      error={ackError}
+      onDismiss={() => { if (!ackPending) { setAckRequest(null); setAckError(''); } }}
+      onConfirm={(acknowledgement) => { void confirmAcknowledgement(acknowledgement); }}
     />
   </main>;
 }

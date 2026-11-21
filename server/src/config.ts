@@ -105,6 +105,19 @@ export type OverdueReminderConfig = {
   escalationDelayMs: number;
 };
 
+/**
+ * JOB-010 release 2b assignment acceptance window runtime configuration.
+ * `JOB_ASSIGNMENT_WINDOW_ENABLED` is read explicitly with a `false` default,
+ * so an unconfigured deployment keeps the release 2a behaviour exactly: no
+ * offer is recorded, the new commands are never offered and no expiry worker
+ * runs.
+ */
+export type AssignmentWindowConfig = {
+  enabled: boolean;
+  offerExpiryPollIntervalMs: number;
+  offerExpiryBatchSize: number;
+};
+
 export type AppConfig = {
   duplicateComparison?: { enabled: false } | { enabled: true; keyring: DuplicateKeyring };
   nodeEnv: NodeEnvironment;
@@ -174,6 +187,12 @@ export type AppConfig = {
   overdueScanner?: OverdueScannerConfig;
   /** Optional: present only when OVERDUE_REMINDER_* is configured. */
   overdueReminder?: OverdueReminderConfig;
+  /**
+   * JOB-010 release 2b: assignment acceptance window. Optional so existing
+   * API-only config fixtures remain source-compatible; `loadConfig` always
+   * populates it with the flag off by default.
+   */
+  assignmentWindow?: AssignmentWindowConfig;
   demoDataCreationEnabled: boolean;
 };
 
@@ -408,8 +427,27 @@ function readOverdueReminderConfig(env: NodeJS.ProcessEnv): OverdueReminderConfi
   };
 }
 
-function readSupportConfig(env: NodeJS.ProcessEnv): AuthenticatedSupport {
-  const displayLabel = env.SUPPORT_DISPLAY_LABEL?.trim() || 'Sistem yöneticiniz';
+function readAssignmentWindowConfig(env: NodeJS.ProcessEnv): AssignmentWindowConfig {
+  return {
+    enabled: readBoolean(env.JOB_ASSIGNMENT_WINDOW_ENABLED, 'JOB_ASSIGNMENT_WINDOW_ENABLED'),
+    offerExpiryPollIntervalMs: readIntegerInRange(
+      env.JOB_ASSIGNMENT_OFFER_EXPIRY_POLL_INTERVAL_MS,
+      60_000,
+      'JOB_ASSIGNMENT_OFFER_EXPIRY_POLL_INTERVAL_MS',
+      1_000,
+      3_600_000,
+    ),
+    offerExpiryBatchSize: readIntegerInRange(
+      env.JOB_ASSIGNMENT_OFFER_EXPIRY_BATCH_SIZE,
+      50,
+      'JOB_ASSIGNMENT_OFFER_EXPIRY_BATCH_SIZE',
+      1,
+      500,
+    ),
+  };
+}
+
+function readSupportConfig(env: NodeJS.ProcessEnv): AuthenticatedSupport {  const displayLabel = env.SUPPORT_DISPLAY_LABEL?.trim() || 'Sistem yöneticiniz';
   if (displayLabel.length > 120 || /[\u0000-\u001f\u007f]/.test(displayLabel)) {
     throw new Error('SUPPORT_DISPLAY_LABEL must be at most 120 safe characters');
   }
@@ -858,6 +896,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       instanceId: readOptionalInstanceId(env.BACKUP_INSTANCE_ID, 'BACKUP_INSTANCE_ID'),
     },
     demoDataCreationEnabled: readBoolean(env.DEMO_DATA_CREATION_ENABLED, 'DEMO_DATA_CREATION_ENABLED'),
+    assignmentWindow: readAssignmentWindowConfig(env),
     backupProvider: readBackupProviderConfig(env),
     ...(hasBackupWorkerConfig ? { backupWorker: readBackupWorkerConfig(env) } : {}),
     ...(hasOverdueScannerConfig ? { overdueScanner: readOverdueScannerConfig(env) } : {}),

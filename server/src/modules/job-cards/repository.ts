@@ -23,6 +23,11 @@ import {
   type JobCardStatus,
   type JobCardStatusFilter,
   type JobCardType,
+  type JobAssignmentOfferAckCode,
+  type JobAssignmentOfferOpenedReason,
+  type JobAssignmentOfferState,
+  type JobAssignmentOfferUrgentReason,
+  type JobAssignmentOfferWithdrawReasonCode,
   type JobChangeRequestReasonCode,
   type JobChangeRequestResolution,
   type JobLifecycleFacts,
@@ -647,6 +652,53 @@ export type OpenChangeRequestRow = {
 };
 
 /**
+ * JOB-010 release 2b: one persisted assignment offer row. Closed offers are
+ * append-only history; the partial UNIQUE index keeps at most one OPEN row per
+ * job.
+ */
+export type AssignmentOfferRecord = {
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  assigneeUserId: string;
+  openedAt: Date;
+  openedReason: JobAssignmentOfferOpenedReason;
+  openedBy: string;
+  assignmentHistoryId: string | null;
+  acceptanceDueAt: Date;
+  urgentReason: JobAssignmentOfferUrgentReason | null;
+  ackCode: JobAssignmentOfferAckCode | null;
+  ackText: string | null;
+  state: JobAssignmentOfferState;
+  closedAt: Date | null;
+  closedBy: string | null;
+  closeReason: string | null;
+  closeText: string | null;
+};
+
+/** JOB-010 release 2b: one management needs-action row with navigation context. */
+export type NeedsActionAssignmentOfferRow = {
+  organizationId: string;
+  jobCardId: string;
+  jobTitle: string;
+  jobType: JobCardType;
+  offerId: string;
+  state: JobAssignmentOfferState;
+  closeReason: string | null;
+  closeText: string | null;
+  acceptanceDueAt: Date;
+  urgentReason: JobAssignmentOfferUrgentReason | null;
+  scheduledAt: Date | null;
+  assigneeId: string;
+  assigneeName: string | null;
+  customerId: string | null;
+  customerName: string | null;
+};
+
+/** JOB-010 release 2b: durable once-per-offer automatic delivery identity. */
+export type AssignmentOfferNotificationKind = 'ACCEPTANCE_REMINDER' | 'ACCEPTANCE_EXPIRED';
+
+/**
  * Read-only snapshot of the direct follow-up source card plus the minimal
  * customer/contact references and meeting outcome needed for eligibility
  * checks and the restricted source summary (design §6.2, §7).
@@ -885,6 +937,65 @@ export interface JobCardTransaction extends SubmissionReader {
     resolutionNote: string | null;
     linkedJobCardId: string | null;
   }): Promise<boolean>;
+  /**
+   * JOB-010 release 2b: the latest assignment offer of one job, or null when
+   * the job was never offered (outside the acceptance window). Read under the
+   * caller's job lock or from a read projection.
+   */
+  getLatestAssignmentOffer(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<AssignmentOfferRecord | null>;
+  /** JOB-010 release 2b: durable offer row; caller holds the job lock. */
+  insertAssignmentOffer(input: {
+    organizationId: string;
+    jobCardId: string;
+    assigneeUserId: string;
+    openedAt: Date;
+    openedReason: JobAssignmentOfferOpenedReason;
+    openedBy: string;
+    assignmentHistoryId: string | null;
+    acceptanceDueAt: Date;
+    urgentReason: JobAssignmentOfferUrgentReason | null;
+    ackCode: JobAssignmentOfferAckCode | null;
+    ackText: string | null;
+    /**
+     * Compound producers record an offer that can never be answered and close
+     * it in the same statement (`WITHDRAWN` / `PLANNED_WINDOW_PASSED`).
+     */
+    closeImmediately?: {
+      closedAt: Date;
+      closedBy: string;
+      closeReason: JobAssignmentOfferWithdrawReasonCode;
+    } | null;
+  }): Promise<AssignmentOfferRecord>;
+  /**
+   * JOB-010 release 2b: one-way close of an offer. The offer must currently be
+   * in `expectedState` (OPEN for accept/decline/expire/withdraw, ACCEPTED for
+   * release); a stale view returns false and the caller reports 409.
+   */
+  closeAssignmentOffer(input: {
+    organizationId: string;
+    jobCardId: string;
+    offerId: string;
+    expectedState: 'OPEN' | 'ACCEPTED';
+    state: Exclude<JobAssignmentOfferState, 'OPEN'>;
+    closedAt: Date;
+    closedBy: string | null;
+    closeReason: string | null;
+    closeText: string | null;
+  }): Promise<boolean>;
+  /**
+   * JOB-010 release 2b: anchor the once-per-offer-and-kind automatic delivery
+   * fact. The UNIQUE identity decides the race, so only the insert winner
+   * proceeds to activity / realtime / notification side effects.
+   */
+  insertAssignmentOfferNotification(input: {
+    organizationId: string;
+    offerId: string;
+    kind: AssignmentOfferNotificationKind;
+    sentAt: Date;
+  }): Promise<{ created: boolean }>;
   appendAccountabilityFact(input: AppendAccountabilityFactInput): Promise<{ id: string }>;
   /**
    * OVR-2: idempotent breach materialization. The UNIQUE incident identity
@@ -1282,6 +1393,26 @@ export interface JobCardRepository extends SubmissionReader {
     limit: number;
     offset: number;
   }): Promise<{ items: readonly OpenChangeRequestRow[]; total: number }>;
+  /**
+   * JOB-010 release 2b: bounded discovery for the offer expiry/reminder
+   * worker. Prefilter only; the worker re-reads the offer and the in-flight
+   * lifecycle reservations under the JobCard lock.
+   */
+  listDueAssignmentOfferCandidates(input: {
+    scanTime: Date;
+    limit: number;
+  }): Promise<readonly OverdueScanCandidate[]>;
+  /**
+   * JOB-010 release 2b management needs-action list: jobs still NEW whose
+   * latest offer needs a decision, oldest deadline first. Bounded and
+   * tenant-scoped.
+   */
+  listAssignmentOffersNeedingAction(input: {
+    organizationId: string;
+    requestTime: Date;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly NeedsActionAssignmentOfferRow[]; total: number }>;
   listNotes(
     organizationId: string,
     jobCardId: string,
@@ -1352,6 +1483,18 @@ type JobCardDetailRow = JobCardRow & {
   change_request_requested_at: Date | null;
   change_request_requested_by_id: string | null;
   change_request_requested_by_name: string | null;
+  assignment_offer_id: string | null;
+  assignment_offer_state: JobAssignmentOfferState | null;
+  assignment_offer_opened_at: Date | null;
+  assignment_offer_opened_reason: JobAssignmentOfferOpenedReason | null;
+  assignment_offer_due_at: Date | null;
+  assignment_offer_urgent_reason: JobAssignmentOfferUrgentReason | null;
+  assignment_offer_closed_at: Date | null;
+  assignment_offer_close_reason: string | null;
+  assignment_offer_close_text: string | null;
+  assignment_offer_assignee_user_id: string | null;
+  assignment_offer_assignee_id: string | null;
+  assignment_offer_assignee_name: string | null;
 };
 type JobCardListRow = {
   id: string;
@@ -1380,6 +1523,10 @@ type JobCardListRow = {
   lateness_seconds?: number | null;
   /** JOB-010 §1a permission fact, selected by every job list projection. */
   has_early_start_authorization: boolean;
+  /** JOB-010 release 2b permission fact, selected by every job list projection. */
+  assignment_offer_state: JobAssignmentOfferState | null;
+  assignment_offer_due_at: Date | null;
+  assignment_offer_assignee_user_id: string | null;
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
@@ -1841,6 +1988,55 @@ function mapChangeRequest(row: ChangeRequestRow): ChangeRequestRecord {
   };
 }
 
+type AssignmentOfferRow = {
+  id: string;
+  organization_id: string;
+  job_card_id: string;
+  assignee_user_id: string;
+  opened_at: Date;
+  opened_reason: JobAssignmentOfferOpenedReason;
+  opened_by: string;
+  assignment_history_id: string | null;
+  acceptance_due_at: Date;
+  urgent_reason: JobAssignmentOfferUrgentReason | null;
+  ack_code: JobAssignmentOfferAckCode | null;
+  ack_text: string | null;
+  state: JobAssignmentOfferState;
+  closed_at: Date | null;
+  closed_by: string | null;
+  close_reason: string | null;
+  close_text: string | null;
+};
+
+const ASSIGNMENT_OFFER_COLUMNS = `id, organization_id, job_card_id, assignee_user_id,
+  opened_at, opened_reason, opened_by, assignment_history_id, acceptance_due_at,
+  urgent_reason, ack_code, ack_text, state, closed_at, closed_by, close_reason, close_text`;
+
+const ASSIGNMENT_OFFER_SELECT = `SELECT ${ASSIGNMENT_OFFER_COLUMNS}
+  FROM job_card_assignment_offers`;
+
+function mapAssignmentOffer(row: AssignmentOfferRow): AssignmentOfferRecord {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    jobCardId: row.job_card_id,
+    assigneeUserId: row.assignee_user_id,
+    openedAt: row.opened_at,
+    openedReason: row.opened_reason,
+    openedBy: row.opened_by,
+    assignmentHistoryId: row.assignment_history_id,
+    acceptanceDueAt: row.acceptance_due_at,
+    urgentReason: row.urgent_reason,
+    ackCode: row.ack_code,
+    ackText: row.ack_text,
+    state: row.state,
+    closedAt: row.closed_at,
+    closedBy: row.closed_by,
+    closeReason: row.close_reason,
+    closeText: row.close_text,
+  };
+}
+
 /**
  * JOB-010 §1a validity predicate. A stored authorization is valid only while
  * it is not voided and the job still carries the same assignee and the same
@@ -1921,6 +2117,18 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        change_request.requested_at AS change_request_requested_at,
        change_request.requested_by_id AS change_request_requested_by_id,
        change_request.requested_by_name AS change_request_requested_by_name,
+       assignment_offer.id AS assignment_offer_id,
+       assignment_offer.state AS assignment_offer_state,
+       assignment_offer.opened_at AS assignment_offer_opened_at,
+       assignment_offer.opened_reason AS assignment_offer_opened_reason,
+       assignment_offer.acceptance_due_at AS assignment_offer_due_at,
+       assignment_offer.urgent_reason AS assignment_offer_urgent_reason,
+       assignment_offer.closed_at AS assignment_offer_closed_at,
+       assignment_offer.close_reason AS assignment_offer_close_reason,
+       assignment_offer.close_text AS assignment_offer_close_text,
+       assignment_offer.assignee_user_id AS assignment_offer_assignee_user_id,
+       assignment_offer.assignee_id AS assignment_offer_assignee_id,
+       assignment_offer.assignee_name AS assignment_offer_assignee_name,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
        customer.id AS customer_id_join, customer.name AS customer_name,
        contact.id AS contact_id_join, contact.name AS contact_name,
@@ -1989,6 +2197,28 @@ LEFT JOIN LATERAL (
   ORDER BY cr.requested_at DESC, cr.id DESC
   LIMIT 1
 ) change_request ON TRUE
+LEFT JOIN LATERAL (
+  SELECT o.id,
+         o.state,
+         o.opened_at,
+         o.opened_reason,
+         o.acceptance_due_at,
+         o.urgent_reason,
+         o.closed_at,
+         o.close_reason,
+         o.close_text,
+         o.assignee_user_id,
+         offer_assignee.id AS assignee_id,
+         offer_assignee.name AS assignee_name
+  FROM job_card_assignment_offers o
+  JOIN users offer_assignee
+    ON offer_assignee.organization_id = o.organization_id
+   AND offer_assignee.id = o.assignee_user_id
+  WHERE o.organization_id = j.organization_id
+    AND o.job_card_id = j.id
+  ORDER BY o.opened_at DESC, o.id DESC
+  LIMIT 1
+) assignment_offer ON TRUE
 LEFT JOIN LATERAL (
   SELECT a.old_value->>'status' AS cancelled_from_status
   FROM job_card_activity_logs a
@@ -2104,6 +2334,22 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
             name: row.change_request_requested_by_name,
           },
         },
+    assignmentOffer: row.assignment_offer_id == null
+      ? null
+      : {
+          id: row.assignment_offer_id,
+          state: row.assignment_offer_state!,
+          openedAt: row.assignment_offer_opened_at!,
+          openedReason: row.assignment_offer_opened_reason!,
+          acceptanceDueAt: row.assignment_offer_due_at!,
+          urgentReason: row.assignment_offer_urgent_reason,
+          assigneeUserId: row.assignment_offer_assignee_user_id!,
+          assigneeId: row.assignment_offer_assignee_id!,
+          assigneeName: row.assignment_offer_assignee_name,
+          closedAt: row.assignment_offer_closed_at,
+          closeReason: row.assignment_offer_close_reason,
+          closeText: row.assignment_offer_close_text,
+        },
   };
 }
 
@@ -2158,6 +2404,15 @@ function mapJobCardListItemWithAuthorization(row: JobCardListRow): PersistedJobC
   return {
     ...mapJobCardListItem(row),
     earlyStartAuthorized: row.has_early_start_authorization === true,
+    assignmentOffer: row.assignment_offer_state == null
+      || row.assignment_offer_due_at == null
+      || row.assignment_offer_assignee_user_id == null
+      ? null
+      : {
+          state: row.assignment_offer_state,
+          acceptanceDueAt: row.assignment_offer_due_at.toISOString(),
+          assigneeUserId: row.assignment_offer_assignee_user_id,
+        },
   };
 }
 
@@ -2167,6 +2422,15 @@ function mapOverdueJobCardListItemWithAuthorization(
   return {
     ...mapOverdueJobCardListItem(row),
     earlyStartAuthorized: row.has_early_start_authorization === true,
+    assignmentOffer: row.assignment_offer_state == null
+      || row.assignment_offer_due_at == null
+      || row.assignment_offer_assignee_user_id == null
+      ? null
+      : {
+          state: row.assignment_offer_state,
+          acceptanceDueAt: row.assignment_offer_due_at.toISOString(),
+          assigneeUserId: row.assignment_offer_assignee_user_id,
+        },
   };
 }
 
@@ -2185,7 +2449,10 @@ const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.pri
   ct.id AS contact_id, ct.name AS contact_name,
   u.id AS assignee_id, u.name AS assignee_name,
   COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count,
-  ${earlyStartAuthorizationExistsSql('j')} AS has_early_start_authorization`;
+  ${earlyStartAuthorizationExistsSql('j')} AS has_early_start_authorization,
+  latest_offer.state AS assignment_offer_state,
+  latest_offer.acceptance_due_at AS assignment_offer_due_at,
+  latest_offer.assignee_user_id AS assignment_offer_assignee_user_id`;
 
 const WORKSPACE_ITEM_JOINS = `${WORKSPACE_JOINS}
   JOIN users u
@@ -2194,7 +2461,14 @@ const WORKSPACE_ITEM_JOINS = `${WORKSPACE_JOINS}
     SELECT COUNT(*)::int AS delivery_item_count
     FROM job_card_delivery_items di
     WHERE di.organization_id = j.organization_id AND di.job_card_id = j.id
-  ) delivery ON TRUE`;
+  ) delivery ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT o.state, o.acceptance_due_at, o.assignee_user_id
+    FROM job_card_assignment_offers o
+    WHERE o.organization_id = j.organization_id AND o.job_card_id = j.id
+    ORDER BY o.opened_at DESC, o.id DESC
+    LIMIT 1
+  ) latest_offer ON TRUE`;
 
 function statusValues(status: JobCardStatusFilter) {
   if (status === 'all') return null;
@@ -2503,8 +2777,12 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards
        SET status = $4::varchar(30),
            version = version + 1,
-           accepted_at = CASE WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $5 ELSE accepted_at END,
-           accepted_by = CASE WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $6 ELSE accepted_by END,
+           accepted_at = CASE WHEN $10 = 'RELEASE_ASSIGNMENT' THEN NULL
+                              WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $5
+                              ELSE accepted_at END,
+           accepted_by = CASE WHEN $10 = 'RELEASE_ASSIGNMENT' THEN NULL
+                              WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $6
+                              ELSE accepted_by END,
            started_at = CASE WHEN $10 = 'START' THEN COALESCE(started_at, $5) ELSE started_at END,
            staff_completed_at = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $5 ELSE staff_completed_at END,
            staff_completed_by = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $6 ELSE staff_completed_by END,
@@ -3283,6 +3561,99 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
         input.resolvedBy, input.resolvedAt, input.resolutionNote, input.linkedJobCardId],
     );
     return (result.rowCount ?? 0) === 1;
+  }
+
+  async getLatestAssignmentOffer(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<AssignmentOfferRecord | null> {
+    const result = await this.client.query<AssignmentOfferRow>(
+      `${ASSIGNMENT_OFFER_SELECT}
+        WHERE organization_id = $1 AND job_card_id = $2
+        ORDER BY opened_at DESC, id DESC
+        LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapAssignmentOffer(result.rows[0]) : null;
+  }
+
+  async insertAssignmentOffer(input: {
+    organizationId: string;
+    jobCardId: string;
+    assigneeUserId: string;
+    openedAt: Date;
+    openedReason: JobAssignmentOfferOpenedReason;
+    openedBy: string;
+    assignmentHistoryId: string | null;
+    acceptanceDueAt: Date;
+    urgentReason: JobAssignmentOfferUrgentReason | null;
+    ackCode: JobAssignmentOfferAckCode | null;
+    ackText: string | null;
+    closeImmediately?: {
+      closedAt: Date;
+      closedBy: string;
+      closeReason: JobAssignmentOfferWithdrawReasonCode;
+    } | null;
+  }): Promise<AssignmentOfferRecord> {
+    // Callers hold the JobCard row lock; the partial unique index on OPEN rows
+    // additionally absorbs any competing producer.
+    const closed = input.closeImmediately ?? null;
+    const result = await this.client.query<AssignmentOfferRow>(
+      `INSERT INTO job_card_assignment_offers
+          (organization_id, job_card_id, assignee_user_id, opened_at, opened_reason,
+           opened_by, assignment_history_id, acceptance_due_at, urgent_reason,
+           ack_code, ack_text, state, closed_at, closed_by, close_reason, close_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+         $12::varchar(10), $13, $14, $15, NULL)
+       RETURNING ${ASSIGNMENT_OFFER_COLUMNS}`,
+      [input.organizationId, input.jobCardId, input.assigneeUserId, input.openedAt,
+        input.openedReason, input.openedBy, input.assignmentHistoryId,
+        input.acceptanceDueAt, input.urgentReason, input.ackCode, input.ackText,
+        closed === null ? 'OPEN' : 'WITHDRAWN',
+        closed?.closedAt ?? null, closed?.closedBy ?? null, closed?.closeReason ?? null],
+    );
+    return mapAssignmentOffer(result.rows[0]!);
+  }
+
+  async closeAssignmentOffer(input: {
+    organizationId: string;
+    jobCardId: string;
+    offerId: string;
+    expectedState: 'OPEN' | 'ACCEPTED';
+    state: Exclude<JobAssignmentOfferState, 'OPEN'>;
+    closedAt: Date;
+    closedBy: string | null;
+    closeReason: string | null;
+    closeText: string | null;
+  }): Promise<boolean> {
+    // One-way close: the state predicate makes a stale view a no-op that the
+    // caller reports as 409 instead of silently overwriting history.
+    const result = await this.client.query(
+      `UPDATE job_card_assignment_offers
+          SET state = $4, closed_at = $5, closed_by = $6,
+              close_reason = $7, close_text = $8
+        WHERE organization_id = $1 AND job_card_id = $2 AND id = $3 AND state = $9`,
+      [input.organizationId, input.jobCardId, input.offerId, input.state,
+        input.closedAt, input.closedBy, input.closeReason, input.closeText,
+        input.expectedState],
+    );
+    return (result.rowCount ?? 0) === 1;
+  }
+
+  async insertAssignmentOfferNotification(input: {
+    organizationId: string;
+    offerId: string;
+    kind: AssignmentOfferNotificationKind;
+    sentAt: Date;
+  }): Promise<{ created: boolean }> {
+    const result = await this.client.query(
+      `INSERT INTO job_card_assignment_offer_notifications
+          (organization_id, offer_id, kind, sent_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (offer_id, kind) DO NOTHING`,
+      [input.organizationId, input.offerId, input.kind, input.sentAt],
+    );
+    return { created: (result.rowCount ?? 0) === 1 };
   }
 
   async appendAccountabilityFact(input: AppendAccountabilityFactInput) {
@@ -5405,6 +5776,128 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         requestedAt: row.requested_at,
         requestedById: row.requested_by_id,
         requestedByName: row.requested_by_name,
+        customerId: row.customer_id,
+        customerName: row.customer_name,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+    };
+  }
+
+  /**
+   * JOB-010 release 2b expiry/reminder discovery. A prefilter only: the
+   * worker re-reads the offer and the in-flight lifecycle reservations under
+   * the JobCard row lock before writing anything. Candidates are OPEN offers
+   * whose reminder half-point or acceptance deadline has been reached.
+   */
+  async listDueAssignmentOfferCandidates(input: {
+    scanTime: Date;
+    limit: number;
+  }): Promise<readonly OverdueScanCandidate[]> {
+    const result = await this.pool.query<{ organization_id: string; job_card_id: string }>(
+      `SELECT o.organization_id, o.job_card_id
+         FROM job_card_assignment_offers o
+         JOIN job_cards j
+           ON j.organization_id = o.organization_id AND j.id = o.job_card_id
+        WHERE o.state = 'OPEN'
+          AND j.status = 'NEW'
+          AND (
+            $1::timestamptz >= o.acceptance_due_at
+            OR $1::timestamptz >= o.opened_at
+               + (o.acceptance_due_at - o.opened_at) / 2
+          )
+        ORDER BY o.acceptance_due_at ASC, o.id ASC
+        LIMIT $2`,
+      [input.scanTime, input.limit],
+    );
+    return result.rows.map((row) => ({
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+    }));
+  }
+
+  /**
+   * JOB-010 release 2b management needs-action list: jobs still NEW whose
+   * latest offer is unanswered, was declined/released/expired, was withdrawn
+   * because the planned window no longer fit, or is OPEN with urgency or a
+   * passed deadline (computed at read time, so the list stays correct while
+   * the expiry worker is off). Oldest deadline first.
+   */
+  async listAssignmentOffersNeedingAction(input: {
+    organizationId: string;
+    requestTime: Date;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly NeedsActionAssignmentOfferRow[]; total: number }> {
+    const predicate = `j.organization_id = $1
+          AND j.status = 'NEW'
+          AND (
+            latest.state IN ('DECLINED', 'RELEASED', 'EXPIRED')
+            OR (latest.state = 'WITHDRAWN' AND latest.close_reason = 'PLANNED_WINDOW_PASSED')
+            OR (latest.state = 'OPEN' AND (
+              latest.urgent_reason IS NOT NULL
+              OR latest.acceptance_due_at <= $2::timestamptz
+            ))
+          )`;
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total
+         FROM job_cards j
+         JOIN LATERAL (
+           SELECT o.state, o.close_reason, o.urgent_reason, o.acceptance_due_at
+             FROM job_card_assignment_offers o
+            WHERE o.organization_id = j.organization_id AND o.job_card_id = j.id
+            ORDER BY o.opened_at DESC, o.id DESC
+            LIMIT 1
+         ) latest ON TRUE
+        WHERE ${predicate}`,
+      [input.organizationId, input.requestTime],
+    );
+    const result = await this.pool.query<{
+      job_card_id: string; job_title: string; job_type: JobCardType;
+      offer_id: string; state: JobAssignmentOfferState;
+      close_reason: string | null; close_text: string | null;
+      acceptance_due_at: Date; urgent_reason: JobAssignmentOfferUrgentReason | null;
+      scheduled_at: Date | null;
+      assignee_id: string; assignee_name: string | null;
+      customer_id: string | null; customer_name: string | null;
+    }>(
+      `SELECT j.id AS job_card_id, j.title AS job_title, j.type AS job_type,
+              latest.id AS offer_id, latest.state, latest.close_reason, latest.close_text,
+              latest.acceptance_due_at, latest.urgent_reason, j.scheduled_at,
+              u.id AS assignee_id, u.name AS assignee_name,
+              c.id AS customer_id, c.name AS customer_name
+         FROM job_cards j
+         JOIN LATERAL (
+           SELECT o.id, o.state, o.close_reason, o.close_text, o.urgent_reason,
+                  o.acceptance_due_at
+             FROM job_card_assignment_offers o
+            WHERE o.organization_id = j.organization_id AND o.job_card_id = j.id
+            ORDER BY o.opened_at DESC, o.id DESC
+            LIMIT 1
+         ) latest ON TRUE
+         JOIN users u
+           ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+         LEFT JOIN customers c
+           ON c.organization_id = j.organization_id AND c.id = j.customer_id
+        WHERE ${predicate}
+        ORDER BY latest.acceptance_due_at ASC, j.id ASC
+        LIMIT $3 OFFSET $4`,
+      [input.organizationId, input.requestTime, input.limit, input.offset],
+    );
+    return {
+      items: result.rows.map((row) => ({
+        organizationId: input.organizationId,
+        jobCardId: row.job_card_id,
+        jobTitle: row.job_title,
+        jobType: row.job_type,
+        offerId: row.offer_id,
+        state: row.state,
+        closeReason: row.close_reason,
+        closeText: row.close_text,
+        acceptanceDueAt: row.acceptance_due_at,
+        urgentReason: row.urgent_reason,
+        scheduledAt: row.scheduled_at,
+        assigneeId: row.assignee_id,
+        assigneeName: row.assignee_name,
         customerId: row.customer_id,
         customerName: row.customer_name,
       })),

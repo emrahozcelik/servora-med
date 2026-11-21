@@ -144,6 +144,42 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
   }
 
+  it('JOB-010 2b: asks for the past-start acknowledgement on 409 and replays the create with it', async () => {
+    jobs.createJobCard
+      .mockRejectedValueOnce(new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç saati geçti.'))
+      .mockResolvedValueOnce({ id: 'job-1', version: 1 });
+    await render(manager);
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await fillAndSubmit();
+    await flush();
+
+    const acknowledgementForm = host.querySelector(
+      'form.past-start-acknowledgement-form',
+    ) as HTMLFormElement;
+    expect(acknowledgementForm).not.toBeNull();
+    expect(jobs.createJobCard).toHaveBeenCalledTimes(1);
+    // The planned start already passed, so the page confirms the customer
+    // situation instead of showing a validation error.
+    expect(host.querySelector('.form-error')).toBeNull();
+
+    change(host.querySelector('#past-start-ack-code') as HTMLSelectElement, 'CUSTOMER_WAITING');
+    change(host.querySelector('#past-start-ack-text') as HTMLTextAreaElement, '  Müşteri bekliyor.  ');
+    await act(async () => acknowledgementForm.requestSubmit());
+    await flush();
+
+    expect(jobs.createJobCard).toHaveBeenCalledTimes(2);
+    const retried = jobs.createJobCard.mock.calls[1]?.[0] as Record<string, unknown>;
+    expect(retried).toMatchObject({
+      type: 'SALES_MEETING',
+      customerId: 'customer-1',
+      assignedTo: 'staff-2',
+      pastStartAcknowledgement: { code: 'CUSTOMER_WAITING', text: 'Müşteri bekliyor.' },
+    });
+    expect(retried.clientActionId).toEqual(expect.any(String));
+    expect(host.querySelector('form.past-start-acknowledgement-form')).toBeNull();
+    expect(onCreated).toHaveBeenCalledWith('job-1');
+  });
+
   it('AAP-19: submits only the chosen start and leaves canonical duration to the server', async () => {
     await render(staffUser);
     change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');

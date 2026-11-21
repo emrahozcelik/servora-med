@@ -98,6 +98,134 @@ export const JOB_CHANGE_REQUEST_DECISIONS = [
 ] as const;
 export type JobChangeRequestDecision = (typeof JOB_CHANGE_REQUEST_DECISIONS)[number];
 
+/**
+ * JOB-010 release 2b: one durable "please take this job by then" record.
+ * A job may have many offers over time but only one is OPEN; closed offers
+ * are append-only history.
+ */
+export const JOB_ASSIGNMENT_OFFER_OPENED_REASONS = [
+  'CREATE',
+  'REASSIGN',
+  'RESCHEDULE',
+  'FOLLOW_UP_CREATE',
+  'APPROVE_FOLLOW_UP',
+  'CANCEL_REPLACEMENT',
+  'OFFBOARDING_TRANSFER',
+  'REOFFER',
+] as const;
+export type JobAssignmentOfferOpenedReason =
+  (typeof JOB_ASSIGNMENT_OFFER_OPENED_REASONS)[number];
+
+export const JOB_ASSIGNMENT_OFFER_STATES = [
+  'OPEN',
+  'ACCEPTED',
+  'DECLINED',
+  'RELEASED',
+  'EXPIRED',
+  'WITHDRAWN',
+] as const;
+export type JobAssignmentOfferState = (typeof JOB_ASSIGNMENT_OFFER_STATES)[number];
+
+/** Why an offer is shown to management as "customer time at risk". */
+export const JOB_ASSIGNMENT_OFFER_URGENT_REASONS = [
+  'SHORT_NOTICE',
+  'START_PASSED',
+] as const;
+export type JobAssignmentOfferUrgentReason =
+  (typeof JOB_ASSIGNMENT_OFFER_URGENT_REASONS)[number];
+
+/** JOB-010 §3: a management acknowledgement for an already-started plan. */
+export const JOB_ASSIGNMENT_OFFER_ACK_CODES = [
+  'CUSTOMER_CONFIRMED_LATER_TIME',
+  'CUSTOMER_WAITING',
+  'OTHER',
+] as const;
+export type JobAssignmentOfferAckCode = (typeof JOB_ASSIGNMENT_OFFER_ACK_CODES)[number];
+
+/** JOB-010 §5: Staff decline/release reason codes (Q5). */
+export const JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES = [
+  'SCHEDULE_CONFLICT',
+  'ON_LEAVE',
+  'TOO_FAR',
+  'MISSING_STOCK_OR_EQUIPMENT',
+  'OTHER',
+] as const;
+export type JobAssignmentOfferDeclineReasonCode =
+  (typeof JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES)[number];
+
+/** JOB-010 §3: every management/system producer that takes an offer back. */
+export const JOB_ASSIGNMENT_OFFER_WITHDRAW_REASON_CODES = [
+  'REASSIGNED',
+  'RESCHEDULED',
+  'CANCELLED',
+  'INVALIDATED',
+  'OFFBOARDING_TRANSFER',
+  'PLANNED_WINDOW_PASSED',
+] as const;
+export type JobAssignmentOfferWithdrawReasonCode =
+  (typeof JOB_ASSIGNMENT_OFFER_WITHDRAW_REASON_CODES)[number];
+
+/** Latest offer projected on the job detail (management and assignee). */
+export type JobAssignmentOfferView = {
+  id: string;
+  state: JobAssignmentOfferState;
+  acceptanceDueAt: string;
+  openedAt: string;
+  urgentReason: JobAssignmentOfferUrgentReason | null;
+  assignee: { id: string; name: string | null };
+};
+
+/** Latest offer fact carried by the list/board/follow-up projections. */
+export type JobAssignmentOfferSummary = {
+  state: JobAssignmentOfferState;
+  acceptanceDueAt: string;
+  /** JOB-010 §5: only the assignee the offer was addressed to may answer it. */
+  assigneeUserId: string;
+};
+
+export type PastStartAcknowledgementInput = {
+  code: JobAssignmentOfferAckCode;
+  text: string;
+};
+
+/** JOB-010 §5: Staff decline / release body, hashed like a lifecycle command. */
+export type AssignmentOfferDecisionInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  reasonCode: JobAssignmentOfferDeclineReasonCode;
+  reasonText: string;
+};
+
+export type ReofferAssignmentInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
+};
+
+export type ReofferAssignmentReceipt = {
+  jobCardId: string;
+  offerId: string;
+  acceptanceDueAt: string;
+  urgentReason: JobAssignmentOfferUrgentReason | null;
+};
+
+/** One row of the management "needs action" assignment list, oldest first. */
+export type NeedsActionAssignmentOfferItem = {
+  jobCardId: string;
+  jobTitle: string;
+  jobType: JobCardType;
+  offerId: string;
+  state: JobAssignmentOfferState;
+  closeReason: string | null;
+  closeText: string | null;
+  acceptanceDueAt: string;
+  urgentReason: JobAssignmentOfferUrgentReason | null;
+  scheduledAt: string | null;
+  assignee: { id: string; name: string | null };
+  customer: { id: string; name: string } | null;
+  jobPath: string;
+};
+
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 
@@ -117,6 +245,12 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_EARLY_START_AUTHORIZED',
   'JOB_CHANGE_REQUESTED',
   'JOB_CHANGE_REQUEST_RESOLVED',
+  'JOB_ASSIGNMENT_OFFER_OPENED',
+  'JOB_ASSIGNMENT_REMINDER_SENT',
+  'JOB_ASSIGNMENT_DECLINED',
+  'JOB_ASSIGNMENT_RELEASED',
+  'JOB_ASSIGNMENT_OFFER_EXPIRED',
+  'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -216,6 +350,11 @@ type NormalizedCommonCreateInput = {
   assignedTo: string; priority: JobCardPriority; dueDate: string | null;
   scheduledAt: string | null;
   scheduledEndsAt?: string | null;
+  /**
+   * JOB-010 release 2b: accepted on every create path and ignored when the
+   * resulting offer is not `START_PASSED`. Part of the request hash.
+   */
+  pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
 };
 
 export type NormalizedJobCardCreateInput =
@@ -378,6 +517,29 @@ export type PersistedJobCardDetail = JobCard & {
    * requests stay in the append-only table and never surface here.
    */
   changeRequest: ChangeRequestView | null;
+  /**
+   * JOB-010 release 2b: the latest assignment offer, or null when the job was
+   * never offered (pre-rollout jobs and jobs outside the window). Internal
+   * projection: the detail presenter turns it into `JobAssignmentOfferView`.
+   */
+  assignmentOffer: JobAssignmentOfferRecord | null;
+};
+
+/** JOB-010 release 2b: persisted latest offer, server-internal shape. */
+export type JobAssignmentOfferRecord = {
+  id: string;
+  state: JobAssignmentOfferState;
+  openedAt: Date;
+  openedReason: JobAssignmentOfferOpenedReason;
+  acceptanceDueAt: Date;
+  urgentReason: JobAssignmentOfferUrgentReason | null;
+  /** The Staff member the offer is addressed to (permission fact). */
+  assigneeUserId: string;
+  assigneeId: string;
+  assigneeName: string | null;
+  closedAt: Date | null;
+  closeReason: string | null;
+  closeText: string | null;
 };
 
 /** JOB-010 release 2a: the open request a job detail exposes. */
@@ -496,11 +658,13 @@ export type JobCardFollowUpContext = {
 
 export type JobCardDetail = Omit<
   PersistedJobCardDetail,
-  'lifecycle' | 'sourceJobCardId' | 'followUpInstructions' | 'proposer'
+  'lifecycle' | 'sourceJobCardId' | 'followUpInstructions' | 'proposer' | 'assignmentOffer'
 > & {
   workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
   followUpProposal: FollowUpProposal | null;
+  /** JOB-010 release 2b: latest offer, an OPEN offer past its deadline is EXPIRED. */
+  assignmentOffer: JobAssignmentOfferView | null;
   /**
    * Slice 2 advisory comparison of the just-completed SUBMIT, present only
    * for explicitly opted-in readers (same reader gate as the SUBMIT
@@ -530,6 +694,8 @@ export type DeliveryItem = {
 
 export type LifecycleCommand =
   | 'ACCEPT_ASSIGNMENT'
+  | 'DECLINE_ASSIGNMENT'
+  | 'RELEASE_ASSIGNMENT'
   | 'START'
   | 'SUBMIT_FOR_APPROVAL'
   | 'APPROVE'
@@ -554,6 +720,12 @@ export type JobPermissionSubject = Pick<
    * pre-2a action set.
    */
   hasOpenChangeRequest?: boolean;
+  /**
+   * JOB-010 release 2b: the latest assignment offer. Absent/null means the job
+   * is outside the acceptance window, so the pre-2b rules apply. Only read when
+   * `assignmentWindowEnabled` is passed to the policy.
+   */
+  assignmentOffer?: JobAssignmentOfferSummary | null;
 };
 
 export const JOB_WORKFLOW_ACTIONS = [
@@ -645,6 +817,12 @@ export type PersistedJobCardListItem = {
    * item is serialized; absent means false.
    */
   earlyStartAuthorized?: boolean;
+  /**
+   * JOB-010 release 2b permission fact for `allowedCommands`. Present on the
+   * list, board and follow-up projections and stripped by the presenter before
+   * serialization; absent means the job is outside the acceptance window.
+   */
+  assignmentOffer?: JobAssignmentOfferSummary | null;
 };
 
 export type JobCardListItem = PersistedJobCardListItem & {
@@ -790,6 +968,8 @@ export type FollowUpCreateInput = {
   contactId: string | null;
   engagementKind: JobCardEngagementKind | null;
   overrideReason?: string | null;
+  /** JOB-010 release 2b: see NormalizedJobCardCreateInput. */
+  pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
 };
 
 export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };

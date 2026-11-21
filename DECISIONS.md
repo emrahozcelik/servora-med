@@ -3018,8 +3018,11 @@ still be visited.
   P1-C, early START and outcome rules added in the PR #470 review).
   D1 decided the same day: cancellation is a management power. Release 1
   shipped in PR #470; release 2a (change/termination request, management
-  decision path, not-held visit) ships with its PR; 2b and 2c pending. The docs
-  ship with the code (release plan below).
+  decision path, not-held visit) shipped in PR #471; release 2b (offers,
+  deadline, decline/release, re-offer, expiry worker, flag-gated Staff
+  `CANCEL` removal) ships behind `JOB_ASSIGNMENT_WINDOW_ENABLED=false`; 2c
+  (activation) needs owner approval. The docs ship with the code (release plan
+  below).
 - **Owner:** [Assignment acceptance window contract](docs/features/assignment-acceptance-sla.md).
   The contract holds the full rules, producers, edge cases, acceptance
   scenarios and slice order.

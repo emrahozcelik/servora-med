@@ -1110,3 +1110,39 @@ describe('deriveCompactWorkflowSummary', () => {
     expect(model.recordEditAction).toBeNull();
   });
 });
+
+describe('JOB-010 release 2b assignment answers', () => {
+  it('presents decline to the assigned Staff member only when the server allows it', () => {
+    const model = derive(jobWith({
+      status: 'NEW', assignedTo: 's1',
+      workflowContext: contextWith({ allowedCommands: ['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT'] }),
+    }), staff);
+    const decline = model.secondaryTransitions.find((entry) => entry.command === 'DECLINE_ASSIGNMENT');
+    expect(decline).toMatchObject({
+      label: 'Görevi reddet',
+      successMessage: 'Görev reddedildi. Yönetici bilgilendirildi.',
+    });
+    expect(decline?.consequence).toContain('“Atandı” durumunda kalacak');
+  });
+
+  it('presents release to the assigned Staff member only when the server allows it', () => {
+    const model = derive(jobWith({
+      status: 'ACCEPTED', assignedTo: 's1',
+      workflowContext: contextWith({ allowedCommands: ['START', 'RELEASE_ASSIGNMENT'] }),
+    }), staff);
+    expect(model.secondaryTransitions.find((entry) => entry.command === 'RELEASE_ASSIGNMENT'))
+      .toMatchObject({
+        label: 'Görevi geri bırak',
+        successMessage: 'Görev geri bırakıldı. Yönetici bilgilendirildi.',
+      });
+  });
+
+  it('never presents an assignment answer to management or another Staff member', () => {
+    const context = contextWith({ allowedCommands: ['DECLINE_ASSIGNMENT', 'RELEASE_ASSIGNMENT'] });
+    for (const user of [manager, admin, { ...staff, id: 's2' }]) {
+      const model = derive(jobWith({ status: 'NEW', assignedTo: 's1', workflowContext: context }), user);
+      expect(model.secondaryTransitions.some((entry) =>
+        entry.command === 'DECLINE_ASSIGNMENT' || entry.command === 'RELEASE_ASSIGNMENT')).toBe(false);
+    }
+  });
+});
