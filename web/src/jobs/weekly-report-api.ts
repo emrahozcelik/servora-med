@@ -143,6 +143,7 @@ export function parseWeeklyReportRemovalPreview(value: unknown): WeeklyReportRem
  */
 export type WeeklyReportReference = {
   timezone: string;
+  today: string;
   periodStart: string;
   periodEnd: string;
   dueDate: string;
@@ -311,10 +312,11 @@ export function parseWeeklyReportDetail(value: unknown): WeeklyReportDetail {
 
 export function parseWeeklyReportReference(value: unknown): WeeklyReportReference {
   const root = exactObject(value, 'weeklyReportReference', [
-    'timezone', 'periodStart', 'periodEnd', 'dueDate',
+    'timezone', 'today', 'periodStart', 'periodEnd', 'dueDate',
   ]);
   return {
     timezone: string(root.timezone, 'timezone'),
+    today: dateKey(root.today, 'today'),
     periodStart: dateKey(root.periodStart, 'periodStart'),
     periodEnd: dateKey(root.periodEnd, 'periodEnd'),
     dueDate: dateKey(root.dueDate, 'dueDate'),

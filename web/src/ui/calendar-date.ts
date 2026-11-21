@@ -82,16 +82,16 @@ export function addCalendarDays(value: string, days: number): string {
 }
 
 /**
- * Returns true when `[periodStart, periodEnd]` represents a Monday–Friday
- * workweek (`periodEnd = periodStart + 4`). Legacy 7-day periods (`+ 6`) return false.
+ * Returns true when `[periodStart, periodEnd]` represents a Monday–Saturday
+ * working week (`periodEnd = periodStart + 5`). Legacy 7-day periods (`+ 6`) return false.
  */
 export function isWorkweekPeriod(periodStart: string, periodEnd: string): boolean {
   return isValidDateKey(periodStart)
     && isValidDateKey(periodEnd)
-    && addCalendarDays(periodStart, 4) === periodEnd;
+    && addCalendarDays(periodStart, 5) === periodEnd;
 }
 
-/** Formats a `YYYY-MM-DD` key in Turkish (e.g. `"20 Kasım 2026"` or `"20 Kasım"`). */
+/** Formats a `YYYY-MM-DD` key in Turkish (e.g. `"23 Kasım 2026"` or `"23 Kasım"`). */
 export function formatCalendarDay(
   value: string,
   options: { includeYear?: boolean } = {},
@@ -104,7 +104,7 @@ export function formatCalendarDay(
     : dayMonthFormatter.format(parsed.utcDate);
 }
 
-/** Formats a `YYYY-MM-DD` key with Turkish weekday (e.g. `"20 Kasım Cuma"` or `"20 Kasım 2026 Cuma"`). */
+/** Formats a `YYYY-MM-DD` key with Turkish weekday (e.g. `"23 Kasım Pazartesi"` or `"23 Kasım 2026 Pazartesi"`). */
 export function formatCalendarDayWithWeekday(
   value: string,
   options: { includeYear?: boolean } = {},
@@ -119,9 +119,9 @@ export function formatCalendarDayWithWeekday(
 
 /**
  * Formats an inclusive `[startKey, endKey]` calendar range in Turkish:
- * - Same month & year: `"16–20 Kasım 2026"` (or `"16–20 Kasım"` when `includeYear: false`)
- * - Different month, same year: `"31 Ağustos – 4 Eylül 2026"` (or `"31 Ağustos – 4 Eylül"`)
- * - Different years: `"28 Aralık 2026 – 1 Ocak 2027"`
+ * - Same month & year: `"16–21 Kasım 2026"` (or `"16–21 Kasım"` when `includeYear: false`)
+ * - Different month, same year: `"31 Ağustos – 5 Eylül 2026"` (or `"31 Ağustos – 5 Eylül"`)
+ * - Different years: `"28 Aralık 2026 – 2 Ocak 2027"`
  */
 export function formatCalendarRange(
   startKey: string,

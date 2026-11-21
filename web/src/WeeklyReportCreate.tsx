@@ -53,11 +53,10 @@ const CANCELLED_REPLACE_HINT =
   'İptal edilmiş bir rapor varsa, yalnızca bir Admin kaldırdıktan sonra yerine yeni rapor oluşturulabilir.';
 
 function previewDueDate(periodStart: string, reference: WeeklyReportReference | null): string {
-  const friday = addCalendarDays(periodStart, 4);
-  if (!reference) return friday;
-  if (periodStart === reference.periodStart) return reference.dueDate;
-  // WR-WEEK D9: max(Friday, reference date).
-  return friday < reference.dueDate ? reference.dueDate : friday;
+  const mondayDeadline = addCalendarDays(periodStart, 7);
+  if (!reference) return mondayDeadline;
+  // WR-WEEK D9: max(periodEnd + 2, organization-local creation date).
+  return mondayDeadline < reference.today ? reference.today : mondayDeadline;
 }
 
 export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPeriodStart, initialStaffUserId }: {
@@ -318,7 +317,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
     const questionPayload = isStaff ? {} : managerQuestionPayload();
     const instructionPayload = trimmedInstructions ? { instructions: trimmedInstructions } : {};
     // Two distinct commands, two distinct payload shapes. No command carries a
-    // client due date: the server derives the canonical Friday (or max(Friday, today)) deadline.
+    // client due date: the server derives the canonical Monday (or max(Monday, today)) deadline.
     const attempt: CreateAttempt = isStaff
       ? { kind: 'single', input: {
           // STAFF self-create: no command carries a dueDate — the deadline is
@@ -339,7 +338,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   const staffUnavailable = !isStaff && staffState !== 'ready';
   const showDateInput = weekMode === 'custom' || referenceState === 'error' || !reference;
   const validMondaySelected = isMondayDateKey(periodStart);
-  const previewFriday = validMondaySelected ? addCalendarDays(periodStart, 4) : null;
+  const previewSaturday = validMondaySelected ? addCalendarDays(periodStart, 5) : null;
   const previewDeadline = validMondaySelected ? previewDueDate(periodStart, reference) : null;
 
   if (bulkResult) {
@@ -391,18 +390,18 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
 
   const thisWeekStart = reference?.periodStart ?? null;
   const thisWeekLabel = thisWeekStart
-    ? `Bu hafta · ${formatCalendarRange(thisWeekStart, addCalendarDays(thisWeekStart, 4), { includeYear: false })}`
+    ? `Bu hafta · ${formatCalendarRange(thisWeekStart, addCalendarDays(thisWeekStart, 5), { includeYear: false })}`
     : 'Bu hafta';
   const lastWeekStart = thisWeekStart ? addCalendarDays(thisWeekStart, -7) : null;
   const lastWeekLabel = lastWeekStart
-    ? `Geçen hafta · ${formatCalendarRange(lastWeekStart, addCalendarDays(lastWeekStart, 4), { includeYear: false })}`
+    ? `Geçen hafta · ${formatCalendarRange(lastWeekStart, addCalendarDays(lastWeekStart, 5), { includeYear: false })}`
     : 'Geçen hafta';
 
   return <main className="task-create">
     <PageHeader eyebrow="Yeni kayıt" description="Haftalık rapor" fallbackTitle="Yeni iş" />
     <p className="form-intro">{isStaff
-      ? 'Kendi haftalık raporunuz için bir istek oluşturun. Rapor haftası Pazartesi–Cuma çalışma haftasını kapsar; teslim son tarihi dönemin Cuma günüdür.'
-      : `Seçilen her personel için ayrı bir haftalık rapor isteği oluşturun (en fazla ${MAX_BULK_TARGETS} personel). Rapor haftası Pazartesi–Cuma çalışma haftasını kapsar; teslim son tarihi dönemin Cuma günüdür.`}</p>
+      ? 'Kendi haftalık raporunuz için bir istek oluşturun. Rapor haftası Pazartesi–Cumartesi çalışma haftasını kapsar; teslim son tarihi dönemi izleyen Pazartesi günüdür.'
+      : `Seçilen her personel için ayrı bir haftalık rapor isteği oluşturun (en fazla ${MAX_BULK_TARGETS} personel). Rapor haftası Pazartesi–Cumartesi çalışma haftasını kapsar; teslim son tarihi dönemi izleyen Pazartesi günüdür.`}</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>
       {error}
       {existingJobId && <>
@@ -485,9 +484,9 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
           </div>
         )}
         <div className="weekly-period-meta">
-          {validMondaySelected && previewFriday && previewDeadline && (
+          {validMondaySelected && previewSaturday && previewDeadline && (
             <p className="weekly-period-preview" id="weekly-period-preview" role="status">
-              {`Dönem ${formatCalendarRange(periodStart, previewFriday)} · Son teslim ${formatCalendarDayWithWeekday(previewDeadline)}`}
+              {`Dönem ${formatCalendarRange(periodStart, previewSaturday)} · Son teslim ${formatCalendarDayWithWeekday(previewDeadline)}`}
             </p>
           )}
           {referenceState === 'loading' && <span className="field-status" role="status">Rapor haftası organizasyon takviminden yükleniyor…</span>}
