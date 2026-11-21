@@ -157,7 +157,7 @@ describe.skipIf(!databaseUrl)('weekly report repository (PostgreSQL)', () => {
         organizationId, jobCardId: jobA1, staffUserId: staffA, periodStart: WEEK_A, questions: QUESTIONS,
       });
       expect(created.periodStart).toBe(WEEK_A);
-      expect(created.periodEnd).toBe('2026-08-07');
+      expect(created.periodEnd).toBe('2026-08-08');
       expect(created.version).toBe(1);
       expect(created.questions).toEqual(QUESTIONS);
 

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
-import { AppError, toErrorResponse } from '../src/errors/index.js';
+import { toErrorResponse } from '../src/errors/index.js';
 import {
   createOverdueBreachScanner,
   PostgresOverdueBreachScannerRepository,
@@ -124,8 +124,8 @@ const VALID_BODY = {
   supportNeeded: null,
 };
 
-describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy compatibility (PostgreSQL)', () => {
-  it('A1–A3: derives workweek reference period and Friday/late due date in Europe/Istanbul', async () => {
+describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & legacy compatibility (PostgreSQL)', () => {
+  it('A1–A3: derives Monday–Saturday reference period, today, and Monday due date in Europe/Istanbul', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -137,35 +137,38 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       const friService = buildServiceAt(pool, '2026-11-20T07:00:00.000Z');
       const a1Expected = {
         timezone: 'Europe/Istanbul',
+        today: '2026-11-20',
         periodStart: '2026-11-16',
-        periodEnd: '2026-11-20',
-        dueDate: '2026-11-20',
+        periodEnd: '2026-11-21',
+        dueDate: '2026-11-23',
       };
       expect(await friService.weeklyReportReference(manager)).toEqual(a1Expected);
       expect(await friService.weeklyReportReference(staff)).toEqual(a1Expected);
 
-      // A2: Sunday 2026-11-22 Europe/Istanbul still references the just-ended workweek,
-      // with dueDate = max(periodEnd, today) = 2026-11-22.
+      // A2: Sunday 2026-11-22 Europe/Istanbul still references the just-ended working week,
+      // with dueDate = 2026-11-23 (Monday).
       const sunService = buildServiceAt(pool, '2026-11-22T10:00:00.000Z');
       expect(await sunService.weeklyReportReference(manager)).toEqual({
         timezone: 'Europe/Istanbul',
+        today: '2026-11-22',
         periodStart: '2026-11-16',
-        periodEnd: '2026-11-20',
-        dueDate: '2026-11-22',
+        periodEnd: '2026-11-21',
+        dueDate: '2026-11-23',
       });
 
-      // A3: Monday 2026-11-23 00:30 Europe/Istanbul (Sunday 21:30Z) advances to the new workweek.
+      // A3: Monday 2026-11-23 00:30 Europe/Istanbul (Sunday 21:30Z) advances to the new working week.
       const monService = buildServiceAt(pool, '2026-11-22T21:30:00.000Z');
       expect(await monService.weeklyReportReference(manager)).toEqual({
         timezone: 'Europe/Istanbul',
+        today: '2026-11-23',
         periodStart: '2026-11-23',
-        periodEnd: '2026-11-27',
-        dueDate: '2026-11-27',
+        periodEnd: '2026-11-28',
+        dueDate: '2026-11-30',
       });
     });
   });
 
-  it('A4: single create and bulk request persist 5-day period, Friday due date and 5-day title', async () => {
+  it('A4: single create and bulk request persist 6-day period, Monday due date and 6-day title', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -184,8 +187,8 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         }),
       );
       expect(bulk.periodStart).toBe('2026-11-16');
-      expect(bulk.periodEnd).toBe('2026-11-20');
-      expect(bulk.dueDate).toBe('2026-11-20');
+      expect(bulk.periodEnd).toBe('2026-11-21');
+      expect(bulk.dueDate).toBe('2026-11-23');
       expect(bulk.items.map((item) => item.outcome)).toEqual(['created', 'created']);
 
       const single = await service.createWeeklyReport(
@@ -198,8 +201,8 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       );
       expect(single).toMatchObject({
         periodStart: '2026-11-16',
-        periodEnd: '2026-11-20',
-        dueDate: '2026-11-20',
+        periodEnd: '2026-11-21',
+        dueDate: '2026-11-23',
       });
 
       const jobs = (await pool.query<{ title: string; due_date: string }>(
@@ -209,8 +212,8 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       )).rows;
       expect(jobs).toHaveLength(3);
       for (const job of jobs) {
-        expect(job.due_date).toBe('2026-11-20');
-        expect(job.title).toBe('Haftalık Rapor (2026-11-16 – 2026-11-20)');
+        expect(job.due_date).toBe('2026-11-23');
+        expect(job.title).toBe('Haftalık Rapor (2026-11-16 – 2026-11-21)');
       }
 
       const reports = (await pool.query<{ period_start: string; period_end: string }>(
@@ -221,7 +224,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       expect(reports).toHaveLength(3);
       for (const report of reports) {
         expect(report.period_start).toBe('2026-11-16');
-        expect(report.period_end).toBe('2026-11-20');
+        expect(report.period_end).toBe('2026-11-21');
       }
     });
   });
@@ -234,7 +237,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       const service = buildServiceAt(pool, '2026-11-20T07:00:00.000Z');
       const manager = actor(organizationId, managerId, 'MANAGER');
 
-      for (const extra of [{ periodEnd: '2026-11-20' }, { dueDate: '2026-11-20' }]) {
+      for (const extra of [{ periodEnd: '2026-11-21' }, { dueDate: '2026-11-23' }]) {
         expect(() => parseWeeklyReportCreateInput({
           clientActionId: randomUUID(),
           periodStart: '2026-11-16',
@@ -270,7 +273,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         },
       });
       try {
-        for (const extra of [{ periodEnd: '2026-11-20' }, { dueDate: '2026-11-23' }]) {
+        for (const extra of [{ periodEnd: '2026-11-21' }, { dueDate: '2026-11-24' }]) {
           const singleRes = await app.inject({
             method: 'POST',
             url: '/api/job-cards/weekly-reports',
@@ -304,7 +307,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
     });
   });
 
-  it('A6: report is not overdue on Friday 23:59 and becomes overdue at Saturday 00:00 (Europe/Istanbul)', async () => {
+  it('A6: report is not overdue on Monday 23:59 and becomes overdue at Tuesday 00:00 (Europe/Istanbul)', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -328,16 +331,16 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         [created.jobCardId],
       );
 
-      // Friday 2026-11-20 23:59 Europe/Istanbul = 2026-11-20T20:59:00.000Z.
-      const beforeMidnight = await buildServiceAt(pool, '2026-11-20T20:59:00.000Z').list(manager, {
+      // Monday 2026-11-23 23:59 Europe/Istanbul = 2026-11-23T20:59:00.000Z.
+      const beforeMidnight = await buildServiceAt(pool, '2026-11-23T20:59:00.000Z').list(manager, {
         q: null, type: null, assignedTo: null, customerId: null, priority: null,
         dueBefore: null, dueAfter: null, followUp: null,
         status: 'active', limit: 20, offset: 0, overdue: true,
       });
       expect(beforeMidnight.items.some((item) => item.id === created.jobCardId)).toBe(false);
 
-      // Saturday 2026-11-21 00:00 Europe/Istanbul = 2026-11-20T21:00:00.000Z.
-      const atMidnight = await buildServiceAt(pool, '2026-11-20T21:00:00.000Z').list(manager, {
+      // Tuesday 2026-11-24 00:00 Europe/Istanbul = 2026-11-23T21:00:00.000Z.
+      const atMidnight = await buildServiceAt(pool, '2026-11-23T21:00:00.000Z').list(manager, {
         q: null, type: null, assignedTo: null, customerId: null, priority: null,
         dueBefore: null, dueAfter: null, followUp: null,
         status: 'active', limit: 20, offset: 0, overdue: true,
@@ -348,30 +351,30 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       const scanner = createOverdueBreachScanner(
         new PostgresOverdueBreachScannerRepository(new PostgresJobCardRepository(pool)),
       );
-      expect((await scanner.runOnce(new Date('2026-11-20T20:59:59.999Z'))).inserted).toBe(0);
-      expect((await scanner.runOnce(new Date('2026-11-20T21:00:00.000Z'))).inserted).toBe(0);
-      const late = await scanner.runOnce(new Date('2026-11-20T21:00:00.001Z'));
+      expect((await scanner.runOnce(new Date('2026-11-23T20:59:59.999Z'))).inserted).toBe(0);
+      expect((await scanner.runOnce(new Date('2026-11-23T21:00:00.000Z'))).inserted).toBe(0);
+      const late = await scanner.runOnce(new Date('2026-11-23T21:00:00.001Z'));
       expect(late.inserted).toBe(1);
       expect(late.byDelayType.LATE_SUBMISSION).toBe(1);
     });
   });
 
-  it('A7: live work list and submission snapshot include Fri 23:59 and exclude Sat 10:00 & Mon 00:00', async () => {
+  it('A7: live work list and submission snapshot include Sat 23:59 and exclude Sun 10:00 & Mon 00:00', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
       const staffId = await insertUser(pool, organizationId, 'STAFF');
       const staff = actor(organizationId, staffId, 'STAFF');
 
-      const fridayId = await insertCompletedSourceJob(pool, {
-        organizationId, staffId, managerId, title: 'Cuma 23:59 işi',
-        // Friday 2026-11-20 23:59:00 Europe/Istanbul
-        staffCompletedAt: '2026-11-20T20:59:00.000Z',
+      const saturdayId = await insertCompletedSourceJob(pool, {
+        organizationId, staffId, managerId, title: 'Cumartesi 23:59 işi',
+        // Saturday 2026-11-21 23:59:00 Europe/Istanbul
+        staffCompletedAt: '2026-11-21T20:59:00.000Z',
       });
-      // Saturday 2026-11-21 10:00:00 Europe/Istanbul -> excluded
+      // Sunday 2026-11-22 10:00:00 Europe/Istanbul -> excluded
       await insertCompletedSourceJob(pool, {
-        organizationId, staffId, managerId, title: 'Cumartesi 10:00 işi',
-        staffCompletedAt: '2026-11-21T07:00:00.000Z',
+        organizationId, staffId, managerId, title: 'Pazar 10:00 işi',
+        staffCompletedAt: '2026-11-22T07:00:00.000Z',
       });
       // Next Monday 2026-11-23 00:00:00 Europe/Istanbul -> excluded
       await insertCompletedSourceJob(pool, {
@@ -379,7 +382,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         staffCompletedAt: '2026-11-22T21:00:00.000Z',
       });
 
-      const service = buildServiceAt(pool, '2026-11-20T20:59:30.000Z');
+      const service = buildServiceAt(pool, '2026-11-21T20:59:30.000Z');
       const created = await service.createWeeklyReport(
         staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart: '2026-11-16' }),
@@ -389,7 +392,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       });
 
       const detail = await service.getWeeklyReport(staff, created.jobCardId);
-      expect(detail.liveSourceWork.map((item) => item.jobCardId)).toEqual([fridayId]);
+      expect(detail.liveSourceWork.map((item) => item.jobCardId)).toEqual([saturdayId]);
 
       await service.updateWeeklyReportDraft(staff, created.jobCardId, {
         expectedVersion: 1,
@@ -403,7 +406,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       });
       const submissions = await service.listWeeklyReportSubmissions(staff, created.jobCardId);
       expect(submissions).toHaveLength(1);
-      expect(submissions[0]!.sourceWork.map((item) => item.jobCardId)).toEqual([fridayId]);
+      expect(submissions[0]!.sourceWork.map((item) => item.jobCardId)).toEqual([saturdayId]);
     });
   });
 
@@ -543,7 +546,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
     });
   });
 
-  it('A15: two parallel creates for the same staff and workweek produce exactly one report', async () => {
+  it('A15: two parallel creates for the same staff and working week produce exactly one report', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const staffId = await insertUser(pool, organizationId, 'STAFF');
@@ -563,8 +566,8 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       if (fulfilled[0]?.status === 'fulfilled') {
         expect(fulfilled[0].value).toMatchObject({
           periodStart: '2026-11-16',
-          periodEnd: '2026-11-20',
-          dueDate: '2026-11-20',
+          periodEnd: '2026-11-21',
+          dueDate: '2026-11-23',
         });
       }
       if (rejected[0]?.status === 'rejected') {
@@ -575,12 +578,10 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
     });
   });
 
-  it('A16: handles America/New_York DST week 2026-03-09 (Monday 00:00 EDT to Saturday 00:00 EDT)', async () => {
-    const window = (weekInstants as (ps: string, pe: string, tz: string) => {
-      weekStart: Date; weekEnd: Date;
-    })('2026-03-09', '2026-03-13', 'America/New_York');
+  it('A16: handles America/New_York DST week 2026-03-09 (Monday 00:00 EDT to Sunday 00:00 EDT)', async () => {
+    const window = weekInstants('2026-03-09', '2026-03-14', 'America/New_York');
     expect(window.weekStart.toISOString()).toBe('2026-03-09T04:00:00.000Z');
-    expect(window.weekEnd.toISOString()).toBe('2026-03-14T04:00:00.000Z');
+    expect(window.weekEnd.toISOString()).toBe('2026-03-15T04:00:00.000Z');
 
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'America/New_York');
@@ -598,15 +599,15 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         organizationId, staffId, managerId, title: 'Monday 00:00 EDT',
         staffCompletedAt: '2026-03-09T04:00:00.000Z',
       });
-      // Friday 2026-03-13 23:59:59 EDT -> included
-      const friEndId = await insertCompletedSourceJob(pool, {
-        organizationId, staffId, managerId, title: 'Friday 23:59:59 EDT',
-        staffCompletedAt: '2026-03-14T03:59:59.000Z',
+      // Saturday 2026-03-14 23:59:59 EDT -> included
+      const satEndId = await insertCompletedSourceJob(pool, {
+        organizationId, staffId, managerId, title: 'Saturday 23:59:59 EDT',
+        staffCompletedAt: '2026-03-15T03:59:59.000Z',
       });
-      // Saturday 2026-03-14 00:00:00 EDT -> excluded
+      // Sunday 2026-03-15 00:00:00 EDT -> excluded
       await insertCompletedSourceJob(pool, {
-        organizationId, staffId, managerId, title: 'Saturday 00:00 EDT',
-        staffCompletedAt: '2026-03-14T04:00:00.000Z',
+        organizationId, staffId, managerId, title: 'Sunday 00:00 EDT',
+        staffCompletedAt: '2026-03-15T04:00:00.000Z',
       });
 
       const service = buildServiceAt(pool, '2026-03-13T16:00:00.000Z');
@@ -616,15 +617,15 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       );
       expect(created).toMatchObject({
         periodStart: '2026-03-09',
-        periodEnd: '2026-03-13',
-        dueDate: '2026-03-13',
+        periodEnd: '2026-03-14',
+        dueDate: '2026-03-16',
       });
 
       await service.start(staff, created.jobCardId, {
         clientActionId: randomUUID(), expectedVersion: 1,
       });
       const detail = await service.getWeeklyReport(staff, created.jobCardId);
-      expect(detail.liveSourceWork.map((item) => item.jobCardId)).toEqual([monStartId, friEndId]);
+      expect(detail.liveSourceWork.map((item) => item.jobCardId)).toEqual([monStartId, satEndId]);
 
       await service.updateWeeklyReportDraft(staff, created.jobCardId, {
         expectedVersion: 1, draft: VALID_BODY, answers: [],
@@ -633,11 +634,11 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         clientActionId: randomUUID(), expectedVersion: 2, note: 'DST week submitted.',
       });
       const submissions = await service.listWeeklyReportSubmissions(staff, created.jobCardId);
-      expect(submissions[0]!.sourceWork.map((item) => item.jobCardId)).toEqual([monStartId, friEndId]);
+      expect(submissions[0]!.sourceWork.map((item) => item.jobCardId)).toEqual([monStartId, satEndId]);
     });
   });
 
-  it('A17: enforces +4 or +6 period CHECKs and rejects submission period mismatch via composite FK', async () => {
+  it('A17: enforces +5 or +6 period CHECKs (rejects +4 and +7) and rejects submission period mismatch via composite FK', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -649,12 +650,12 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         [organizationId, staffId, managerId],
       )).rows[0]!.id;
 
-      // Both +4 (workweek) and +6 (legacy) are valid on weekly_reports.
-      const job5 = await makeJob();
-      const report5Id = (await pool.query<{ id: string }>(
+      // Both +5 (Monday–Saturday working week) and +6 (legacy 7-day) are valid on weekly_reports.
+      const job6 = await makeJob();
+      const report6Id = (await pool.query<{ id: string }>(
         `INSERT INTO weekly_reports (organization_id, job_card_id, staff_user_id, period_start, period_end)
-         VALUES ($1, $2, $3, '2026-11-16', '2026-11-20') RETURNING id`,
-        [organizationId, job5, staffId],
+         VALUES ($1, $2, $3, '2026-11-16', '2026-11-21') RETURNING id`,
+        [organizationId, job6, staffId],
       )).rows[0]!.id;
 
       const job7 = await makeJob();
@@ -664,11 +665,11 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         [organizationId, job7, staffId],
       )).rows[0]!.id;
 
-      // +5, +7 and non-Monday start are rejected by weekly_reports CHECKs.
+      // +4, +7 and non-Monday start are rejected by weekly_reports CHECKs.
       for (const [start, end] of [
-        ['2026-11-02', '2026-11-07'], // +5
+        ['2026-11-02', '2026-11-06'], // +4
         ['2026-10-26', '2026-11-02'], // +7
-        ['2026-11-17', '2026-11-21'], // Tuesday
+        ['2026-11-17', '2026-11-22'], // Tuesday
       ]) {
         const badJob = await makeJob();
         await expect(pool.query(
@@ -678,10 +679,10 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         )).rejects.toMatchObject({ code: '23514' });
       }
 
-      const activity5Id = (await pool.query<{ id: string }>(
+      const activity6Id = (await pool.query<{ id: string }>(
         `INSERT INTO job_card_activity_logs (organization_id, job_card_id, actor_id, event_type)
          VALUES ($1, $2, $3, 'JOB_SUBMITTED_FOR_APPROVAL') RETURNING id`,
-        [organizationId, job5, staffId],
+        [organizationId, job6, staffId],
       )).rows[0]!.id;
       const activity7Id = (await pool.query<{ id: string }>(
         `INSERT INTO job_card_activity_logs (organization_id, job_card_id, actor_id, event_type)
@@ -689,9 +690,9 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         [organizationId, job7, staffId],
       )).rows[0]!.id;
 
-      // Submission CHECK rejects +5 and +7 even with matching report id.
+      // Submission CHECK rejects +4 and +7 even with matching report id.
       for (const [start, end] of [
-        ['2026-11-16', '2026-11-21'], // +5
+        ['2026-11-16', '2026-11-20'], // +4
         ['2026-11-16', '2026-11-23'], // +7
       ]) {
         await expect(pool.query(
@@ -700,11 +701,11 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
               period_start, period_end, frozen_body, frozen_questions, frozen_answers,
               frozen_source_work, job_version, source_activity_id)
            VALUES ($1, $2, $3, 1, $4, NOW(), $5, $6, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 1, $7)`,
-          [organizationId, report5Id, job5, staffId, start, end, activity5Id],
+          [organizationId, report6Id, job6, staffId, start, end, activity6Id],
         )).rejects.toMatchObject({ code: '23514' });
       }
 
-      // Composite FK rejects a valid 7-day submission under a 5-day report (23503).
+      // Composite FK rejects a valid 7-day submission under a 6-day working-week report (23503).
       await expect(pool.query(
         `INSERT INTO weekly_report_submissions
            (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by, submitted_at,
@@ -712,23 +713,23 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
             frozen_source_work, job_version, source_activity_id)
          VALUES ($1, $2, $3, 1, $4, NOW(), '2026-11-16', '2026-11-22',
                  '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 1, $5)`,
-        [organizationId, report5Id, job5, staffId, activity5Id],
+        [organizationId, report6Id, job6, staffId, activity6Id],
       )).rejects.toMatchObject({ code: '23503' });
 
-      // Composite FK rejects a valid 5-day submission under a 7-day report (23503).
+      // Composite FK rejects a valid 6-day submission under a 7-day report (23503).
       await expect(pool.query(
         `INSERT INTO weekly_report_submissions
            (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by, submitted_at,
             period_start, period_end, frozen_body, frozen_questions, frozen_answers,
             frozen_source_work, job_version, source_activity_id)
-         VALUES ($1, $2, $3, 1, $4, NOW(), '2026-11-09', '2026-11-13',
+         VALUES ($1, $2, $3, 1, $4, NOW(), '2026-11-09', '2026-11-14',
                  '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 1, $5)`,
         [organizationId, report7Id, job7, staffId, activity7Id],
       )).rejects.toMatchObject({ code: '23503' });
     });
   });
 
-  it('A18: late requests (Saturday 2026-11-21 and Monday 2026-11-23) set due_date = request date, not born overdue', async () => {
+  it('A18: Monday request for week 2026-11-16 is due Monday 2026-11-23; Tuesday late request is due 2026-11-24 and not born overdue', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -737,98 +738,56 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       const staffC = await insertUser(pool, organizationId, 'STAFF');
       const manager = actor(organizationId, managerId, 'MANAGER');
 
-      // Part 1: Saturday 2026-11-21 10:00 Europe/Istanbul (07:00Z) for default week 2026-11-16.
-      const satIso = '2026-11-21T07:00:00.000Z';
-      const satService = buildServiceAt(pool, satIso);
-      const satRef = await satService.weeklyReportReference(manager);
-      expect(satRef).toEqual({
-        timezone: 'Europe/Istanbul',
-        periodStart: '2026-11-16',
-        periodEnd: '2026-11-20',
-        dueDate: '2026-11-21',
-      });
-
-      const satSingle = await satService.createWeeklyReport(
-        manager,
-        parseWeeklyReportCreateInput({
-          clientActionId: randomUUID(),
-          periodStart: satRef.periodStart,
-          assignedTo: staffA,
-        }),
-      );
-      expect(satSingle.dueDate).toBe('2026-11-21');
-
-      const satBulk = await satService.bulkRequestWeeklyReports(
-        manager,
-        parseWeeklyReportBulkRequestInput({
-          clientActionId: randomUUID(),
-          periodStart: satRef.periodStart,
-          staffUserIds: [staffB],
-        }),
-      );
-      expect(satBulk.dueDate).toBe('2026-11-21');
-
-      // Not overdue at creation.
-      const overdueOnSat = await satService.list(manager, {
-        q: null, type: null, assignedTo: null, customerId: null, priority: null,
-        dueBefore: null, dueAfter: null, followUp: null,
-        status: 'active', limit: 20, offset: 0, overdue: true,
-      });
-      expect(overdueOnSat.items.some((item) => item.id === satSingle.jobCardId)).toBe(false);
-      expect(overdueOnSat.items.some((item) => item.id === satBulk.items[0]!.jobCardId)).toBe(false);
-
-      // Accept and start immediately on Saturday -> no immediate LATE_SUBMISSION incident.
-      await buildServiceAt(pool, '2026-11-21T07:05:00.000Z').acceptAssignment(
-        actor(organizationId, staffA, 'STAFF'),
-        satSingle.jobCardId,
-        { clientActionId: randomUUID(), expectedVersion: 1 },
-      );
-      await buildServiceAt(pool, '2026-11-21T07:06:00.000Z').start(
-        actor(organizationId, staffA, 'STAFF'),
-        satSingle.jobCardId,
-        { clientActionId: randomUUID(), expectedVersion: 2 },
-      );
-      await pool.query(
-        `UPDATE job_cards SET started_at = '2026-11-21T07:06:00.000Z' WHERE id = $1`,
-        [satSingle.jobCardId],
-      );
-      const scanner = createOverdueBreachScanner(
-        new PostgresOverdueBreachScannerRepository(new PostgresJobCardRepository(pool)),
-      );
-      expect((await scanner.runOnce(new Date('2026-11-21T07:10:00.000Z'))).inserted).toBe(0);
-      expect((await scanner.runOnce(new Date('2026-11-21T20:59:59.999Z'))).inserted).toBe(0);
-      expect((await pool.query(
-        `SELECT COUNT(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id = $1`,
-        [satSingle.jobCardId],
-      )).rows[0]!.n).toBe(0);
-
-      // Part 2: Monday 2026-11-23 10:00 Europe/Istanbul (07:00Z) requesting past week 2026-11-16.
+      // Part 1: Monday 2026-11-23 10:00 Europe/Istanbul (07:00Z) requesting previous week 2026-11-16 ("Geçen hafta").
       const monService = buildServiceAt(pool, '2026-11-23T07:00:00.000Z');
+      const monRef = await monService.weeklyReportReference(manager);
+      expect(monRef).toEqual({
+        timezone: 'Europe/Istanbul',
+        today: '2026-11-23',
+        periodStart: '2026-11-23',
+        periodEnd: '2026-11-28',
+        dueDate: '2026-11-30',
+      });
+
       const monSingle = await monService.createWeeklyReport(
         manager,
         parseWeeklyReportCreateInput({
           clientActionId: randomUUID(),
           periodStart: '2026-11-16',
-          assignedTo: staffC,
+          assignedTo: staffA,
         }),
       );
-      expect(monSingle.periodEnd).toBe('2026-11-20');
+      expect(monSingle.periodEnd).toBe('2026-11-21');
       expect(monSingle.dueDate).toBe('2026-11-23');
 
+      const monBulk = await monService.bulkRequestWeeklyReports(
+        manager,
+        parseWeeklyReportBulkRequestInput({
+          clientActionId: randomUUID(),
+          periodStart: '2026-11-16',
+          staffUserIds: [staffB],
+        }),
+      );
+      expect(monBulk.periodEnd).toBe('2026-11-21');
+      expect(monBulk.dueDate).toBe('2026-11-23');
+
+      // Not overdue on Monday.
       const overdueOnMon = await monService.list(manager, {
         q: null, type: null, assignedTo: null, customerId: null, priority: null,
         dueBefore: null, dueAfter: null, followUp: null,
         status: 'active', limit: 20, offset: 0, overdue: true,
       });
       expect(overdueOnMon.items.some((item) => item.id === monSingle.jobCardId)).toBe(false);
+      expect(overdueOnMon.items.some((item) => item.id === monBulk.items[0]!.jobCardId)).toBe(false);
 
+      // Accept and start on Monday -> no immediate LATE_SUBMISSION incident during Monday.
       await buildServiceAt(pool, '2026-11-23T07:05:00.000Z').acceptAssignment(
-        actor(organizationId, staffC, 'STAFF'),
+        actor(organizationId, staffA, 'STAFF'),
         monSingle.jobCardId,
         { clientActionId: randomUUID(), expectedVersion: 1 },
       );
       await buildServiceAt(pool, '2026-11-23T07:06:00.000Z').start(
-        actor(organizationId, staffC, 'STAFF'),
+        actor(organizationId, staffA, 'STAFF'),
         monSingle.jobCardId,
         { clientActionId: randomUUID(), expectedVersion: 2 },
       );
@@ -836,22 +795,69 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
         `UPDATE job_cards SET started_at = '2026-11-23T07:06:00.000Z' WHERE id = $1`,
         [monSingle.jobCardId],
       );
-      // The Saturday report (due 2026-11-21, still IN_PROGRESS) is legitimately
-      // late by Monday, so the scan may insert its incident; only the Monday
-      // request itself must not be born late.
-      await scanner.runOnce(new Date('2026-11-23T07:10:00.000Z'));
-      expect((await pool.query(
-        `SELECT COUNT(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id = $1`,
-        [satSingle.jobCardId],
-      )).rows[0]!.n).toBe(1);
+      const scanner = createOverdueBreachScanner(
+        new PostgresOverdueBreachScannerRepository(new PostgresJobCardRepository(pool)),
+      );
+      expect((await scanner.runOnce(new Date('2026-11-23T07:10:00.000Z'))).inserted).toBe(0);
+      expect((await scanner.runOnce(new Date('2026-11-23T20:59:59.999Z'))).inserted).toBe(0);
       expect((await pool.query(
         `SELECT COUNT(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id = $1`,
         [monSingle.jobCardId],
       )).rows[0]!.n).toBe(0);
+
+      // Part 2: Tuesday 2026-11-24 10:00 Europe/Istanbul (07:00Z) requesting past week 2026-11-16 (late, D9).
+      const tueService = buildServiceAt(pool, '2026-11-24T07:00:00.000Z');
+      const tueRef = await tueService.weeklyReportReference(manager);
+      expect(tueRef.today).toBe('2026-11-24');
+
+      const tueSingle = await tueService.createWeeklyReport(
+        manager,
+        parseWeeklyReportCreateInput({
+          clientActionId: randomUUID(),
+          periodStart: '2026-11-16',
+          assignedTo: staffC,
+        }),
+      );
+      expect(tueSingle.periodEnd).toBe('2026-11-21');
+      expect(tueSingle.dueDate).toBe('2026-11-24');
+
+      const overdueOnTue = await tueService.list(manager, {
+        q: null, type: null, assignedTo: null, customerId: null, priority: null,
+        dueBefore: null, dueAfter: null, followUp: null,
+        status: 'active', limit: 20, offset: 0, overdue: true,
+      });
+      expect(overdueOnTue.items.some((item) => item.id === tueSingle.jobCardId)).toBe(false);
+
+      await buildServiceAt(pool, '2026-11-24T07:05:00.000Z').acceptAssignment(
+        actor(organizationId, staffC, 'STAFF'),
+        tueSingle.jobCardId,
+        { clientActionId: randomUUID(), expectedVersion: 1 },
+      );
+      await buildServiceAt(pool, '2026-11-24T07:06:00.000Z').start(
+        actor(organizationId, staffC, 'STAFF'),
+        tueSingle.jobCardId,
+        { clientActionId: randomUUID(), expectedVersion: 2 },
+      );
+      await pool.query(
+        `UPDATE job_cards SET started_at = '2026-11-24T07:06:00.000Z' WHERE id = $1`,
+        [tueSingle.jobCardId],
+      );
+      // The Monday report (due 2026-11-23, still IN_PROGRESS) is legitimately
+      // late by Tuesday, so the global scan may insert its incident; only the
+      // Tuesday request itself must not be born late.
+      await scanner.runOnce(new Date('2026-11-24T07:10:00.000Z'));
+      expect((await pool.query(
+        `SELECT COUNT(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id = $1`,
+        [monSingle.jobCardId],
+      )).rows[0]!.n).toBe(1);
+      expect((await pool.query(
+        `SELECT COUNT(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id = $1`,
+        [tueSingle.jobCardId],
+      )).rows[0]!.n).toBe(0);
     });
   });
 
-  it('A18b: Wednesday 2026-11-18 request for future week 2026-11-23 is due Friday 2026-11-27', async () => {
+  it('A18b: Wednesday 2026-11-18 request for future week 2026-11-23 is due Monday 2026-11-30', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -870,8 +876,8 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       );
       expect(single).toMatchObject({
         periodStart: '2026-11-23',
-        periodEnd: '2026-11-27',
-        dueDate: '2026-11-27',
+        periodEnd: '2026-11-28',
+        dueDate: '2026-11-30',
       });
 
       const bulk = await service.bulkRequestWeeklyReports(
@@ -884,8 +890,8 @@ describe.skipIf(!databaseUrl)('WR-WEEK workweek period, Friday deadline & legacy
       );
       expect(bulk).toMatchObject({
         periodStart: '2026-11-23',
-        periodEnd: '2026-11-27',
-        dueDate: '2026-11-27',
+        periodEnd: '2026-11-28',
+        dueDate: '2026-11-30',
       });
     });
   });
