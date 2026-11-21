@@ -22,8 +22,8 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 
 const WEEK_A = '2026-08-03';
-const WEEK_A_END = '2026-08-09';
-const WEEK_A_DUE = '2026-08-10';
+const WEEK_A_END = '2026-08-07';
+const WEEK_A_DUE = '2026-08-07';
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
   const adminPool = new Pool({ connectionString: databaseUrl });
@@ -265,7 +265,7 @@ describe.skipIf(!databaseUrl)('weekly report bulk request (PostgreSQL)', () => {
       })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
     });
 
-    it('gives every target the identical canonical next-Monday deadline (B1)', async () => {
+    it('gives every target the identical canonical Friday deadline (B1)', async () => {
       await withSchema(async (pool) => {
         const organizationId = await insertOrg(pool);
         const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -281,7 +281,7 @@ describe.skipIf(!databaseUrl)('weekly report bulk request (PostgreSQL)', () => {
             bulkBody({ staffUserIds: targets }),
           ),
         );
-        // One canonical receipt deadline: the Monday after the period.
+        // One canonical receipt deadline: Friday of the period (requestDate <= periodEnd).
         expect(result.dueDate).toBe(WEEK_A_DUE);
         const jobs = await pool.query<{ id: string; due_date: string }>(
           `SELECT id, due_date::text AS due_date FROM job_cards WHERE type = 'WEEKLY_REPORT' ORDER BY id`,
