@@ -203,15 +203,20 @@ describe.skipIf(!databaseUrl)('OVR-6 quiet hours — OVR-4 reminders', () => {
       const quietStaffId = await insertUser(pool, {
         organizationId: quietOrgId, role: 'STAFF', name: 'Sessiz Personel',
       });
+      // Fairness: the quiet organization's episode is the OLDEST due one, so it
+      // would win the single batch slot if discovery did not exclude quiet
+      // organizations in SQL. The earlier breached_at is the whole point of
+      // this fixture (discovery orders by MIN(breached_at) ASC).
       const quietJob = await insertJob(pool, {
         organizationId: quietOrgId, type: 'GENERAL_TASK', status: 'IN_PROGRESS',
         assignedTo: quietStaffId, createdBy: quietManagerId,
-        dueDate: addDays(day, -1), baseNow: baseline,
-        startedAt: atLocal(addDays(day, -1), 9, 0),
+        dueDate: addDays(day, -2), baseNow: baseline,
+        startedAt: atLocal(addDays(day, -3), 9, 0),
       });
       await insertLateSubmissionEpisode(pool, {
         organizationId: quietOrgId, jobCardId: quietJob.id,
-        deadlineAt: atLocal(day, 0, 0), breachedAt: atLocal(day, 0, 0),
+        deadlineAt: atLocal(addDays(day, -2), 0, 0),
+        breachedAt: atLocal(addDays(day, -2), 0, 0),
       });
 
       const openOrgId = await insertOrg(pool, 'OVR-6 Açık Klinik', 'America/New_York');
@@ -278,6 +283,10 @@ describe.skipIf(!databaseUrl)('OVR-6 quiet hours — OVR-4 reminders', () => {
       const deferred = await boundaryWorker.runOnce(boundary);
       expect(deferred.candidates).toBe(1);
       expect(deferred.sent).toBe(0);
+      // §3.6: the under-lock re-check reports the candidate as deferred, not as
+      // a silent skip, and writes nothing.
+      expect(deferred.deferredQuietHours).toBe(1);
+      expect(deferred.skippedNotDue).toBe(0);
       expect(await selectOverdueDeliveries(pool, organizationId, job.id)).toHaveLength(0);
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(0);
 

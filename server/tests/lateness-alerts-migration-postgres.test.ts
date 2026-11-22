@@ -132,8 +132,10 @@ async function insertRealtimeFor(
   );
   const realtime = await pool.query<{ id: string }>(
     `INSERT INTO realtime_events
-       (organization_id, source_activity_id, event_type, entity_type, entity_id, resource_keys)
-     VALUES ($1, $2, 'job.updated', 'job-card', $3, '{job-list}') RETURNING id::text`,
+       (organization_id, source_activity_id, event_type, entity_type, entity_id,
+        audience_roles, resource_keys)
+     VALUES ($1, $2, 'job.updated', 'job-card', $3,
+             ARRAY['ADMIN']::VARCHAR(20)[], '{job-list}') RETURNING id::text`,
     [input.organizationId, activity.rows[0]!.id, input.jobCardId],
   );
   return realtime.rows[0]!.id;

@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
+import Fastify, { type FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 
+import { toErrorResponse } from '../src/errors/index.js';
+import { unacceptedPastStartSql } from '../src/modules/job-cards/repository.js';
+import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
 import type { JobCardService } from '../src/modules/job-cards/service.js';
+import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import {
   ALWAYS_OPEN_NOTIFICATION_WINDOW,
   DEFAULT_NOTIFICATION_WINDOW,
@@ -140,6 +145,36 @@ function expectDisjoint(a: readonly string[], b: readonly string[]): void {
   expect(a.filter((id) => b.includes(id))).toEqual([]);
 }
 
+/**
+ * Real routes + real service over Fastify: proves the static two-segment path
+ * is dispatched to the list handler (not the `/:id` detail route), the HTTP
+ * status mapping for a Staff read and the exact response DTO shape.
+ */
+async function httpApp(service: JobCardService, user: JobCardActor): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false });
+  app.setErrorHandler((error, _request, reply) => {
+    const response = toErrorResponse(error);
+    reply.code(response.statusCode).send(response.body);
+  });
+  await app.register(jobCardRoutes, {
+    prefix: '/api/job-cards',
+    service,
+    authenticate: async (request) => {
+      request.currentUser = {
+        id: user.id,
+        organizationId: user.organizationId,
+        name: 'Test Kullanıcı',
+        email: 'test@example.com',
+        role: user.role,
+        mustChangePassword: false,
+        isActive: true,
+        version: 1,
+      };
+    },
+  });
+  return app;
+}
+
 describe.skipIf(!databaseUrl)('OVR-6 unaccepted past-start jobs', () => {
   it('P1 lists at the planned time, alerts once, and follows accept/reschedule/edit/request', async () => {
     await withSchema('ovr6_p1', async (pool) => {
@@ -162,6 +197,16 @@ describe.skipIf(!databaseUrl)('OVR-6 unaccepted past-start jobs', () => {
       const weekly = await newPastStartJob(pool, {
         ctx, title: 'Haftalık rapor', scheduledAt, type: 'WEEKLY_REPORT', baseline,
       });
+      // The predicate also excludes `SALE`, but a sale row can never carry a
+      // planned start (057 `job_cards_sale_fields_check` plus the required
+      // source visit), so `WEEKLY_REPORT` is the only reachable non-field-work
+      // fixture here. The `SALE` policy term is pinned as rendered SQL.
+      expect(unacceptedPastStartSql({
+        organizationId: '$1',
+        requestTime: '$2::timestamptz',
+        job: 'j',
+        latest: 'latest',
+      })).toContain(`type NOT IN ('WEEKLY_REPORT', 'SALE')`);
       const inactiveAssignee = await newPastStartJob(pool, {
         ctx, title: 'Pasif atanmış görev', scheduledAt,
         assignedTo: ctx.inactiveStaffId, baseline,
@@ -325,10 +370,23 @@ describe.skipIf(!databaseUrl)('OVR-6 unaccepted past-start jobs', () => {
       expect(await selectLatenessDeliveries(pool, ctx.organizationId, quiet.id)).toHaveLength(0);
 
       scan.at = atLocal(addDays(day, 1), 8, 0);
-      expect((await quietWorker.runIteration()).pendingAcceptance.sent).toBe(1);
+      const nextMorning = await quietWorker.runIteration();
+      // The quiet job is the candidate this assertion owns. A global counter is
+      // not the right witness here: `futureRescheduled` was moved to 18:00 on
+      // the same day, so its new planned start also passed overnight and it
+      // legitimately alerts once on this tick (§6.3 removes a future reschedule
+      // from the list only until the new start arrives).
+      expect(nextMorning.pendingAcceptance.sent).toBe(2);
       const quietDeliveries = await selectLatenessDeliveries(pool, ctx.organizationId, quiet.id);
       expect(quietDeliveries).toHaveLength(1);
       expect(quietDeliveries[0]!.sent_at.getTime()).toBe(scan.at.getTime());
+      const futureDeliveries = await selectLatenessDeliveries(
+        pool, ctx.organizationId, futureRescheduled.id,
+      );
+      // One alert for the original 13:00 start (sent before the reschedule) and
+      // one for the new 18:00 start that passed overnight.
+      expect(futureDeliveries.map((row) => row.planned_start_at?.getTime()).sort())
+        .toEqual([scheduledAt.getTime(), futureStart.getTime()].sort());
     });
   });
 
@@ -350,7 +408,7 @@ describe.skipIf(!databaseUrl)('OVR-6 unaccepted past-start jobs', () => {
     });
   });
 
-  it('P2 row 2: an urgent OPEN offer is owned by needs-action only', async () => {
+  it('P2 row 2: an urgent or past-deadline OPEN offer is owned by needs-action only', async () => {
     await withSchema('ovr6_p2_r2', async (pool) => {
       const baseline = await readDbBaseline(pool);
       const ctx = await seed(pool);
@@ -363,11 +421,21 @@ describe.skipIf(!databaseUrl)('OVR-6 unaccepted past-start jobs', () => {
         ctx, jobCardId: job.id, openedAt: atLocal(day, 11, 0),
         acceptanceDueAt: atLocal(day, 15, 0), urgentReason: 'SHORT_NOTICE',
       });
+      // The same OPEN state owns the job through the other branch of the
+      // predicate: not urgent, but its acceptance deadline already passed at
+      // the read instant.
+      const overdue = await newPastStartJob(pool, {
+        ctx, title: 'Süresi geçen teklif', scheduledAt, baseline,
+      });
+      await offerFor(pool, {
+        ctx, jobCardId: overdue.id, openedAt: atLocal(day, 10, 0),
+        acceptanceDueAt: atLocal(day, 13, 30), urgentReason: null,
+      });
 
       const listed = await listIds(service, ctx);
       const needsAction = await needsActionIds(service, ctx);
       expect(listed).toEqual([]);
-      expect(needsAction).toEqual([job.id]);
+      expect(needsAction.sort()).toEqual([job.id, overdue.id].sort());
       expectDisjoint(listed, needsAction);
     });
   });
@@ -508,7 +576,7 @@ describe.skipIf(!databaseUrl)('OVR-6 unaccepted past-start jobs', () => {
     });
   });
 
-  it('P3 rejects a Staff read of the list with 403', async () => {
+  it('P3 rejects a Staff HTTP read with 403 and serves the management DTO', async () => {
     await withSchema('ovr6_p3', async (pool) => {
       const baseline = await readDbBaseline(pool);
       const ctx = await seed(pool);
@@ -516,11 +584,57 @@ describe.skipIf(!databaseUrl)('OVR-6 unaccepted past-start jobs', () => {
       const scheduledAt = atLocal(day, 13, 0);
       const clock = { now: atLocal(day, 14, 0) };
       const { service } = buildJobCardService(pool, clock);
-      await newPastStartJob(pool, { ctx, title: 'Gizli iş', scheduledAt, baseline });
+      const job = await newPastStartJob(pool, { ctx, title: 'Gizli iş', scheduledAt, baseline });
 
+      // Direct service call still rejects Staff before any lookup.
       await expect(service.listUnacceptedPastStart(
         actor(ctx.staffId, ctx.organizationId, 'STAFF'), { limit: 10, offset: 0 },
       )).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+
+      const managerApp = await httpApp(service, actor(ctx.managerId, ctx.organizationId, 'MANAGER'));
+      const staffApp = await httpApp(service, actor(ctx.staffId, ctx.organizationId, 'STAFF'));
+      try {
+        const forbidden = await staffApp.inject({
+          method: 'GET', url: '/api/job-cards/pending-acceptance/past-start',
+        });
+        expect(forbidden.statusCode).toBe(403);
+        expect(forbidden.json()).toMatchObject({ code: 'FORBIDDEN' });
+
+        const response = await managerApp.inject({
+          method: 'GET',
+          url: '/api/job-cards/pending-acceptance/past-start?limit=10&offset=0',
+        });
+        expect(response.statusCode).toBe(200);
+        const body = response.json() as {
+          items: Array<Record<string, unknown> & {
+            assignee: Record<string, unknown>;
+          }>;
+          total: number;
+          limit: number;
+          offset: number;
+        };
+        expect(body).toMatchObject({ total: 1, limit: 10, offset: 0 });
+        expect(body.items).toHaveLength(1);
+        expect(Object.keys(body.items[0]!).sort()).toEqual([
+          'assignee', 'elapsedSeconds', 'hasOpenChangeRequest', 'jobCardId',
+          'jobPath', 'scheduledAt', 'title', 'type',
+        ]);
+        expect(body.items[0]).toMatchObject({
+          jobCardId: job.id,
+          title: 'Gizli iş',
+          type: 'GENERAL_TASK',
+          jobPath: `/jobs/${job.id}`,
+          // MINOR-1: `users.name` is NOT NULL, so the DTO carries a string.
+          assignee: { id: ctx.staffId, name: 'Ayşe', active: true },
+          scheduledAt: scheduledAt.toISOString(),
+          elapsedSeconds: 3_600,
+          hasOpenChangeRequest: false,
+        });
+        expect(Object.keys(body.items[0]!.assignee).sort()).toEqual(['active', 'id', 'name']);
+        expect(typeof body.items[0]!.assignee.name).toBe('string');
+      } finally {
+        await Promise.all([managerApp.close(), staffApp.close()]);
+      }
     });
   });
 

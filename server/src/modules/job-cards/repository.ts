@@ -819,7 +819,8 @@ export type UnacceptedPastStartRow = {
   jobType: JobCardType;
   scheduledAt: Date;
   assigneeId: string;
-  assigneeName: string | null;
+  /** `users.name` is NOT NULL and the query inner-joins `users`. */
+  assigneeName: string;
   assigneeActive: boolean;
   hasOpenChangeRequest: boolean;
 };
@@ -6774,7 +6775,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     const result = await this.pool.query<{
       job_card_id: string; job_title: string; job_type: JobCardType;
       scheduled_at: Date;
-      assignee_id: string; assignee_name: string | null; assignee_active: boolean;
+      assignee_id: string; assignee_name: string; assignee_active: boolean;
       has_open_change_request: boolean;
     }>(
       `SELECT j.id AS job_card_id, j.title AS job_title, j.type AS job_type,

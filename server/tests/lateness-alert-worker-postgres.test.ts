@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { PostgresOverdueBreachScannerRepository, createOverdueBreachScanner } from '../src/modules/job-cards/overdue-breach-scanner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { mapJobCardActivityToRealtime } from '../src/modules/realtime/event-mapper.js';
+import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
 import type { JobCardActivityEvent } from '../src/modules/job-cards/types.js';
 import {
   ALWAYS_OPEN_NOTIFICATION_WINDOW,
@@ -17,6 +18,7 @@ import {
   HOUR_MS,
   MINUTE_MS,
   actor,
+  addDays,
   atLocal,
   buildJobCardService,
   buildLatenessAlertWorker,
@@ -85,13 +87,48 @@ async function seedUsers(pool: Pool): Promise<Ctx> {
 function workerWithClock(pool: Pool, scan: { at: Date }, options: {
   notificationWindow?: NotificationWindowPolicy;
   batchSize?: number;
+  webPushEnabled?: boolean;
+  publisher?: RealtimeEventPublisher;
 } = {}) {
   return buildLatenessAlertWorker(pool, {
     now: () => scan.at,
     notificationWindow: options.notificationWindow ?? ALWAYS_OPEN,
     timing: { startReminderDelayMs: START_DELAY_MS },
     batchSize: options.batchSize ?? 50,
+    webPushEnabled: options.webPushEnabled,
+    publisher: options.publisher,
   });
+}
+
+/**
+ * An active Web Push subscription for `userId`: the queue insert joins the
+ * subscription, its session (unrevoked, unexpired at `at`) and the active user.
+ */
+async function createPushSubscription(
+  pool: Pool,
+  organizationId: string,
+  userId: string,
+  at: Date,
+): Promise<string> {
+  const hex = () => randomUUID().replaceAll('-', '')
+    + randomUUID().replaceAll('-', '').slice(0, 32);
+  const sessionId = (await pool.query<{ id: string }>(
+    `INSERT INTO sessions (user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3) RETURNING id`,
+    [userId, hex(), new Date(at.getTime() + 24 * HOUR_MS)],
+  )).rows[0]!.id;
+  return (await pool.query<{ id: string }>(
+    `INSERT INTO web_push_subscriptions
+       (organization_id, recipient_user_id, session_id, endpoint, endpoint_hash,
+        p256dh, auth, vapid_public_key_fingerprint)
+     VALUES ($1, $2, $3, $4, $5, 'p256dh', 'auth', $6)
+     RETURNING id`,
+    [
+      organizationId, userId, sessionId,
+      `https://push.example.test/${randomUUID()}`,
+      hex(), 'a'.repeat(64),
+    ],
+  )).rows[0]!.id;
 }
 
 async function reassignJob(pool: Pool, input: {
@@ -219,9 +256,12 @@ describe.skipIf(!databaseUrl)('OVR-6 lateness alert worker', () => {
         .toHaveLength(1);
       expect((await worker.runIteration()).startReminder.sent).toBe(0);
 
-      // START before the reminder: none.
-      const startedBefore = await makeAccepted(ctx.staffId, 'Başlamış iş');
-      clock.now = new Date(scheduledAt.getTime() + 5 * MINUTE_MS);
+      // START before the reminder: none. The planned start is behind the
+      // authoritative database clock (the lifecycle reservation instant is DB
+      // `clock_timestamp()`), so START is inside the planned interval.
+      const startedScheduledAt = new Date(baseline.getTime() - 2 * HOUR_MS);
+      const startedBefore = await makeAccepted(ctx.staffId, 'Başlamış iş', startedScheduledAt);
+      clock.now = new Date(startedScheduledAt.getTime() + 5 * MINUTE_MS);
       await service.start(ctx.staff, startedBefore.id, {
         clientActionId: randomUUID(), expectedVersion: startedBefore.version,
       });
@@ -400,7 +440,16 @@ describe.skipIf(!databaseUrl)('OVR-6 lateness alert worker', () => {
       expect((await worker.runIteration()).approvalWait.sent).toBe(0);
       expect(await selectLatenessDeliveries(pool, ctx.organizationId, waitingJob.id)).toHaveLength(1);
 
-      // A second submission cycle has its own incident and its own alert.
+      // A second submission cycle has its own incident and its own alert. The
+      // previous cycle is recovered first: production never carries two open
+      // APPROVAL_WAIT incidents on one job (the new cycle starts after SUBMIT
+      // resolves the previous one).
+      await pool.query(
+        `UPDATE job_card_overdue_incidents
+            SET recovered_at = $2, recovery_actor_user_id = $3
+          WHERE id = $1`,
+        [firstIncidentId, atLocal(day, 9, 0), ctx.staffId],
+      );
       const secondBreach = atLocal(day, 9, 1);
       const secondIncidentId = await insertIncident(pool, {
         organizationId: ctx.organizationId, jobCardId: waitingJob.id,
@@ -617,6 +666,154 @@ describe.skipIf(!databaseUrl)('OVR-6 lateness alert worker', () => {
         expect(mapped, event).not.toBeNull();
         expect(mapped!.type, event).toBe('job.updated');
       }
+    });
+  });
+
+  it('W1 keeps lifecycle truth when the realtime transport throws', async () => {
+    await withSchema('ovr6_transport', async (pool) => {
+      const baseline = await readDbBaseline(pool);
+      const day = nextOpenDateKey(baseline, TZ);
+      const ctx = await seedUsers(pool);
+      const scheduledAt = atLocal(day, 14, 0);
+      const job = await insertJob(pool, {
+        organizationId: ctx.organizationId, type: 'GENERAL_TASK', status: 'ACCEPTED',
+        assignedTo: ctx.staffId, createdBy: ctx.managerId, title: 'Taşıma hatası işi',
+        scheduledAt, scheduledEndsAt: atLocal(day, 15, 0), baseNow: baseline,
+      });
+      const scan = { at: new Date(scheduledAt.getTime() + START_DELAY_MS) };
+      let transportDown = true;
+      const worker = workerWithClock(pool, scan, {
+        publisher: {
+          publish: () => {
+            if (transportDown) throw new Error('OVR6_REALTIME_TRANSPORT_DOWN');
+          },
+        },
+      });
+
+      const report = await worker.runIteration();
+      // The transaction committed before the transport hop: the delivery is a
+      // durable fact, and the publish failure is reported without duplicating
+      // or erasing lifecycle truth.
+      expect(report.startReminder.failed).toBe(1);
+      const deliveries = await selectLatenessDeliveries(pool, ctx.organizationId, job.id);
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]!.kind).toBe('START_REMINDER');
+      expect((await selectActivities(pool, ctx.organizationId, job.id))
+        .filter((row) => row.event_type === 'JOB_START_REMINDER_SENT')).toHaveLength(1);
+      expect(await selectRealtimeEvents(pool, ctx.organizationId, job.id)).toHaveLength(1);
+      expect((await selectNotifications(pool, ctx.organizationId, job.id))
+        .filter((row) => row.kind === 'job.start_reminder')).toHaveLength(1);
+
+      // A restart with a healthy transport never resends.
+      transportDown = false;
+      scan.at = new Date(scan.at.getTime() + MINUTE_MS);
+      const healthy = workerWithClock(pool, scan, { publisher: { publish: () => undefined } });
+      expect((await healthy.runIteration()).startReminder.sent).toBe(0);
+      expect(await selectLatenessDeliveries(pool, ctx.organizationId, job.id)).toHaveLength(1);
+      expect((await selectNotifications(pool, ctx.organizationId, job.id))
+        .filter((row) => row.kind === 'job.start_reminder')).toHaveLength(1);
+    });
+  });
+
+  it('Q6 defers a lateness alert whose under-lock re-check finds the window closed', async () => {
+    await withSchema('ovr6_lateness_q6', async (pool) => {
+      const baseline = await readDbBaseline(pool);
+      const day = nextOpenDateKey(baseline, TZ);
+      const ctx = await seedUsers(pool);
+      // Planned 20:00: the reminder is due at 20:15 and the boundary tick is
+      // exactly 21:00 (the end is exclusive).
+      const scheduledAt = atLocal(day, 20, 0);
+      const job = await insertJob(pool, {
+        organizationId: ctx.organizationId, type: 'GENERAL_TASK', status: 'ACCEPTED',
+        assignedTo: ctx.staffId, createdBy: ctx.managerId, title: 'Sınır işi',
+        scheduledAt, scheduledEndsAt: atLocal(day, 21, 0), baseNow: baseline,
+      });
+      const boundary = atLocal(day, 21, 0);
+      const scan = { at: boundary };
+      // Discovery saw an open window (SQL TRUE); the under-lock re-check runs
+      // with the boundary already passed. Nothing may be written.
+      const boundaryWorker = workerWithClock(pool, scan, {
+        notificationWindow: { isOpen: () => false, sql: () => 'TRUE' },
+      });
+      const deferred = await boundaryWorker.runIteration();
+      expect(deferred.startReminder.candidates).toBe(1);
+      expect(deferred.startReminder.deferredQuietHours).toBe(1);
+      expect(deferred.startReminder.sent).toBe(0);
+      expect(await selectLatenessDeliveries(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      expect(await selectNotifications(pool, ctx.organizationId, job.id)).toHaveLength(0);
+
+      // The next in-window tick sends it once, under the real policy.
+      scan.at = atLocal(addDays(day, 1), 8, 0);
+      const openWorker = workerWithClock(pool, scan, {
+        notificationWindow: DEFAULT_NOTIFICATION_WINDOW,
+      });
+      expect((await openWorker.runIteration()).startReminder.sent).toBe(1);
+      const deliveries = await selectLatenessDeliveries(pool, ctx.organizationId, job.id);
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]!.sent_at.getTime()).toBe(scan.at.getTime());
+    });
+  });
+
+  it('W2 rolls the delivery row back when the web push queue insert fails', async () => {
+    await withSchema('ovr6_w2_push', async (pool) => {
+      const baseline = await readDbBaseline(pool);
+      const day = nextOpenDateKey(baseline, TZ);
+      const ctx = await seedUsers(pool);
+      const scheduledAt = atLocal(day, 14, 0);
+      const job = await insertJob(pool, {
+        organizationId: ctx.organizationId, type: 'GENERAL_TASK', status: 'ACCEPTED',
+        assignedTo: ctx.staffId, createdBy: ctx.managerId, title: 'Push atomik işi',
+        scheduledAt, scheduledEndsAt: atLocal(day, 15, 0), baseNow: baseline,
+      });
+      const scan = { at: new Date(scheduledAt.getTime() + START_DELAY_MS) };
+      const subscriptionId = await createPushSubscription(
+        pool, ctx.organizationId, ctx.staffId, scan.at,
+      );
+      expect(subscriptionId).toBeTruthy();
+
+      await pool.query(`
+        CREATE OR REPLACE FUNCTION ovr6_fail_push_delivery() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'OVR6_INJECTED_PUSH_QUEUE_FAILURE';
+        END
+        $$`);
+      await pool.query(
+        `CREATE TRIGGER ovr6_fail_push BEFORE INSERT ON web_push_deliveries
+           FOR EACH ROW WHEN (NEW.organization_id = '${ctx.organizationId}'::uuid)
+           EXECUTE FUNCTION ovr6_fail_push_delivery()`,
+      );
+      const worker = workerWithClock(pool, scan, {
+        webPushEnabled: true,
+        publisher: { publish: () => undefined },
+      });
+      try {
+        const failed = await worker.runIteration();
+        expect(failed.startReminder.failed).toBe(1);
+        expect(failed.startReminder.sent).toBe(0);
+      } finally {
+        await pool.query('DROP TRIGGER IF EXISTS ovr6_fail_push ON web_push_deliveries');
+      }
+
+      // Everything the transaction wrote is gone, including the delivery row.
+      expect(await selectLatenessDeliveries(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      expect(await selectNotifications(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      expect((await selectActivities(pool, ctx.organizationId, job.id))
+        .filter((row) => row.event_type === 'JOB_START_REMINDER_SENT')).toHaveLength(0);
+      expect(await selectRealtimeEvents(pool, ctx.organizationId, job.id)).toHaveLength(0);
+
+      // The next tick retries and queues exactly one push delivery.
+      scan.at = new Date(scan.at.getTime() + MINUTE_MS);
+      expect((await worker.runIteration()).startReminder.sent).toBe(1);
+      expect(await selectLatenessDeliveries(pool, ctx.organizationId, job.id)).toHaveLength(1);
+      const notifications = await selectNotifications(pool, ctx.organizationId, job.id);
+      expect(notifications).toHaveLength(1);
+      const pushes = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM web_push_deliveries
+          WHERE organization_id = $1 AND subscription_id = $2`,
+        [ctx.organizationId, subscriptionId],
+      );
+      expect(pushes.rows[0]!.count).toBe(1);
     });
   });
 

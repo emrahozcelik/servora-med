@@ -571,14 +571,21 @@ export function buildOverdueReminderWorker(
     timing?: { staffReminderDelayMs?: number; escalationDelayMs?: number };
   },
 ) {
+  // Contract §3.7: the window policy is a constructor argument of the
+  // repository (it owns both the discovery SQL and the under-lock re-check).
+  // `createOverdueReminderWorker` has no such option; passing it there would be
+  // silently ignored and the real window would keep gating the fixture.
   return createOverdueReminderWorker(
-    new PostgresOverdueReminderWorkerRepository(new PostgresJobCardRepository(pool), false),
+    new PostgresOverdueReminderWorkerRepository(
+      new PostgresJobCardRepository(pool),
+      false,
+      options.notificationWindow,
+    ),
     {
       now: options.now,
       publisher: { publish: () => undefined },
       timing: options.timing ?? {},
       batchSize: options.batchSize ?? 50,
-      notificationWindow: options.notificationWindow,
     },
   );
 }
@@ -591,6 +598,7 @@ export function buildLatenessAlertWorker(
     batchSize?: number;
     timing?: { startReminderDelayMs: number };
     webPushEnabled?: boolean;
+    publisher?: RealtimeEventPublisher;
   },
 ) {
   return createLatenessAlertWorker({
@@ -600,6 +608,7 @@ export function buildLatenessAlertWorker(
     timing: options.timing,
     batchSize: options.batchSize,
     webPushEnabled: options.webPushEnabled,
+    publisher: options.publisher,
   });
 }
 

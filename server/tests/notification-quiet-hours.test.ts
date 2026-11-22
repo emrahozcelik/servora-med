@@ -65,12 +65,25 @@ describe('OVR-6 quiet hours predicate', () => {
   });
 
   it('Q1 keeps local boundaries across DST transitions', () => {
-    // Europe/Berlin observes DST; both transitions keep the wall-clock window.
-    for (const dateKey of ['2026-03-29', '2026-10-25']) {
-      expect(isOpen(dateKey, 7, 59, 59, 'Europe/Berlin')).toBe(false);
-      expect(isOpen(dateKey, 8, 0, 0, 'Europe/Berlin')).toBe(true);
-      expect(isOpen(dateKey, 20, 59, 59, 'Europe/Berlin')).toBe(true);
-      expect(isOpen(dateKey, 21, 0, 0, 'Europe/Berlin')).toBe(false);
+    // Europe/Berlin transits on Sunday 2026-03-29 (spring forward) and Sunday
+    // 2026-10-25 (fall back). Both transition days are Sundays and therefore
+    // closed all day, even inside the 08:00–21:00 wall clock.
+    for (const sunday of ['2026-03-29', '2026-10-25']) {
+      for (const [hour, minute, second] of [
+        [7, 59, 59], [8, 0, 0], [12, 0, 0], [20, 59, 59],
+      ] as const) {
+        const label = `${sunday} ${hour}:${minute}:${second}`;
+        expect(isOpen(sunday, hour, minute, second, 'Europe/Berlin'), label).toBe(false);
+      }
+    }
+    // The next open weekdays sit on different UTC offsets (CEST +02:00 after
+    // spring forward, CET +01:00 after fall back) but keep the same local
+    // window: the predicate reads the zone wall clock, not a fixed offset.
+    for (const monday of ['2026-03-30', '2026-10-26']) {
+      expect(isOpen(monday, 7, 59, 59, 'Europe/Berlin'), monday).toBe(false);
+      expect(isOpen(monday, 8, 0, 0, 'Europe/Berlin'), monday).toBe(true);
+      expect(isOpen(monday, 20, 59, 59, 'Europe/Berlin'), monday).toBe(true);
+      expect(isOpen(monday, 21, 0, 0, 'Europe/Berlin'), monday).toBe(false);
     }
     // The same UTC instant can be open in one organization and closed in
     // another: 2026-11-23T18:00Z is 19:00 Berlin and 21:00 Istanbul.
@@ -105,8 +118,8 @@ describe('OVR-6 quiet hours predicate', () => {
       local('2026-11-22', 8, 0),
       local('2026-11-23', 20, 59),
       local('2026-11-23', 21, 0),
-      local('2026-03-29', 8, 0, 0, 'Europe/Berlin'),
-      local('2026-10-25', 21, 0, 0, 'Europe/Berlin'),
+      local('2026-03-30', 8, 0, 0, 'Europe/Berlin'),
+      local('2026-10-26', 20, 59, 0, 'Europe/Berlin'),
     ];
     for (const instant of instants) {
       for (const timezone of [TZ, 'Europe/Berlin']) {

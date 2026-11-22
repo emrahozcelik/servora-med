@@ -138,6 +138,57 @@ describe('UnacceptedPastStartSection', () => {
     expect(html).toContain('Tekrar dene');
   });
 
+  it('renders the section at the documented 390x844 mobile viewport', async () => {
+    // jsdom has no layout engine, so real pixel geometry and horizontal
+    // overflow are owned by the Playwright geometry smokes; this pins the
+    // mobile render path: at 390x844 the section, every row field and the
+    // change-request badge still mount (nothing is width-gated away).
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true, configurable: true, value: 390,
+    });
+    Object.defineProperty(window, 'innerHeight', {
+      writable: true, configurable: true, value: 844,
+    });
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({
+        matches: query.includes('max-width'),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+    try {
+      const { section, html } = await render(manager, loaded([
+        item,
+        { ...item, jobCardId: 'job-2', title: 'İkinci iş', hasOpenChangeRequest: true },
+      ], 9));
+
+      expect(section?.getAttribute('data-unaccepted-past-start')).toBe('true');
+      expect(section?.querySelectorAll('.servora-operational-card')).toHaveLength(2);
+      expect(html).toContain('Kabul bekleyen ve planlanan zamanı geçen işler');
+      expect(html).toContain('Ayşe Personel');
+      expect(html).toContain('Planlanan başlangıç:');
+      expect(html).toContain('1 saat 30 dakika geçti');
+      expect(html).toContain('Değişiklik talebi açık');
+      expect(html).toContain('Toplam 9 iş');
+      expect(section?.querySelectorAll('.servora-operational-card__title a')[0]?.getAttribute('href'))
+        .toBe('/jobs/job-1');
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {
+        writable: true, configurable: true, value: 1024,
+      });
+      Object.defineProperty(window, 'innerHeight', {
+        writable: true, configurable: true, value: 768,
+      });
+      stubDesktopMatchMedia();
+    }
+  });
+
   it('reloads the list from the retry action', async () => {
     const load = vi.fn()
       .mockRejectedValueOnce(new Error('Sunucuya ulaşılamadı.'))

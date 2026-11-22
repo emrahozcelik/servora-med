@@ -65,23 +65,38 @@ function cases(): Case[] {
       timezone: 'Europe/Istanbul',
     },
     {
-      label: 'Berlin spring-forward 07:59 closed',
-      instant: local('2026-03-29', 7, 59, 59, 'Europe/Berlin'),
-      timezone: 'Europe/Berlin',
-    },
-    {
-      label: 'Berlin spring-forward 08:00 open',
+      label: 'Berlin spring-forward Sunday 08:00 closed (Sunday wins)',
       instant: local('2026-03-29', 8, 0, 0, 'Europe/Berlin'),
       timezone: 'Europe/Berlin',
     },
     {
-      label: 'Berlin fall-back 20:59 open',
-      instant: local('2026-10-25', 20, 59, 59, 'Europe/Berlin'),
+      label: 'Berlin spring-forward Sunday 20:59 closed (Sunday wins)',
+      instant: local('2026-03-29', 20, 59, 59, 'Europe/Berlin'),
       timezone: 'Europe/Berlin',
     },
     {
-      label: 'Berlin fall-back 21:00 closed',
-      instant: local('2026-10-25', 21, 0, 0, 'Europe/Berlin'),
+      label: 'Berlin Monday after spring-forward 07:59 closed',
+      instant: local('2026-03-30', 7, 59, 59, 'Europe/Berlin'),
+      timezone: 'Europe/Berlin',
+    },
+    {
+      label: 'Berlin Monday after spring-forward 08:00 open (CEST +02:00)',
+      instant: local('2026-03-30', 8, 0, 0, 'Europe/Berlin'),
+      timezone: 'Europe/Berlin',
+    },
+    {
+      label: 'Berlin Monday after fall-back 20:59 open (CET +01:00)',
+      instant: local('2026-10-26', 20, 59, 59, 'Europe/Berlin'),
+      timezone: 'Europe/Berlin',
+    },
+    {
+      label: 'Berlin Monday after fall-back 21:00 closed',
+      instant: local('2026-10-26', 21, 0, 0, 'Europe/Berlin'),
+      timezone: 'Europe/Berlin',
+    },
+    {
+      label: 'Berlin fall-back Sunday 12:00 closed (Sunday wins)',
+      instant: local('2026-10-25', 12, 0, 0, 'Europe/Berlin'),
       timezone: 'Europe/Berlin',
     },
     {

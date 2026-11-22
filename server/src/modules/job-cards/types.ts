@@ -236,8 +236,12 @@ export type UnacceptedPastStartItem = {
   title: string;
   type: JobCardType;
   jobPath: string;
-  /** `active: false` means the assignee was deactivated after planning. */
-  assignee: { id: string; name: string | null; active: boolean };
+  /**
+   * `active: false` means the assignee was deactivated after planning.
+   * `users.name` is NOT NULL and the list inner-joins `users`, so the name is
+   * always a string (matching the web parser).
+   */
+  assignee: { id: string; name: string; active: boolean };
   scheduledAt: string;
   elapsedSeconds: number;
   hasOpenChangeRequest: boolean;
