@@ -1443,6 +1443,12 @@ export class JobCardService {
         requestHash: jobCardInvalidationRequestHash(jobCardId, normalizedInput),
       },
       async (tx) => {
+        // Staff-user lock contract (assignee-lock.ts): the invalidation note's
+        // author snapshot is a users-row lock, so it is acquired BEFORE the
+        // JobCard row instead of underneath it.
+        if (note !== null) {
+          await this.lockUsersInOrder(tx, actor.organizationId, [actor.id]);
+        }
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         if (job.status === 'INVALIDATED') {
@@ -4342,16 +4348,22 @@ export class JobCardService {
         operationKey,
       },
       async (tx) => {
-        // Match weekly draft User -> JobCard order. SHARE also stays
-        // compatible with lifecycle/standalone note-author SHARE locks;
-        // never upgrade this target lock beneath the root lock.
+        // Staff-user lock contract (assignee-lock.ts): the reminder target
+        // depends on the job, so the JobCard is read through a NON-locking
+        // snapshot, both involved User rows are locked in one sorted call, and
+        // only then is the JobCard locked — the same users -> JobCard order the
+        // overdue/lateness workers and offboarding follow. A reassignment in
+        // between must never silently redirect the reminder, so the assignment
+        // is re-checked under the JobCard lock and a change is the same
+        // VERSION_CONFLICT every concurrent edit reports.
         const snapshot = await tx.getJob(actor.organizationId, jobCardId);
-        const weeklyTarget = snapshot?.type === 'WEEKLY_REPORT'
-          ? await tx.getNoteAuthorSnapshot(actor.organizationId, snapshot.assignedTo)
-          : null;
+        const lockedAssignees = await this.lockUsersInOrder(tx, actor.organizationId, [
+          actor.id,
+          snapshot?.assignedTo,
+        ]);
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        if (snapshot?.type === 'WEEKLY_REPORT' && snapshot.assignedTo !== job.assignedTo) {
+        if (!snapshot || snapshot.assignedTo !== job.assignedTo) {
           throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         }
         if (job.version !== input.expectedVersion) {
@@ -4379,9 +4391,7 @@ export class JobCardService {
           );
         }
         const canonical = open[0]!;
-        const target = snapshot?.type === 'WEEKLY_REPORT'
-          ? weeklyTarget
-          : await tx.getAssigneeForUpdate(actor.organizationId, job.assignedTo);
+        const target = lockedAssignees.get(job.assignedTo) ?? null;
         if (target === null || !target.isActive || target.role !== 'STAFF') {
           throw new AppError(
             'SUBMISSION_REMINDER_TARGET_UNPROVABLE',
@@ -5677,6 +5687,8 @@ export class JobCardService {
         let metadata: Record<string, unknown> | undefined;
 
         if (definition.noteContext && transitionNoteBody) {
+          // The author's users row was already locked users-first in the
+          // finalize `lockUsers` hook; this snapshot only re-reads it.
           const author = await tx.getNoteAuthorSnapshot(
             actor.organizationId,
             actor.id,
@@ -5954,12 +5966,18 @@ export class JobCardService {
           lockedAssignees = new Map<string, JobCardAssignee>();
           const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
             || definition.command === 'APPROVE';
+          // The transition note's author snapshot is a users-row lock taken
+          // further down, under the JobCard lock. Its id is known here, so it
+          // joins the same sorted users-first lock set as the scheduling ids.
+          const mayWriteTransitionNote = definition.noteContext !== null
+            && (definition.note ?? definition.revisionReason ?? definition.cancelReason) !== null;
+          const userIds: Array<string | null | undefined> = [
+            ...(mayWriteTransitionNote ? [actor.id] : []),
+          ];
           if (definition.cancelContinuity?.decision === 'RESCHEDULE') {
             const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
             if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-            lockedAssignees = await this.lockUsersInOrder(
-              tx, actor.organizationId, [jobSnapshot.assignedTo],
-            );
+            userIds.push(jobSnapshot.assignedTo);
           }
           if (mayScheduleFollowUp) {
             const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
@@ -5969,18 +5987,15 @@ export class JobCardService {
               || definition.followUpProposal?.assignedTo !== undefined
               || definition.approveFollowUp?.assignedTo !== undefined;
             if (needsSchedulingUserLocks) {
-              lockedAssignees = await this.lockUsersInOrder(
-                tx,
-                actor.organizationId,
-                [
-                  jobSnapshot.assignedTo,
-                  jobSnapshot.followUpProposedAssignee,
-                  definition.followUpProposal?.assignedTo,
-                  definition.approveFollowUp?.assignedTo,
-                ],
+              userIds.push(
+                jobSnapshot.assignedTo,
+                jobSnapshot.followUpProposedAssignee,
+                definition.followUpProposal?.assignedTo,
+                definition.approveFollowUp?.assignedTo,
               );
             }
           }
+          lockedAssignees = await this.lockUsersInOrder(tx, actor.organizationId, userIds);
         },
       },
     );

@@ -290,11 +290,12 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
   });
 
   /**
-   * Real SUBMIT vs REMOVE race. SUBMIT holds the JobCard row and then asks for
-   * FOR SHARE on its note author (the report owner); REMOVE asks for the owner
-   * first and then the JobCard. Coordinating the interleaving on the owner's
-   * user row is what would expose an incompatible lock mode as 40P01. Both
-   * sides run the real production commands.
+   * Real SUBMIT vs REMOVE race. Both sides follow the staff-user lock contract:
+   * SUBMIT takes the note author (the report owner) users row and then the
+   * JobCard; REMOVE asks for the owner first and then the JobCard. The owner's
+   * users row is the serialization point, and coordinating the interleaving
+   * there is what would expose an incompatible lock mode as 40P01. Both sides
+   * run the real production commands.
    */
   it('serializes a concurrent submit and removal without a deadlock', async () => {
     await withFixture(async ({ pool, service, admin, staff }) => {
@@ -306,33 +307,30 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
         { expectedVersion: 1, draft, answers: [] });
 
       const actual = PostgresJobCardTransaction.prototype.getNoteAuthorSnapshot;
-      const actualGetJobForUpdate = PostgresJobCardTransaction.prototype.getJobForUpdate;
       let gateSubmit!: () => void;
       const submitAtOwnerLock = new Promise<void>(resolve => { gateSubmit = resolve; });
       let release!: () => void;
       const gate = new Promise<void>(resolve => { release = resolve; });
       let paused = false;
+      // Identify the exact backend that runs REMOVE, so the wait can be scoped
+      // to that connection instead of any waiter in the whole instance.
+      let captureRemovalPid = false;
+      let removalPid: number | null = null;
       const spy = vi.spyOn(PostgresJobCardTransaction.prototype,'getNoteAuthorSnapshot')
         .mockImplementation(async function (organizationId, authorId) {
           // SUBMIT reaches this holding the JobCard lock; hold it there once.
           if (!paused && authorId === staff.id) {
             paused = true; gateSubmit(); await gate;
           }
-          return actual.call(this, organizationId, authorId);
-        });
-      // Identify the exact backend that runs REMOVE, so the wait can be scoped
-      // to that connection instead of any waiter in the whole instance.
-      let captureRemovalPid = false;
-      let removalPid: number | null = null;
-      const pidSpy = vi.spyOn(PostgresJobCardTransaction.prototype,'getJobForUpdate')
-        .mockImplementation(async function (organizationId: string, jobCardId: string) {
+          // REMOVE now blocks on the owner users row before it ever reaches the
+          // JobCard lock, so its backend is captured at the first locked read.
           if (captureRemovalPid && removalPid === null) {
             const self = await (this as unknown as {
               client: { query(sql: string): Promise<{ rows: Array<{ pid: number }> }> };
             }).client.query('SELECT pg_backend_pid() AS pid');
             removalPid = self.rows[0]!.pid;
           }
-          return actualGetJobForUpdate.call(this, organizationId, jobCardId);
+          return actual.call(this, organizationId, authorId);
         });
 
       const failure = (error: unknown) =>
@@ -347,16 +345,16 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
         removal = service.removeWeeklyReport(admin, created.jobCardId,
           { clientActionId: randomUUID(), expectedVersion: 2, expectedReportVersion: 1, reason: 'Yanlış hafta.' });
         // Deterministic: wait until the REMOVE backend itself is waiting on the
-        // JobCard transaction held by SUBMIT, then release SUBMIT. Scoping the
-        // probe to that backend pid keeps unrelated, parallel waiters from
-        // satisfying the condition.
+        // submit transaction (the owner users row / JobCard it holds), then
+        // release SUBMIT. Scoping the probe to that backend pid keeps unrelated,
+        // parallel waiters from satisfying the condition.
         const deadline = Date.now() + 8000;
         let observed = 0;
         for (;;) {
           if (removalPid !== null) {
             const waiting = await pool.query(
               `SELECT count(*)::int AS n FROM pg_locks
-                WHERE pid = $1 AND NOT granted AND locktype = 'transactionid'`,
+                WHERE pid = $1 AND NOT granted`,
               [removalPid],
             );
             observed = waiting.rows[0].n as number;
@@ -364,7 +362,7 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
           }
           if (Date.now() > deadline) {
             throw new Error(
-              `REMOVE backend ${removalPid ?? 'unknown'} never waited on the JobCard transaction (observed=${observed})`,
+              `REMOVE backend ${removalPid ?? 'unknown'} never waited on the submit transaction (observed=${observed})`,
             );
           }
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -407,7 +405,6 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       } finally {
         release();
         spy.mockRestore();
-        pidSpy.mockRestore();
         await Promise.allSettled([submit, removal].filter(Boolean) as Promise<unknown>[]);
       }
     });
