@@ -69,6 +69,14 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   // lifecycle transition either. It invalidates the job views and the
   // management open-late list through the same transport.
   JOB_OVERDUE_ENDED_BY_EXTENSION: 'job.updated',
+  // OVR-6: automatic lateness alerts are not lifecycle transitions. They
+  // invalidate the job views, the management overview and the notification
+  // list through the same transport; the notification kinds carry the alert
+  // semantics. A missing mapping would silently drop the notification after
+  // the delivery row was anchored, so every event maps.
+  JOB_START_REMINDER_SENT: 'job.updated',
+  JOB_APPROVAL_WAIT_ALERT_SENT: 'job.updated',
+  JOB_PENDING_ACCEPTANCE_ALERT_SENT: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([

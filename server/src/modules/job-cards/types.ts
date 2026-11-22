@@ -227,6 +227,22 @@ export type NeedsActionAssignmentOfferItem = {
   jobPath: string;
 };
 
+/**
+ * OVR-6 §6.2: one management unaccepted past-start row. A job that JOB-010
+ * does not own, listed at read time with its elapsed planned-start age.
+ */
+export type UnacceptedPastStartItem = {
+  jobCardId: string;
+  title: string;
+  type: JobCardType;
+  jobPath: string;
+  /** `active: false` means the assignee was deactivated after planning. */
+  assignee: { id: string; name: string | null; active: boolean };
+  scheduledAt: string;
+  elapsedSeconds: number;
+  hasOpenChangeRequest: boolean;
+};
+
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 
@@ -253,6 +269,10 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_ASSIGNMENT_OFFER_EXPIRED',
   'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
   'JOB_OVERDUE_ENDED_BY_EXTENSION',
+  // OVR-6: quiet-hours-gated automatic lateness alerts.
+  'JOB_START_REMINDER_SENT',
+  'JOB_APPROVAL_WAIT_ALERT_SENT',
+  'JOB_PENDING_ACCEPTANCE_ALERT_SENT',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 

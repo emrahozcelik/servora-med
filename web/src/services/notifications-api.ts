@@ -30,6 +30,9 @@ export const NOTIFICATION_KINDS = [
   'calendar.cancelled',
   'calendar.reminder',
   'message.received',
+  'job.start_reminder',
+  'job.approval_wait_alert',
+  'job.pending_acceptance_alert',
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];

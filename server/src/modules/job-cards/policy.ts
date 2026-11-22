@@ -299,6 +299,15 @@ export function assertCanListAssignmentOffersNeedingAction(actor: JobCardActor) 
 }
 
 /**
+ * OVR-6 §6.2: the unaccepted past-start list is management-only for the same
+ * reason as the needs-action list. STAFF is rejected with 403 before any
+ * lookup, so the route never leaks whether the job exists.
+ */
+export function assertCanListUnacceptedPastStart(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+/**
  * OVR-4: the open-submission-late operational list is management-only for
  * the same reason as the incident history: it exposes cross-staff
  * accountability. STAFF visibility stays limited to its own jobs through

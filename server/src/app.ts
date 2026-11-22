@@ -75,6 +75,7 @@ import type { CalendarReminderWorker } from './modules/calendar/reminder-worker.
 import type { OverdueBreachScanner } from './modules/job-cards/overdue-breach-scanner.js';
 import type { OverdueReminderWorker } from './modules/job-cards/overdue-reminder-worker.js';
 import type { AssignmentOfferExpiryWorker } from './modules/job-cards/assignment-offer-expiry-worker.js';
+import type { LatenessAlertWorker } from './modules/job-cards/lateness-alert-worker.js';
 import { MessagingService } from './modules/messaging/service.js';
 import { PostgresMessagingRepository } from './modules/messaging/repository.js';
 import { messagingRoutes } from './modules/messaging/routes.js';
@@ -173,6 +174,12 @@ export type AppDependencies = {
    * never starts a background assignment writer implicitly.
    */
   assignmentOfferExpiryWorker?: AssignmentOfferExpiryWorker;
+  /**
+   * OVR-6 lateness alert worker. Optional: present only when
+   * `LATENESS_ALERTS_ENABLED=true` was configured, so the process never starts
+   * a background notification writer implicitly.
+   */
+  latenessAlertWorker?: LatenessAlertWorker;
   staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
   backupRepository?: BackupRepository;
   demoDatasetRepository?: DemoDatasetRepository;
@@ -390,6 +397,16 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         });
         app.addHook('onClose', async () => {
           await dependencies.overdueReminderWorker!.stop();
+        });
+      }
+      // OVR-6: the lateness alert worker follows the same discipline; it is
+      // constructed only when LATENESS_ALERTS_ENABLED is true.
+      if (dependencies.latenessAlertWorker) {
+        app.addHook('onReady', () => {
+          dependencies.latenessAlertWorker!.start();
+        });
+        app.addHook('onClose', async () => {
+          await dependencies.latenessAlertWorker!.stop();
         });
       }
     }

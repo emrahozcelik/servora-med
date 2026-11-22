@@ -51,6 +51,11 @@ import {
   latenessSecondsSql,
   overdueSinceSql,
 } from './overdue-contract.js';
+import type { LatenessAlertKind } from './lateness-alert-policy.js';
+import {
+  DEFAULT_NOTIFICATION_WINDOW,
+  type NotificationWindowPolicy,
+} from '../notifications/quiet-hours.js';
 import type { Pool, PoolClient } from 'pg';
 import {
   assertCriticalActionRequestHash,
@@ -587,6 +592,19 @@ type OverdueIncidentRow = {
   end_note: string | null; ended_by_schedule_revision_no: number | null;
 };
 
+/**
+ * The joined incident projection, shared by the per-job readers so every
+ * caller maps the same columns through {@link mapPersistedOverdueIncident}.
+ * The caller supplies the joins for the three actor name lookups.
+ */
+const OVERDUE_INCIDENT_COLUMNS = `i.id, i.organization_id, i.job_card_id, i.delay_type,
+  i.episode_no, i.schedule_revision_no, i.deadline_at, i.breached_at,
+  i.accountable_user_id, au.name AS accountable_user_name,
+  i.accountable_role, i.accountable_source, i.source, i.recorded_at,
+  i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name,
+  i.ended_at, i.ended_by_user_id, eu.name AS ended_by_user_name,
+  i.end_reason, i.end_note, i.ended_by_schedule_revision_no`;
+
 function mapPersistedOverdueIncident(row: OverdueIncidentRow): PersistedOverdueIncident {
   return {
     id: row.id,
@@ -789,6 +807,72 @@ export type NeedsActionAssignmentOfferRow = {
 
 /** JOB-010 release 2b: durable once-per-offer automatic delivery identity. */
 export type AssignmentOfferNotificationKind = 'ACCEPTANCE_REMINDER' | 'ACCEPTANCE_EXPIRED';
+
+/**
+ * OVR-6 §6.1: one management "unaccepted past-start" row. The assignee's
+ * activity is read at the query instant and never rewrites history.
+ */
+export type UnacceptedPastStartRow = {
+  organizationId: string;
+  jobCardId: string;
+  jobTitle: string;
+  jobType: JobCardType;
+  scheduledAt: Date;
+  assigneeId: string;
+  assigneeName: string | null;
+  assigneeActive: boolean;
+  hasOpenChangeRequest: boolean;
+};
+
+/**
+ * OVR-6 §7: one discipline-neutral snapshot of the job facts every lateness
+ * alert re-checks under the JobCard lock. `startedAt` is not part of the
+ * public `JobCard` shape, so the start-reminder condition reads it here.
+ */
+export type LatenessAlertJobSnapshot = {
+  status: JobCardStatus;
+  type: JobCardType;
+  assignedTo: string;
+  scheduledAt: Date | null;
+  startedAt: Date | null;
+};
+
+/** OVR-6 §7.7: durable delivery identity of one automatic lateness alert. */
+export type InsertLatenessAlertDeliveryInput = {
+  organizationId: string;
+  jobCardId: string;
+  kind: LatenessAlertKind;
+  /** Set for START_REMINDER / PENDING_ACCEPTANCE_ALERT, NULL otherwise. */
+  plannedStartAt: Date | null;
+  /** Set for START_REMINDER, NULL otherwise. */
+  recipientUserId: string | null;
+  /** Set for APPROVAL_WAIT_ALERT, NULL otherwise. */
+  incidentId: string | null;
+  sentAt: Date;
+};
+
+/** OVR-6: bounded start-reminder candidate (due instant = planned start). */
+export type StartReminderCandidate = {
+  organizationId: string;
+  jobCardId: string;
+  plannedStartAt: Date;
+  assignedTo: string;
+};
+
+/** OVR-6: bounded approval-wait alert candidate (due instant = breach). */
+export type ApprovalWaitAlertCandidate = {
+  organizationId: string;
+  jobCardId: string;
+  incidentId: string;
+  breachedAt: Date;
+};
+
+/** OVR-6: bounded unaccepted past-start candidate (due instant = planned start). */
+export type PendingAcceptanceAlertCandidate = {
+  organizationId: string;
+  jobCardId: string;
+  plannedStartAt: Date;
+};
 
 /**
  * Read-only snapshot of the direct follow-up source card plus the minimal
@@ -1201,6 +1285,45 @@ export interface JobCardTransaction extends SubmissionReader {
     input: InsertOverdueNotificationDeliveryInput,
   ): Promise<{ id: string; created: boolean }>;
   /**
+   * OVR-6 §7.7: anchor one automatic lateness alert. The
+   * `job_card_lateness_alert_deliveries_identity_key` identity decides the
+   * race, so only the insert winner proceeds to activity / realtime /
+   * notification side effects. Callers hold the JobCard row lock.
+   */
+  insertLatenessAlertDelivery(
+    input: InsertLatenessAlertDeliveryInput,
+  ): Promise<{ id: string; created: boolean }>;
+  /**
+   * OVR-6 §4.1/§6.1: the job facts the alert conditions re-check, read after
+   * the snapshot read and re-read under the JobCard row lock. `startedAt` is
+   * deliberately not part of the public `JobCard` projection.
+   */
+  getLatenessAlertJobSnapshot(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<LatenessAlertJobSnapshot | null>;
+  /**
+   * OVR-6 §5.1: the open `APPROVAL_WAIT` incident of one job (neither
+   * recovered nor ended), earliest breach first, or null. Callers hold the
+   * JobCard row lock.
+   */
+  getOpenApprovalWaitIncident(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<PersistedOverdueIncident | null>;
+  /**
+   * OVR-6 §6.1: does this job currently satisfy the unaccepted past-start
+   * list predicate? The list endpoint and the worker's under-lock re-check
+   * share one SQL renderer, so what management sees and what the worker
+   * alerts on can never drift.
+   */
+  matchesUnacceptedPastStart(input: {
+    organizationId: string;
+    jobCardId: string;
+    requestTime: Date;
+  }): Promise<boolean>;
+
+  /**
    * OVR-4: one automatic delivery of a kind anchored to a canonical incident,
    * or null. OVR-5 keys the identity on the incident, not the episode.
    */
@@ -1500,7 +1623,49 @@ export interface JobCardRepository extends SubmissionReader {
     scanTime: Date;
     timing: ResolvedOverdueReminderTiming;
     limit: number;
+    /**
+     * OVR-6 §3.6 fairness: organizations outside their sending window are not
+     * candidates and are not counted anywhere. The rendered predicate resolves
+     * the instant and `organizations.timezone` itself.
+     */
+    notificationWindow?: NotificationWindowPolicy;
   }): Promise<readonly OverdueScanCandidate[]>;
+  /**
+   * OVR-6 §4/§7.2 bounded start-reminder discovery: an ACCEPTED, unstarted job
+   * whose planned start plus the reminder delay has passed, with a provable
+   * active STAFF assignee, no OPEN change request and no delivery of this
+   * identity yet. Ordered by planned start; quiet organizations are excluded
+   * from SQL and never consume a batch slot.
+   */
+  listDueStartReminderCandidates(input: {
+    scanTime: Date;
+    cutoff: Date;
+    limit: number;
+    notificationWindow: NotificationWindowPolicy;
+  }): Promise<readonly StartReminderCandidate[]>;
+  /**
+   * OVR-6 §5/§7.2 bounded approval-wait alert discovery: an open APPROVAL_WAIT
+   * incident on a job still WAITING_APPROVAL, without an OPEN change request
+   * and without a delivery for this incident. Ordered by breach; quiet
+   * organizations are excluded from SQL.
+   */
+  listOpenApprovalWaitAlertCandidates(input: {
+    scanTime: Date;
+    limit: number;
+    notificationWindow: NotificationWindowPolicy;
+  }): Promise<readonly ApprovalWaitAlertCandidate[]>;
+  /**
+   * OVR-6 §6/§7.2 bounded unaccepted past-start alert discovery: the same
+   * predicate as the management list, plus "no OPEN change request" and "no
+   * delivery for this planned start". Ordered by planned start; quiet
+   * organizations are excluded from SQL.
+   */
+  listUnacceptedPastStartAlertCandidates(input: {
+    scanTime: Date;
+    limit: number;
+    notificationWindow: NotificationWindowPolicy;
+  }): Promise<readonly PendingAcceptanceAlertCandidate[]>;
+
   /**
    * OVR-4 manager operational list: one row per currently open
    * LATE_SUBMISSION episode, longest-waiting first. Bounded; tenant-scoped.
@@ -1548,6 +1713,16 @@ export interface JobCardRepository extends SubmissionReader {
     limit: number;
     offset: number;
   }): Promise<{ items: readonly NeedsActionAssignmentOfferRow[]; total: number }>;
+  /**
+   * OVR-6 §6.1 management list: `NEW` past-start jobs JOB-010 does not own,
+   * oldest planned start first. Read-time clock; bounded; tenant-scoped.
+   */
+  listUnacceptedPastStart(input: {
+    organizationId: string;
+    requestTime: Date;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly UnacceptedPastStartRow[]; total: number }>;
   listNotes(
     organizationId: string,
     jobCardId: string,
@@ -4111,13 +4286,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       ended_by_user_name: string | null; end_reason: OverdueIncidentEndReason | null;
       end_note: string | null; ended_by_schedule_revision_no: number | null;
     }>(
-      `SELECT i.id, i.organization_id, i.job_card_id, i.delay_type, i.episode_no,
-              i.schedule_revision_no, i.deadline_at, i.breached_at,
-              i.accountable_user_id, au.name AS accountable_user_name,
-              i.accountable_role, i.accountable_source, i.source, i.recorded_at,
-              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name,
-              i.ended_at, i.ended_by_user_id, eu.name AS ended_by_user_name,
-              i.end_reason, i.end_note, i.ended_by_schedule_revision_no
+      `SELECT ${OVERDUE_INCIDENT_COLUMNS}
          FROM job_card_overdue_incidents i
          LEFT JOIN users au
            ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
@@ -4159,6 +4328,119 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       [input.organizationId, input.incidentId, input.kind],
     );
     return { id: existing.rows[0]!.id, created: false };
+  }
+
+  /**
+   * OVR-6 §7.6/§7.7: anchor one lateness alert. The row is written FIRST in
+   * the candidate's transaction, so only the identity winner proceeds to
+   * activity / realtime / notifications; a loser reports created=false and
+   * writes nothing. The identity contains nullable columns, so the loser's
+   * follow-up read compares with `IS NOT DISTINCT FROM` (the constraint is
+   * `NULLS NOT DISTINCT`).
+   */
+  async insertLatenessAlertDelivery(
+    input: InsertLatenessAlertDeliveryInput,
+  ): Promise<{ id: string; created: boolean }> {
+    const inserted = await this.client.query<{ id: string }>(
+      `INSERT INTO job_card_lateness_alert_deliveries
+         (organization_id, job_card_id, kind, planned_start_at,
+          recipient_user_id, incident_id, sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT ON CONSTRAINT job_card_lateness_alert_deliveries_identity_key
+       DO NOTHING
+       RETURNING id`,
+      [input.organizationId, input.jobCardId, input.kind, input.plannedStartAt,
+        input.recipientUserId, input.incidentId, input.sentAt],
+    );
+    if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
+    const existing = await this.client.query<{ id: string }>(
+      `SELECT id FROM job_card_lateness_alert_deliveries
+        WHERE organization_id = $1 AND job_card_id = $2 AND kind = $3
+          AND planned_start_at IS NOT DISTINCT FROM $4::timestamptz
+          AND recipient_user_id IS NOT DISTINCT FROM $5::uuid
+          AND incident_id IS NOT DISTINCT FROM $6::uuid`,
+      [input.organizationId, input.jobCardId, input.kind, input.plannedStartAt,
+        input.recipientUserId, input.incidentId],
+    );
+    // The identity constraint guarantees the row exists; a missing one is a
+    // programming error, never a silent double send.
+    return { id: existing.rows[0]!.id, created: false };
+  }
+
+  async getLatenessAlertJobSnapshot(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<LatenessAlertJobSnapshot | null> {
+    const result = await this.client.query<{
+      status: JobCardStatus; type: JobCardType; assigned_to: string;
+      scheduled_at: Date | null; started_at: Date | null;
+    }>(
+      `SELECT status, type, assigned_to, scheduled_at, started_at
+         FROM job_cards
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, jobCardId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      status: row.status,
+      type: row.type,
+      assignedTo: row.assigned_to,
+      scheduledAt: row.scheduled_at,
+      startedAt: row.started_at,
+    };
+  }
+
+  async getOpenApprovalWaitIncident(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<PersistedOverdueIncident | null> {
+    // Callers hold the JobCard row lock. An ended obligation (OVR-5) and a
+    // recovered one are both closed; only a truly open APPROVAL_WAIT row can
+    // still owe the management alert.
+    const result = await this.client.query<OverdueIncidentRow>(
+      `SELECT ${OVERDUE_INCIDENT_COLUMNS}
+         FROM job_card_overdue_incidents i
+         LEFT JOIN users au
+           ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
+         LEFT JOIN users ru
+           ON ru.organization_id = i.organization_id AND ru.id = i.recovery_actor_user_id
+         LEFT JOIN users eu
+           ON eu.organization_id = i.organization_id AND eu.id = i.ended_by_user_id
+        WHERE i.organization_id = $1 AND i.job_card_id = $2
+          AND i.delay_type = 'APPROVAL_WAIT'
+          AND i.recovered_at IS NULL AND i.ended_at IS NULL
+        ORDER BY i.breached_at ASC, i.id ASC
+        LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapPersistedOverdueIncident(result.rows[0]) : null;
+  }
+
+  async matchesUnacceptedPastStart(input: {
+    organizationId: string;
+    jobCardId: string;
+    requestTime: Date;
+  }): Promise<boolean> {
+    // The SAME shared predicate the management list endpoint uses, evaluated
+    // against the caller's read-time clock while the JobCard row is locked.
+    const predicate = unacceptedPastStartSql({
+      organizationId: '$1',
+      requestTime: '$2::timestamptz',
+      job: 'j',
+      latest: 'latest',
+    });
+    const result = await this.client.query<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM job_cards j
+           LEFT JOIN ${latestAssignmentOfferLateralSql({ job: 'j', latest: 'latest' })} ON TRUE
+          WHERE j.organization_id = $1 AND j.id = $3
+            AND ${predicate}
+       ) AS present`,
+      [input.organizationId, input.requestTime, input.jobCardId],
+    );
+    return result.rows[0]?.present === true;
   }
 
   async getOverdueNotificationDelivery(input: {
@@ -4659,6 +4941,96 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     }
     return { submission, reportVersion };
   }
+}
+
+/**
+ * The tenant term shared by the two ownership predicates. A worker discovery
+ * query scans every organization, so it omits the term instead of comparing the
+ * row's organization with itself.
+ */
+function organizationTermSql(refs: { organizationId?: string; job: string }): string {
+  return refs.organizationId === undefined
+    ? ''
+    : `${refs.job}.organization_id = ${refs.organizationId}\n          AND `;
+}
+
+/**
+ * JOB-010 release 2b / OVR-6 §6.1: the single owner of "which list owns a
+ * `NEW` job", shared by the needs-action list and the unaccepted past-start
+ * list so a job can never be on both (or silently on neither).
+ *
+ * `latest` must be the {@link latestAssignmentOfferLateralSql} join of the
+ * job's newest offer (`ORDER BY opened_at DESC, id DESC`). With a LEFT join and
+ * no offer every comparison below is NULL, so callers that must treat "no
+ * offer" as a positive fact wrap the result in `COALESCE(..., FALSE)`.
+ *
+ * The matrix is evaluated by offer state only and is independent of
+ * `JOB_ASSIGNMENT_WINDOW_ENABLED`: offers written while the window was enabled
+ * keep their owner after a rollback.
+ */
+export function assignmentOfferNeedsActionSql(refs: {
+  /** Omit for a cross-organization scan (the worker's discovery query). */
+  organizationId?: string;
+  requestTime: string;
+  job: string;
+  latest: string;
+}): string {
+  return `${organizationTermSql(refs)}${refs.job}.status = 'NEW'
+          AND (
+            ${refs.latest}.state IN ('DECLINED', 'RELEASED', 'EXPIRED')
+            OR (${refs.latest}.state = 'WITHDRAWN' AND ${refs.latest}.close_reason = 'PLANNED_WINDOW_PASSED')
+            OR (${refs.latest}.state = 'OPEN' AND (
+              ${refs.latest}.urgent_reason IS NOT NULL
+              OR ${refs.latest}.acceptance_due_at <= ${refs.requestTime}
+            ))
+          )`;
+}
+
+/**
+ * The newest assignment offer of one job, as a `LATERAL` join source. Ordering
+ * lives here so both lists (and the read projections) can never disagree about
+ * which offer is "latest".
+ */
+export function latestAssignmentOfferLateralSql(refs: {
+  job: string;
+  latest: string;
+  /** Columns the caller selects; `id` must be included for identity checks. */
+  columns?: string;
+}): string {
+  return `LATERAL (
+    SELECT ${refs.columns ?? 'o.id, o.state, o.close_reason, o.close_text, o.urgent_reason, o.acceptance_due_at'}
+      FROM job_card_assignment_offers o
+     WHERE o.organization_id = ${refs.job}.organization_id
+       AND o.job_card_id = ${refs.job}.id
+     ORDER BY o.opened_at DESC, o.id DESC
+     LIMIT 1
+  ) ${refs.latest}`;
+}
+
+/**
+ * OVR-6 §6.1: the unaccepted past-start list predicate. Composition, not a
+ * second copy of the ownership matrix: a job is here exactly when it is a
+ * planned field-work `NEW` job past its planned start that the needs-action
+ * predicate does *not* claim and whose offer is not still answerable.
+ */
+export function unacceptedPastStartSql(refs: {
+  /** Omit for a cross-organization scan (the worker's discovery query). */
+  organizationId?: string;
+  requestTime: string;
+  job: string;
+  latest: string;
+}): string {
+  return `${organizationTermSql(refs)}${refs.job}.status = 'NEW'
+          AND ${refs.job}.assigned_to IS NOT NULL
+          AND ${refs.job}.scheduled_at IS NOT NULL
+          AND ${refs.job}.scheduled_at <= ${refs.requestTime}
+          -- Policy: a weekly report or a sale is not planned field work.
+          AND ${refs.job}.type NOT IN ('WEEKLY_REPORT', 'SALE')
+          -- A still answerable OPEN offer belongs to the offer flow: no list.
+          AND ${refs.latest}.state IS DISTINCT FROM 'OPEN'
+          -- The shared ownership matrix. A job without any offer makes the
+          -- matrix NULL, and "no offer" is a positive fact for this list.
+          AND NOT COALESCE(${assignmentOfferNeedsActionSql(refs)}, FALSE)`;
 }
 
 export class PostgresJobCardRepository
@@ -5817,11 +6189,19 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     scanTime: Date;
     timing: ResolvedOverdueReminderTiming;
     limit: number;
+    notificationWindow?: NotificationWindowPolicy;
   }): Promise<readonly OverdueScanCandidate[]> {
     // Cutoffs are derived from the resolved domain timing by the policy-owned
     // helper. SQL receives instants, not another copy of the delays.
     const staffDueAt = overdueReminderDueCutoff(input.scanTime, input.timing.staffReminderDelayMs);
     const escalationDueAt = overdueReminderDueCutoff(input.scanTime, input.timing.escalationDelayMs);
+    // OVR-6 §3.6: the sending window is a discovery prefilter. A quiet
+    // organization contributes no candidates at all, so it can never occupy a
+    // bounded batch slot; the worker re-checks the window under the lock.
+    const window = (input.notificationWindow ?? DEFAULT_NOTIFICATION_WINDOW).sql({
+      instant: '$2::timestamptz',
+      timezone: 'org.timezone',
+    });
     const ordered = await this.pool.query<{ organization_id: string; job_card_id: string }>(
       `WITH actionable_episodes AS (
          SELECT i.organization_id, i.job_card_id, i.breached_at
@@ -5829,10 +6209,19 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
            JOIN job_cards j
              ON j.organization_id = i.organization_id
             AND j.id = i.job_card_id
+           JOIN organizations org
+             ON org.id = j.organization_id
           WHERE i.delay_type = 'LATE_SUBMISSION'
             AND i.recovered_at IS NULL
             AND i.ended_at IS NULL
             AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
+            -- OVR-6 §3: a due notification waits while the organization is
+            -- outside its sending window. Not a candidate, not counted.
+            -- The explicit $2 bound also keeps the scan instant a typed,
+            -- always-referenced parameter when a test injects the always-open
+            -- policy.
+            AND i.breached_at <= $2::timestamptz
+            AND ${window}
             -- JOB-010 release 2a (D1 §5): while a change/termination request
             -- is OPEN, automatic OVR-4 reminders stop for that job. The
             -- incident is never closed or rewritten; only the automatic
@@ -5846,7 +6235,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
             )
             AND (
               (
-                i.breached_at <= $2
+                i.breached_at <= $3
                 AND EXISTS (
                   SELECT 1
                     FROM users assignee
@@ -5875,7 +6264,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
                      AND staff_incident.ended_at IS NULL
                 )
               ) OR (
-                i.breached_at <= $3
+                i.breached_at <= $4
                 AND NOT EXISTS (
                   SELECT 1
                     FROM job_card_overdue_notification_deliveries escalation_delivery
@@ -5898,11 +6287,188 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         GROUP BY organization_id, job_card_id
         ORDER BY MIN(breached_at) ASC, organization_id ASC, job_card_id ASC
         LIMIT $1`,
-      [input.limit, staffDueAt, escalationDueAt],
+      [input.limit, input.scanTime, staffDueAt, escalationDueAt],
     );
     return ordered.rows.map((row) => ({
       organizationId: row.organization_id,
       jobCardId: row.job_card_id,
+    }));
+  }
+
+  /**
+   * OVR-6 §4/§7.2 start-reminder discovery. Prefilter only: the worker
+   * re-checks status, planned start, `started_at`, the assignee's activity and
+   * the OPEN change request under the users -> JobCard lock order before
+   * writing anything. Quiet organizations are excluded here and never counted.
+   */
+  async listDueStartReminderCandidates(input: {
+    scanTime: Date;
+    cutoff: Date;
+    limit: number;
+    notificationWindow: NotificationWindowPolicy;
+  }): Promise<readonly StartReminderCandidate[]> {
+    const window = input.notificationWindow.sql({
+      instant: '$2::timestamptz',
+      timezone: 'org.timezone',
+    });
+    const result = await this.pool.query<{
+      organization_id: string; job_card_id: string; scheduled_at: Date; assigned_to: string;
+    }>(
+      `SELECT j.organization_id, j.id AS job_card_id, j.scheduled_at, j.assigned_to
+         FROM job_cards j
+         JOIN organizations org ON org.id = j.organization_id
+        WHERE j.status = 'ACCEPTED'
+          AND j.scheduled_at IS NOT NULL
+          AND j.started_at IS NULL
+          AND j.scheduled_at <= $3
+          -- The explicit $2 bound keeps the scan instant a typed,
+          -- always-referenced parameter under the always-open test policy.
+          AND j.scheduled_at <= $2::timestamptz
+          AND ${window}
+          AND EXISTS (
+            SELECT 1
+              FROM users assignee
+             WHERE assignee.organization_id = j.organization_id
+               AND assignee.id = j.assigned_to
+               AND assignee.is_active
+               AND assignee.role = 'STAFF'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM job_card_change_requests change_request
+             WHERE change_request.organization_id = j.organization_id
+               AND change_request.job_card_id = j.id
+               AND change_request.state = 'OPEN'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM job_card_lateness_alert_deliveries delivery
+             WHERE delivery.organization_id = j.organization_id
+               AND delivery.job_card_id = j.id
+               AND delivery.kind = 'START_REMINDER'
+               AND delivery.planned_start_at = j.scheduled_at
+               AND delivery.recipient_user_id = j.assigned_to
+          )
+        ORDER BY j.scheduled_at ASC, j.organization_id ASC, j.id ASC
+        LIMIT $1`,
+      [input.limit, input.scanTime, input.cutoff],
+    );
+    return result.rows.map((row) => ({
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+      plannedStartAt: row.scheduled_at,
+      assignedTo: row.assigned_to,
+    }));
+  }
+
+  /**
+   * OVR-6 §5/§7.2 approval-wait alert discovery. Prefilter only: the worker
+   * re-reads the incident and the job state under the lock.
+   */
+  async listOpenApprovalWaitAlertCandidates(input: {
+    scanTime: Date;
+    limit: number;
+    notificationWindow: NotificationWindowPolicy;
+  }): Promise<readonly ApprovalWaitAlertCandidate[]> {
+    const window = input.notificationWindow.sql({
+      instant: '$2::timestamptz',
+      timezone: 'org.timezone',
+    });
+    const result = await this.pool.query<{
+      organization_id: string; job_card_id: string; incident_id: string; breached_at: Date;
+    }>(
+      `SELECT i.organization_id, i.job_card_id, i.id AS incident_id, i.breached_at
+         FROM job_card_overdue_incidents i
+         JOIN job_cards j
+           ON j.organization_id = i.organization_id
+          AND j.id = i.job_card_id
+         JOIN organizations org ON org.id = j.organization_id
+        WHERE i.delay_type = 'APPROVAL_WAIT'
+          AND i.recovered_at IS NULL
+          AND i.ended_at IS NULL
+          AND j.status = 'WAITING_APPROVAL'
+          -- Typed, always-referenced scan instant (see the start reminder).
+          AND i.breached_at <= $2::timestamptz
+          AND ${window}
+          AND NOT EXISTS (
+            SELECT 1
+              FROM job_card_change_requests change_request
+             WHERE change_request.organization_id = j.organization_id
+               AND change_request.job_card_id = j.id
+               AND change_request.state = 'OPEN'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM job_card_lateness_alert_deliveries delivery
+             WHERE delivery.organization_id = i.organization_id
+               AND delivery.job_card_id = i.job_card_id
+               AND delivery.kind = 'APPROVAL_WAIT_ALERT'
+               AND delivery.incident_id = i.id
+          )
+        ORDER BY i.breached_at ASC, i.organization_id ASC, i.job_card_id ASC, i.id ASC
+        LIMIT $1`,
+      [input.limit, input.scanTime],
+    );
+    return result.rows.map((row) => ({
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+      incidentId: row.incident_id,
+      breachedAt: row.breached_at,
+    }));
+  }
+
+  /**
+   * OVR-6 §6/§7.2 unaccepted past-start alert discovery. The list predicate is
+   * the shared renderer, so the worker alerts on exactly what management sees.
+   */
+  async listUnacceptedPastStartAlertCandidates(input: {
+    scanTime: Date;
+    limit: number;
+    notificationWindow: NotificationWindowPolicy;
+  }): Promise<readonly PendingAcceptanceAlertCandidate[]> {
+    const window = input.notificationWindow.sql({
+      instant: '$2::timestamptz',
+      timezone: 'org.timezone',
+    });
+    // Cross-organization discovery: no tenant term, exactly like the OVR-4
+    // discovery query. The read endpoint adds it ($1).
+    const predicate = unacceptedPastStartSql({
+      requestTime: '$2::timestamptz',
+      job: 'j',
+      latest: 'latest',
+    });
+    const result = await this.pool.query<{
+      organization_id: string; job_card_id: string; scheduled_at: Date;
+    }>(
+      `SELECT j.organization_id, j.id AS job_card_id, j.scheduled_at
+         FROM job_cards j
+         LEFT JOIN ${latestAssignmentOfferLateralSql({ job: 'j', latest: 'latest' })} ON TRUE
+         JOIN organizations org ON org.id = j.organization_id
+        WHERE ${predicate}
+          AND ${window}
+          AND NOT EXISTS (
+            SELECT 1
+              FROM job_card_change_requests change_request
+             WHERE change_request.organization_id = j.organization_id
+               AND change_request.job_card_id = j.id
+               AND change_request.state = 'OPEN'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM job_card_lateness_alert_deliveries delivery
+             WHERE delivery.organization_id = j.organization_id
+               AND delivery.job_card_id = j.id
+               AND delivery.kind = 'PENDING_ACCEPTANCE_ALERT'
+               AND delivery.planned_start_at = j.scheduled_at
+          )
+        ORDER BY j.scheduled_at ASC, j.organization_id ASC, j.id ASC
+        LIMIT $1`,
+      [input.limit, input.scanTime],
+    );
+    return result.rows.map((row) => ({
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+      plannedStartAt: row.scheduled_at,
     }));
   }
 
@@ -6114,26 +6680,17 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     limit: number;
     offset: number;
   }): Promise<{ items: readonly NeedsActionAssignmentOfferRow[]; total: number }> {
-    const predicate = `j.organization_id = $1
-          AND j.status = 'NEW'
-          AND (
-            latest.state IN ('DECLINED', 'RELEASED', 'EXPIRED')
-            OR (latest.state = 'WITHDRAWN' AND latest.close_reason = 'PLANNED_WINDOW_PASSED')
-            OR (latest.state = 'OPEN' AND (
-              latest.urgent_reason IS NOT NULL
-              OR latest.acceptance_due_at <= $2::timestamptz
-            ))
-          )`;
+    const predicate = assignmentOfferNeedsActionSql({
+      organizationId: '$1',
+      requestTime: '$2::timestamptz',
+      job: 'j',
+      latest: 'latest',
+    });
+    const latest = latestAssignmentOfferLateralSql({ job: 'j', latest: 'latest' });
     const count = await this.pool.query<{ total: number }>(
       `SELECT COUNT(*)::int AS total
          FROM job_cards j
-         JOIN LATERAL (
-           SELECT o.state, o.close_reason, o.urgent_reason, o.acceptance_due_at
-             FROM job_card_assignment_offers o
-            WHERE o.organization_id = j.organization_id AND o.job_card_id = j.id
-            ORDER BY o.opened_at DESC, o.id DESC
-            LIMIT 1
-         ) latest ON TRUE
+         JOIN ${latest} ON TRUE
         WHERE ${predicate}`,
       [input.organizationId, input.requestTime],
     );
@@ -6152,14 +6709,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
               u.id AS assignee_id, u.name AS assignee_name,
               c.id AS customer_id, c.name AS customer_name
          FROM job_cards j
-         JOIN LATERAL (
-           SELECT o.id, o.state, o.close_reason, o.close_text, o.urgent_reason,
-                  o.acceptance_due_at
-             FROM job_card_assignment_offers o
-            WHERE o.organization_id = j.organization_id AND o.job_card_id = j.id
-            ORDER BY o.opened_at DESC, o.id DESC
-            LIMIT 1
-         ) latest ON TRUE
+         JOIN ${latest} ON TRUE
          JOIN users u
            ON u.organization_id = j.organization_id AND u.id = j.assigned_to
          LEFT JOIN customers c
@@ -6186,6 +6736,77 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         assigneeName: row.assignee_name,
         customerId: row.customer_id,
         customerName: row.customer_name,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+    };
+  }
+
+  /**
+   * OVR-6 §6.1 management list: `NEW` jobs with an assignee whose planned start
+   * has passed and that JOB-010 does not own (no offer, stale `ACCEPTED`, or
+   * `WITHDRAWN` for a reason other than `PLANNED_WINDOW_PASSED`). A still
+   * answerable `OPEN` offer keeps the job in the offer flow and off both
+   * lists; every other offer state belongs to the needs-action list. The
+   * ownership predicate is the shared
+   * {@link assignmentOfferNeedsActionSql}, never a copy, so the two lists stay
+   * disjoint. Oldest planned start first.
+   */
+  async listUnacceptedPastStart(input: {
+    organizationId: string;
+    requestTime: Date;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly UnacceptedPastStartRow[]; total: number }> {
+    const predicate = unacceptedPastStartSql({
+      organizationId: '$1',
+      requestTime: '$2::timestamptz',
+      job: 'j',
+      latest: 'latest',
+    });
+    const latest = latestAssignmentOfferLateralSql({ job: 'j', latest: 'latest' });
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total
+         FROM job_cards j
+         LEFT JOIN ${latest} ON TRUE
+        WHERE ${predicate}`,
+      [input.organizationId, input.requestTime],
+    );
+    const result = await this.pool.query<{
+      job_card_id: string; job_title: string; job_type: JobCardType;
+      scheduled_at: Date;
+      assignee_id: string; assignee_name: string | null; assignee_active: boolean;
+      has_open_change_request: boolean;
+    }>(
+      `SELECT j.id AS job_card_id, j.title AS job_title, j.type AS job_type,
+              j.scheduled_at,
+              u.id AS assignee_id, u.name AS assignee_name, u.is_active AS assignee_active,
+              EXISTS (
+                SELECT 1
+                  FROM job_card_change_requests change_request
+                 WHERE change_request.organization_id = j.organization_id
+                   AND change_request.job_card_id = j.id
+                   AND change_request.state = 'OPEN'
+              ) AS has_open_change_request
+         FROM job_cards j
+         LEFT JOIN ${latest} ON TRUE
+         JOIN users u
+           ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+        WHERE ${predicate}
+        ORDER BY j.scheduled_at ASC, j.id ASC
+        LIMIT $3 OFFSET $4`,
+      [input.organizationId, input.requestTime, input.limit, input.offset],
+    );
+    return {
+      items: result.rows.map((row) => ({
+        organizationId: input.organizationId,
+        jobCardId: row.job_card_id,
+        jobTitle: row.job_title,
+        jobType: row.job_type,
+        scheduledAt: row.scheduled_at,
+        assigneeId: row.assignee_id,
+        assigneeName: row.assignee_name,
+        assigneeActive: row.assignee_active,
+        hasOpenChangeRequest: row.has_open_change_request,
       })),
       total: Number(count.rows[0]?.total ?? 0),
     };

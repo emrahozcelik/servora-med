@@ -32,7 +32,7 @@ describe('schema-check compatibility classifications', () => {
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('BEHIND');
     if (cmp.status === 'BEHIND') {
-      expect(cmp.pendingVersions).toContain('068_weekly_report_workweek');
+      expect(cmp.pendingVersions).toContain('069_lateness_alerts_and_quiet_hours');
     }
   });
 
@@ -44,7 +44,7 @@ describe('schema-check compatibility classifications', () => {
 
   it('classifies AHEAD for valid future version', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '069_future_feature'];
+    const applied = [...catalog.entries.map((e) => e.version), '070_future_feature'];
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('AHEAD');
   });
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
       const migrPool = new Pool({ connectionString: dbUrl });
       try {
         await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
-        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('069_future_feature')");
+        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('070_future_feature')");
       } finally {
         await migrPool.end();
       }
@@ -300,10 +300,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 68 head 068', async () => {
+  it('produces dist catalog 69 head 069', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
-    expect(distCatalog.count).toBe(68);
-    expect(distCatalog.head?.version).toBe('068_weekly_report_workweek');
+    expect(distCatalog.count).toBe(69);
+    expect(distCatalog.head?.version).toBe('069_lateness_alerts_and_quiet_hours');
   });
 
   it('resource cleanup: pool closed after success and failure', async () => {

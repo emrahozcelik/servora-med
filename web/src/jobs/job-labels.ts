@@ -229,6 +229,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_ASSIGNMENT_OFFER_OPENED', 'JOB_ASSIGNMENT_DECLINED', 'JOB_ASSIGNMENT_RELEASED',
   'JOB_ASSIGNMENT_OFFER_EXPIRED', 'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
   'JOB_ASSIGNMENT_REMINDER_SENT',
+  'JOB_START_REMINDER_SENT', 'JOB_APPROVAL_WAIT_ALERT_SENT', 'JOB_PENDING_ACCEPTANCE_ALERT_SENT',
 ] as const;
 
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
@@ -271,6 +272,9 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_ASSIGNMENT_OFFER_EXPIRED: 'Kabul süresi yanıtsız geçti',
   JOB_ASSIGNMENT_REMINDER_SENT: 'Personele kabul hatırlatması gönderildi',
   JOB_ASSIGNMENT_OFFER_WITHDRAWN: 'Kabul teklifi geri çekildi',
+  JOB_START_REMINDER_SENT: 'Başlangıç hatırlatması gönderildi',
+  JOB_APPROVAL_WAIT_ALERT_SENT: 'Onay beklemesi uyarısı gönderildi',
+  JOB_PENDING_ACCEPTANCE_ALERT_SENT: 'Kabul bekleyen iş uyarısı gönderildi',
 };
 
 export function isKnownJobCardActivityEvent(value: string): value is KnownJobCardActivityEvent {
