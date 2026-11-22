@@ -1,7 +1,7 @@
 # Lateness reports (OVR-7)
 
-- **Status:** Draft for owner review. Ships with the code; not accepted until the
-  owner approves this text.
+- **Status:** Accepted product contract — `DECISIONS.md` OVR-7 (owner: "Kabul,
+  başla", 2026-11-22). Ships with the code.
   The owner chose the direction on 2026-11-20 (lateness plan stage 3, item 6:
   "A, within REPORT-001 limits") and answered the open questions on
   2026-11-22: (Q1) a Staff report section plus an organization summary card on

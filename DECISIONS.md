@@ -3268,3 +3268,39 @@ management decision list.
   and activity CHECKs). New worker behind `LATENESS_ALERTS_ENABLED`; activation
   and rollback require the read-only evidence in the contract §9.
 
+
+## OVR-7 — Lateness reports
+
+- **Date:** 2026-11-22
+- **Status:** Accepted product contract (owner: stage-3 direction 2026-11-20,
+  Q1–Q4 answered 2026-11-22, owner review revisions and "Kabul, başla"
+  2026-11-22). Contract:
+  [lateness-reports.md](./docs/features/reporting/lateness-reports.md).
+  Implements REPORT-001 §6 and JOB-010 D1 §7 for OVR-2 incidents; REPORT-001
+  performer attribution and optional lateness explanations stay separate.
+
+### Decision
+
+1. Reports read `job_card_overdue_incidents` read-only. An incident belongs to
+   the organization-local period of its `breached_at`; incidents on
+   `INVALIDATED` jobs are excluded.
+2. Attribution is the incident's own accountability at the breach instant.
+   Proven Staff incidents appear in that Staff member's report (management view
+   and the Staff self view); unknown accountability and `APPROVAL_WAIT`
+   (management delay) appear only on the organization card. No per-Staff
+   comparison, rate, score, ranking or summed duration.
+3. Each incident is `RECOVERED`, `EXTENDED` (OVR-5, never on time) or `OPEN`;
+   medians and maxima are per type and outcome.
+4. A proven Staff incident overlapped by the same Staff member's own change
+   request that management provably resolved (corrected, rescheduled, linked
+   new job, or cancelled by someone other than the assignee) is shown in a
+   separate group "Yönetimce sonuçlandırılan değişiklik talebiyle ilişkili
+   gecikmeler" and is not added to Staff responsibility. The group states a
+   relationship, not a proven cause.
+
+### Consequences
+
+- No migration, column, index or write path. New reads:
+  `GET /api/reports/lateness`, `GET /api/reports/staff/:userId/lateness-incidents`,
+  `GET /api/reports/staff/me/lateness-incidents`, and `lateness` on the Staff
+  report. Existing on-time and "Gecikmiş" measures are unchanged.
