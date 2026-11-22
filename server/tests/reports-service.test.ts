@@ -19,6 +19,30 @@ const counters = {
   completedInPeriod: 4,
 };
 
+const latenessAggregate = {
+  staffResponsibility: {
+    delayedJobCount: 1,
+    incidentCount: 2,
+    byType: [
+      {
+        delayType: 'LATE_START',
+        incidentCount: 1,
+        recovered: { count: 1, medianSeconds: 120, maxSeconds: 120 },
+        extended: { count: 0, medianSeconds: null, maxSeconds: null },
+        open: { count: 0, maxElapsedSeconds: null },
+      },
+      {
+        delayType: 'LATE_SUBMISSION',
+        incidentCount: 1,
+        recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+        extended: { count: 0, medianSeconds: null, maxSeconds: null },
+        open: { count: 1, maxElapsedSeconds: 60 },
+      },
+    ],
+  },
+  operational: { delayedJobCount: 0, incidentCount: 0, byReason: [] },
+};
+
 function actor(role: SafeUser['role'], id = `${role.toLowerCase()}-1`): SafeUser {
   return {
     id,
@@ -148,6 +172,27 @@ function ports() {
         ineligibleOrNoDeadlineCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 2,
       }]),
     )),
+    getStaffLatenessSummary: vi.fn(async () => latenessAggregate),
+    getOrganizationLatenessSummary: vi.fn(async () => ({
+      range,
+      totalIncidentCount: 0,
+      staffResponsibility: { delayedJobCount: 0, incidentCount: 0 },
+      operational: { delayedJobCount: 0, incidentCount: 0 },
+      unknownAccountability: { delayedJobCount: 0, incidentCount: 0 },
+      managementApprovalWait: {
+        delayedJobCount: 0,
+        incidentCount: 0,
+        recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+        open: { count: 0, maxElapsedSeconds: null },
+      },
+    })),
+    listStaffLatenessIncidents: vi.fn(async (input) => ({
+      range,
+      items: [],
+      total: 0,
+      limit: input.limit,
+      offset: input.offset,
+    })),
     getStaffDailyCompletionTrend: vi.fn(async () => ([
       { date: '2026-07-01', count: 0 },
       { date: '2026-07-02', count: 4 },
@@ -218,11 +263,25 @@ describe('ReportsService authorization and composition', () => {
     })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
     await expect(service.getApprovals(STAFF, { limit: 50, offset: 0 }))
       .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    await expect(service.getOrganizationLateness(STAFF, { requestedRange: null }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    await expect(service.listStaffLatenessIncidents(STAFF, STAFF_ONE, {
+      requestedRange: null,
+      limit: 20,
+      offset: 0,
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    await expect(service.listOwnLatenessIncidents(MANAGER, {
+      requestedRange: null,
+      limit: 20,
+      offset: 0,
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
 
     expect(reports.getDashboard).not.toHaveBeenCalled();
     expect(reports.getStaffPerformanceScope).not.toHaveBeenCalled();
     expect(reports.getDeliveryReport).not.toHaveBeenCalled();
     expect(reports.getApprovalSummary).not.toHaveBeenCalled();
+    expect(reports.getOrganizationLatenessSummary).not.toHaveBeenCalled();
+    expect(reports.listStaffLatenessIncidents).not.toHaveBeenCalled();
     expect(approvalItems.getApprovalItems).not.toHaveBeenCalled();
   });
 
@@ -248,6 +307,17 @@ describe('ReportsService authorization and composition', () => {
     })).resolves.toBeDefined();
     await expect(service.getApprovals(management, { limit: 50, offset: 0 }))
       .resolves.toMatchObject({ total: 2, limit: 50, offset: 0 });
+    await expect(service.getOrganizationLateness(management, { requestedRange: null }))
+      .resolves.toMatchObject({
+        range,
+        trackingStartedOn: '2026-09-21',
+        totalIncidentCount: 0,
+      });
+    await expect(service.listStaffLatenessIncidents(management, STAFF_ONE, {
+      requestedRange: null,
+      limit: 20,
+      offset: 0,
+    })).resolves.toMatchObject({ total: 0, limit: 20, offset: 0 });
   });
 
   it('allows only Staff to load its own report and forces the authenticated Staff ID', async () => {
@@ -324,6 +394,11 @@ describe('ReportsService authorization and composition', () => {
         waitingApproval: 2,
         revisionRequested: 1,
       },
+      lateness: {
+        trackingStartedOn: '2026-09-21',
+        generatedAt: requestTime.toISOString(),
+        ...latenessAggregate,
+      },
     });
     expect(reports.getStaffIdentity).toHaveBeenCalledWith({
       organizationId: ORG_ONE,
@@ -339,6 +414,28 @@ describe('ReportsService authorization and composition', () => {
       staffUserId: STAFF_ONE,
       requestedRange: { from: '2026-07-01', to: '2026-07-31' },
       requestTime,
+    });
+  });
+
+  it('forces the authenticated Staff ID on the own lateness incident list', async () => {
+    const { service, reports } = createService();
+
+    const result = await service.listOwnLatenessIncidents(STAFF, {
+      requestedRange: { from: '2026-07-01', to: '2026-07-31' },
+      limit: 20,
+      offset: 40,
+    });
+
+    expect(result).toMatchObject({ total: 0, limit: 20, offset: 40 });
+    expect(reports.getStaffIdentity).not.toHaveBeenCalled();
+    expect(reports.listStaffLatenessIncidents).toHaveBeenCalledWith({
+      organizationId: ORG_ONE,
+      staffUserId: STAFF_ONE,
+      requestedRange: { from: '2026-07-01', to: '2026-07-31' },
+      requestTime,
+      limit: 20,
+      offset: 40,
+      viewer: { role: 'STAFF', userId: STAFF_ONE },
     });
   });
 

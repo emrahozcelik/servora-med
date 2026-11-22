@@ -7,11 +7,13 @@ import type {
   ReportRangeQuery,
   RequestedReportRange,
   SalesFollowUpReportQuery,
+  StaffLatenessIncidentQuery,
 } from './types.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const RANGE_KEYS = ['from', 'to'] as const;
+const STAFF_LATENESS_INCIDENT_KEYS = ['from', 'to', 'limit', 'offset'] as const;
 const DELIVERY_KEYS = ['from', 'to', 'groupBy', 'staffUserId', 'limit', 'offset'] as const;
 const APPROVAL_KEYS = ['limit', 'offset'] as const;
 const CUSTOMER_KEYS = ['from', 'to', 'search', 'status', 'type', 'limit', 'offset'] as const;
@@ -140,6 +142,16 @@ export function parseDashboardReportQuery(raw: unknown): ReportRangeQuery {
 export function parseStaffReportQuery(raw: unknown): ReportRangeQuery {
   const value = exactScalarQuery(raw, RANGE_KEYS);
   return { requestedRange: requestedRange(value), ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}) };
+}
+
+export function parseStaffLatenessIncidentQuery(raw: unknown): StaffLatenessIncidentQuery {
+  const value = exactScalarQuery(raw, STAFF_LATENESS_INCIDENT_KEYS);
+  return {
+    requestedRange: requestedRange(value),
+    ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}),
+    limit: integerQuery(value.limit, 'limit', 50, 1, 200),
+    offset: integerQuery(value.offset, 'offset', 0, 0),
+  };
 }
 
 export function parseDeliveryReportQuery(raw: unknown): DeliveryReportQuery {

@@ -1382,6 +1382,50 @@ actual event timestamps and distinct relationship scope are specified in the
 [overview UI/read contract](docs/features/reporting/reports-overview-ui.md).
 This endpoint does not implement verified personal performer attribution.
 
+### Lateness extension (2026-11-22)
+
+Implements `DECISIONS.md` OVR-7 and
+[docs/features/reporting/lateness-reports.md](docs/features/reporting/lateness-reports.md).
+Read-only; no migration or write path.
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/lateness` | admin, manager | organization lateness groups and management approval wait |
+| GET | `/staff/:userId/lateness-incidents` | admin, manager | paged proven Staff lateness incidents |
+| GET | `/staff/me/lateness-incidents` | staff | the authenticated Staff member's own incidents |
+
+`GET /api/reports/staff/:userId` and `GET /api/reports/staff/me` now also return
+`lateness: StaffLatenessSummary`. `/staff/me/lateness-incidents` is registered
+before `/staff/:userId/lateness-incidents`; Staff calling the management paths
+or `/lateness` receives `403`, and a malformed or non-Staff `userId` on the
+management path receives the existing `404 STAFF_PROFILE_NOT_FOUND`.
+
+The three reads accept the existing paired `from`/`to` range, the 366-day limit
+and `includeSaleCapability=true` opt-in; the incident list additionally accepts
+`limit` (integer 1–200, default 50) and `offset` (integer from 0, default 0).
+An incident belongs to the organization-local period of its `breached_at`.
+Incidents on `INVALIDATED` jobs and, without the capability opt-in, on `SALE`
+jobs are excluded. Incidents are written from 2026-09-21 onward, so earlier
+periods may be incomplete and responses carry `trackingStartedOn`.
+
+Each cohort incident is exactly one accountability class (`STAFF_PROVEN`,
+`STAFF_UNKNOWN`, `MANAGEMENT`) and one outcome (`RECOVERED`, `EXTENDED`,
+`OPEN`). Staff groups show `LATE_START` and `LATE_SUBMISSION` in that fixed
+order with per-outcome count, median and maximum integer seconds; a proven
+Staff incident that overlaps the same Staff member's own change request that
+management provably resolved is regrouped as operational (`byReason`) and is
+never added to Staff responsibility. No response contains a summed duration,
+rate, score or ranking. Durations use
+`GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (end - breached_at))))::int`.
+
+The management incident list is ordered `breached_at DESC, id DESC` and returns
+`range`, `items`, `total`, `limit`, `offset`. For a Staff viewer, `job` is
+present only while the JobCard is currently assigned to that Staff member,
+otherwise it is `null`; reason text and the requesting user are never exposed.
+The organization card returns `totalIncidentCount` plus the four incident
+counts (`staffResponsibility`, `operational`, `unknownAccountability`,
+`managementApprovalWait`), which reconcile to the cohort size.
+
 ## 17. Health `/api/health`
 
 | Method | Path | Auth | Behavior |

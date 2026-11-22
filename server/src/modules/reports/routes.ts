@@ -26,11 +26,18 @@ async (app, options) => {
   app.get('/business-trend', secured, handlers.getBusinessTrend);
   app.get('/staff', secured, handlers.getStaffPerformance);
   app.get('/staff/me', secured, handlers.getOwnStaffReport);
+  app.get('/staff/me/lateness-incidents', secured, handlers.listOwnLatenessIncidents);
+  app.get<{ Params: { userId: string } }>(
+    '/staff/:userId/lateness-incidents',
+    secured,
+    handlers.listStaffLatenessIncidents,
+  );
   app.get<{ Params: { userId: string } }>(
     '/staff/:userId',
     secured,
     handlers.getStaffReport,
   );
+  app.get('/lateness', secured, handlers.getOrganizationLateness);
   app.get('/deliveries', secured, handlers.getDeliveries);
   app.get('/approvals', secured, handlers.getApprovals);
   app.get('/customers', secured, handlers.getCustomers);

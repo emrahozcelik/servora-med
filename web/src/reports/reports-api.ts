@@ -9,6 +9,7 @@ import {
 } from '../services/api';
 import {
   ACTIVE_JOB_CARD_STATUSES,
+  CHANGE_REQUEST_REASON_CODES,
   DELIVERY_PURPOSES,
   JOB_CARD_TYPES,
   PRODUCTIVE_JOB_CARD_TYPES,
@@ -49,6 +50,14 @@ import type {
   StaffCurrentWorkload,
   StaffExecutionMetrics,
   StaffHistoricalPerformance,
+  StaffLatenessIncidentItem,
+  StaffLatenessIncidentListResponse,
+  StaffLatenessSummary,
+  LatenessDurationStats,
+  LatenessGroupCounts,
+  LatenessOpenStats,
+  LatenessTypeBreakdown,
+  OrganizationLatenessSummary,
   StaffOnTimeMetrics,
   StaffPriorPerformance,
   StaffPerformanceItem,
@@ -75,6 +84,12 @@ const CUSTOMER_SNAPSHOT_KEYS = [
 const CUSTOMER_PERIOD_KEYS = [
   'created', 'createdWorkTypes', 'managerApproved', 'followUpChildren',
 ] as const;
+const LATENESS_DELAY_TYPES = ['LATE_START', 'LATE_SUBMISSION'] as const;
+const LATENESS_OUTCOMES = ['RECOVERED', 'EXTENDED', 'OPEN'] as const;
+const LATENESS_OPERATIONAL_RESOLUTIONS = [
+  'CANCELLED', 'CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED',
+] as const;
+const LATENESS_GROUP_KEYS = ['delayedJobCount', 'incidentCount'] as const;
 
 function invalid(field: string): never {
   throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
@@ -481,12 +496,230 @@ export function parseStaffPerformance(value: unknown): StaffPerformanceResponse 
   };
 }
 
+function parseLatenessDurationStats(value: unknown, field: string): LatenessDurationStats {
+  const row = exactObject(value, field, ['count', 'medianSeconds', 'maxSeconds']);
+  const count = nonNegativeInteger(row.count, `${field}.count`);
+  const medianSeconds = nullableNonNegativeInteger(
+    row.medianSeconds,
+    `${field}.medianSeconds`,
+  );
+  const maxSeconds = nullableNonNegativeInteger(row.maxSeconds, `${field}.maxSeconds`);
+  if ((count === 0) !== (medianSeconds === null)) invalid(field);
+  if ((count === 0) !== (maxSeconds === null)) invalid(field);
+  return { count, medianSeconds, maxSeconds };
+}
+
+function parseLatenessOpenStats(value: unknown, field: string): LatenessOpenStats {
+  const row = exactObject(value, field, ['count', 'maxElapsedSeconds']);
+  const count = nonNegativeInteger(row.count, `${field}.count`);
+  const maxElapsedSeconds = nullableNonNegativeInteger(
+    row.maxElapsedSeconds,
+    `${field}.maxElapsedSeconds`,
+  );
+  if ((count === 0) !== (maxElapsedSeconds === null)) invalid(field);
+  return { count, maxElapsedSeconds };
+}
+
+function parseLatenessGroupCounts(
+  delayedJobCount: unknown,
+  incidentCount: unknown,
+  field: string,
+): LatenessGroupCounts {
+  const delayedJobs = nonNegativeInteger(delayedJobCount, `${field}.delayedJobCount`);
+  const incidents = nonNegativeInteger(incidentCount, `${field}.incidentCount`);
+  if (delayedJobs > incidents) invalid(field);
+  if ((delayedJobs === 0) !== (incidents === 0)) invalid(field);
+  return { delayedJobCount: delayedJobs, incidentCount: incidents };
+}
+
+function parseLatenessByType(value: unknown): LatenessTypeBreakdown[] {
+  const field = 'lateness.staffResponsibility.byType';
+  const values = array(value, field);
+  if (values.length !== LATENESS_DELAY_TYPES.length) invalid(field);
+  return values.map((entry, index) => {
+    const row = exactObject(entry, field, [
+      'delayType', 'incidentCount', 'recovered', 'extended', 'open',
+    ]);
+    const delayType = oneOf(row.delayType, `${field}.delayType`, LATENESS_DELAY_TYPES);
+    if (delayType !== LATENESS_DELAY_TYPES[index]) invalid(field);
+    const incidentCount = nonNegativeInteger(row.incidentCount, `${field}.incidentCount`);
+    const recovered = parseLatenessDurationStats(row.recovered, `${field}.recovered`);
+    const extended = parseLatenessDurationStats(row.extended, `${field}.extended`);
+    const open = parseLatenessOpenStats(row.open, `${field}.open`);
+    if (incidentCount !== recovered.count + extended.count + open.count) invalid(field);
+    return { delayType, incidentCount, recovered, extended, open };
+  });
+}
+
+function parseLatenessByReason(value: unknown) {
+  const field = 'lateness.operational.byReason';
+  return array(value, field).map((entry) => {
+    const row = exactObject(entry, field, ['reasonCode', 'incidentCount']);
+    return {
+      reasonCode: oneOf(row.reasonCode, `${field}.reasonCode`, CHANGE_REQUEST_REASON_CODES),
+      incidentCount: nonNegativeInteger(row.incidentCount, `${field}.incidentCount`),
+    };
+  });
+}
+
+export function parseStaffLatenessSummary(value: unknown): StaffLatenessSummary {
+  const row = exactObject(value, 'lateness', [
+    'trackingStartedOn', 'generatedAt', 'staffResponsibility', 'operational',
+  ]);
+  const responsibility = exactObject(row.staffResponsibility, 'lateness.staffResponsibility', [
+    ...LATENESS_GROUP_KEYS, 'byType',
+  ]);
+  const staffResponsibilityCounts = parseLatenessGroupCounts(
+    responsibility.delayedJobCount,
+    responsibility.incidentCount,
+    'lateness.staffResponsibility',
+  );
+  const byType = parseLatenessByType(responsibility.byType);
+  if (byType.reduce((sum, item) => sum + item.incidentCount, 0)
+    !== staffResponsibilityCounts.incidentCount) invalid('lateness.staffResponsibility');
+
+  const operational = exactObject(row.operational, 'lateness.operational', [
+    ...LATENESS_GROUP_KEYS, 'byReason',
+  ]);
+  const operationalCounts = parseLatenessGroupCounts(
+    operational.delayedJobCount,
+    operational.incidentCount,
+    'lateness.operational',
+  );
+  const byReason = parseLatenessByReason(operational.byReason);
+  if (byReason.reduce((sum, item) => sum + item.incidentCount, 0)
+    !== operationalCounts.incidentCount) invalid('lateness.operational');
+
+  return {
+    trackingStartedOn: string(row.trackingStartedOn, 'lateness.trackingStartedOn'),
+    generatedAt: string(row.generatedAt, 'lateness.generatedAt'),
+    staffResponsibility: { ...staffResponsibilityCounts, byType },
+    operational: { ...operationalCounts, byReason },
+  };
+}
+
+export function parseOrganizationLatenessSummary(value: unknown): OrganizationLatenessSummary {
+  const field = 'organizationLateness';
+  const row = exactObject(value, field, [
+    'range', 'trackingStartedOn', 'generatedAt', 'totalIncidentCount',
+    'staffResponsibility', 'operational', 'unknownAccountability', 'managementApprovalWait',
+  ]);
+  const totalIncidentCount = nonNegativeInteger(row.totalIncidentCount, `${field}.totalIncidentCount`);
+  const groupCounts = (groupField: string, group: unknown) => {
+    const exact = exactObject(group, `${field}.${groupField}`, LATENESS_GROUP_KEYS);
+    return parseLatenessGroupCounts(
+      exact.delayedJobCount,
+      exact.incidentCount,
+      `${field}.${groupField}`,
+    );
+  };
+  const staffResponsibility = groupCounts('staffResponsibility', row.staffResponsibility);
+  const operational = groupCounts('operational', row.operational);
+  const unknownAccountability = groupCounts('unknownAccountability', row.unknownAccountability);
+  const waitField = `${field}.managementApprovalWait`;
+  const wait = exactObject(row.managementApprovalWait, waitField, [
+    ...LATENESS_GROUP_KEYS, 'recovered', 'open',
+  ]);
+  const managementApprovalWait = {
+    ...parseLatenessGroupCounts(wait.delayedJobCount, wait.incidentCount, waitField),
+    recovered: parseLatenessDurationStats(wait.recovered, `${waitField}.recovered`),
+    open: parseLatenessOpenStats(wait.open, `${waitField}.open`),
+  };
+  const accountableIncidents = staffResponsibility.incidentCount
+    + operational.incidentCount
+    + unknownAccountability.incidentCount
+    + managementApprovalWait.incidentCount;
+  if (accountableIncidents !== totalIncidentCount) invalid(`${field}.totalIncidentCount`);
+  return {
+    range: parseResolvedRange(row.range),
+    trackingStartedOn: string(row.trackingStartedOn, `${field}.trackingStartedOn`),
+    generatedAt: string(row.generatedAt, `${field}.generatedAt`),
+    totalIncidentCount,
+    staffResponsibility,
+    operational,
+    unknownAccountability,
+    managementApprovalWait,
+  };
+}
+
+function parseLatenessIncidentJob(value: unknown): StaffLatenessIncidentItem['job'] {
+  if (value === null) return null;
+  const field = 'latenessIncident.job';
+  const row = exactObject(value, field, ['id', 'title', 'type', 'jobPath']);
+  const id = string(row.id, `${field}.id`);
+  const jobPath = string(row.jobPath, `${field}.jobPath`);
+  if (jobPath !== `/jobs/${id}`) invalid(`${field}.jobPath`);
+  return {
+    id,
+    title: string(row.title, `${field}.title`),
+    type: oneOf(row.type, `${field}.type`, JOB_CARD_TYPES),
+    jobPath,
+  };
+}
+
+function parseLatenessIncidentOperationalReason(
+  value: unknown,
+): StaffLatenessIncidentItem['operationalReason'] {
+  if (value === null) return null;
+  const field = 'latenessIncident.operationalReason';
+  const row = exactObject(value, field, ['reasonCode', 'resolution', 'resolvedAt']);
+  return {
+    reasonCode: oneOf(row.reasonCode, `${field}.reasonCode`, CHANGE_REQUEST_REASON_CODES),
+    resolution: oneOf(
+      row.resolution,
+      `${field}.resolution`,
+      LATENESS_OPERATIONAL_RESOLUTIONS,
+    ),
+    resolvedAt: string(row.resolvedAt, `${field}.resolvedAt`),
+  };
+}
+
+function parseStaffLatenessIncident(value: unknown): StaffLatenessIncidentItem {
+  const field = 'latenessIncident';
+  const row = exactObject(value, field, [
+    'incidentId', 'delayType', 'episodeNo', 'scheduleRevisionNo', 'deadlineAt',
+    'breachedAt', 'outcome', 'closedAt', 'durationSeconds', 'operationalReason', 'job',
+  ]);
+  const outcome = oneOf(row.outcome, `${field}.outcome`, LATENESS_OUTCOMES);
+  const closedAt = row.closedAt === null ? null : string(row.closedAt, `${field}.closedAt`);
+  if ((outcome === 'OPEN') !== (closedAt === null)) invalid(`${field}.closedAt`);
+  return {
+    incidentId: string(row.incidentId, `${field}.incidentId`),
+    delayType: oneOf(row.delayType, `${field}.delayType`, LATENESS_DELAY_TYPES),
+    episodeNo: positiveInteger(row.episodeNo, `${field}.episodeNo`),
+    scheduleRevisionNo: positiveInteger(row.scheduleRevisionNo, `${field}.scheduleRevisionNo`),
+    deadlineAt: string(row.deadlineAt, `${field}.deadlineAt`),
+    breachedAt: string(row.breachedAt, `${field}.breachedAt`),
+    outcome,
+    closedAt,
+    durationSeconds: nonNegativeInteger(row.durationSeconds, `${field}.durationSeconds`),
+    operationalReason: parseLatenessIncidentOperationalReason(row.operationalReason),
+    job: parseLatenessIncidentJob(row.job),
+  };
+}
+
+export function parseStaffLatenessIncidentList(value: unknown): StaffLatenessIncidentListResponse {
+  const field = 'staffLatenessIncidents';
+  const row = exactObject(value, field, ['range', 'items', 'total', 'limit', 'offset']);
+  const limit = positiveInteger(row.limit, 'limit');
+  if (limit > 200) invalid('limit');
+  const items = array(row.items, 'items').map(parseStaffLatenessIncident);
+  if (items.length > limit) invalid('items');
+  return {
+    range: parseResolvedRange(row.range),
+    items,
+    total: nonNegativeInteger(row.total, 'total'),
+    limit,
+    offset: nonNegativeInteger(row.offset, 'offset'),
+  };
+}
+
 export function parseStaffReport(value: unknown): StaffReportResponse {
   const row = exactObject(value, 'staffReport', [
     'staff', 'range', 'priorRange', 'performance', 'priorPerformance',
     'staffExecution', 'staffSubmissionAttribution', 'onTime', 'completionWorkTypes',
     'currentWorkloadByType', 'completedTrend',
-    'deliveriesByPurpose', 'meetingsByOutcome', 'currentWorkload',
+    'deliveriesByPurpose', 'meetingsByOutcome', 'currentWorkload', 'lateness',
   ]);
   return {
     staff: parseStaffIdentity(row.staff),
@@ -510,6 +743,7 @@ export function parseStaffReport(value: unknown): StaffReportResponse {
       .map(parseDeliveryPurposeItem),
     meetingsByOutcome: parseMeetingsByOutcome(row.meetingsByOutcome),
     currentWorkload: parseStaffCurrentWorkload(row.currentWorkload),
+    lateness: parseStaffLatenessSummary(row.lateness),
   };
 }
 
@@ -791,6 +1025,31 @@ export const getOwnStaffReport = async (requestedRange: RequestedReportRange) =>
   parseStaffReport(await request(`/api/reports/staff/me${query(rangeQuery(requestedRange))}`));
 export const getStaffReport = async (staffUserId: string, requestedRange: RequestedReportRange) =>
   parseStaffReport(await request(`/api/reports/staff/${encodeURIComponent(staffUserId)}${query(rangeQuery(requestedRange))}`));
+export const getLatenessSummary = async (requestedRange: RequestedReportRange) =>
+  parseOrganizationLatenessSummary(
+    await request(`/api/reports/lateness${query(rangeQuery(requestedRange))}`),
+  );
+export const listStaffLatenessIncidents = async (
+  staffUserId: string,
+  requestedRange: RequestedReportRange,
+  page: { limit: number; offset: number },
+) => parseStaffLatenessIncidentList(
+  await request(
+    `/api/reports/staff/${encodeURIComponent(staffUserId)}/lateness-incidents${query({
+      ...rangeQuery(requestedRange), limit: page.limit, offset: page.offset,
+    })}`,
+  ),
+);
+export const listOwnLatenessIncidents = async (
+  requestedRange: RequestedReportRange,
+  page: { limit: number; offset: number },
+) => parseStaffLatenessIncidentList(
+  await request(
+    `/api/reports/staff/me/lateness-incidents${query({
+      ...rangeQuery(requestedRange), limit: page.limit, offset: page.offset,
+    })}`,
+  ),
+);
 export const getDeliveryReport = async (input: DeliveryReportRequest) => parseDeliveryReport(
   await request(`/api/reports/deliveries${query({
     ...rangeQuery(input.requestedRange), groupBy: input.groupBy,

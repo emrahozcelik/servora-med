@@ -6,8 +6,10 @@ import {
   type FollowUpProposalOrigin,
   type JobCardStatus,
   type JobCardType,
+  type JobChangeRequestReasonCode,
 } from '../job-cards/types.js';
 import { currentOverduePredicateSql } from '../job-cards/overdue-contract.js';
+import { assigneeAtInstantSql } from '../job-cards/assignment-history-sql.js';
 import type { ReportsReadModel } from './ports.js';
 import { ORGANIZATION_RANGE_CTE } from './range-sql.js';
 import { readBusinessTrend } from './business-trend.js';
@@ -25,7 +27,13 @@ import type {
   DeliveryReportReadInput,
   DeliveryReportResponse,
   DeliveryStaffItem,
+  LatenessDelayType,
+  LatenessDurationStats,
+  LatenessOpenStats,
+  LatenessOperationalResolution,
+  LatenessOutcome,
   MeetingOutcomeItem,
+  OrganizationLatenessAggregate,
   ProposalQueueItem,
   ReportStaffLifecycleIdentity,
   ResolvedReportRange,
@@ -35,6 +43,10 @@ import type {
   SalesFollowUpTypeDistributionItem,
   StaffCompletionPerformance,
   StaffExecutionAggregate,
+  StaffLatenessAggregate,
+  StaffLatenessIncidentListInput,
+  StaffLatenessIncidentListResponse,
+  StaffLatenessIncidentItem,
   StaffOnTimeAggregate,
   StaffOperationalSummary,
   StaffOperationalSummaryManyInput,
@@ -239,6 +251,64 @@ type ProposalQueueRow = {
   assignee_name: string;
   proposed_assignee_id: string | null;
   proposed_assignee_name: string | null;
+};
+
+type LatenessDurationJson = {
+  count: string | number;
+  medianSeconds: string | number | null;
+  maxSeconds: string | number | null;
+};
+
+type LatenessTypeJson = {
+  delayType: LatenessDelayType;
+  incidentCount: string | number;
+  recovered: LatenessDurationJson;
+  extended: LatenessDurationJson;
+  open: { count: string | number; maxElapsedSeconds: string | number | null };
+};
+
+type StaffLatenessSummaryRow = {
+  invalid_delay_type_count: string | number;
+  responsibility_delayed_job_count: string | number;
+  responsibility_incident_count: string | number;
+  by_type: LatenessTypeJson[];
+  operational_delayed_job_count: string | number;
+  operational_incident_count: string | number;
+  by_reason: Array<{
+    reasonCode: JobChangeRequestReasonCode;
+    incidentCount: string | number;
+  }>;
+};
+
+type OrganizationLatenessSummaryRow = ResolvedReportRangeRow & {
+  total_incident_count: string | number;
+  staff_responsibility_delayed_job_count: string | number;
+  staff_responsibility_incident_count: string | number;
+  operational_delayed_job_count: string | number;
+  operational_incident_count: string | number;
+  unknown_delayed_job_count: string | number;
+  unknown_incident_count: string | number;
+  management_delayed_job_count: string | number;
+  management_incident_count: string | number;
+  management_recovered: LatenessDurationJson;
+  management_open: { count: string | number; maxElapsedSeconds: string | number | null };
+};
+
+type LatenessIncidentRow = {
+  incident_id: string;
+  /** Checked in mapLatenessIncident; the SQL does not constrain it. */
+  delay_type: string;
+  episode_no: number;
+  schedule_revision_no: number;
+  deadline_at: Date;
+  breached_at: Date;
+  outcome: LatenessOutcome;
+  closed_at: Date | null;
+  duration_seconds: number;
+  operational_reason_code: JobChangeRequestReasonCode | null;
+  operational_resolution: LatenessOperationalResolution | null;
+  operational_resolved_at: Date | null;
+  job: { id: string; title: string; type: JobCardType } | null;
 };
 
 type DeliveryGroupDefinition = {
@@ -855,6 +925,331 @@ SELECT outcomes.outcome, COALESCE(outcome_counts.count, 0)::int AS count
 FROM outcomes
 LEFT JOIN outcome_counts ON outcome_counts.outcome = outcomes.outcome
 ORDER BY outcomes.sort_order`;
+
+/**
+ * OVR-7 shared lateness cohort (accepted contract §3, §4).
+ *
+ * One renderer feeds the Staff summary, the organization summary and the
+ * paged incident list so the cohort, the outcome/duration rule and the
+ * operational flag can never drift between reads.
+ *
+ * Classification partitions only on `accountable_role`, `accountable_source`
+ * and `accountable_user_id`; an `APPROVAL_WAIT` row is management delay and
+ * never enters a Staff group. The operational flag is a left lateral join so
+ * no aggregate or page can count one incident twice; the provable-management
+ * rule for a `CANCELLED` closure reads the historical assignee from the shared
+ * `assigneeAtInstantSql` renderer, never from the current assignee.
+ *
+ * Bound parameters: $1 organization, $2 from date, $3 to date,
+ * $4 requestTime.
+ */
+const latenessCohortSql = (includeSaleCapability: boolean) => `cohort AS (
+  SELECT i.id,
+    i.job_card_id,
+    i.delay_type,
+    i.episode_no,
+    i.schedule_revision_no,
+    i.deadline_at,
+    i.breached_at,
+    i.recovered_at,
+    i.ended_at,
+    i.accountable_role,
+    i.accountable_source,
+    i.accountable_user_id,
+    CASE
+      WHEN i.recovered_at IS NOT NULL THEN 'RECOVERED'
+      WHEN i.ended_at IS NOT NULL THEN 'EXTENDED'
+      ELSE 'OPEN'
+    END AS outcome,
+    COALESCE(i.recovered_at, i.ended_at, $4::timestamptz) AS duration_end_at
+  FROM job_card_overdue_incidents i
+  CROSS JOIN organization_range
+  JOIN ${saleReadableJobsSql(includeSaleCapability)} jc
+    ON jc.organization_id = i.organization_id AND jc.id = i.job_card_id
+  WHERE i.organization_id = $1
+    AND i.breached_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND i.breached_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.status <> 'INVALIDATED'
+), classified AS (
+  SELECT cohort.*,
+    CASE
+      WHEN cohort.accountable_role = 'STAFF'
+        AND cohort.accountable_source = 'ASSIGNMENT_AT_BREACH'
+        AND cohort.accountable_user_id IS NOT NULL THEN 'STAFF_PROVEN'
+      WHEN cohort.accountable_role = 'STAFF' THEN 'STAFF_UNKNOWN'
+      ELSE 'MANAGEMENT'
+    END AS accountability,
+    GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (
+      cohort.duration_end_at - cohort.breached_at
+    ))))::int AS duration_seconds
+  FROM cohort
+), operational AS (
+  SELECT classified.*,
+    request.reason_code AS operational_reason_code,
+    request.resolution AS operational_resolution,
+    request.resolved_at AS operational_resolved_at
+  FROM classified
+  LEFT JOIN LATERAL (
+    SELECT cr.reason_code, cr.resolution, cr.resolved_at
+    FROM job_card_change_requests cr
+    WHERE classified.accountability = 'STAFF_PROVEN'
+      AND cr.organization_id = $1
+      AND cr.job_card_id = classified.job_card_id
+      AND cr.requested_by = classified.accountable_user_id
+      AND cr.state = 'CLOSED'
+      AND (
+        cr.resolution IN ('CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED')
+        OR (
+          cr.resolution = 'CANCELLED'
+          -- An unreadable historical assignee (NULL) is not proof: \`<>\`
+          -- with NULL is never true, so nothing is guessed (contract §4.3).
+          AND cr.resolved_by <> ${assigneeAtInstantSql({
+            organizationId: '$1',
+            jobCardId: 'classified.job_card_id',
+            instant: 'cr.resolved_at',
+          })}
+        )
+      )
+      AND cr.requested_at <=
+        COALESCE(classified.recovered_at, classified.ended_at, $4::timestamptz)
+      AND cr.resolved_at >= classified.breached_at
+    ORDER BY cr.resolved_at DESC, cr.id DESC
+    LIMIT 1
+  ) request ON TRUE
+), flagged AS (
+  SELECT operational.*,
+    (operational.operational_reason_code IS NOT NULL) AS operational_flag
+  FROM operational
+)`;
+
+const LATENESS_REASON_CODE_BUCKETS_SQL = `
+  VALUES
+    ('CUSTOMER_CHANGED_MIND', 1),
+    ('CUSTOMER_POSTPONED', 2),
+    ('CUSTOMER_ABSENT', 3),
+    ('WRONG_PRODUCT', 4),
+    ('MISSING_STOCK_OR_EQUIPMENT', 5),
+    ('VISIT_NOT_POSSIBLE', 6),
+    ('OTHER', 7)`;
+
+const STAFF_LATENESS_SUMMARY_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE},
+${latenessCohortSql(includeSaleCapability)},
+staff_rows AS (
+  SELECT flagged.* FROM flagged
+  WHERE flagged.accountability = 'STAFF_PROVEN'
+    AND flagged.accountable_user_id = $5::uuid
+), type_buckets(delay_type, sort_order) AS (
+  VALUES
+    ('LATE_START', 1),
+    ('LATE_SUBMISSION', 2)
+), by_type AS (
+  SELECT type_buckets.delay_type, type_buckets.sort_order,
+    COALESCE(aggregate.incident_count, 0) AS incident_count,
+    COALESCE(aggregate.recovered_count, 0) AS recovered_count,
+    aggregate.recovered_median_seconds,
+    aggregate.recovered_max_seconds,
+    COALESCE(aggregate.extended_count, 0) AS extended_count,
+    aggregate.extended_median_seconds,
+    aggregate.extended_max_seconds,
+    COALESCE(aggregate.open_count, 0) AS open_count,
+    aggregate.open_max_elapsed_seconds
+  FROM type_buckets
+  LEFT JOIN (
+    SELECT staff_rows.delay_type,
+      COUNT(*) FILTER (WHERE NOT staff_rows.operational_flag)::int
+        AS incident_count,
+      COUNT(*) FILTER (
+        WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'RECOVERED'
+      )::int AS recovered_count,
+      FLOOR(percentile_cont(0.5) WITHIN GROUP (ORDER BY staff_rows.duration_seconds)
+        FILTER (
+          WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'RECOVERED'
+        ))::int AS recovered_median_seconds,
+      MAX(staff_rows.duration_seconds) FILTER (
+        WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'RECOVERED'
+      )::int AS recovered_max_seconds,
+      COUNT(*) FILTER (
+        WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'EXTENDED'
+      )::int AS extended_count,
+      FLOOR(percentile_cont(0.5) WITHIN GROUP (ORDER BY staff_rows.duration_seconds)
+        FILTER (
+          WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'EXTENDED'
+        ))::int AS extended_median_seconds,
+      MAX(staff_rows.duration_seconds) FILTER (
+        WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'EXTENDED'
+      )::int AS extended_max_seconds,
+      COUNT(*) FILTER (
+        WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'OPEN'
+      )::int AS open_count,
+      MAX(staff_rows.duration_seconds) FILTER (
+        WHERE NOT staff_rows.operational_flag AND staff_rows.outcome = 'OPEN'
+      )::int AS open_max_elapsed_seconds
+    FROM staff_rows
+    GROUP BY staff_rows.delay_type
+  ) aggregate ON aggregate.delay_type = type_buckets.delay_type
+), reason_buckets(reason_code, sort_order) AS (
+  ${LATENESS_REASON_CODE_BUCKETS_SQL}
+), by_reason AS (
+  SELECT reason_buckets.reason_code, reason_buckets.sort_order,
+    COALESCE(aggregate.incident_count, 0) AS incident_count
+  FROM reason_buckets
+  LEFT JOIN (
+    SELECT staff_rows.operational_reason_code AS reason_code,
+      COUNT(*)::int AS incident_count
+    FROM staff_rows
+    WHERE staff_rows.operational_flag
+    GROUP BY staff_rows.operational_reason_code
+  ) aggregate ON aggregate.reason_code = reason_buckets.reason_code
+)
+SELECT
+  (SELECT COUNT(*) FROM staff_rows
+    WHERE staff_rows.delay_type NOT IN ('LATE_START', 'LATE_SUBMISSION'))::int
+    AS invalid_delay_type_count,
+  (SELECT COUNT(DISTINCT staff_rows.job_card_id) FROM staff_rows
+    WHERE NOT staff_rows.operational_flag)::int AS responsibility_delayed_job_count,
+  (SELECT COUNT(*) FROM staff_rows
+    WHERE NOT staff_rows.operational_flag)::int AS responsibility_incident_count,
+  (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'delayType', by_type.delay_type,
+      'incidentCount', by_type.incident_count,
+      'recovered', jsonb_build_object(
+        'count', by_type.recovered_count,
+        'medianSeconds', by_type.recovered_median_seconds,
+        'maxSeconds', by_type.recovered_max_seconds),
+      'extended', jsonb_build_object(
+        'count', by_type.extended_count,
+        'medianSeconds', by_type.extended_median_seconds,
+        'maxSeconds', by_type.extended_max_seconds),
+      'open', jsonb_build_object(
+        'count', by_type.open_count,
+        'maxElapsedSeconds', by_type.open_max_elapsed_seconds)
+    ) ORDER BY by_type.sort_order), '[]'::jsonb) FROM by_type) AS by_type,
+  (SELECT COUNT(DISTINCT staff_rows.job_card_id) FROM staff_rows
+    WHERE staff_rows.operational_flag)::int AS operational_delayed_job_count,
+  (SELECT COUNT(*) FROM staff_rows
+    WHERE staff_rows.operational_flag)::int AS operational_incident_count,
+  (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'reasonCode', by_reason.reason_code,
+      'incidentCount', by_reason.incident_count
+    ) ORDER BY by_reason.incident_count DESC, by_reason.sort_order), '[]'::jsonb)
+    FROM by_reason WHERE by_reason.incident_count > 0) AS by_reason`;
+
+const ORGANIZATION_LATENESS_SUMMARY_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE},
+${latenessCohortSql(includeSaleCapability)}
+SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS "from",
+  to_char(organization_range.to_date, 'YYYY-MM-DD') AS "to",
+  organization_range.timezone,
+  aggregate.total_incident_count,
+  aggregate.staff_responsibility_delayed_job_count,
+  aggregate.staff_responsibility_incident_count,
+  aggregate.operational_delayed_job_count,
+  aggregate.operational_incident_count,
+  aggregate.unknown_delayed_job_count,
+  aggregate.unknown_incident_count,
+  aggregate.management_delayed_job_count,
+  aggregate.management_incident_count,
+  aggregate.management_recovered,
+  aggregate.management_open
+FROM organization_range
+LEFT JOIN LATERAL (
+  SELECT COUNT(*)::int AS total_incident_count,
+    COUNT(DISTINCT flagged.job_card_id) FILTER (
+      WHERE flagged.accountability = 'STAFF_PROVEN' AND NOT flagged.operational_flag
+    )::int AS staff_responsibility_delayed_job_count,
+    COUNT(*) FILTER (
+      WHERE flagged.accountability = 'STAFF_PROVEN' AND NOT flagged.operational_flag
+    )::int AS staff_responsibility_incident_count,
+    COUNT(DISTINCT flagged.job_card_id) FILTER (
+      WHERE flagged.accountability = 'STAFF_PROVEN' AND flagged.operational_flag
+    )::int AS operational_delayed_job_count,
+    COUNT(*) FILTER (
+      WHERE flagged.accountability = 'STAFF_PROVEN' AND flagged.operational_flag
+    )::int AS operational_incident_count,
+    COUNT(DISTINCT flagged.job_card_id) FILTER (
+      WHERE flagged.accountability = 'STAFF_UNKNOWN'
+    )::int AS unknown_delayed_job_count,
+    COUNT(*) FILTER (
+      WHERE flagged.accountability = 'STAFF_UNKNOWN'
+    )::int AS unknown_incident_count,
+    COUNT(DISTINCT flagged.job_card_id) FILTER (
+      WHERE flagged.accountability = 'MANAGEMENT'
+    )::int AS management_delayed_job_count,
+    COUNT(*) FILTER (
+      WHERE flagged.accountability = 'MANAGEMENT'
+    )::int AS management_incident_count,
+    jsonb_build_object(
+      'count', COUNT(*) FILTER (
+        WHERE flagged.accountability = 'MANAGEMENT' AND flagged.outcome = 'RECOVERED'
+      )::int,
+      'medianSeconds', FLOOR(percentile_cont(0.5) WITHIN GROUP (
+        ORDER BY flagged.duration_seconds
+      ) FILTER (
+        WHERE flagged.accountability = 'MANAGEMENT' AND flagged.outcome = 'RECOVERED'
+      ))::int,
+      'maxSeconds', MAX(flagged.duration_seconds) FILTER (
+        WHERE flagged.accountability = 'MANAGEMENT' AND flagged.outcome = 'RECOVERED'
+      )::int
+    ) AS management_recovered,
+    jsonb_build_object(
+      'count', COUNT(*) FILTER (
+        WHERE flagged.accountability = 'MANAGEMENT' AND flagged.outcome = 'OPEN'
+      )::int,
+      'maxElapsedSeconds', MAX(flagged.duration_seconds) FILTER (
+        WHERE flagged.accountability = 'MANAGEMENT' AND flagged.outcome = 'OPEN'
+      )::int
+    ) AS management_open
+  FROM flagged
+) aggregate ON TRUE`;
+
+/**
+ * Staff scope (both groups). Bound parameters: $1 organization, $2 from,
+ * $3 to, $4 requestTime, $5 staff user, $6 limit, $7 offset, $8 viewer role,
+ * $9 viewer user. A Staff viewer sees a job row only while the job is
+ * currently assigned to them; management always sees it.
+ */
+const STAFF_LATENESS_INCIDENTS_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE},
+${latenessCohortSql(includeSaleCapability)},
+scoped AS (
+  SELECT flagged.* FROM flagged
+  WHERE flagged.accountability = 'STAFF_PROVEN'
+    AND flagged.accountable_user_id = $5::uuid
+)
+SELECT scoped.id AS incident_id,
+  scoped.delay_type,
+  scoped.episode_no,
+  scoped.schedule_revision_no,
+  scoped.deadline_at,
+  scoped.breached_at,
+  scoped.outcome,
+  CASE
+    WHEN scoped.outcome = 'RECOVERED' THEN scoped.recovered_at
+    WHEN scoped.outcome = 'EXTENDED' THEN scoped.ended_at
+    ELSE NULL
+  END AS closed_at,
+  scoped.duration_seconds,
+  scoped.operational_reason_code,
+  scoped.operational_resolution,
+  scoped.operational_resolved_at,
+  CASE
+    WHEN $8::text = 'STAFF' AND jc.assigned_to IS DISTINCT FROM $9::uuid THEN NULL
+    ELSE jsonb_build_object('id', jc.id, 'title', jc.title, 'type', jc.type)
+  END AS job
+FROM scoped
+JOIN ${saleReadableJobsSql(includeSaleCapability)} jc
+  ON jc.organization_id = $1 AND jc.id = scoped.job_card_id
+ORDER BY scoped.breached_at DESC, scoped.id DESC
+LIMIT $6 OFFSET $7`;
+
+const STAFF_LATENESS_INCIDENT_COUNT_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE},
+${latenessCohortSql(includeSaleCapability)},
+scoped AS (
+  SELECT flagged.id FROM flagged
+  WHERE flagged.accountability = 'STAFF_PROVEN'
+    AND flagged.accountable_user_id = $5::uuid
+)
+SELECT COUNT(*)::int AS total FROM scoped`;
 
 const DELIVERY_GROUPS = {
   day: {
@@ -1517,6 +1912,111 @@ function mapProposalQueueRow(row: ProposalQueueRow): ProposalQueueItem {
   };
 }
 
+function nullableNumber(value: string | number | null): number | null {
+  return value === null ? null : Number(value);
+}
+
+function mapLatenessDurationStats(input: LatenessDurationJson): LatenessDurationStats {
+  return {
+    count: Number(input.count),
+    medianSeconds: nullableNumber(input.medianSeconds),
+    maxSeconds: nullableNumber(input.maxSeconds),
+  };
+}
+
+function mapLatenessOpenStats(
+  input: { count: string | number; maxElapsedSeconds: string | number | null },
+): LatenessOpenStats {
+  return {
+    count: Number(input.count),
+    maxElapsedSeconds: nullableNumber(input.maxElapsedSeconds),
+  };
+}
+
+function mapStaffLatenessSummary(row: StaffLatenessSummaryRow): StaffLatenessAggregate {
+  return {
+    staffResponsibility: {
+      delayedJobCount: Number(row.responsibility_delayed_job_count),
+      incidentCount: Number(row.responsibility_incident_count),
+      byType: row.by_type.map((type) => ({
+        delayType: type.delayType,
+        incidentCount: Number(type.incidentCount),
+        recovered: mapLatenessDurationStats(type.recovered),
+        extended: mapLatenessDurationStats(type.extended),
+        open: mapLatenessOpenStats(type.open),
+      })),
+    },
+    operational: {
+      delayedJobCount: Number(row.operational_delayed_job_count),
+      incidentCount: Number(row.operational_incident_count),
+      byReason: row.by_reason.map((reason) => ({
+        reasonCode: reason.reasonCode,
+        incidentCount: Number(reason.incidentCount),
+      })),
+    },
+  };
+}
+
+function mapOrganizationLatenessSummary(
+  row: OrganizationLatenessSummaryRow,
+): OrganizationLatenessAggregate {
+  return {
+    range: {
+      from: row.from,
+      to: row.to,
+      timezone: row.timezone,
+    },
+    totalIncidentCount: Number(row.total_incident_count),
+    staffResponsibility: {
+      delayedJobCount: Number(row.staff_responsibility_delayed_job_count),
+      incidentCount: Number(row.staff_responsibility_incident_count),
+    },
+    operational: {
+      delayedJobCount: Number(row.operational_delayed_job_count),
+      incidentCount: Number(row.operational_incident_count),
+    },
+    unknownAccountability: {
+      delayedJobCount: Number(row.unknown_delayed_job_count),
+      incidentCount: Number(row.unknown_incident_count),
+    },
+    managementApprovalWait: {
+      delayedJobCount: Number(row.management_delayed_job_count),
+      incidentCount: Number(row.management_incident_count),
+      recovered: mapLatenessDurationStats(row.management_recovered),
+      open: mapLatenessOpenStats(row.management_open),
+    },
+  };
+}
+
+function mapLatenessIncident(row: LatenessIncidentRow): StaffLatenessIncidentItem {
+  if (row.delay_type !== 'LATE_START' && row.delay_type !== 'LATE_SUBMISSION') {
+    throw new Error('Staff lateness incident delay type invariant could not be resolved.');
+  }
+  return {
+    incidentId: row.incident_id,
+    delayType: row.delay_type,
+    episodeNo: Number(row.episode_no),
+    scheduleRevisionNo: Number(row.schedule_revision_no),
+    deadlineAt: row.deadline_at.toISOString(),
+    breachedAt: row.breached_at.toISOString(),
+    outcome: row.outcome,
+    closedAt: row.closed_at === null ? null : row.closed_at.toISOString(),
+    durationSeconds: Number(row.duration_seconds),
+    operationalReason: row.operational_reason_code !== null
+      && row.operational_resolution !== null
+      && row.operational_resolved_at !== null
+      ? {
+          reasonCode: row.operational_reason_code,
+          resolution: row.operational_resolution,
+          resolvedAt: row.operational_resolved_at.toISOString(),
+        }
+      : null,
+    job: row.job === null
+      ? null
+      : { ...row.job, jobPath: `/jobs/${row.job.id}` },
+  };
+}
+
 function mapStaffSummary(row: StaffSummaryRow): StaffOperationalSummary {
   return {
     staffUserId: row.staff_user_id,
@@ -1760,6 +2260,83 @@ class PostgresReportsReadModel implements ReportsReadModel {
           createdAt: row.created_at.toISOString(),
         }
       : null;
+  }
+
+  async getStaffLatenessSummary(
+    input: StaffOperationalSummaryOneInput,
+  ): Promise<StaffLatenessAggregate> {
+    const result = await this.executor.query<StaffLatenessSummaryRow>(
+      STAFF_LATENESS_SUMMARY_SQL(input.includeSaleCapability !== false),
+      [
+        input.organizationId,
+        input.requestedRange?.from ?? null,
+        input.requestedRange?.to ?? null,
+        input.requestTime,
+        input.staffUserId,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('Staff lateness summary could not be resolved.');
+    // Contract §4.1: the producer never writes a STAFF_PROVEN row of another
+    // delay type; if one exists the read fails closed instead of hiding it.
+    if (Number(row.invalid_delay_type_count) !== 0) {
+      throw new Error('Staff lateness delay type invariant could not be resolved.');
+    }
+    return mapStaffLatenessSummary(row);
+  }
+
+  async getOrganizationLatenessSummary(
+    input: StaffOperationalSummaryScope,
+  ): Promise<OrganizationLatenessAggregate> {
+    const result = await this.executor.query<OrganizationLatenessSummaryRow>(
+      ORGANIZATION_LATENESS_SUMMARY_SQL(input.includeSaleCapability !== false),
+      [
+        input.organizationId,
+        input.requestedRange?.from ?? null,
+        input.requestedRange?.to ?? null,
+        input.requestTime,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('Organization lateness summary could not be resolved.');
+    return mapOrganizationLatenessSummary(row);
+  }
+
+  async listStaffLatenessIncidents(
+    input: StaffLatenessIncidentListInput,
+  ): Promise<StaffLatenessIncidentListResponse> {
+    const rangeValues = [
+      input.organizationId,
+      input.requestedRange?.from ?? null,
+      input.requestedRange?.to ?? null,
+      input.requestTime,
+    ];
+    const scopeValues = [...rangeValues, input.staffUserId];
+    const rangeResult = await this.executor.query<ResolvedReportRangeRow>(
+      RESOLVED_REPORT_RANGE_SQL,
+      rangeValues,
+    );
+    const resolvedRange = rangeResult.rows[0];
+    if (!resolvedRange) {
+      throw new Error('Staff lateness incident organization range could not be resolved.');
+    }
+    const [countResult, pageResult] = await Promise.all([
+      this.executor.query<{ total: string | number }>(
+        STAFF_LATENESS_INCIDENT_COUNT_SQL(input.includeSaleCapability !== false),
+        scopeValues,
+      ),
+      this.executor.query<LatenessIncidentRow>(
+        STAFF_LATENESS_INCIDENTS_SQL(input.includeSaleCapability !== false),
+        [...scopeValues, input.limit, input.offset, input.viewer.role, input.viewer.userId],
+      ),
+    ]);
+    return {
+      range: resolvedRange,
+      items: pageResult.rows.map(mapLatenessIncident),
+      total: Number(countResult.rows[0]?.total ?? 0),
+      limit: input.limit,
+      offset: input.offset,
+    };
   }
 
   async getStaffDeliveriesByPurpose(

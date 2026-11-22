@@ -1,3 +1,4 @@
+import { assigneeAtInstantSql } from './assignment-history-sql.js';
 import { PostgresSaleReader, type SaleReadPort } from './sale-reader.js';
 import { PostgresSaleTransaction, selectSaleSubmission, type SaleTransaction, type SaleSubmissionSnapshot } from './sale-repository.js';
 import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type CustomerVisitDuplicate } from './customer-schedule.js';
@@ -4234,11 +4235,12 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     // accountability. The current assignee is never consulted: whoever owns
     // the job when the incident is read (or recovered) must not leak into
     // who was accountable at the breach instant.
-    const result = await this.client.query<{ to_user_id: string }>(
-      `SELECT to_user_id FROM job_card_assignment_history
-        WHERE organization_id = $1 AND job_card_id = $2 AND changed_at <= $3
-        ORDER BY changed_at DESC, id DESC
-        LIMIT 1`,
+    const result = await this.client.query<{ to_user_id: string | null }>(
+      `SELECT ${assigneeAtInstantSql({
+        organizationId: '$1',
+        jobCardId: '$2',
+        instant: '$3',
+      })} AS to_user_id`,
       [organizationId, jobCardId, instant],
     );
     return result.rows[0]?.to_user_id ?? null;

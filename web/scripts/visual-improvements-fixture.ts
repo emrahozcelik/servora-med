@@ -95,6 +95,25 @@ export const report: StaffReportResponse = {
   deliveriesByPurpose: [],
   meetingsByOutcome: [{ outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 1 },
     { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 }],
+  lateness: {
+    trackingStartedOn: '2026-09-21',
+    generatedAt: '2026-11-30T12:00:00.000Z',
+    staffResponsibility: {
+      delayedJobCount: 0,
+      incidentCount: 0,
+      byType: [
+        { delayType: 'LATE_START', incidentCount: 0,
+          recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+          extended: { count: 0, medianSeconds: null, maxSeconds: null },
+          open: { count: 0, maxElapsedSeconds: null } },
+        { delayType: 'LATE_SUBMISSION', incidentCount: 0,
+          recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+          extended: { count: 0, medianSeconds: null, maxSeconds: null },
+          open: { count: 0, maxElapsedSeconds: null } },
+      ],
+    },
+    operational: { delayedJobCount: 0, incidentCount: 0, byReason: [] },
+  },
 };
 export const weekly: WeeklyReportHistoryItem[] = [{
   reportId: 'weekly-1', jobCardId: 'weekly-job', staffUserId: staffId,
