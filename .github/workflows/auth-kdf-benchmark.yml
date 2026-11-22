@@ -23,7 +23,7 @@ defaults:
 jobs:
   benchmark:
     name: Bounded auth KDF benchmark (2 CPU / 4 GiB)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
     container:
       image: node:22-bookworm

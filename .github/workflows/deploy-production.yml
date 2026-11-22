@@ -24,7 +24,7 @@ jobs:
   deploy:
     name: Controlled production deployment
     # Playwright 1.55.1 supports Ubuntu 24.04; keep this aligned with the web CI job.
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 60
     environment:
       name: production
