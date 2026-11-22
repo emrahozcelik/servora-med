@@ -20,6 +20,11 @@ export const NOTIFICATION_KINDS = [
   'job.acceptance_reminder',
   'job.assignment_declined',
   'job.acceptance_expired',
+  // OVR-6: quiet-hours-gated automatic lateness alerts (start reminder,
+  // approval-wait alert, unaccepted past-start alert).
+  'job.start_reminder',
+  'job.approval_wait_alert',
+  'job.pending_acceptance_alert',
   'calendar.assigned',
   'calendar.rescheduled',
   'calendar.cancelled',

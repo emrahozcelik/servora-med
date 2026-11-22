@@ -17,6 +17,7 @@ import {
   assertCanListOpenChangeRequests,
   assertCanReofferAssignment,
   assertCanListAssignmentOffersNeedingAction,
+  assertCanListUnacceptedPastStart,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -139,6 +140,7 @@ import {
   type JobAssignmentOfferWithdrawReasonCode,
   type JobAssignmentOfferView,
   type NeedsActionAssignmentOfferItem,
+  type UnacceptedPastStartItem,
   type PastStartAcknowledgementInput,
   type ReofferAssignmentInput,
   type ReofferAssignmentReceipt,
@@ -5062,6 +5064,48 @@ export class JobCardService {
           ? null
           : { id: item.customerId, name: item.customerName ?? 'Belirtilmedi' },
         jobPath: `/jobs/${item.jobCardId}`,
+      })),
+      total: result.total,
+      limit: page.limit,
+      offset: page.offset,
+    };
+  }
+
+  /**
+   * OVR-6 §6.2: jobs JOB-010 does not own whose planned start passed without an
+   * acceptance. Read-time clock, oldest planned start first, management only.
+   * The list itself is never quiet-hours gated; only the automatic alert is.
+   */
+  async listUnacceptedPastStart(
+    actor: JobCardActor,
+    page: PageQuery,
+  ): Promise<{
+    items: UnacceptedPastStartItem[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    assertCanListUnacceptedPastStart(actor);
+    const requestTime = this.now();
+    const result = await this.repository.listUnacceptedPastStart({
+      organizationId: actor.organizationId,
+      requestTime,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return {
+      items: result.items.map((item) => ({
+        jobCardId: item.jobCardId,
+        title: item.jobTitle,
+        type: item.jobType,
+        jobPath: `/jobs/${item.jobCardId}`,
+        assignee: { id: item.assigneeId, name: item.assigneeName, active: item.assigneeActive },
+        scheduledAt: item.scheduledAt.toISOString(),
+        elapsedSeconds: Math.max(
+          0,
+          Math.floor((requestTime.valueOf() - item.scheduledAt.valueOf()) / 1000),
+        ),
+        hasOpenChangeRequest: item.hasOpenChangeRequest,
       })),
       total: result.total,
       limit: page.limit,

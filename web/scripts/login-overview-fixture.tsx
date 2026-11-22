@@ -2,9 +2,9 @@
  * Rendered fixture for the login and overview surfaces (UI audit F-16/F-17).
  *
  * Real production components, providers and CSS with deterministic synthetic
- * medical/dental data. No server, no database and no live API: the only
- * endpoint the overview tree would call (open late submissions) is answered
- * with an empty page at the fetch boundary.
+ * medical/dental data. No server, no database and no live API: the overview
+ * list endpoints that would otherwise run are answered with an empty page at
+ * the fetch boundary.
  */
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
@@ -80,7 +80,7 @@ export function buildOverview(unreadTotal: number): OverviewResponse {
   };
 }
 
-function stubLateSubmissionFetch() {
+function stubOverviewListFetch() {
   const originalFetch = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string'
@@ -88,7 +88,8 @@ function stubLateSubmissionFetch() {
       : input instanceof URL
         ? input.toString()
         : input.url;
-    if (url.includes('/api/job-cards/submission-late/open')) {
+    if (url.includes('/api/job-cards/submission-late/open')
+      || url.includes('/api/job-cards/pending-acceptance/past-start')) {
       return Promise.resolve(new Response(
         JSON.stringify({ items: [], total: 0, limit: 20, offset: 0 }),
         { status: 200, headers: { 'content-type': 'application/json' } },
@@ -116,7 +117,7 @@ if (surface === 'password-change') {
     </ServoraAntProvider>,
   );
 } else if (surface === 'overview') {
-  stubLateSubmissionFetch();
+  stubOverviewListFetch();
   const unreadTotal = Number(params.get('unread') ?? '0');
   createRoot(rootElement).render(
     <ServoraAntProvider>

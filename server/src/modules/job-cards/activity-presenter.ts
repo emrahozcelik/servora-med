@@ -306,6 +306,12 @@ function details(
     // facts in metadata; the timeline renders a plain fact and the
     // management-only incident history owns the details.
     case 'JOB_OVERDUE_ENDED_BY_EXTENSION':
+    // OVR-6: the automatic lateness alerts carry their semantics in metadata
+    // (kind, planned start / incident, delivery identity, sentAt); the
+    // timeline renders them as plain facts, never as a status transition.
+    case 'JOB_START_REMINDER_SENT':
+    case 'JOB_APPROVAL_WAIT_ALERT_SENT':
+    case 'JOB_PENDING_ACCEPTANCE_ALERT_SENT':
       return { kind: 'NONE' };
     case 'JOB_ASSIGNED':
     case 'JOB_FIELDS_UPDATED':

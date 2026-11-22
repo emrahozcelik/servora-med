@@ -3231,3 +3231,38 @@ management decision list.
   Right after the release, old-convention reports labelled with the release
   week or later are removed with the Admin removal command (history kept);
   older reports are untouched. Release order: 066 → 067 → 068.
+
+## OVR-6 — Lateness notifications: quiet hours, start reminder and management alerts
+
+- **Date:** 2026-11-22
+- **Status:** Accepted product contract (owner: stage-2 direction 2026-11-20,
+  Q1–Q4 answered 2026-11-21, owner review revisions and "evet başlayalım"
+  2026-11-22). Contract:
+  [lateness-notifications-quiet-hours.md](./docs/features/lateness-notifications-quiet-hours.md).
+  Amends OVR-4 send timing.
+
+### Decision
+
+1. Lateness-related automatic operational alerts (OVR-4 reminder and
+   escalation, start reminder, approval-wait alert, unaccepted-job alert) are
+   sent only Monday–Saturday 08:00–21:00 organization time; Sunday is closed.
+   Deferral changes sending time only, never incidents, deadlines or
+   thresholds. JOB-010 acceptance, calendar and request-driven notifications
+   are not deferred.
+2. Staff get one start reminder 15 minutes after the planned start of an
+   accepted, unstarted job (per planned start and recipient); it is not
+   lateness and `LATE_START` is unchanged.
+3. Management gets one alert per open `APPROVAL_WAIT` incident, not while a
+   change request is open.
+4. Unaccepted past-start jobs that JOB-010 does not own (ownership matrix in
+   the contract) get a management list and one alert per planned start, not
+   while a change request is open; never Staff lateness.
+5. Delivery state, activity, realtime, in-app notifications and Web Push queue
+   rows are written atomically; identity per planned start / incident.
+
+### Consequences
+
+- Migration 069 (delivery table, incident composite key, widened notification
+  and activity CHECKs). New worker behind `LATENESS_ALERTS_ENABLED`; activation
+  and rollback require the read-only evidence in the contract §9.
+

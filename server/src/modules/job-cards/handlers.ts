@@ -335,6 +335,10 @@ export function createJobCardHandlers(service: JobCardService) {
     )),
     listAssignmentOffersNeedingAction: async (request: FastifyRequest) =>
       service.listAssignmentOffersNeedingAction(actor(request), page(request.query, 25)),
+    // OVR-6 §6.2: the management unaccepted past-start list shares the
+    // needs-action pagination contract (limit/offset, default 25).
+    listUnacceptedPastStart: async (request: FastifyRequest) =>
+      service.listUnacceptedPastStart(actor(request), page(request.query, 25)),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
       service.start(
         actor(request),

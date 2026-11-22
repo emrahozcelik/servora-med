@@ -14,6 +14,7 @@ import {
   PostgresOverdueReminderWorkerRepository,
   createOverdueReminderWorker,
 } from '../src/modules/job-cards/overdue-reminder-worker.js';
+import { ALWAYS_OPEN_NOTIFICATION_WINDOW } from '../src/modules/notifications/quiet-hours.js';
 import { resolveOverdueReminderTiming } from '../src/modules/job-cards/overdue-reminder-policy.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
@@ -230,7 +231,9 @@ async function scanOnce(pool: Pool, scanTime: Date) {
 function reminderWorker(pool: Pool, published: RealtimeEventRecord[]) {
   const repository = new PostgresJobCardRepository(pool);
   return createOverdueReminderWorker(
-    new PostgresOverdueReminderWorkerRepository(repository, false),
+    new PostgresOverdueReminderWorkerRepository(
+      repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+    ),
     {
       publisher: { publish: (event) => published.push(event) },
       timing: {},
@@ -247,7 +250,9 @@ function boundedReminderWorker(
 ) {
   const repository = new PostgresJobCardRepository(pool);
   return createOverdueReminderWorker(
-    new PostgresOverdueReminderWorkerRepository(repository, false),
+    new PostgresOverdueReminderWorkerRepository(
+      repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+    ),
     {
       publisher: { publish: (event) => published.push(event) },
       timing,
@@ -747,7 +752,9 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
 
       const repository = new PostgresJobCardRepository(pool);
-      const workerRepository = new PostgresOverdueReminderWorkerRepository(repository, false);
+      const workerRepository = new PostgresOverdueReminderWorkerRepository(
+        repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      );
       const scanTime = shiftMs(breachedAt, 61 * 60_000);
       const candidate = { organizationId, jobCardId: job.id };
       const [first, second] = await Promise.all([
@@ -1069,7 +1076,12 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       );
 
       const repository = new PostgresJobCardRepository(pool);
-      const selected = await repository.listDueOpenSubmissionLateEpisodes({ scanTime: dueAt, timing: TIMING, limit: 2 });
+      const selected = await repository.listDueOpenSubmissionLateEpisodes({
+        scanTime: dueAt,
+        timing: TIMING,
+        limit: 2,
+        notificationWindow: ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      });
       expect(selected.map((candidate) => candidate.jobCardId)).toHaveLength(2);
       const blocked = jobsWithStaff.find(({ job }) => job.id === selected[0]!.jobCardId)!;
       const unblocked = jobsWithStaff.filter(({ job }) => job.id !== blocked.job.id);
@@ -1079,7 +1091,12 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
         [organizationId, blocked.staffId],
       );
 
-      const next = await repository.listDueOpenSubmissionLateEpisodes({ scanTime: dueAt, timing: TIMING, limit: 2 });
+      const next = await repository.listDueOpenSubmissionLateEpisodes({
+        scanTime: dueAt,
+        timing: TIMING,
+        limit: 2,
+        notificationWindow: ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      });
       expect(next.map((candidate) => candidate.jobCardId).sort()).toEqual(
         unblocked.map(({ job }) => job.id).sort(),
       );
@@ -1151,7 +1168,9 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       // a transport failure is contained per candidate and converges on retry.
       const repository = new PostgresJobCardRepository(pool);
       const worker = createOverdueReminderWorker(
-        new PostgresOverdueReminderWorkerRepository(repository, false),
+        new PostgresOverdueReminderWorkerRepository(
+          repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+        ),
         { publisher: failingPublisher, timing: {}, batchSize: 50 },
       );
       // Delivery + notification rows commit before the transport publish,

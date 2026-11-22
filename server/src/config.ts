@@ -16,6 +16,17 @@ import {
   OVERDUE_SUBMISSION_STAFF_REMINDER_DELAY_MS,
 } from './modules/job-cards/overdue-reminder-policy.js';
 import {
+  LATENESS_ALERT_BATCH_MAX_SIZE,
+  LATENESS_ALERT_BATCH_MIN_SIZE,
+  LATENESS_ALERT_BATCH_SIZE,
+  LATENESS_ALERT_POLL_INTERVAL_MAX_MS,
+  LATENESS_ALERT_POLL_INTERVAL_MIN_MS,
+  LATENESS_ALERT_POLL_INTERVAL_MS,
+  LATENESS_ALERT_START_REMINDER_DELAY_MAX_MS,
+  LATENESS_ALERT_START_REMINDER_DELAY_MIN_MS,
+  START_REMINDER_DELAY_MS,
+} from './modules/job-cards/lateness-alert-policy.js';
+import {
   validateR2AccountId,
   validateR2BucketName,
   validateR2Credential,
@@ -106,6 +117,21 @@ export type OverdueReminderConfig = {
 };
 
 /**
+ * OVR-6 lateness alert worker runtime configuration. Optional by design,
+ * mirroring the OVR-3 scanner and OVR-4 reminder: `LATENESS_ALERTS_ENABLED`
+ * must be set explicitly, so an unconfigured deployment never starts a
+ * background notification writer it did not ask for. Defaults live in the
+ * domain policy module (`lateness-alert-policy.ts`); this surface only carries
+ * them.
+ */
+export type LatenessAlertsConfig = {
+  enabled: boolean;
+  pollIntervalMs: number;
+  batchSize: number;
+  startReminderDelayMs: number;
+};
+
+/**
  * JOB-010 release 2b assignment acceptance window runtime configuration.
  * `JOB_ASSIGNMENT_WINDOW_ENABLED` is read explicitly with a `false` default,
  * so an unconfigured deployment keeps the release 2a behaviour exactly: no
@@ -187,6 +213,8 @@ export type AppConfig = {
   overdueScanner?: OverdueScannerConfig;
   /** Optional: present only when OVERDUE_REMINDER_* is configured. */
   overdueReminder?: OverdueReminderConfig;
+  /** Optional: present only when LATENESS_ALERTS_* is configured (OVR-6). */
+  latenessAlerts?: LatenessAlertsConfig;
   /**
    * JOB-010 release 2b: assignment acceptance window. Optional so existing
    * API-only config fixtures remain source-compatible; `loadConfig` always
@@ -423,6 +451,38 @@ function readOverdueReminderConfig(env: NodeJS.ProcessEnv): OverdueReminderConfi
       'OVERDUE_REMINDER_ESCALATION_DELAY_MS',
       60_000,
       86_400_000,
+    ),
+  };
+}
+
+/**
+ * OVR-6: the lateness alert worker is constructed only when
+ * `LATENESS_ALERTS_ENABLED` resolves to true. Every value is validated even
+ * while the flag is off, so a typo cannot hide until activation.
+ */
+function readLatenessAlertsConfig(env: NodeJS.ProcessEnv): LatenessAlertsConfig {
+  return {
+    enabled: readBoolean(env.LATENESS_ALERTS_ENABLED, 'LATENESS_ALERTS_ENABLED'),
+    pollIntervalMs: readIntegerInRange(
+      env.LATENESS_ALERTS_POLL_INTERVAL_MS,
+      LATENESS_ALERT_POLL_INTERVAL_MS,
+      'LATENESS_ALERTS_POLL_INTERVAL_MS',
+      LATENESS_ALERT_POLL_INTERVAL_MIN_MS,
+      LATENESS_ALERT_POLL_INTERVAL_MAX_MS,
+    ),
+    batchSize: readIntegerInRange(
+      env.LATENESS_ALERTS_BATCH_SIZE,
+      LATENESS_ALERT_BATCH_SIZE,
+      'LATENESS_ALERTS_BATCH_SIZE',
+      LATENESS_ALERT_BATCH_MIN_SIZE,
+      LATENESS_ALERT_BATCH_MAX_SIZE,
+    ),
+    startReminderDelayMs: readIntegerInRange(
+      env.LATENESS_ALERTS_START_REMINDER_DELAY_MS,
+      START_REMINDER_DELAY_MS,
+      'LATENESS_ALERTS_START_REMINDER_DELAY_MS',
+      LATENESS_ALERT_START_REMINDER_DELAY_MIN_MS,
+      LATENESS_ALERT_START_REMINDER_DELAY_MAX_MS,
     ),
   };
 }
@@ -817,6 +877,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hasBackupWorkerConfig = Object.keys(env).some((key) => key.startsWith('BACKUP_WORKER_'));
   const hasOverdueScannerConfig = Object.keys(env).some((key) => key.startsWith('OVERDUE_SCANNER_'));
   const hasOverdueReminderConfig = Object.keys(env).some((key) => key.startsWith('OVERDUE_REMINDER_'));
+  const hasLatenessAlertsConfig = Object.keys(env).some((key) => key.startsWith('LATENESS_ALERTS_'));
 
   return {
     duplicateComparison,
@@ -901,6 +962,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hasBackupWorkerConfig ? { backupWorker: readBackupWorkerConfig(env) } : {}),
     ...(hasOverdueScannerConfig ? { overdueScanner: readOverdueScannerConfig(env) } : {}),
     ...(hasOverdueReminderConfig ? { overdueReminder: readOverdueReminderConfig(env) } : {}),
+    ...(hasLatenessAlertsConfig ? { latenessAlerts: readLatenessAlertsConfig(env) } : {}),
   };
 }
 

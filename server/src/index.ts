@@ -51,6 +51,10 @@ import {
   PostgresAssignmentOfferExpiryRepository,
   createAssignmentOfferExpiryWorker,
 } from './modules/job-cards/assignment-offer-expiry-worker.js';
+import {
+  PostgresLatenessAlertWorkerRepository,
+  createLatenessAlertWorker,
+} from './modules/job-cards/lateness-alert-worker.js';
 
 /**
  * Selects exactly one backup observability provider (DECISIONS.md -> OPS-004
@@ -240,6 +244,30 @@ async function main() {
                 },
               },
             ),
+          }
+        : {}),
+      // OVR-6: the lateness alert worker (start reminder, approval-wait alert,
+      // unaccepted past-start alert) is constructed only when explicitly
+      // enabled, so a default deployment sends no new automatic notification.
+      // Production activation is a separate owner-approved step (contract §9).
+      ...(config.latenessAlerts?.enabled === true
+        ? {
+            latenessAlertWorker: createLatenessAlertWorker({
+              repository: new PostgresLatenessAlertWorkerRepository(jobCards),
+              publisher: realtimeBus,
+              webPushEnabled: config.webPush.enabled,
+              timing: {
+                startReminderDelayMs: config.latenessAlerts.startReminderDelayMs,
+              },
+              pollIntervalMs: config.latenessAlerts.pollIntervalMs,
+              batchSize: config.latenessAlerts.batchSize,
+              logger: {
+                debug: (fields, message) => app?.log.debug(fields, message),
+                error: (fields, message) => {
+                  console.error(message, fields);
+                },
+              },
+            }),
           }
         : {}),
       staffConfidentialNotesRepository: new PostgresStaffConfidentialNotesRepository(

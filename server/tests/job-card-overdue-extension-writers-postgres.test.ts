@@ -39,6 +39,7 @@ import {
   PostgresOverdueReminderWorkerRepository,
   createOverdueReminderWorker,
 } from '../src/modules/job-cards/overdue-reminder-worker.js';
+import { ALWAYS_OPEN_NOTIFICATION_WINDOW } from '../src/modules/notifications/quiet-hours.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
@@ -178,7 +179,9 @@ function buildService(
 function reminderWorker(pool: Pool) {
   const repository = new PostgresJobCardRepository(pool);
   return createOverdueReminderWorker(
-    new PostgresOverdueReminderWorkerRepository(repository, false),
+    new PostgresOverdueReminderWorkerRepository(
+      repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+    ),
     { publisher: { publish: () => undefined }, timing: {}, batchSize: 50 },
   );
 }

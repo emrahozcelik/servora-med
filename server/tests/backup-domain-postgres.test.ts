@@ -91,7 +91,7 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     const version = await pool!.query<{ version: string }>(
       'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
     );
-    expect(version.rows[0]!.version).toBe('068_weekly_report_workweek');
+    expect(version.rows[0]!.version).toBe('069_lateness_alerts_and_quiet_hours');
 
     const policyCount = await pool!.query<{ count: number }>(
       'SELECT COUNT(*)::int AS count FROM backup_policy',

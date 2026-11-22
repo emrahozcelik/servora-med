@@ -1202,6 +1202,27 @@ Management only. Jobs still `NEW` whose latest offer is `DECLINED`, `RELEASED`, 
 urgentReason, scheduledAt, assignee: { id, name }, customer: { id, name } | null, jobPath }`,
 plus `total`, `limit`, `offset`.
 
+`GET /api/job-cards/pending-acceptance/past-start?limit&offset`
+
+Management only (`403 FORBIDDEN` before any lookup). `NEW` jobs with an assignee whose
+`scheduled_at` has passed and that JOB-010 does not own: no offer at all, a stale
+`ACCEPTED` offer, or a `WITHDRAWN` offer whose reason is not `PLANNED_WINDOW_PASSED` (the
+OVR-6 ownership matrix). A still answerable `OPEN` offer keeps the job in the offer flow
+and on **neither** list, and every offer state the needs-action list claims is never
+listed here, so a job has exactly one owner. Evaluated against the request clock, oldest
+planned start first; a job with an open change request stays listed but receives no
+notification. Item:
+`{ jobCardId, title, type, jobPath, assignee: { id, name, active }, scheduledAt,
+elapsedSeconds, hasOpenChangeRequest }`, plus `total`, `limit`, `offset`. This list is
+never quiet-hours gated; only the automatic alert is.
+
+With `LATENESS_ALERTS_ENABLED=true` the worker writes one activity per delivery
+(`JOB_START_REMINDER_SENT`, `JOB_APPROVAL_WAIT_ALERT_SENT`,
+`JOB_PENDING_ACCEPTANCE_ALERT_SENT`) and one in-app notification per recipient
+(`job.start_reminder` → the assignee, `job.approval_wait_alert` and
+`job.pending_acceptance_alert` → every active MANAGER/ADMIN at send time). All three are
+sent only Monday–Saturday 08:00–21:00 organization time; outside that window they wait.
+
 The job detail exposes the latest offer as
 `assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name } } | null`
 (management and assignee); an `OPEN` offer past its deadline is presented with

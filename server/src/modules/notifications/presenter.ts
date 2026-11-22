@@ -51,6 +51,22 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
     title: 'Görev kabul süresi doldu',
     body: 'Atanan iş için kabul süresi yanıtlanmadan doldu. İş iptal edilmedi; lütfen atamayı yenileyin veya işi yeniden planlayın.',
   },
+  // OVR-6 static copy (contract §4.4, §5.3, §6.3). These are operational
+  // facts, never blame: the start reminder is not lateness, the approval-wait
+  // alert is a management delay and the unaccepted-job alert is a management
+  // list entry.
+  'job.start_reminder': {
+    title: 'Planlanan başlangıç geçti',
+    body: 'Planlanan başlangıç saati geçti. İşi başlatın ya da değişiklik talebi gönderin.',
+  },
+  'job.approval_wait_alert': {
+    title: 'Onay bekleyen iş 24 saati aştı',
+    body: 'Bir işin yönetici onayı 24 saati aştı.',
+  },
+  'job.pending_acceptance_alert': {
+    title: 'Kabul edilmemiş iş',
+    body: 'Bir işin planlanan saati geçti ve henüz kabul edilmedi.',
+  },
   'calendar.assigned': {
     title: 'Yeni takvim planı',
     body: 'Takviminize yeni bir plan eklendi.',

@@ -33,6 +33,10 @@ import { mapJobCardActivityToRealtime } from '../realtime/event-mapper.js';
 import type { RealtimeEventRecord } from '../realtime/types.js';
 import type { NotificationDraft } from '../notifications/types.js';
 import {
+  DEFAULT_NOTIFICATION_WINDOW,
+  type NotificationWindowPolicy,
+} from '../notifications/quiet-hours.js';
+import {
   dueOverdueReminderKinds,
   resolveOverdueReminderTiming,
   type OverdueReminderKind,
@@ -56,7 +60,13 @@ export type OverdueReminderCandidateOutcome =
   | { kind: 'skipped-state-changed' }
   | { kind: 'skipped-recipient-unprovable' }
   /** JOB-010 release 2a: an OPEN change/termination request pauses OVR-4. */
-  | { kind: 'skipped-change-request-open' };
+  | { kind: 'skipped-change-request-open' }
+  /**
+   * OVR-6 §3.6: the sending window closed between discovery and the under-lock
+   * re-check. Nothing is written; the first tick inside the next window sends
+   * the reminder if it is still due and eligible.
+   */
+  | { kind: 'deferred-quiet-hours' };
 
 /** Bounded operational visibility for one worker iteration. */
 export type OverdueReminderIterationReport = {
@@ -69,6 +79,8 @@ export type OverdueReminderIterationReport = {
   skippedStateChanged: number;
   skippedRecipientUnprovable: number;
   skippedChangeRequestOpen: number;
+  /** OVR-6 §3.6: candidates whose under-lock window check found it closed. */
+  deferredQuietHours: number;
   failed: number;
   byKind: Readonly<Record<OverdueReminderKind, number>>;
 };
@@ -100,13 +112,22 @@ const NOTIFICATION_KIND_BY_KIND = {
 
 export class PostgresOverdueReminderWorkerRepository
 implements OverdueReminderWorkerRepository {
+  /**
+   * OVR-6 §3.4: the sending window is injected (default: the real one). Both
+   * discovery and the under-lock re-check use this single policy instance, so
+   * a test that opens the window cannot disagree with production SQL.
+   */
   constructor(
     private readonly repository: JobCardRepository,
     private readonly webPushEnabled: boolean = false,
+    private readonly notificationWindow: NotificationWindowPolicy = DEFAULT_NOTIFICATION_WINDOW,
   ) {}
 
   listCandidates(input: { scanTime: Date; timing: ResolvedOverdueReminderTiming; limit: number }) {
-    return this.repository.listDueOpenSubmissionLateEpisodes(input);
+    return this.repository.listDueOpenSubmissionLateEpisodes({
+      ...input,
+      notificationWindow: this.notificationWindow,
+    });
   }
 
   async processCandidate(input: {
@@ -120,6 +141,13 @@ implements OverdueReminderWorkerRepository {
       if (job === null
         || !(SUBMITTABLE_STATUSES as readonly string[]).includes(job.status)) {
         return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
+      }
+      // OVR-6 §3.5/§3.6: the window is a due-gate evaluated at `scanTime`,
+      // re-checked under the lock. A candidate discovered inside the window
+      // whose boundary passed while waiting is deferred with nothing written.
+      const timezone = await tx.getOrganizationTimezone(organizationId);
+      if (!this.notificationWindow.isOpen(input.scanTime, timezone)) {
+        return { outcome: { kind: 'deferred-quiet-hours' }, realtimeEvents: [] };
       }
       // JOB-010 release 2a (D1 §5): re-check the OPEN change/termination
       // request under the JobCard lock. The discovery prefilter already
@@ -381,6 +409,7 @@ export function createOverdueReminderWorker(
       skippedStateChanged: 0,
       skippedRecipientUnprovable: 0,
       skippedChangeRequestOpen: 0,
+      deferredQuietHours: 0,
       failed: 0,
     };
     const candidates = await repository.listCandidates({ scanTime, timing, limit: batchSize });
@@ -403,6 +432,7 @@ export function createOverdueReminderWorker(
           case 'skipped-state-changed': counts.skippedStateChanged += 1; break;
           case 'skipped-recipient-unprovable': counts.skippedRecipientUnprovable += 1; break;
           case 'skipped-change-request-open': counts.skippedChangeRequestOpen += 1; break;
+          case 'deferred-quiet-hours': counts.deferredQuietHours += 1; break;
         }
         for (const event of realtimeEvents) publisher.publish(event);
       } catch (error) {
@@ -454,6 +484,7 @@ function runOnceFailedReport(scanTime: Date): OverdueReminderIterationReport {
     skippedStateChanged: 0,
     skippedRecipientUnprovable: 0,
     skippedChangeRequestOpen: 0,
+    deferredQuietHours: 0,
     failed: 1,
     byKind: { STAFF_REMINDER: 0, MANAGEMENT_ESCALATION: 0 },
   };
