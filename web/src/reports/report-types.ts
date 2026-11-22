@@ -1,4 +1,5 @@
 import type {
+  ChangeRequestReasonCode,
   DeliveryPurpose,
   JobCardStatus,
   JobCardType,
@@ -155,6 +156,8 @@ export type StaffReportResponse = {
   deliveriesByPurpose: DeliveryPurposeItem[];
   meetingsByOutcome: Array<{ outcome: MeetingOutcome; count: number }>;
   currentWorkload: StaffCurrentWorkload;
+  /** OVR-7: incidents whose accountability at the breach was this Staff member. */
+  lateness: StaffLatenessSummary;
 };
 
 export type StaffPerformanceItem = {
@@ -175,6 +178,83 @@ export type StaffPerformanceResponse = {
   range: ResolvedReportRange;
   priorRange: ResolvedReportRange;
   items: StaffPerformanceItem[];
+};
+
+/**
+ * OVR-7 lateness reporting. The web renders the server's groups verbatim; no
+ * rate, score, ranking or summed duration is derived here.
+ */
+export type LatenessDelayType = 'LATE_START' | 'LATE_SUBMISSION';
+export type LatenessOutcome = 'RECOVERED' | 'EXTENDED' | 'OPEN';
+export type LatenessDurationStats = {
+  count: number;
+  /** Floor of the median; null exactly when `count` is zero. */
+  medianSeconds: number | null;
+  maxSeconds: number | null;
+};
+export type LatenessOpenStats = { count: number; maxElapsedSeconds: number | null };
+export type LatenessTypeBreakdown = {
+  delayType: LatenessDelayType;
+  incidentCount: number;
+  recovered: LatenessDurationStats;
+  extended: LatenessDurationStats;
+  open: LatenessOpenStats;
+};
+export type LatenessGroupCounts = { delayedJobCount: number; incidentCount: number };
+export type StaffLatenessSummary = {
+  trackingStartedOn: string;
+  generatedAt: string;
+  staffResponsibility: LatenessGroupCounts & {
+    /** Always [LATE_START, LATE_SUBMISSION], fixed order. */
+    byType: LatenessTypeBreakdown[];
+  };
+  operational: LatenessGroupCounts & {
+    byReason: Array<{ reasonCode: ChangeRequestReasonCode; incidentCount: number }>;
+  };
+};
+export type OrganizationLatenessSummary = {
+  range: ResolvedReportRange;
+  trackingStartedOn: string;
+  generatedAt: string;
+  totalIncidentCount: number;
+  staffResponsibility: LatenessGroupCounts;
+  operational: LatenessGroupCounts;
+  unknownAccountability: LatenessGroupCounts;
+  managementApprovalWait: LatenessGroupCounts & {
+    recovered: LatenessDurationStats;
+    open: LatenessOpenStats;
+  };
+};
+export type LatenessOperationalResolution =
+  | 'CANCELLED'
+  | 'CORRECTED'
+  | 'RESCHEDULED'
+  | 'LINKED_JOB_CREATED';
+export type StaffLatenessIncidentItem = {
+  incidentId: string;
+  delayType: LatenessDelayType;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  outcome: LatenessOutcome;
+  /** recovered_at or ended_at; null while the incident is open. */
+  closedAt: string | null;
+  durationSeconds: number;
+  operationalReason: {
+    reasonCode: ChangeRequestReasonCode;
+    resolution: LatenessOperationalResolution;
+    resolvedAt: string;
+  } | null;
+  /** Null for Staff when the job is no longer assigned to them. */
+  job: { id: string; title: string; type: JobCardType; jobPath: string } | null;
+};
+export type StaffLatenessIncidentListResponse = {
+  range: ResolvedReportRange;
+  items: StaffLatenessIncidentItem[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 /** Approval queue rows reuse the persisted list projection, not actor-scoped commands. */
