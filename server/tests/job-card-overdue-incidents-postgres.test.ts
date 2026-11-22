@@ -135,6 +135,17 @@ function shiftMs(base: Date, ms: number): Date {
   return new Date(base.getTime() + ms);
 }
 
+/**
+ * The organization-local (Europe/Istanbul) calendar date of an instant. The
+ * tests derive a due date's local end as `${date}T21:00:00.000Z`, which is only
+ * true for the Istanbul date; the UTC date differs between 21:00 and 24:00 UTC.
+ */
+function istanbulDate(instant: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(instant);
+}
+
 // Mixed lifecycle/patch flows: patch/create paths run on the injected
 // clock while lifecycle paths run on the DB reservation clock. Refresh the
 // injected clock after lifecycle commands so a patch requestTime never
@@ -284,7 +295,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
       const service = buildService(pool, clock);
-      const dueDate = shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const dueDate = istanbulDate(shiftMs(baseline, -3 * 24 * 60 * 60_000));
 
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
@@ -801,7 +812,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         contactId: null,
         assignedTo: staffA.id,
         priority: 'normal',
-        dueDate: shiftMs(baseline, 3 * 24 * 60 * 60_000).toISOString().slice(0, 10),
+        dueDate: istanbulDate(shiftMs(baseline, 3 * 24 * 60 * 60_000)),
         scheduledAt: null,
         scheduledEndsAt: undefined,
         engagementKind: undefined,
@@ -1357,7 +1368,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         contactId: null,
         assignedTo: staffA.id,
         priority: 'normal',
-        dueDate: shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10),
+        dueDate: istanbulDate(shiftMs(baseline, -3 * 24 * 60 * 60_000)),
         scheduledAt: null,
         scheduledEndsAt: undefined,
         engagementKind: undefined,
@@ -1765,7 +1776,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       // Management extends the elapsed deadline into the future with the
       // required reason: the old revision evidence stays, the obligation ends.
       const baseline = await dbBaseline(pool);
-      const futureDue = shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 7 * 24 * 60 * 60_000));
       await syncClock(pool, clock);
       job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
@@ -1904,7 +1915,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const clock = { now: baseline };
       const service = buildService(pool, clock);
       // Old deadline in the future (no rev1 incident), new deadline elapsed.
-      const futureDue = shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 7 * 24 * 60 * 60_000));
       let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
@@ -1974,7 +1985,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const service = buildService(pool, clock);
       // Submit on time against a future due date (no ep1 incident), then
       // revise: episode 2 is pending with the same future deadline.
-      const due = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const due = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       const dueEnd = new Date(`${due}T21:00:00.000Z`);
       let job = await moveToRevisionRequested(
         service, clock, ctx.staffA, ctx.manager, due,
@@ -2014,13 +2025,13 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const clock = { now: baseline };
       const service = buildService(pool, clock);
       // Far-future due: submit on time, then revise (episode 2 pending).
-      const farDue = shiftMs(baseline, 2 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const farDue = istanbulDate(shiftMs(baseline, 2 * 24 * 60 * 60_000));
       let job = await moveToRevisionRequested(
         service, clock, ctx.staffA, ctx.manager, farDue,
       );
       // Backward move to a nearer (but still elapsed-at-request) due date:
       // the new revision breaches at the patch requestTime.
-      const nearDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const nearDue = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       const nearEnd = new Date(`${nearDue}T21:00:00.000Z`);
       clock.now = shiftMs(nearEnd, 60 * 60_000);
       job = await service.patch(ctx.staffA, job.id, {
@@ -2047,7 +2058,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
       const service = buildService(pool, clock);
-      const due = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const due = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       const dueEnd = new Date(`${due}T21:00:00.000Z`);
       let job = await moveToRevisionRequested(
         service, clock, ctx.staffA, ctx.manager, due,
@@ -2312,7 +2323,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const service = buildService(pool, clock);
       // GENERAL_TASK has no interval end (START never attributable), while
       // the past due date makes the submission episode late at CANCEL.
-      const dueDate = shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const dueDate = istanbulDate(shiftMs(baseline, -3 * 24 * 60 * 60_000));
       const dueEnd = new Date(`${dueDate}T21:00:00.000Z`);
       let job = (await service.create(ctx.staffA, {
         clientActionId: randomUUID(),
@@ -2568,7 +2579,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const service = buildService(pool, clock);
       // GENERAL_TASK with a future due date: the first submit lands on time
       // (no ep1 incident). START never attributes (no interval end).
-      const futureDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       let job = (await service.create(ctx.staffA, {
         clientActionId: randomUUID(),
         type: 'GENERAL_TASK',
@@ -2597,7 +2608,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       });
       // Move the due date into the past (new revision).
       await syncClock(pool, clock);
-      const pastDue = shiftMs(baseline, -24 * 60 * 60_000).toISOString().slice(0, 10);
+      const pastDue = istanbulDate(shiftMs(baseline, -24 * 60 * 60_000));
       const pastEnd = new Date(`${pastDue}T21:00:00.000Z`);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
@@ -2710,7 +2721,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const clock = { now: baseline };
       const service = buildService(pool, clock);
       // Future due: the first submit lands on time (no ep1 incident).
-      const futureDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       let job = (await service.create(ctx.staffA, {
         clientActionId: randomUUID(),
         type: 'GENERAL_TASK',
@@ -2745,7 +2756,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       // Move the due date into the past while IN_PROGRESS: the pending
       // episode binds the new revision from the patch requestTime.
       await syncClock(pool, clock);
-      const pastDue = shiftMs(baseline, -24 * 60 * 60_000).toISOString().slice(0, 10);
+      const pastDue = istanbulDate(shiftMs(baseline, -24 * 60 * 60_000));
       const pastEnd = new Date(`${pastDue}T21:00:00.000Z`);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
@@ -2815,7 +2826,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const ctx = await setupOrg(pool);
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
-      const futureDue = shiftMs(baseline, 2 * 86_400_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 2 * 86_400_000));
       const service = buildService(pool, clock);
       let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
@@ -2874,7 +2885,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const ctx = await setupOrg(pool);
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
-      const futureDue = shiftMs(baseline, 2 * 86_400_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 2 * 86_400_000));
       const service = buildService(pool, clock);
       let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
@@ -2897,7 +2908,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const withdraw1At = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_WITHDRAW_FROM_APPROVAL:${job.id}`, withdrawId);
       // Completed episode 2 has no breach. Model an already elapsed deadline
       // before re-arming episode 3; its activation must prevent backdating.
-      const pastDue = shiftMs(baseline, -2 * 86_400_000).toISOString().slice(0, 10);
+      const pastDue = istanbulDate(shiftMs(baseline, -2 * 86_400_000));
       await pool.query('UPDATE job_cards SET due_date=$2 WHERE id=$1', [job.id, pastDue]);
       await pool.query('UPDATE job_card_schedule_revisions SET due_date=$2 WHERE job_card_id=$1', [job.id, pastDue]);
       const withdraw2Id = randomUUID();
