@@ -131,3 +131,13 @@ describe('OVR-5a deadline-extension activity copy', () => {
       .toBe('Gecikme, tarih uzatılmasıyla sonlandırıldı');
   });
 });
+
+describe('OVR-6 lateness alert activity copy', () => {
+  it('labels the three automatic alert events', () => {
+    expect(jobActivityLabel('JOB_START_REMINDER_SENT')).toBe('Başlangıç hatırlatması gönderildi');
+    expect(jobActivityLabel('JOB_APPROVAL_WAIT_ALERT_SENT'))
+      .toBe('Onay beklemesi uyarısı gönderildi');
+    expect(jobActivityLabel('JOB_PENDING_ACCEPTANCE_ALERT_SENT'))
+      .toBe('Kabul bekleyen iş uyarısı gönderildi');
+  });
+});
