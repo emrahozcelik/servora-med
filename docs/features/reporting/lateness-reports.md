@@ -150,8 +150,10 @@ change request exists for the same organization and JobCard with:
     job-cards as one shared SQL renderer, not copied). A Staff member can only
     act on a job currently assigned to them (`policy.ts` `actorCanReachJob`) and
     an assignee is always Staff, so a canceller who was not the assignee was
-    management. When the canceller was the assignee it is not provable
-    management and the incident stays in the Staff group; nothing is guessed.
+    management. When the canceller was the assignee, or the historical assignee
+    cannot be read (no history row or no assignee at that instant), it is not
+    provable management and the incident stays in the Staff group; nothing is
+    guessed.
   - `REJECTED` and the automatic `SUPERSEDED` never qualify.
   A later role change of any user does not change the classification; and
 - an interval that overlaps the incident:

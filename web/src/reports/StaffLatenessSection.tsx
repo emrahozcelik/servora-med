@@ -314,6 +314,10 @@ export function StaffLatenessSection({
         </button>
         <div id={listId}>
           {expanded && <>
+            {/* Loaded rows stay visible while a further page loads. */}
+            {items.length > 0 && <ol className="staff-lateness-records">
+              {items.map((item) => <IncidentRow key={item.incidentId} item={item} timezone={timezone} />)}
+            </ol>}
             {listLoading && <p className="staff-lateness-list-status" aria-busy="true">
               Gecikme kayıtları yükleniyor…
             </p>}
@@ -322,14 +326,13 @@ export function StaffLatenessSection({
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => void fetchPage(0, PAGE_SIZE, 'replace')}
+                onClick={() => void (items.length > 0
+                  ? fetchPage(items.length, PAGE_SIZE, 'append')
+                  : fetchPage(0, PAGE_SIZE, 'replace'))}
               >
                 Tekrar dene
               </button>
             </>}
-            {!listLoading && !listError && items.length > 0 && <ol className="staff-lateness-records">
-              {items.map((item) => <IncidentRow key={item.incidentId} item={item} timezone={timezone} />)}
-            </ol>}
             {!listLoading && !listError && hasMore && <div className="pagination-actions">
               <button
                 type="button"

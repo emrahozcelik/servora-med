@@ -1001,7 +1001,9 @@ const latenessCohortSql = (includeSaleCapability: boolean) => `cohort AS (
         cr.resolution IN ('CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED')
         OR (
           cr.resolution = 'CANCELLED'
-          AND cr.resolved_by IS DISTINCT FROM ${assigneeAtInstantSql({
+          -- An unreadable historical assignee (NULL) is not proof: \`<>\`
+          -- with NULL is never true, so nothing is guessed (contract §4.3).
+          AND cr.resolved_by <> ${assigneeAtInstantSql({
             organizationId: '$1',
             jobCardId: 'classified.job_card_id',
             instant: 'cr.resolved_at',

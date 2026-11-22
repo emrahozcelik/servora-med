@@ -1427,7 +1427,7 @@ describe.skipIf(!databaseUrl)('OVR-7 operational flag', () => {
       });
       expect(report.lateness.staffResponsibility.byType.map(({ delayType, incidentCount }) => (
         [delayType, incidentCount]
-      ))).toEqual([['LATE_START', 1], ['LATE_SUBMISSION', 2]]);
+      ))).toEqual([['LATE_START', 0], ['LATE_SUBMISSION', 3]]);
       expect(report.lateness.operational).toEqual({
         delayedJobCount: 1,
         incidentCount: 1,
@@ -1728,7 +1728,8 @@ describe.skipIf(!databaseUrl)('OVR-7 lateness access boundaries', () => {
         offset: 0,
       });
       expect(own.total).toBe(2);
-      expect(own.items.map(({ job }) => job?.id)).toEqual([transferred, retained]);
+      // Newest breach first; the transferred job's row is concealed (job: null).
+      expect(own.items.map(({ job }) => job?.id ?? null)).toEqual([null, retained]);
       const concealed = own.items.find(({ incidentId }) => incidentId === transferredIncident)!;
       expect(concealed.job).toBeNull();
       expect(own.items.find(({ incidentId }) => incidentId !== transferredIncident)?.job)
@@ -2097,6 +2098,47 @@ describe.skipIf(!databaseUrl)('OVR-7 lateness freshness', () => {
       });
       expect(staffReport.lateness.generatedAt).toBe(iso(now));
       expect(staffReport.lateness.staffResponsibility.incidentCount).toBe(1);
+    });
+  });
+
+  it('LR-16: a CANCELLED closure is not provable management when the historical assignee cannot be read', async () => {
+    await withIntentSchema(databaseUrl, async (pool) => {
+      const organizationId = await insertProofOrg(pool, 'LR-16-unreadable');
+      const manager = await seedUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staff = await seedUser(pool, organizationId, 'STAFF', 'Personel A');
+      const jobId = await seedJob(pool, {
+        organizationId, assignedTo: staff.id, createdBy: manager.id, title: 'Geçmişi okunamayan iş',
+      });
+      await addIncident(pool, {
+        organizationId, jobId, delayType: 'LATE_START',
+        deadlineAt: local('2026-10-07T09:00:00'), breachedAt: local('2026-10-07T10:00:00'),
+        accountableUserId: staff.id,
+      });
+      await addChangeRequest(pool, {
+        organizationId, jobId, requestedBy: staff.id,
+        requestedAt: local('2026-10-07T11:00:00'),
+        reasonCode: 'CUSTOMER_POSTPONED',
+        closure: {
+          resolution: 'CANCELLED',
+          resolvedAt: local('2026-10-08T10:00:00'),
+          resolvedBy: manager.id,
+        },
+      });
+      // Direct fixture write: the lifecycle always records assignment history;
+      // removing it models a job whose historical assignee is unreadable.
+      await pool.query('DELETE FROM job_card_assignment_history WHERE job_card_id = $1', [jobId]);
+
+      const reports = buildReports(pool);
+      const list = await reports.listStaffLatenessIncidents(manager, staff.id, {
+        requestedRange: OCTOBER,
+        limit: 20,
+        offset: 0,
+      });
+      expect(list.items).toHaveLength(1);
+      expect(list.items[0]!.operationalReason).toBeNull();
+      const card = await reports.getOrganizationLateness(manager, { requestedRange: OCTOBER });
+      expect(card.operational).toEqual({ delayedJobCount: 0, incidentCount: 0 });
+      expect(card.staffResponsibility).toEqual({ delayedJobCount: 1, incidentCount: 1 });
     });
   });
 });
