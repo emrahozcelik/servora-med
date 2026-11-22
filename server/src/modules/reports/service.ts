@@ -213,6 +213,8 @@ function staffLatenessSummary(
     assertOpenStats(type.open, `${label} open`);
   });
   if (!Number.isInteger(operational.incidentCount) || operational.incidentCount < 0
+    || operational.byReason.some((reason) => !Number.isInteger(reason.incidentCount)
+      || reason.incidentCount <= 0)
     || operational.byReason.reduce(
       (total, reason) => total + reason.incidentCount,
       0,
@@ -237,6 +239,12 @@ function organizationLatenessSummary(
   assertLatenessGroup(aggregate.managementApprovalWait, 'organization management approval wait');
   assertDurationStats(aggregate.managementApprovalWait.recovered, 'management recovered');
   assertOpenStats(aggregate.managementApprovalWait.open, 'management open');
+  // APPROVAL_WAIT is never ended by OVR-5 (only LATE_START / LATE_SUBMISSION
+  // can be), so every management incident is either recovered or open.
+  if (aggregate.managementApprovalWait.recovered.count + aggregate.managementApprovalWait.open.count
+    !== aggregate.managementApprovalWait.incidentCount) {
+    throw new Error('Organization lateness management outcome invariant could not be resolved.');
+  }
   if (!Number.isInteger(aggregate.totalIncidentCount) || aggregate.totalIncidentCount < 0) {
     throw new Error('Organization lateness total invariant could not be resolved.');
   }

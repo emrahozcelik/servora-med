@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { formatDurationSeconds } from '../ui/duration';
 import type {
@@ -123,10 +123,17 @@ export function LatenessSummaryCard({ range }: { range: ResolvedReportRange }) {
   const [attempt, setAttempt] = useState(0);
   const from = range.from;
   const to = range.to;
+  const shownRange = useRef<string | null>(null);
 
   useEffect(() => {
     let current = true;
-    setSummary(null);
+    // "Yenile" for the same range keeps the card (and the focused button)
+    // mounted; only a new range shows the loading state.
+    const rangeKey = `${from}|${to}`;
+    if (shownRange.current !== rangeKey) {
+      shownRange.current = rangeKey;
+      setSummary(null);
+    }
     setError('');
     getLatenessSummary({ from, to }).then((next) => {
       if (current) setSummary(next);

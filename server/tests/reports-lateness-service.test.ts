@@ -355,6 +355,13 @@ describe('ReportsService lateness summaries', () => {
     await expectFailClosed(() => service.getStaffReport(MANAGER, STAFF_ONE, staffQuery));
   });
 
+  it('fails closed when an operational reason row has a zero count', async () => {
+    const { service, state } = createService();
+    state.staffLateness.operational.byReason.push({ reasonCode: 'OTHER', incidentCount: 0 });
+
+    await expectFailClosed(() => service.getStaffReport(MANAGER, STAFF_ONE, staffQuery));
+  });
+
   it('fails closed when a delayed-job count exceeds its incident count', async () => {
     const staffGroup = createService();
     staffGroup.state.staffLateness.staffResponsibility.delayedJobCount = 4;
@@ -468,6 +475,14 @@ describe('ReportsService lateness summaries', () => {
 });
 
 describe('ReportsService lateness access rules', () => {
+  it('fails closed when a management approval wait is neither recovered nor open', async () => {
+    const { service, state } = createService();
+    // APPROVAL_WAIT cannot be ended by OVR-5; an unaccounted row must not pass.
+    state.organizationLateness.managementApprovalWait.recovered = noDurationStats();
+
+    await expectFailClosed(() => service.getOrganizationLateness(MANAGER, { requestedRange: range }));
+  });
+
   it('denies Staff the organization card and the management Staff path', async () => {
     const { service, reports } = createService();
 

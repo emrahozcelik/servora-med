@@ -197,6 +197,9 @@ export function StaffLatenessSection({
   const [listError, setListError] = useState('');
   const requestSequence = useRef(0);
   const generatedAt = useRef(lateness.generatedAt);
+  const lastRequest = useRef<{ offset: number; limit: number; mode: 'replace' | 'append' }>(
+    { offset: 0, limit: PAGE_SIZE, mode: 'replace' },
+  );
 
   const fetchPage = useCallback(async (
     offset: number,
@@ -204,6 +207,7 @@ export function StaffLatenessSection({
     mode: 'replace' | 'append',
   ) => {
     if (!loadIncidents) return;
+    lastRequest.current = { offset, limit, mode };
     const requestId = ++requestSequence.current;
     setListLoading(true);
     setListError('');
@@ -220,14 +224,23 @@ export function StaffLatenessSection({
     }
   }, [loadIncidents]);
 
-  // A refreshed summary (new generatedAt) refreshes the rows the reader already
-  // loaded, so an OVR-3 incident written after load appears after "Yenile".
+  // A refreshed summary (new generatedAt) invalidates the loaded rows, so an
+  // OVR-3 incident written after load appears after "Yenile": an open list
+  // reloads its newest page; a closed list forgets its rows and fetches again
+  // when it is opened.
   useEffect(() => {
     if (generatedAt.current === lateness.generatedAt) return;
     generatedAt.current = lateness.generatedAt;
-    if (!expanded || !loadIncidents) return;
-    void fetchPage(0, Math.min(200, Math.max(PAGE_SIZE, items.length)), 'replace');
-  }, [lateness.generatedAt, expanded, loadIncidents, items.length, fetchPage]);
+    if (expanded && loadIncidents) {
+      void fetchPage(0, PAGE_SIZE, 'replace');
+      return;
+    }
+    requestSequence.current += 1;
+    setItems([]);
+    setTotal(0);
+    setListError('');
+    setListLoading(false);
+  }, [lateness.generatedAt, expanded, loadIncidents, fetchPage]);
 
   const responsibility = lateness.staffResponsibility;
   const operational = lateness.operational;
@@ -312,13 +325,13 @@ export function StaffLatenessSection({
         >
           {expanded ? 'Kayıtları gizle' : 'Kayıtları göster'}
         </button>
-        <div id={listId}>
+        <div id={listId} aria-busy={listLoading || undefined}>
           {expanded && <>
             {/* Loaded rows stay visible while a further page loads. */}
             {items.length > 0 && <ol className="staff-lateness-records">
               {items.map((item) => <IncidentRow key={item.incidentId} item={item} timezone={timezone} />)}
             </ol>}
-            {listLoading && <p className="staff-lateness-list-status" aria-busy="true">
+            {listLoading && <p className="staff-lateness-list-status" role="status">
               Gecikme kayıtları yükleniyor…
             </p>}
             {!listLoading && listError && <>
@@ -326,9 +339,10 @@ export function StaffLatenessSection({
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => void (items.length > 0
-                  ? fetchPage(items.length, PAGE_SIZE, 'append')
-                  : fetchPage(0, PAGE_SIZE, 'replace'))}
+                onClick={() => {
+                  const { offset, limit, mode } = lastRequest.current;
+                  void fetchPage(offset, limit, mode);
+                }}
               >
                 Tekrar dene
               </button>

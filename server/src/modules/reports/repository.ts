@@ -268,6 +268,7 @@ type LatenessTypeJson = {
 };
 
 type StaffLatenessSummaryRow = {
+  invalid_delay_type_count: string | number;
   responsibility_delayed_job_count: string | number;
   responsibility_incident_count: string | number;
   by_type: LatenessTypeJson[];
@@ -295,7 +296,8 @@ type OrganizationLatenessSummaryRow = ResolvedReportRangeRow & {
 
 type LatenessIncidentRow = {
   incident_id: string;
-  delay_type: LatenessDelayType;
+  /** Checked in mapLatenessIncident; the SQL does not constrain it. */
+  delay_type: string;
   episode_no: number;
   schedule_revision_no: number;
   deadline_at: Date;
@@ -1102,6 +1104,9 @@ staff_rows AS (
   ) aggregate ON aggregate.reason_code = reason_buckets.reason_code
 )
 SELECT
+  (SELECT COUNT(*) FROM staff_rows
+    WHERE staff_rows.delay_type NOT IN ('LATE_START', 'LATE_SUBMISSION'))::int
+    AS invalid_delay_type_count,
   (SELECT COUNT(DISTINCT staff_rows.job_card_id) FROM staff_rows
     WHERE NOT staff_rows.operational_flag)::int AS responsibility_delayed_job_count,
   (SELECT COUNT(*) FROM staff_rows
@@ -1984,6 +1989,9 @@ function mapOrganizationLatenessSummary(
 }
 
 function mapLatenessIncident(row: LatenessIncidentRow): StaffLatenessIncidentItem {
+  if (row.delay_type !== 'LATE_START' && row.delay_type !== 'LATE_SUBMISSION') {
+    throw new Error('Staff lateness incident delay type invariant could not be resolved.');
+  }
   return {
     incidentId: row.incident_id,
     delayType: row.delay_type,
@@ -2269,6 +2277,11 @@ class PostgresReportsReadModel implements ReportsReadModel {
     );
     const row = result.rows[0];
     if (!row) throw new Error('Staff lateness summary could not be resolved.');
+    // Contract §4.1: the producer never writes a STAFF_PROVEN row of another
+    // delay type; if one exists the read fails closed instead of hiding it.
+    if (Number(row.invalid_delay_type_count) !== 0) {
+      throw new Error('Staff lateness delay type invariant could not be resolved.');
+    }
     return mapStaffLatenessSummary(row);
   }
 

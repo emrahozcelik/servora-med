@@ -1055,8 +1055,16 @@ describe.skipIf(!databaseUrl)('OVR-7 lateness outcomes', () => {
         expect(listed).toBeDefined();
         const historical = historyById.get(incidentId);
         expect(historical).toBeDefined();
-        const canonical = historical!.endedDurationSeconds ?? historical!.totalDelaySeconds
-          ?? listed!.durationSeconds;
+        // No fallback to the value under test: each outcome is compared with its
+        // own independent source (history field, or the open elapsed rule).
+        const canonical = listed!.outcome === 'RECOVERED'
+          ? historical!.totalDelaySeconds
+          : listed!.outcome === 'EXTENDED'
+            ? historical!.endedDurationSeconds
+            : Math.max(0, Math.floor(
+              (measurementTime.getTime() - new Date(historical!.breachedAt).getTime()) / 1000,
+            ));
+        expect(canonical).not.toBeNull();
         expect(listed!.durationSeconds).toBe(canonical);
       }
     });
@@ -1912,6 +1920,16 @@ describe.skipIf(!databaseUrl)('OVR-7 organization reconciliation', () => {
       expect(card.unknownAccountability).toEqual({ delayedJobCount: 1, incidentCount: 1 });
       expect(card.managementApprovalWait.incidentCount).toBe(1);
       expect(card.managementApprovalWait.delayedJobCount).toBe(1);
+      expect(card.managementApprovalWait.recovered).toEqual({
+        count: 0, medianSeconds: null, maxSeconds: null,
+      });
+      // Open since 2026-10-09 10:00 local, measured at REQUEST_TIME.
+      expect(card.managementApprovalWait.open).toEqual({
+        count: 1,
+        maxElapsedSeconds: Math.floor(
+          (REQUEST_TIME.getTime() - local('2026-10-09T10:00:00').getTime()) / 1000,
+        ),
+      });
       expect(
         card.staffResponsibility.incidentCount
         + card.operational.incidentCount

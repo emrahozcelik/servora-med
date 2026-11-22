@@ -301,26 +301,35 @@ export function StaffOperationalReportScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const requestSequence = useRef(0);
+  // The scope of the report currently on screen. A reload of the same scope
+  // ("Yenile", realtime invalidation) keeps the report mounted so the lateness
+  // list keeps its state and focus; a new Staff member or range shows the
+  // loading state.
+  const shownScope = useRef<string | null>(null);
   const requestedFrom = requestedRange?.from;
   const requestedTo = requestedRange?.to;
+  const scope = `${staffUserId ?? 'me'}|${requestedFrom ?? ''}|${requestedTo ?? ''}`;
 
   const load = useCallback(async () => {
     const requestId = ++requestSequence.current;
-    setLoading(true);
+    const background = shownScope.current === scope;
+    if (!background) setLoading(true);
     setError('');
     try {
       const next = staffUserId
         ? await getStaffReport(staffUserId, requestedRange)
         : await getOwnStaffReport(requestedRange);
       if (requestId !== requestSequence.current) return;
+      shownScope.current = scope;
       setReport(next);
     } catch (reason) {
       if (requestId !== requestSequence.current) return;
+      shownScope.current = null;
       setError(reason instanceof Error ? reason.message : 'Personel operasyon raporu yüklenemedi.');
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
-  }, [staffUserId, requestedRange?.from, requestedRange?.to]);
+  }, [staffUserId, requestedRange?.from, requestedRange?.to, scope]);
 
   // The parent owns the path: management reaches `/staff/:userId/...`, the Staff
   // self view reaches `/staff/me/...`; the section never decides it itself.

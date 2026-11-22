@@ -280,6 +280,39 @@ describe('Staff operational report', () => {
     expect(listOwnLatenessIncidents).not.toHaveBeenCalled();
   });
 
+  it('keeps the report mounted and the list open when "Yenile" reloads the same scope', async () => {
+    const refreshed = { ...report, lateness: { ...report.lateness, generatedAt: '2026-07-31T12:05:00.000Z' } };
+    vi.mocked(getStaffReport).mockResolvedValueOnce(report).mockResolvedValueOnce(refreshed);
+    vi.mocked(listStaffLatenessIncidents).mockResolvedValue({
+      range: report.range, items: [], total: 0, limit: 20, offset: 0,
+    });
+    await act(async () => root.render(
+      <MemoryRouter>
+        <StaffOperationalReportScreen staffUserId={STAFF_ID} />
+      </MemoryRouter>,
+    ));
+    await act(async () => { await Promise.resolve(); });
+    const button = (label: string) => Array.from(container.querySelectorAll('button'))
+      .find((candidate) => candidate.textContent === label);
+    await act(async () => button('Kayıtları göster')!.click());
+    await act(async () => { await Promise.resolve(); });
+    const refresh = button('Yenile')!;
+
+    await act(async () => refresh.click());
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(getStaffReport).toHaveBeenCalledTimes(2);
+    // Same element: the section was not unmounted behind a loading state.
+    expect(button('Yenile')).toBe(refresh);
+    expect(button('Kayıtları gizle')?.getAttribute('aria-expanded')).toBe('true');
+    // The newer generatedAt reloads the open list's newest page.
+    expect(listStaffLatenessIncidents).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(listStaffLatenessIncidents).mock.calls[1]).toEqual([
+      STAFF_ID, null, { limit: 20, offset: 0 },
+    ]);
+  });
+
   it('loads the Staff self lateness incidents through the me path', async () => {
     vi.mocked(getOwnStaffReport).mockResolvedValue(report);
     vi.mocked(listOwnLatenessIncidents).mockResolvedValue({
