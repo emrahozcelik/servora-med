@@ -32,6 +32,7 @@ import type {
 } from './report-types';
 import { getDashboardReport } from './reports-api';
 import { BusinessTrend } from './BusinessTrend';
+import { LatenessSummaryCard } from './LatenessSummaryCard';
 import {
   ReportDateRangeForm,
   ReportErrorState,
@@ -90,9 +91,11 @@ function buildAttentionCards(dashboard: DashboardReportResponse): AttentionCard[
 export function ReportsDashboardView({
   report,
   businessTrend,
+  latenessSummary,
 }: {
   report: DashboardReportResponse;
   businessTrend?: ReactNode;
+  latenessSummary?: ReactNode;
 }) {
   const executiveMetrics = [
     { key: 'active', label: 'Aktif İşler', value: report.counters.activeJobCards, scope: 'Mevcut durum' },
@@ -151,6 +154,7 @@ export function ReportsDashboardView({
           ))}
         </ul>
       </section>
+      {latenessSummary}
       <details className="reports-overview-details">
         <summary>İş akışı ve tür dağılımları</summary>
         <section className="report-section" aria-labelledby="trend-title" data-report-trend-section="true">
@@ -310,7 +314,7 @@ export function ReportsDashboard() {
         />
       )}
       {!loading && !error && report && (
-        <ReportsDashboardView report={report} businessTrend={<BusinessTrend range={report.range} />} />
+        <ReportsDashboardView report={report} businessTrend={<BusinessTrend range={report.range} />} latenessSummary={<LatenessSummaryCard range={report.range} />} />
       )}
     </ReportShell>
   );

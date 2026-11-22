@@ -26,6 +26,7 @@ vi.mock('../src/reports/reports-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/reports/reports-api')>(),
   getDashboardReport: vi.fn(),
   getBusinessTrendReport: vi.fn(() => new Promise(() => {})),
+  getLatenessSummary: vi.fn(() => new Promise(() => {})),
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -150,6 +151,25 @@ describe('Report accessibility contract', () => {
       ],
       currentWorkload: { openJobCards: 1, waitingApproval: 2, revisionRequested: 3,
         overdueJobCards: 4 },
+      lateness: {
+        trackingStartedOn: '2026-09-21',
+        generatedAt: '2026-07-31T12:00:00.000Z',
+        staffResponsibility: {
+          delayedJobCount: 0,
+          incidentCount: 0,
+          byType: [
+            { delayType: 'LATE_START', incidentCount: 0,
+              recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+              extended: { count: 0, medianSeconds: null, maxSeconds: null },
+              open: { count: 0, maxElapsedSeconds: null } },
+            { delayType: 'LATE_SUBMISSION', incidentCount: 0,
+              recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+              extended: { count: 0, medianSeconds: null, maxSeconds: null },
+              open: { count: 0, maxElapsedSeconds: null } },
+          ],
+        },
+        operational: { delayedJobCount: 0, incidentCount: 0, byReason: [] },
+      },
     };
 
     const deliveryView = markup(<DeliveryReportView report={delivery} />);

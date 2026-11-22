@@ -41,6 +41,29 @@ const onTime = { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
   lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 1, onTimeRate: 2 / 3 };
 const currentWorkload = { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
   overdueJobCards: 1 };
+const lateness = {
+  trackingStartedOn: '2026-09-21',
+  generatedAt: '2026-07-31T12:00:00.000Z',
+  staffResponsibility: {
+    delayedJobCount: 2,
+    incidentCount: 3,
+    byType: [
+      { delayType: 'LATE_START', incidentCount: 2,
+        recovered: { count: 1, medianSeconds: 8_100, maxSeconds: 8_100 },
+        extended: { count: 1, medianSeconds: 90_000, maxSeconds: 90_000 },
+        open: { count: 0, maxElapsedSeconds: null } },
+      { delayType: 'LATE_SUBMISSION', incidentCount: 1,
+        recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+        extended: { count: 0, medianSeconds: null, maxSeconds: null },
+        open: { count: 1, maxElapsedSeconds: 7_200 } },
+    ],
+  },
+  operational: {
+    delayedJobCount: 1,
+    incidentCount: 1,
+    byReason: [{ reasonCode: 'CUSTOMER_ABSENT', incidentCount: 1 }],
+  },
+};
 const completionWorkTypes = [
   { type: 'PRODUCT_DELIVERY', count: 2 },
   { type: 'GENERAL_TASK', count: 2 },
@@ -123,6 +146,7 @@ describe('Reports runtime contract', () => {
         { outcome: 'NOT_INTERESTED', count: 0 },
       ],
       currentWorkload,
+      lateness,
     };
     expect(parseStaffReport(staff)).toEqual(staff);
     expect(() => parseStaffReport({ ...staff, staff: { ...staff.staff, role: 'STAFF' } }))
@@ -273,7 +297,7 @@ describe('Reports runtime contract', () => {
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
         range, priorRange, performance, priorPerformance, staffExecution,
         staffSubmissionAttribution, onTime, completionWorkTypes, currentWorkloadByType,
-        completedTrend, currentWorkload,
+        completedTrend, currentWorkload, lateness,
         deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
@@ -281,7 +305,7 @@ describe('Reports runtime contract', () => {
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
         range, priorRange, performance, priorPerformance, staffExecution,
         staffSubmissionAttribution, onTime, completionWorkTypes, currentWorkloadByType,
-        completedTrend, currentWorkload,
+        completedTrend, currentWorkload, lateness,
         deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },

@@ -12,11 +12,18 @@ import {
 } from '../ui/OperationalTable';
 import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
 import { SegmentedDistributionBar, TrendBars } from './report-charts';
-import { getOwnStaffReport, getStaffReport } from './reports-api';
+import {
+  getOwnStaffReport,
+  getStaffReport,
+  listOwnLatenessIncidents,
+  listStaffLatenessIncidents,
+} from './reports-api';
+import { StaffLatenessSection } from './StaffLatenessSection';
 import type {
   DeliveryPurposeItem,
   RequestedReportRange,
   ResolvedReportRange,
+  StaffLatenessIncidentListResponse,
   StaffReportResponse,
 } from './report-types';
 
@@ -164,7 +171,21 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
   </section>;
 }
 
-export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = true }: { report: StaffReportResponse; showCurrentWorkloadMetrics?: boolean }) {
+export function StaffOperationalReport({
+  report,
+  showCurrentWorkloadMetrics = true,
+  loadLatenessIncidents,
+  onRefresh,
+}: {
+  report: StaffReportResponse;
+  showCurrentWorkloadMetrics?: boolean;
+  /** Supplied by the screen; absent in static renders, which hide the list toggle. */
+  loadLatenessIncidents?: (page: {
+    limit: number;
+    offset: number;
+  }) => Promise<StaffLatenessIncidentListResponse>;
+  onRefresh?: () => void;
+}) {
   const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
   const submission = report.staffSubmissionAttribution;
   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
@@ -242,6 +263,15 @@ export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = tr
       </section>
     </section>
 
+    <StaffLatenessSection
+      key={`${report.staff.userId}:${report.range.from}:${report.range.to}`}
+      lateness={report.lateness}
+      timezone={report.range.timezone}
+      range={report.range}
+      loadIncidents={loadLatenessIncidents}
+      onRefresh={onRefresh}
+    />
+
     <section className="staff-analysis-group staff-analysis-context" aria-labelledby="staff-context-title">
       <h3 id="staff-context-title">Operasyon bağlamı</h3>
       <p className="report-section-hint">
@@ -271,6 +301,8 @@ export function StaffOperationalReportScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const requestSequence = useRef(0);
+  const requestedFrom = requestedRange?.from;
+  const requestedTo = requestedRange?.to;
 
   const load = useCallback(async () => {
     const requestId = ++requestSequence.current;
@@ -289,6 +321,20 @@ export function StaffOperationalReportScreen({
       if (requestId === requestSequence.current) setLoading(false);
     }
   }, [staffUserId, requestedRange?.from, requestedRange?.to]);
+
+  // The parent owns the path: management reaches `/staff/:userId/...`, the Staff
+  // self view reaches `/staff/me/...`; the section never decides it itself.
+  const loadLatenessIncidents = useCallback(
+    (page: { limit: number; offset: number }) => {
+      const range = requestedFrom && requestedTo
+        ? { from: requestedFrom, to: requestedTo }
+        : null;
+      return staffUserId
+        ? listStaffLatenessIncidents(staffUserId, range, page)
+        : listOwnLatenessIncidents(range, page);
+    },
+    [staffUserId, requestedFrom, requestedTo],
+  );
 
   useEffect(() => { void load(); }, [load]);
   useRealtimeInvalidation(['reports'], () => { void load(); });
@@ -315,7 +361,7 @@ export function StaffOperationalReportScreen({
         <h2>{report.staff.name}</h2>
         <span className="status-label">{report.staff.isActive ? 'Aktif personel' : 'Pasif personel'}</span>
       </header>}
-      <StaffOperationalReport report={report} showCurrentWorkloadMetrics={showCurrentWorkloadMetrics} />
+      <StaffOperationalReport report={report} showCurrentWorkloadMetrics={showCurrentWorkloadMetrics} loadLatenessIncidents={loadLatenessIncidents} onRefresh={() => { void load(); }} />
     </>}
   </>;
 
