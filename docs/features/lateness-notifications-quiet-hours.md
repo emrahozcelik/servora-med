@@ -192,8 +192,9 @@
    unaccepted-job alert): non-overlapping `setTimeout` loop, injected clock and
    window policy, bounded per-kind batches. **Lock order users → JobCard**
    (`assignee-lock.ts`, JOB-010 §9): snapshot read → lock the users involved →
-   `getJobForUpdate` → re-check every condition. (OVR-4 locks the JobCard first;
-   that pre-existing deviation is out of scope and recorded as a follow-up.)
+   `getJobForUpdate` → re-check every condition. (OVR-4 originally locked the
+   JobCard first; it was aligned to users → JobCard after release, together
+   with the job-card service paths that still locked users after the JobCard.)
 2. **Batching.** Three per-kind discovery queries, each ordered by its due
    instant and bounded by `batchSize`; one tick processes at most `batchSize`
    candidates of each kind, so no kind starves another.

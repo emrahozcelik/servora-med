@@ -50,7 +50,7 @@ import type {
   OverdueScanCandidate,
   PersistedOverdueIncident,
 } from './repository.js';
-import type { JobCardActivityEvent } from './types.js';
+import type { JobCardActivityEvent, JobCardAssignee } from './types.js';
 
 /** Result of processing one discovered job. */
 export type OverdueReminderCandidateOutcome =
@@ -150,7 +150,7 @@ implements OverdueReminderWorkerRepository {
       if (snapshot === null) {
         return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
       }
-      await lockAssigneesInOrder(tx, organizationId, [snapshot.assignedTo]);
+      const lockedAssignees = await lockAssigneesInOrder(tx, organizationId, [snapshot.assignedTo]);
       const job = await tx.getJobForUpdate(organizationId, jobCardId);
       if (job === null
         || job.assignedTo !== snapshot.assignedTo
@@ -204,6 +204,7 @@ implements OverdueReminderWorkerRepository {
         for (const kind of dueKinds) {
           const result = await this.sendDueKind(tx, {
             job: { organizationId, jobCardId, assignedTo: job.assignedTo },
+            assignee: lockedAssignees.get(job.assignedTo) ?? null,
             canonical,
             episodeNo,
             kind,
@@ -248,6 +249,8 @@ implements OverdueReminderWorkerRepository {
     tx: JobCardTransaction,
     input: {
       job: { organizationId: string; jobCardId: string; assignedTo: string };
+      /** The assignee row already locked users-first by `processCandidate`. */
+      assignee: JobCardAssignee | null;
       canonical: PersistedOverdueIncident;
       episodeNo: number;
       kind: OverdueReminderKind;
@@ -275,7 +278,7 @@ implements OverdueReminderWorkerRepository {
     if (input.kind === 'STAFF_REMINDER') {
       // Operational recipient is the current assignee (who can act now);
       // incident accountability history is never rewritten by this choice.
-      const assignee = await tx.getAssigneeForUpdate(organizationId, input.job.assignedTo);
+      const assignee = input.assignee;
       if (assignee === null || !assignee.isActive || assignee.role !== 'STAFF') {
         return { status: 'recipient-unprovable' };
       }

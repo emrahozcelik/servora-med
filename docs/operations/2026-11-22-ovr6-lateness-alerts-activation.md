@@ -45,7 +45,9 @@ release 2dd1baf, schema 069, LATENESS_ALERTS_ENABLED=true (worker running)
 
 - Activation day was a Sunday (window closed all day), so the first alerts are
   due at the next window opening, Monday 2026-11-23 08:00 (Europe/Istanbul).
-  Every condition already open then alerts once (catch-up, contract §9).
+  Every condition already open then alerts once (catch-up, contract §9). With
+  the default batch size the catch-up drains at most 50 candidates per kind per
+  60-second tick.
 - Not yet observed: delivery rows, activities and notifications per kind after
   the first in-window ticks.
 
@@ -55,4 +57,16 @@ release 2dd1baf, schema 069, LATENESS_ALERTS_ENABLED=true (worker running)
   byte-exact) and restart the service once.
 - Release rollback below `2dd1baf` only with zero rows of the new notification
   kinds, activity events and `job_card_lateness_alert_deliveries` (contract
-  §9.2); otherwise fixes go forward.
+  §9.2); otherwise fixes go forward. Read-only evidence query (all three must
+  be `0`):
+
+```sql
+SELECT
+  (SELECT COUNT(*) FROM in_app_notifications
+    WHERE kind IN ('job.start_reminder', 'job.approval_wait_alert',
+                   'job.pending_acceptance_alert')) AS notification_count,
+  (SELECT COUNT(*) FROM job_card_activity_logs
+    WHERE event_type IN ('JOB_START_REMINDER_SENT', 'JOB_APPROVAL_WAIT_ALERT_SENT',
+                         'JOB_PENDING_ACCEPTANCE_ALERT_SENT')) AS activity_count,
+  (SELECT COUNT(*) FROM job_card_lateness_alert_deliveries) AS delivery_count;
+```
