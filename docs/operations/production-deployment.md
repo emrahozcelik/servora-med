@@ -344,6 +344,9 @@ workflow itself issues no approval and has no attempt-less or
 migration-disabled branch. Local CI is **optional**, not the mandatory
 source of deployment evidence when GitHub Actions `CI` is green.
 The source SHA must be current `main`; do not reuse an older SHA's CI or archive.
+`ci.yml` cancels a superseded run only for a newer push to the same pull
+request; every `push/main` and `workflow_dispatch` run has its own concurrency
+group, so the deployment receipt is never cancelled or queued.
 
 After the three mandatory GitHub CI jobs succeed on `push/main`, the
 `release-package` job builds and verifies the exact-SHA Linux release archive,
