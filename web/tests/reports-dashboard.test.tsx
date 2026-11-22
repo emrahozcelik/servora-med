@@ -57,7 +57,18 @@ describe('Reports dashboard presentation', () => {
     expect(html).toContain('Seçilen dönem');
   });
 
-  it('renders the executive sections in semantic order without the retired SLA panel', () => {
+  it('renders the lateness slot right after attention and outside the collapsed detail block', () => {
+    const html = render(<ReportsDashboardView
+      report={report}
+      latenessSummary={<div data-lateness-card="true">Gecikme kayıtları</div>}
+    />);
+
+    expect(html).toContain('data-lateness-card="true"');
+    expect(html.indexOf('Dikkat Gerektirenler')).toBeLessThan(html.indexOf('data-lateness-card'));
+    expect(html.indexOf('data-lateness-card')).toBeLessThan(html.indexOf('reports-overview-details'));
+  });
+
+  it('keeps the executive sections in semantic order without the retired SLA panel', () => {
     const html = render(<ReportsDashboardView report={report} />);
     const headings = [
       'Genel Durum',

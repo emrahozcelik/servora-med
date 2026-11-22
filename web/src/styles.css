@@ -746,6 +746,55 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .servora-staff-performance-table .servora-ant-table-thead > tr > th { white-space: normal; overflow-wrap: anywhere; }
 .staff-performance-sort { white-space: normal; }
 .staff-analysis-group .report-section-hint { overflow-wrap: anywhere; }
+/* OVR-7 lateness: staff section and organization card. One responsive grid
+   pattern; no fixed columns, so 390 px never overflows. */
+.staff-lateness-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.staff-lateness-heading h3 { margin: 0; font-size: 1.2rem; letter-spacing: -0.012em; }
+.staff-lateness-freshness { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.staff-lateness-group { margin-top: 1.5rem; }
+.staff-lateness-group > h4 { margin: 0; font-size: 1rem; }
+.staff-lateness-group > .report-section-hint { margin: 0.4rem 0 0.75rem; }
+.staff-lateness-group-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); margin: 1rem 0 0; border-block: 1px solid var(--rule); }
+.staff-lateness-group-counts > div { min-width: 0; padding: 0.9rem 0.75rem; border-right: 1px solid var(--rule); }
+.staff-lateness-group-counts > div:last-child { border-right: 0; }
+.staff-lateness-group-counts dt { color: var(--muted); font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.staff-lateness-group-counts dd { margin: 0.3rem 0 0; font-size: 1.35rem; font-weight: 760; font-variant-numeric: tabular-nums; }
+.staff-lateness-type { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.staff-lateness-type > h5 { margin: 0 0 0.6rem; font-size: 0.95rem; }
+.staff-lateness-type-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 1rem; margin: 0; }
+.staff-lateness-outcome { min-width: 0; padding-top: 0.6rem; border-top: 2px solid var(--rule); }
+.staff-lateness-outcome > dt { color: var(--muted); font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.staff-lateness-outcome > .staff-lateness-count-value { margin: 0.2rem 0 0.6rem; font-size: 1.35rem; font-weight: 760; font-variant-numeric: tabular-nums; }
+.staff-lateness-outcome > dt:not(:first-of-type) { margin-top: 0.5rem; }
+.staff-lateness-outcome > dd:not(.staff-lateness-count-value) { margin: 0.15rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.staff-lateness-reasons { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 0.75rem 1rem; margin: 1rem 0 0; }
+.staff-lateness-reasons > div { min-width: 0; padding: 0.7rem 0.75rem; background: var(--canvas); border-radius: var(--radius-control); }
+.staff-lateness-reasons dt { color: var(--muted); font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.staff-lateness-reasons dd { margin: 0.2rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.staff-lateness-list { margin-top: 1.5rem; }
+.staff-lateness-list > button { min-height: 44px; }
+.staff-lateness-list-status { margin: 1rem 0 0; color: var(--muted); }
+.staff-lateness-records { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.75rem; }
+.staff-lateness-row { min-width: 0; padding: 0.9rem 1rem; border: 1px solid var(--rule); border-radius: var(--radius-control); }
+.staff-lateness-row-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.staff-lateness-row-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 0.5rem 1rem; margin: 0.75rem 0 0; }
+.staff-lateness-row-facts > div { min-width: 0; }
+.staff-lateness-row-facts dt { color: var(--muted); font-size: 0.78rem; }
+.staff-lateness-row-facts dd { margin: 0.15rem 0 0; overflow-wrap: anywhere; }
+.staff-lateness-row-reason { margin: 0.75rem 0 0; font-size: 0.875rem; }
+.staff-lateness-row-meta { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.8125rem; }
+.report-lateness { min-width: 0; }
+.report-lateness .report-section-heading { flex-wrap: wrap; }
+.report-lateness .report-section-heading .secondary-button { min-height: 44px; }
+.report-lateness-metrics { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+.report-lateness-metrics dd { font-size: 1.15rem; overflow-wrap: anywhere; }
+.report-lateness-wait { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.report-lateness-wait h3 { margin: 0; font-size: 0.95rem; }
+.report-lateness-wait-count { margin: 0.35rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.report-lateness-wait-durations { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: 0.5rem 1rem; margin: 0.75rem 0 0; }
+.report-lateness-wait-durations dt { color: var(--muted); font-size: 0.78rem; }
+.report-lateness-wait-durations dd { margin: 0.15rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.report-lateness-loading > p { margin: 0.5rem 0 0; color: var(--muted); }
 .staff-performance-context-snapshot { min-width: 0; }
 .staff-performance-context h4 { margin: 1rem 0 0.4rem; font-size: 0.8rem; }
 .staff-performance-context section { min-width: 0; }
