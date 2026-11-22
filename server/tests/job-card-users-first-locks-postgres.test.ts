@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { Pool, type PoolClient } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
@@ -10,7 +10,10 @@ import {
   PostgresOverdueBreachScannerRepository,
   createOverdueBreachScanner,
 } from '../src/modules/job-cards/overdue-breach-scanner.js';
-import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import {
+  PostgresJobCardRepository,
+  PostgresJobCardTransaction,
+} from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
@@ -231,6 +234,31 @@ async function waitForJobCardFree(
   return false;
 }
 
+/**
+ * True once the given backend is blocked on any lock (`pg_locks` shows a
+ * `NOT granted` row for that pid). Scoping by backend pid keeps unrelated
+ * parallel suite waiters from satisfying the condition.
+ */
+async function waitForBackendLockWait(
+  pool: Pool,
+  backendPid: () => number | null,
+  timeoutMs = 10_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pid = backendPid();
+    if (pid !== null) {
+      const waiting = await pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_locks WHERE pid = $1 AND NOT granted`,
+        [pid],
+      );
+      if (waiting.rows[0]!.n > 0) return true;
+    }
+    await sleep(10);
+  }
+  return false;
+}
+
 /** Rolls back the blocker and releases both helper connections, always. */
 async function releaseLocker(
   locker: PoolClient,
@@ -320,7 +348,21 @@ describe('staff-user lock order (users before JobCard)', () => {
       const locker = await pool.connect();
       const probe = await pool.connect();
       const blockerOpen = { value: false };
-      let settled = false;
+      const actualAssigneeForUpdate =
+        PostgresJobCardTransaction.prototype.getAssigneeForUpdate;
+      let submitPid: number | null = null;
+      // The submit's backend is captured on its users-first lock request, i.e.
+      // before that call can block on the held users row.
+      const pidSpy = vi.spyOn(PostgresJobCardTransaction.prototype, 'getAssigneeForUpdate')
+        .mockImplementation(async function (organizationId: string, userId: string) {
+          if (submitPid === null) {
+            const self = await (this as unknown as {
+              client: { query(sql: string): Promise<{ rows: Array<{ pid: number }> }> };
+            }).client.query('SELECT pg_backend_pid() AS pid');
+            submitPid = self.rows[0]!.pid;
+          }
+          return actualAssigneeForUpdate.call(this, organizationId, userId);
+        });
       let outcome: Outcome<Awaited<ReturnType<JobCardService['submitForApproval']>>> | null = null;
       try {
         // FOR SHARE is compatible with the KEY SHARE taken by the lifecycle
@@ -338,16 +380,13 @@ describe('staff-user lock order (users before JobCard)', () => {
           clientActionId: randomUUID(),
           expectedVersion: job.version,
           note: 'Tamamlandı, kontrole gönderildi.',
-        }).then((value) => {
-          settled = true;
-          return value;
         }));
-        const settleDeadline = Date.now() + 2_000;
-        while (!settled && Date.now() < settleDeadline) await sleep(25);
+        // Deterministic: the submit backend itself must be waiting on a lock.
+        const waited = await waitForBackendLockWait(pool, () => submitPid);
         expect(
-          settled,
+          waited,
           'the noted submit finished without waiting for the note-author users row',
-        ).toBe(false);
+        ).toBe(true);
         // Blocked on the users row, the finalize transaction must hold no
         // JobCard lock at all.
         const jobFree = await waitForJobCardFree(probe, organizationId, job.id);
@@ -358,6 +397,7 @@ describe('staff-user lock order (users before JobCard)', () => {
         await locker.query('ROLLBACK');
         blockerOpen.value = false;
       } finally {
+        pidSpy.mockRestore();
         await releaseLocker(locker, probe, blockerOpen);
       }
       expect(unwrap(await outcome!).status).toBe('WAITING_APPROVAL');
@@ -444,6 +484,121 @@ describe('staff-user lock order (users before JobCard)', () => {
         await releaseLocker(locker, probe, blockerOpen);
       }
       expect(unwrap(await outcome!).status).toBe('INVALIDATED');
+    });
+  });
+
+  it('5: sendSubmissionReminder fails closed when the assignment changes between snapshot and JobCard lock', { timeout: 30_000 }, async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'Lock Order Org');
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'Yönetici');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { manager, staff } = actors(organizationId, adminId, managerId, staffAId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      const created = await createTask(service, staff, {
+        title: 'Yeniden atama hatırlatması', dueDate,
+      });
+      const job = await startJob(service, staff, created);
+      await scanOnce(pool, await dbBaseline(pool));
+
+      // Inject the reassignment in the exact unlocked window: after the
+      // reminder read its snapshot, before it acquires the JobCard lock. The
+      // version is deliberately left untouched so the assertion isolates the
+      // assignment re-check from the ordinary version fence.
+      const actualGetJob = PostgresJobCardTransaction.prototype.getJob;
+      const spy = vi.spyOn(PostgresJobCardTransaction.prototype, 'getJob')
+        .mockImplementationOnce(async function (organizationId, jobCardId) {
+          const snapshot = await actualGetJob.call(this, organizationId, jobCardId);
+          await pool.query(
+            `UPDATE job_cards SET assigned_to = $1 WHERE organization_id = $2 AND id = $3`,
+            [staffBId, organizationId, jobCardId],
+          );
+          return snapshot;
+        });
+      try {
+        const error = await service.sendSubmissionReminder(manager, job.id, {
+          clientActionId: randomUUID(), expectedVersion: job.version,
+        }).then(() => null, (failure: unknown) => failure);
+        expect(
+          error,
+          'the reminder followed the reassignment instead of failing closed',
+        ).toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+      } finally {
+        spy.mockRestore();
+      }
+      const facts = await pool.query(
+        `SELECT 1 FROM job_card_submission_reminders
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [organizationId, job.id],
+      );
+      expect(facts.rowCount).toBe(0);
+      const activities = await pool.query(
+        `SELECT 1 FROM job_card_activity_logs
+          WHERE organization_id = $1 AND job_card_id = $2
+            AND event_type = 'JOB_SUBMISSION_REMINDER_SENT'`,
+        [organizationId, job.id],
+      );
+      expect(activities.rowCount).toBe(0);
+    });
+  });
+
+  it('6: a noted SUBMIT_FOR_APPROVAL fails closed when the assignment changes between snapshot and JobCard lock', { timeout: 30_000 }, async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'Lock Order Org');
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'Yönetici');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staff } = actors(organizationId, adminId, managerId, staffAId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+
+      const created = await createTask(service, staff, {
+        title: 'Yeniden atama onaya gönderme', dueDate: null,
+      });
+      const job = await startJob(service, staff, created);
+
+      // Same injection point as the reminder: the lockUsers snapshot read is
+      // the only unlocked JobCard read in the submit path.
+      const actualGetJob = PostgresJobCardTransaction.prototype.getJob;
+      const spy = vi.spyOn(PostgresJobCardTransaction.prototype, 'getJob')
+        .mockImplementationOnce(async function (organizationId, jobCardId) {
+          const snapshot = await actualGetJob.call(this, organizationId, jobCardId);
+          await pool.query(
+            `UPDATE job_cards SET assigned_to = $1 WHERE organization_id = $2 AND id = $3`,
+            [staffBId, organizationId, jobCardId],
+          );
+          return snapshot;
+        });
+      try {
+        const error = await service.submitForApproval(staff, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: job.version,
+          note: 'Tamamlandı, kontrole gönderildi.',
+        }).then(() => null, (failure: unknown) => failure);
+        expect(
+          error,
+          'the noted submit proceeded on locks taken for the previous assignee',
+        ).toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+      } finally {
+        spy.mockRestore();
+      }
+      const jobRow = await pool.query(
+        'SELECT status, version FROM job_cards WHERE organization_id = $1 AND id = $2',
+        [organizationId, job.id],
+      );
+      expect(jobRow.rows[0]).toMatchObject({ status: 'IN_PROGRESS', version: job.version });
+      const activities = await pool.query(
+        `SELECT 1 FROM job_card_activity_logs
+          WHERE organization_id = $1 AND job_card_id = $2
+            AND event_type = 'JOB_SUBMITTED_FOR_APPROVAL'`,
+        [organizationId, job.id],
+      );
+      expect(activities.rowCount).toBe(0);
     });
   });
 });
