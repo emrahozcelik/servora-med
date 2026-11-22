@@ -88,6 +88,29 @@ if (root) {
         waitingApproval: 3,
         revisionRequested: 1,
       },
+      lateness: {
+        trackingStartedOn: '2026-09-21',
+        generatedAt: '2026-07-31T12:00:00.000Z',
+        staffResponsibility: {
+          delayedJobCount: 2,
+          incidentCount: 3,
+          byType: [
+            { delayType: 'LATE_START', incidentCount: 1,
+              recovered: { count: 1, medianSeconds: 8100, maxSeconds: 8100 },
+              extended: { count: 0, medianSeconds: null, maxSeconds: null },
+              open: { count: 0, maxElapsedSeconds: null } },
+            { delayType: 'LATE_SUBMISSION', incidentCount: 2,
+              recovered: { count: 1, medianSeconds: 3300, maxSeconds: 3300 },
+              extended: { count: 0, medianSeconds: null, maxSeconds: null },
+              open: { count: 1, maxElapsedSeconds: 46800 } },
+          ],
+        },
+        operational: {
+          delayedJobCount: 1,
+          incidentCount: 1,
+          byReason: [{ reasonCode: 'MISSING_STOCK_OR_EQUIPMENT', incidentCount: 1 }],
+        },
+      },
     }} />,
   );
 }
