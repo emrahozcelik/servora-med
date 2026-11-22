@@ -83,6 +83,9 @@ function makeRepository() {
     appendNotifications: async () => [],
     appendWebPushDeliveries: async () => [],
     getNoteAuthorSnapshot: async () => ({ id: 'admin-1', name: 'Admin One', role: 'ADMIN' as const, isActive: true }),
+    getAssigneeForUpdate: async () => ({
+      id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' as const, isActive: true,
+    }),
     createNote: async (input: { id: string; jobCardId: string; note: string }) => ({
       ...input, invoiceNumber: null, createdAt: '2026-08-24T10:00:00.000Z', recordVersion: 1 as const,
       author: { id: 'admin-1', name: 'Admin One', role: 'ADMIN' as const, source: 'SNAPSHOT' as const },

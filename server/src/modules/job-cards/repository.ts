@@ -3347,6 +3347,11 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async getNoteAuthorSnapshot(organizationId: string, authorId: string) {
+    // Deliberately FOR SHARE, not FOR NO KEY UPDATE: the snapshot must fence
+    // role/deactivation changes and stay compatible with the NO KEY UPDATE
+    // holders. Every caller acquires the author's users row BEFORE the JobCard
+    // row (users -> JobCard, assignee-lock.ts); called under a JobCard lock it
+    // is only a re-read of a row that transaction already holds.
     const result = await this.client.query<{
       id: string;
       name: string;

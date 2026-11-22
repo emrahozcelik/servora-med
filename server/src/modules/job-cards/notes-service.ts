@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { AppError } from '../../errors/index.js';
+import { lockAssigneesInOrder } from './assignee-lock.js';
 import { assertCanAccessNotes, assertCanAddNote } from './policy.js';
 import { noteAddRequestHash } from './critical-action-request-hash.js';
 import type { JobCardRepository, NotePageQuery } from './repository.js';
@@ -45,6 +46,10 @@ export class JobCardNotesService {
         requestHash: noteAddRequestHash(jobCardId, { note, invoiceNumber }),
       },
       async (transaction) => {
+        // Staff-user lock contract (assignee-lock.ts): the note-author
+        // snapshot is a users-row lock, so the actor's users row is locked
+        // BEFORE the JobCard row instead of underneath it.
+        await lockAssigneesInOrder(transaction, actor.organizationId, [actor.id]);
         const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
         this.assertVisible(actor, job);
         assertCanAddNote(actor, job);

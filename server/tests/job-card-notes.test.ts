@@ -61,6 +61,11 @@ class NotesRepository {
           ? { id: authorId, name: 'Ayşe Personel', role: 'STAFF', isActive: true }
           : null
       ),
+      getAssigneeForUpdate: async (organizationId, userId) => (
+        organizationId === 'org-1' && userId === 'staff-1'
+          ? { id: userId, organizationId, role: 'STAFF' as const, isActive: true }
+          : null
+      ),
       createNote: async (input: CreateNoteRecord) => {
         const note = {
           id: input.id, jobCardId: input.jobCardId, note: input.note,
