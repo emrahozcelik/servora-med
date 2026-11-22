@@ -10,8 +10,12 @@ import type {
   DeliveryReportReadInput,
   DeliveryReportResponse,
   MeetingOutcomeItem,
+  OrganizationLatenessAggregate,
   ReportStaffLifecycleIdentity,
   StaffCompletionPerformance,
+  StaffLatenessAggregate,
+  StaffLatenessIncidentListInput,
+  StaffLatenessIncidentListResponse,
   StaffExecutionAggregate,
   StaffOnTimeAggregate,
   StaffOperationalSummary,
@@ -50,6 +54,12 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
     Promise<Array<{ date: string; count: number }>>;
   getStaffIdentity(input: { organizationId: string; staffUserId: string }):
     Promise<ReportStaffLifecycleIdentity | null>;
+  getStaffLatenessSummary(input: StaffOperationalSummaryOneInput):
+    Promise<StaffLatenessAggregate>;
+  getOrganizationLatenessSummary(input: StaffOperationalSummaryScope):
+    Promise<OrganizationLatenessAggregate>;
+  listStaffLatenessIncidents(input: StaffLatenessIncidentListInput):
+    Promise<StaffLatenessIncidentListResponse>;
   getStaffDeliveriesByPurpose(input: StaffOperationalSummaryOneInput):
     Promise<DeliveryPurposeItem[]>;
   getStaffMeetingsByOutcome(input: StaffOperationalSummaryOneInput):

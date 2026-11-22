@@ -6,6 +6,7 @@ import {
   parseDashboardReportQuery,
   parseDeliveryReportQuery,
   parseSalesFollowUpReportQuery,
+  parseStaffLatenessIncidentQuery,
   parseStaffReportPathId,
   parseStaffReportQuery,
 } from './query.js';
@@ -55,6 +56,19 @@ export function createReportsHandlers(service: ReportsService) {
     getSalesFollowUp: (request: FastifyRequest) => service.getSalesFollowUp(
       request.currentUser!,
       { ...parseSalesFollowUpReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
+    ),
+    getOrganizationLateness: (request: FastifyRequest) => service.getOrganizationLateness(
+      request.currentUser!,
+      { ...parseStaffReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
+    ),
+    listStaffLatenessIncidents: (request: FastifyRequest) => service.listStaffLatenessIncidents(
+      request.currentUser!,
+      staffUserId(request),
+      { ...parseStaffLatenessIncidentQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
+    ),
+    listOwnLatenessIncidents: (request: FastifyRequest) => service.listOwnLatenessIncidents(
+      request.currentUser!,
+      { ...parseStaffLatenessIncidentQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
   };
 }

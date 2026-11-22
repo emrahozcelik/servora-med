@@ -4,6 +4,7 @@ import type {
   FollowUpProposalOrigin,
   JobCardStatus,
   JobCardType,
+  JobChangeRequestReasonCode,
   PersistedJobCardListItem,
   MeetingOutcome,
 } from '../job-cards/types.js';
@@ -284,6 +285,113 @@ export type MeetingOutcomeItem = {
   count: number;
 };
 
+export type LatenessDelayType = 'LATE_START' | 'LATE_SUBMISSION';
+export type LatenessOutcome = 'RECOVERED' | 'EXTENDED' | 'OPEN';
+
+export type LatenessDurationStats = {
+  count: number;
+  /** Floor of the canonical integer durations' median; null when count = 0. */
+  medianSeconds: number | null;
+  maxSeconds: number | null;
+};
+
+export type LatenessOpenStats = {
+  count: number;
+  maxElapsedSeconds: number | null;
+};
+
+export type LatenessTypeBreakdown = {
+  delayType: LatenessDelayType;
+  incidentCount: number;
+  recovered: LatenessDurationStats;
+  extended: LatenessDurationStats;
+  open: LatenessOpenStats;
+};
+
+export type LatenessGroupCounts = {
+  delayedJobCount: number;
+  incidentCount: number;
+};
+
+/** OVR-2 incidents are written from this organization-local date onward. */
+export const LATENESS_TRACKING_STARTED_ON = '2026-09-21';
+
+/**
+ * Staff responsibility and operational (management-resolved change request)
+ * groups are separate and never added into a score or summed duration.
+ */
+export type StaffLatenessSummary = {
+  trackingStartedOn: string;
+  generatedAt: string;
+  staffResponsibility: LatenessGroupCounts & {
+    /** Always exactly [LATE_START, LATE_SUBMISSION], in that order. */
+    byType: LatenessTypeBreakdown[];
+  };
+  operational: LatenessGroupCounts & {
+    byReason: Array<{ reasonCode: JobChangeRequestReasonCode; incidentCount: number }>;
+  };
+};
+
+export type StaffLatenessAggregate =
+  Omit<StaffLatenessSummary, 'trackingStartedOn' | 'generatedAt'>;
+
+export type OrganizationLatenessSummary = {
+  range: ResolvedReportRange;
+  trackingStartedOn: string;
+  generatedAt: string;
+  totalIncidentCount: number;
+  staffResponsibility: LatenessGroupCounts;
+  operational: LatenessGroupCounts;
+  unknownAccountability: LatenessGroupCounts;
+  managementApprovalWait: LatenessGroupCounts & {
+    recovered: LatenessDurationStats;
+    open: LatenessOpenStats;
+  };
+};
+
+export type OrganizationLatenessAggregate =
+  Omit<OrganizationLatenessSummary, 'trackingStartedOn' | 'generatedAt'>;
+
+export type LatenessOperationalResolution =
+  | 'CANCELLED'
+  | 'CORRECTED'
+  | 'RESCHEDULED'
+  | 'LINKED_JOB_CREATED';
+
+export type StaffLatenessIncidentItem = {
+  incidentId: string;
+  delayType: LatenessDelayType;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  outcome: LatenessOutcome;
+  closedAt: string | null;
+  durationSeconds: number;
+  operationalReason: {
+    reasonCode: JobChangeRequestReasonCode;
+    resolution: LatenessOperationalResolution;
+    resolvedAt: string;
+  } | null;
+  /** Present for management; for Staff only while the job is assigned to them. */
+  job: { id: string; title: string; type: JobCardType; jobPath: string } | null;
+};
+
+export type StaffLatenessIncidentListResponse = {
+  range: ResolvedReportRange;
+  items: StaffLatenessIncidentItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type StaffLatenessIncidentListInput = StaffOperationalSummaryOneInput & {
+  limit: number;
+  offset: number;
+  /** Staff sees a job row only while the job is currently assigned to them. */
+  viewer: { role: 'STAFF' | 'MANAGER' | 'ADMIN'; userId: string };
+};
+
 export type StaffReportResponse = {
   staff: ReportStaffIdentity;
   range: ResolvedReportRange;
@@ -301,9 +409,11 @@ export type StaffReportResponse = {
   deliveriesByPurpose: DeliveryPurposeItem[];
   meetingsByOutcome: MeetingOutcomeItem[];
   currentWorkload: StaffCurrentWorkload;
+  lateness: StaffLatenessSummary;
 };
 
 export type ReportRangeQuery = { includeSaleCapability?: boolean; requestedRange: RequestedReportRange };
+export type StaffLatenessIncidentQuery = ReportRangeQuery & { limit: number; offset: number };
 export type DeliveryReportQuery = ReportRangeQuery & {
   groupBy: 'day' | 'purpose' | 'product' | 'staff';
   staffUserId: string | null;

@@ -2,10 +2,16 @@ import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
 import type { ReportReadSnapshot, ReportsReadModel } from './ports.js';
 import { precedingEqualLengthRange, staffExistedDuringPriorRange } from './range.js';
+import { LATENESS_TRACKING_STARTED_ON } from './types.js';
 import type {
   ApprovalReportQuery,
   CustomerReportQuery,
   DeliveryReportQuery,
+  LatenessDurationStats,
+  LatenessGroupCounts,
+  LatenessOpenStats,
+  OrganizationLatenessAggregate,
+  OrganizationLatenessSummary,
   ReportRangeQuery,
   SalesFollowUpReportQuery,
   StaffCompletionPerformance,
@@ -13,6 +19,10 @@ import type {
   StaffExecutionAggregate,
   StaffExecutionMetrics,
   StaffHistoricalPerformance,
+  StaffLatenessAggregate,
+  StaffLatenessIncidentListResponse,
+  StaffLatenessIncidentQuery,
+  StaffLatenessSummary,
   StaffOnTimeAggregate,
   StaffOnTimeMetrics,
   StaffSubmissionAttributionMetrics,
@@ -133,6 +143,114 @@ function onTime(aggregate: StaffOnTimeAggregate): StaffOnTimeMetrics {
     onTimeRate: aggregate.eligibleScheduledCompletedJobs === 0
       ? null
       : aggregate.onTimeCompletedJobs / aggregate.eligibleScheduledCompletedJobs,
+  };
+}
+
+function assertLatenessGroup(group: LatenessGroupCounts, label: string) {
+  if (!Number.isInteger(group.delayedJobCount)
+    || !Number.isInteger(group.incidentCount)
+    || group.delayedJobCount < 0
+    || group.incidentCount < 0
+    || group.delayedJobCount > group.incidentCount
+    || (group.delayedJobCount === 0) !== (group.incidentCount === 0)) {
+    throw new Error(`Lateness ${label} group invariant could not be resolved.`);
+  }
+}
+
+function assertDurationStats(stats: LatenessDurationStats, label: string) {
+  const empty = stats.count === 0;
+  if (!Number.isInteger(stats.count)
+    || stats.count < 0
+    || empty !== (stats.medianSeconds === null)
+    || empty !== (stats.maxSeconds === null)
+    || (stats.medianSeconds !== null
+      && (!Number.isInteger(stats.medianSeconds) || stats.medianSeconds < 0))
+    || (stats.maxSeconds !== null
+      && (!Number.isInteger(stats.maxSeconds) || stats.maxSeconds < 0))
+    || (stats.medianSeconds !== null && stats.maxSeconds !== null
+      && stats.medianSeconds > stats.maxSeconds)) {
+    throw new Error(`Lateness ${label} duration invariant could not be resolved.`);
+  }
+}
+
+function assertOpenStats(stats: LatenessOpenStats, label: string) {
+  if (!Number.isInteger(stats.count)
+    || stats.count < 0
+    || (stats.count === 0) !== (stats.maxElapsedSeconds === null)
+    || (stats.maxElapsedSeconds !== null
+      && (!Number.isInteger(stats.maxElapsedSeconds) || stats.maxElapsedSeconds < 0))) {
+    throw new Error(`Lateness ${label} open duration invariant could not be resolved.`);
+  }
+}
+
+function staffLatenessSummary(
+  aggregate: StaffLatenessAggregate,
+  requestTime: Date,
+): StaffLatenessSummary {
+  const responsibility = aggregate.staffResponsibility;
+  const operational = aggregate.operational;
+  assertLatenessGroup(responsibility, 'Staff responsibility');
+  assertLatenessGroup(operational, 'Staff operational');
+  if (responsibility.byType.length !== 2
+    || responsibility.byType[0]?.delayType !== 'LATE_START'
+    || responsibility.byType[1]?.delayType !== 'LATE_SUBMISSION') {
+    throw new Error('Staff lateness type breakdown invariant could not be resolved.');
+  }
+  const typeIncidents = responsibility.byType
+    .reduce((total, type) => total + type.incidentCount, 0);
+  if (typeIncidents !== responsibility.incidentCount) {
+    throw new Error('Staff lateness type incident invariant could not be resolved.');
+  }
+  responsibility.byType.forEach((type) => {
+    const label = type.delayType;
+    if (!Number.isInteger(type.incidentCount) || type.incidentCount < 0
+      || type.incidentCount
+        !== type.recovered.count + type.extended.count + type.open.count) {
+      throw new Error(`Lateness ${label} outcome invariant could not be resolved.`);
+    }
+    assertDurationStats(type.recovered, `${label} recovered`);
+    assertDurationStats(type.extended, `${label} extended`);
+    assertOpenStats(type.open, `${label} open`);
+  });
+  if (!Number.isInteger(operational.incidentCount) || operational.incidentCount < 0
+    || operational.byReason.reduce(
+      (total, reason) => total + reason.incidentCount,
+      0,
+    ) !== operational.incidentCount) {
+    throw new Error('Lateness operational reason invariant could not be resolved.');
+  }
+  return {
+    trackingStartedOn: LATENESS_TRACKING_STARTED_ON,
+    generatedAt: requestTime.toISOString(),
+    staffResponsibility: responsibility,
+    operational,
+  };
+}
+
+function organizationLatenessSummary(
+  aggregate: OrganizationLatenessAggregate,
+  requestTime: Date,
+): OrganizationLatenessSummary {
+  assertLatenessGroup(aggregate.staffResponsibility, 'organization Staff responsibility');
+  assertLatenessGroup(aggregate.operational, 'organization operational');
+  assertLatenessGroup(aggregate.unknownAccountability, 'organization unknown');
+  assertLatenessGroup(aggregate.managementApprovalWait, 'organization management approval wait');
+  assertDurationStats(aggregate.managementApprovalWait.recovered, 'management recovered');
+  assertOpenStats(aggregate.managementApprovalWait.open, 'management open');
+  if (!Number.isInteger(aggregate.totalIncidentCount) || aggregate.totalIncidentCount < 0) {
+    throw new Error('Organization lateness total invariant could not be resolved.');
+  }
+  const classified = aggregate.staffResponsibility.incidentCount
+    + aggregate.operational.incidentCount
+    + aggregate.unknownAccountability.incidentCount
+    + aggregate.managementApprovalWait.incidentCount;
+  if (classified !== aggregate.totalIncidentCount) {
+    throw new Error('Organization lateness reconciliation invariant could not be resolved.');
+  }
+  return {
+    ...aggregate,
+    trackingStartedOn: LATENESS_TRACKING_STARTED_ON,
+    generatedAt: requestTime.toISOString(),
   };
 }
 
@@ -365,6 +483,67 @@ export class ReportsService {
     }));
   }
 
+  async getOrganizationLateness(
+    actor: SafeUser,
+    query: ReportRangeQuery,
+  ): Promise<OrganizationLatenessSummary> {
+    requireManagement(actor);
+    const requestTime = this.now();
+    return this.readSnapshot.run(async ({ reports }) => {
+      const aggregate = await reports.getOrganizationLatenessSummary({
+        organizationId: actor.organizationId,
+        requestedRange: query.requestedRange,
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
+        requestTime,
+      });
+      return organizationLatenessSummary(aggregate, requestTime);
+    });
+  }
+
+  async listStaffLatenessIncidents(
+    actor: SafeUser,
+    staffUserId: string,
+    query: StaffLatenessIncidentQuery,
+  ): Promise<StaffLatenessIncidentListResponse> {
+    requireManagement(actor);
+    const requestTime = this.now();
+    return this.readSnapshot.run(async ({ reports }) => {
+      const identity = await reports.getStaffIdentity({
+        organizationId: actor.organizationId,
+        staffUserId,
+      });
+      if (!identity) throw staffProfileNotFound();
+      return reports.listStaffLatenessIncidents({
+        organizationId: actor.organizationId,
+        staffUserId,
+        requestedRange: query.requestedRange,
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
+        requestTime,
+        limit: query.limit,
+        offset: query.offset,
+        viewer: { role: actor.role, userId: actor.id },
+      });
+    });
+  }
+
+  async listOwnLatenessIncidents(
+    actor: SafeUser,
+    query: StaffLatenessIncidentQuery,
+  ): Promise<StaffLatenessIncidentListResponse> {
+    if (actor.role !== 'STAFF') throw forbidden();
+    const requestTime = this.now();
+    return this.readSnapshot.run(({ reports }) => reports.listStaffLatenessIncidents({
+      organizationId: actor.organizationId,
+      staffUserId: actor.id,
+      requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
+      requestTime,
+      limit: query.limit,
+      offset: query.offset,
+      viewer: { role: actor.role, userId: actor.id },
+    }));
+  }
+
   private async staffReport(
     organizationId: string,
     staffUserId: string,
@@ -409,6 +588,7 @@ export class ReportsService {
         priorAuthoredNotes,
         executionAggregates,
         onTimeAggregates,
+        latenessAggregate,
       ] = await Promise.all([
         reports.getStaffCompletionPerformanceMany(batchInput),
         reports.getStaffCorrectionRequestEventsMany(batchInput),
@@ -422,6 +602,7 @@ export class ReportsService {
         reports.getStaffAuthoredOperationalNotesMany(priorBatchInput),
         reports.getStaffExecutionMany(batchInput),
         reports.getStaffOnTimeMany(batchInput),
+        reports.getStaffLatenessSummary(input),
       ]);
       const completion = completions.get(staffUserId);
       const priorSummary = priorSummaries.get(staffUserId);
@@ -468,6 +649,7 @@ export class ReportsService {
         deliveriesByPurpose,
         meetingsByOutcome,
         currentWorkload: currentWorkload(summary),
+        lateness: staffLatenessSummary(latenessAggregate, requestTime),
       };
     });
   }
