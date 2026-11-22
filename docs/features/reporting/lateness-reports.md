@@ -13,6 +13,11 @@
   Revised the same day after a critic review (Staff self-cancellation is not a
   management decision, canonical duration expression, reconciliation total,
   paging bounds, deduplication, UI placement and wording).
+  Revised again after the owner's review (2026-11-22): only the accountable
+  Staff member's own request qualifies, management decisions are proven from
+  the decision record rather than current roles, the group is named as a
+  relationship rather than a proven cause, and the screen shows data freshness
+  with a refresh control.
 - **Date:** 2026-11-22
 - **Scope:** Stage 3 ("reports") of the owner's lateness plan. Read-only.
 - **Implements:** REPORT-001 §6 (lateness reporting) and JOB-010 D1 §7
@@ -124,16 +129,31 @@ Only `STAFF_PROVEN` incidents carry the flag; `STAFF_UNKNOWN` stays in the
 unknown group either way. A `STAFF_PROVEN` incident is **operational** when a
 change request exists for the same organization and JobCard with:
 
-- `state = 'CLOSED'` and `resolution IN ('CANCELLED', 'CORRECTED',
-  'RESCHEDULED', 'LINKED_JOB_CREATED')` (`REJECTED` and the automatic
-  `SUPERSEDED` do not qualify);
-- `resolved_by` is a user of the organization whose role is `MANAGER` or
-  `ADMIN`. This is required because the `CANCEL` command closes an open request
-  as `CANCELLED` with the canceller as `resolved_by` (`service.ts`), and Staff
-  could still `CANCEL` before the JOB-010 window was enabled (`policy.ts`). A
-  Staff self-cancellation is not a management decision. The role is the
-  current role: a later role change of the resolver is accepted as a known
-  limitation; and
+- `requested_by = accountable_user_id`: only the accountable Staff member's own
+  request can regroup their incident. A later assignee's request on the same
+  job never affects (or reveals its reason to) the former accountable person;
+- `state = 'CLOSED'` and the closure is a **provable management decision at
+  the time it was made**, derived read-only and never from the resolver's
+  current role:
+  - `resolution IN ('CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED')`
+    qualifies by the resolution alone. These values are written only by the
+    management resolve command (`assertCanResolveChangeRequest`, Staff 403) and
+    by the management-only patch resolution (`service.ts`, "Değişiklik talebini
+    yalnızca yönetim sonuçlandırabilir"), whose decision vocabulary is
+    `JOB_CHANGE_REQUEST_DECISIONS`.
+  - `resolution = 'CANCELLED'` is written by the `CANCEL` command with the
+    canceller as `resolved_by`, and Staff could still `CANCEL` their own job
+    before the JOB-010 window was enabled (`policy.ts`). It qualifies only
+    when `resolved_by` differs from the job's assignee at `resolved_at`, read
+    from immutable `job_card_assignment_history` (the same "latest row with
+    `changed_at <= instant`" rule as `getAssigneeAtInstant`, exported from
+    job-cards as one shared SQL renderer, not copied). A Staff member can only
+    act on a job currently assigned to them (`policy.ts` `actorCanReachJob`) and
+    an assignee is always Staff, so a canceller who was not the assignee was
+    management. When the canceller was the assignee it is not provable
+    management and the incident stays in the Staff group; nothing is guessed.
+  - `REJECTED` and the automatic `SUPERSEDED` never qualify.
+  A later role change of any user does not change the classification; and
 - an interval that overlaps the incident:
   `requested_at <= COALESCE(recovered_at, ended_at, requestTime)` and
   `resolved_at >= breached_at`.
@@ -148,6 +168,14 @@ LIMIT 1)` per incident so that no aggregate or page counts an incident twice.
 
 The flag only regroups the incident. The incident, its outcome and its duration
 are unchanged and remain visible.
+
+**The flag is a relationship, not a proven cause.** No stored link says the
+request caused the delay; the Staff member may, for example, have been late and
+later asked to change something else. The UI therefore names the group by the
+relationship ("Yönetimce sonuçlandırılan değişiklik talebiyle ilişkili
+gecikmeler") and states that it is derived automatically. Per D1 §7 these
+incidents are not added to the Staff responsibility group, but the UI does not
+claim that the cause was proven.
 
 ## 5. Staff report section — "Gecikme kayıtları"
 
@@ -172,6 +200,7 @@ type LatenessTypeBreakdown = {
 };
 type StaffLatenessSummary = {
   trackingStartedOn: '2026-09-21';
+  generatedAt: string;           // requestTime, ISO instant
   staffResponsibility: {          // operational = false
     delayedJobCount: number;      // COUNT(DISTINCT job_card_id)
     incidentCount: number;
@@ -214,10 +243,18 @@ job counts are therefore not added together.
   "En uzun süre" for closed and extended rows, "Devam eden en uzun süre" for
   open rows. Zero in this group: "Bu dönemde personel sorumluluğunda gecikme
   kaydı yok."
-- "Operasyonel nedenli gecikmeler" with "Yönetimin sonuçlandırdığı düzenleme /
-  sonlandırma önerisiyle ilişkili; personel kusuru sayılmaz.", "Geciken iş",
-  "Gecikme kaydı" and counts per reason using the existing
+- "Yönetimce sonuçlandırılan değişiklik talebiyle ilişkili gecikmeler" with
+  the helper text "Gecikme sürerken personelin kendi açtığı ve yönetimin
+  sonuçlandırdığı bir değişiklik talebiyle aynı zamana denk gelen kayıtlar.
+  Bu ilişki otomatik belirlenir; talebin gecikmenin nedeni olduğu kesin
+  değildir. Bu kayıtlar personel sorumluluğundaki sayılara eklenmez.",
+  "Geciken iş", "Gecikme kaydı" and counts per reason using the existing
   `changeRequestReasonLabels`. Hidden when its count is zero.
+- Freshness: "Durumlar {generatedAt, organization time} itibarıyladır." under
+  the title, and a "Yenile" button that reloads the summary and any loaded list
+  pages. The OVR-3 scanner publishes no realtime event when it writes an
+  incident, so an open screen is not expected to update by itself; no new
+  worker or event is added.
 - When the period starts before `trackingStartedOn`: "Gecikme kayıtları 21 Eylül
   2026'dan önce eksik olabilir."
 - Both groups zero: only "Bu dönemde gecikme kaydı yok." (plus the tracking
@@ -278,7 +315,7 @@ the management path that is not an organization Staff user returns the same
 404 as the existing Staff report.
 
 Each row shows the type, deadline, breach time (organization time), outcome,
-duration, "Operasyonel neden: …" when flagged, and the job link or
+duration, "İlişkili değişiklik talebi: {reason label}" when flagged, and the job link or
 "Devredilmiş iş". So that repeated incidents of one job are not read as
 separate jobs, a row shows "Gönderim turu N" when `episodeNo > 1` and "Plan
 sürümü N" when `scheduleRevisionNo > 1`; nothing is shown for the first round
@@ -297,6 +334,7 @@ retry state.
 type OrganizationLatenessSummary = {
   range: ResolvedReportRange;
   trackingStartedOn: '2026-09-21';
+  generatedAt: string;           // requestTime, ISO instant
   totalIncidentCount: number;     // the §3 cohort size, same CTE
   staffResponsibility: { delayedJobCount: number; incidentCount: number };
   operational: { delayedJobCount: number; incidentCount: number };
@@ -317,10 +355,10 @@ unless the four incident counts sum to `totalIncidentCount` (DATA-01), and in
 every group `delayedJobCount <= incidentCount` and `delayedJobCount = 0` exactly
 when `incidentCount = 0`. There is no per-Staff breakdown on this card.
 
-Labels: "Personel sorumluluğunda", "Operasyonel nedenli", "Sorumlusu
+Labels: "Personel sorumluluğunda", "Değişiklik talebiyle ilişkili", "Sorumlusu
 belirlenemeyen", "Yönetici onayı beklemesi" (with "Ortanca süre", "En uzun
 süre" and "Devam eden en uzun süre"), each as "N kayıt · M iş", plus the §5
-tracking note. All zero: "Bu dönemde gecikme kaydı yok."
+tracking note, the §5 freshness line and a "Yenile" button. All zero: "Bu dönemde gecikme kaydı yok."
 
 ## 8. Implementation boundaries
 
@@ -359,4 +397,8 @@ tracking note. All zero: "Bu dönemde gecikme kaydı yok."
 | LR-11 | Medians and maxima are per type and outcome, integer seconds, never negative, equal to the per-job history values for the same rows; no response field contains a summed duration, rate or rank. |
 | LR-12 | Organization incident counts reconcile with the cohort size; service invariants fail closed on violation. |
 | LR-13 | A period before 2026-09-21 shows the tracking note; empty periods show the empty state. |
+| LR-15 | Staff A is late, the job is reassigned to Staff B, B opens a change request that management resolves `RESCHEDULED`: A's incident stays in A's Staff responsibility group, A's list shows no reason from B's request, and B's report is unaffected. |
+| LR-16 | A manager resolves a request `CORRECTED`, or cancels a job whose assignee is Staff A; the resolver is later changed to role `STAFF`: the incident stays in the change-request group. A `CANCELLED` closure by the assignee themself never qualifies, whatever their later role. |
+| LR-17 | Several incidents on one job (revision rounds, plan versions, types) give the correct incident and delayed-job counts in both the Staff section and the organization card. |
+| LR-18 | An incident written by the OVR-3 scanner after the report was loaded appears after "Yenile" or reopening the report, with `generatedAt` advanced; an open screen is not required to update by itself. |
 | LR-14 | 390×844 Staff and management views render without horizontal overflow; list paging and retry work. |
