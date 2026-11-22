@@ -251,13 +251,13 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
   });
 
   /**
-   * SUBMIT holds the JobCard lock and then requests FOR SHARE on its note
-   * author — which for a weekly report is the report owner. Removal runs
-   * users -> job_cards, so it must acquire that same row in a mode compatible
-   * with SHARE. A NO KEY UPDATE request would invert the order and deadlock
-   * the two commands.
+   * Removal now follows the staff-user lock contract, so it requests the owner
+   * users row in FOR NO KEY UPDATE mode (via `lockAssigneesInOrder`) before it
+   * touches job_cards. A concurrent holder of that row therefore serializes
+   * removal instead of letting it slip past on a compatible SHARE lock: the
+   * command must wait, write nothing, and finish once the holder releases.
    */
-  it('acquires the report owner without a lock mode that deadlocks a concurrent submit', async () => {
+  it('waits for a conflicting users lock on the report owner before touching the report', async () => {
     await withFixture(async ({ pool, service, admin, staff }) => {
       const original = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
@@ -278,8 +278,12 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
           removal.then(() => 'completed' as const),
           new Promise<'blocked'>(resolve => { timer = setTimeout(() => resolve('blocked'), 3000); }),
         ]);
-        expect(outcome).toBe('completed');
-        expect((await removal).removal).not.toBeNull();
+        expect(outcome).toBe('blocked');
+        expect((await pool.query('SELECT removed_at FROM weekly_reports WHERE id=$1',
+          [original.reportId])).rows[0].removed_at).toBeNull();
+        await holder.query('ROLLBACK');
+        const removed = await removal;
+        expect(removed.removal).not.toBeNull();
       } finally {
         if (timer) clearTimeout(timer);
         await holder.query('ROLLBACK').catch(() => {});
@@ -291,11 +295,12 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
 
   /**
    * Real SUBMIT vs REMOVE race. Both sides follow the staff-user lock contract:
-   * SUBMIT takes the note author (the report owner) users row and then the
-   * JobCard; REMOVE asks for the owner first and then the JobCard. The owner's
-   * users row is the serialization point, and coordinating the interleaving
-   * there is what would expose an incompatible lock mode as 40P01. Both sides
-   * run the real production commands.
+   * each locks the involved staff users rows (SUBMIT: the note author, i.e. the
+   * report owner; REMOVE: the acting admin and the owner, sorted and
+   * de-duplicated) and only then the JobCard. The owner's users row is thus a
+   * single serialization point ahead of every JobCard access, so the two
+   * commands cannot form a cross-table 40P01 cycle; both sides run the real
+   * production commands.
    */
   it('serializes a concurrent submit and removal without a deadlock', async () => {
     await withFixture(async ({ pool, service, admin, staff }) => {
@@ -307,6 +312,8 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
         { expectedVersion: 1, draft, answers: [] });
 
       const actual = PostgresJobCardTransaction.prototype.getNoteAuthorSnapshot;
+      const actualAssigneeForUpdate =
+        PostgresJobCardTransaction.prototype.getAssigneeForUpdate;
       let gateSubmit!: () => void;
       const submitAtOwnerLock = new Promise<void>(resolve => { gateSubmit = resolve; });
       let release!: () => void;
@@ -322,15 +329,19 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
           if (!paused && authorId === staff.id) {
             paused = true; gateSubmit(); await gate;
           }
-          // REMOVE now blocks on the owner users row before it ever reaches the
-          // JobCard lock, so its backend is captured at the first locked read.
+          return actual.call(this, organizationId, authorId);
+        });
+      // REMOVE now blocks while taking its users-first locks, before it ever
+      // reaches the JobCard lock, so its backend is captured on that call.
+      const pidSpy = vi.spyOn(PostgresJobCardTransaction.prototype,'getAssigneeForUpdate')
+        .mockImplementation(async function (organizationId: string, userId: string) {
           if (captureRemovalPid && removalPid === null) {
             const self = await (this as unknown as {
               client: { query(sql: string): Promise<{ rows: Array<{ pid: number }> }> };
             }).client.query('SELECT pg_backend_pid() AS pid');
             removalPid = self.rows[0]!.pid;
           }
-          return actual.call(this, organizationId, authorId);
+          return actualAssigneeForUpdate.call(this, organizationId, userId);
         });
 
       const failure = (error: unknown) =>
@@ -405,6 +416,7 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       } finally {
         release();
         spy.mockRestore();
+        pidSpy.mockRestore();
         await Promise.allSettled([submit, removal].filter(Boolean) as Promise<unknown>[]);
       }
     });

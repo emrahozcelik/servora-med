@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { Pool } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
@@ -16,7 +16,7 @@ import {
 } from '../src/modules/job-cards/overdue-reminder-worker.js';
 import { ALWAYS_OPEN_NOTIFICATION_WINDOW } from '../src/modules/notifications/quiet-hours.js';
 import { resolveOverdueReminderTiming } from '../src/modules/job-cards/overdue-reminder-policy.js';
-import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { PostgresJobCardRepository, PostgresJobCardTransaction } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
@@ -1269,6 +1269,56 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
         locker.release();
         probe.release();
       }
+    });
+  });
+
+  it('24: a reassignment between the worker snapshot and the JobCard lock is skipped', { timeout: 30_000 }, async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Reassign Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      let job = await createTask(service, staffA, { title: 'Yeniden atanan gecikmiş görev', dueDate });
+      job = await startJob(service, staffA, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
+      const worker = createOverdueReminderWorker(
+        new PostgresOverdueReminderWorkerRepository(
+          new PostgresJobCardRepository(pool), false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+        ),
+        { timing: {}, batchSize: 50 },
+      );
+
+      // Reassign in the exact unlocked window: after the worker read its
+      // snapshot, before it holds the JobCard lock. The version is left
+      // untouched, so the outcome can only come from the worker's own
+      // assignment re-check rather than from a version fence elsewhere.
+      const actualSnapshot = PostgresJobCardTransaction.prototype.getLatenessAlertJobSnapshot;
+      const spy = vi.spyOn(PostgresJobCardTransaction.prototype, 'getLatenessAlertJobSnapshot')
+        .mockImplementationOnce(async function (organizationId, jobCardId) {
+          const snapshot = await actualSnapshot.call(this, organizationId, jobCardId);
+          await pool.query(
+            `UPDATE job_cards SET assigned_to = $1 WHERE organization_id = $2 AND id = $3`,
+            [staffBId, organizationId, jobCardId],
+          );
+          return snapshot;
+        });
+      try {
+        const report = await worker.runOnce(shiftMs(breachedAt, 15 * 60_000));
+        expect(report.candidates).toBe(1);
+        expect(report.skippedStateChanged).toBe(1);
+        expect(report.sent).toBe(0);
+        expect(report.failed).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+      // Nothing was delivered to either assignee: the tick retries later.
+      expect(await selectDeliveries(pool, organizationId, job.id)).toHaveLength(0);
+      expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(0);
     });
   });
 });
