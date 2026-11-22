@@ -3239,7 +3239,9 @@ management decision list.
   Q1–Q4 answered 2026-11-21, owner review revisions and "evet başlayalım"
   2026-11-22). Contract:
   [lateness-notifications-quiet-hours.md](./docs/features/lateness-notifications-quiet-hours.md).
-  Amends OVR-4 send timing.
+  Amends OVR-4 send timing. Shipped in PR #477 and activated in production on
+  2026-11-22 without the staged §9.3 procedure, by owner decision
+  ([activation record](./docs/operations/2026-11-22-ovr6-lateness-alerts-activation.md)).
 
 ### Decision
 

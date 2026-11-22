@@ -1174,10 +1174,12 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
         { publisher: failingPublisher, timing: {}, batchSize: 50 },
       );
       // Delivery + notification rows commit before the transport publish,
-      // so the iteration reports both the send and the publish failure.
+      // so the iteration reports the send and a separate publish failure; the
+      // committed candidate is not also counted as failed.
       const failed = await worker.runOnce(shiftMs(breachedAt, 15 * 60_000));
       expect(failed.sent).toBe(1);
-      expect(failed.failed).toBe(1);
+      expect(failed.failed).toBe(0);
+      expect(failed.publishFailed).toBe(1);
       expect(await selectDeliveries(pool, organizationId, job.id)).toHaveLength(1);
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(1);
 
@@ -1193,6 +1195,80 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       const incidents = await selectIncidents(pool, organizationId, job.id);
       expect(incidents).toHaveLength(1);
       expect(incidents[0]!.recovered_at).not.toBeNull();
+    });
+  });
+
+  it('23: takes the assignee users lock before the JobCard lock', { timeout: 30_000 }, async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Lock Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      let job = await createTask(service, staffA, { title: 'Kilit sırası görevi', dueDate });
+      job = await startJob(service, staffA, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
+      const worker = createOverdueReminderWorker(
+        new PostgresOverdueReminderWorkerRepository(
+          new PostgresJobCardRepository(pool), false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+        ),
+        { timing: {}, batchSize: 50 },
+      );
+
+      const locker = await pool.connect();
+      const probe = await pool.connect();
+      let pending: ReturnType<typeof worker.runOnce> | null = null;
+      try {
+        // Hold the JobCard row only. Lock order users -> JobCard means the
+        // worker takes the assignee's users row first and then waits here.
+        await locker.query('BEGIN');
+        await locker.query(
+          `SELECT id FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
+          [organizationId, job.id],
+        );
+        pending = worker.runOnce(shiftMs(breachedAt, 15 * 60_000));
+        const deadline = Date.now() + 10_000;
+        let userLockHeldByWorker = false;
+        while (Date.now() < deadline) {
+          await probe.query('BEGIN');
+          try {
+            await probe.query(
+              `SELECT id FROM users WHERE organization_id = $1 AND id = $2 FOR UPDATE NOWAIT`,
+              [organizationId, staffAId],
+            );
+            await probe.query('ROLLBACK');
+          } catch (error) {
+            await probe.query('ROLLBACK');
+            if ((error as { code?: string }).code === '55P03') {
+              userLockHeldByWorker = true;
+              break;
+            }
+            throw error;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(
+          userLockHeldByWorker,
+          'worker reached the JobCard lock before locking the assignee users row',
+        ).toBe(true);
+        await locker.query('ROLLBACK');
+        const report = await pending;
+        expect(report.sent).toBe(1);
+        expect(report.byKind).toMatchObject({ STAFF_REMINDER: 1 });
+      } finally {
+        try {
+          await locker.query('ROLLBACK');
+        } catch {
+          // already rolled back
+        }
+        if (pending) await pending.catch(() => undefined);
+        locker.release();
+        probe.release();
+      }
     });
   });
 });

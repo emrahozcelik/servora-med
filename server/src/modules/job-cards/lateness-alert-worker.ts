@@ -77,6 +77,8 @@ export type LatenessAlertKindReport = {
   deferredQuietHours: number;
   skipped: number;
   failed: number;
+  /** Live realtime publish failures after a committed outcome (transport-only). */
+  publishFailed: number;
 };
 
 export type LatenessAlertIterationReport = {
@@ -553,7 +555,16 @@ export function createLatenessAlertWorker(options: {
             report.skipped += 1;
             break;
         }
-        for (const event of realtimeEvents) publisher.publish(event);
+        // Committed outcome: a live-publish failure is transport-only; it is
+        // counted in `publishFailed`, never also as a failed candidate.
+        for (const event of realtimeEvents) {
+          try {
+            publisher.publish(event);
+          } catch (error) {
+            report.publishFailed += 1;
+            logError(error);
+          }
+        }
       } catch (error) {
         // One failing candidate never stops the batch or the other kinds; it
         // is retried on a later tick.
@@ -641,7 +652,7 @@ export function createLatenessAlertWorker(options: {
 }
 
 function emptyKindReport(): LatenessAlertKindReport {
-  return { candidates: 0, sent: 0, deferredQuietHours: 0, skipped: 0, failed: 0 };
+  return { candidates: 0, sent: 0, deferredQuietHours: 0, skipped: 0, failed: 0, publishFailed: 0 };
 }
 
 /** Explicit not-run report so a failed tick is never mistaken for a clean one. */

@@ -693,8 +693,11 @@ describe.skipIf(!databaseUrl)('OVR-6 lateness alert worker', () => {
       const report = await worker.runIteration();
       // The transaction committed before the transport hop: the delivery is a
       // durable fact, and the publish failure is reported without duplicating
-      // or erasing lifecycle truth.
-      expect(report.startReminder.failed).toBe(1);
+      // or erasing lifecycle truth. It is counted as a publish failure, never
+      // as a failed candidate on top of the committed send.
+      expect(report.startReminder.sent).toBe(1);
+      expect(report.startReminder.failed).toBe(0);
+      expect(report.startReminder.publishFailed).toBe(1);
       const deliveries = await selectLatenessDeliveries(pool, ctx.organizationId, job.id);
       expect(deliveries).toHaveLength(1);
       expect(deliveries[0]!.kind).toBe('START_REMINDER');
