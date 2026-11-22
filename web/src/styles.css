@@ -4273,6 +4273,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .overview-section a,
 .settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
+/* OVR-6: the unaccepted past-start card's only target is its job link; keep
+   the 44px touch floor without changing the shared card-title pattern. */
+.unaccepted-past-start-card .servora-operational-card__title a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+}
 .overview-section .servora-operational-card__body > span,
 .overview-section .servora-operational-card__body > p,
 .overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }

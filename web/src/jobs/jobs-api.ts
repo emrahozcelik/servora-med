@@ -1637,6 +1637,55 @@ export const listAssignmentOffersNeedingAction = async (
   parseAssignmentOfferNeedingActionItem,
 );
 
+/**
+ * OVR-6 §6 management list item: a `NEW` job whose planned start has passed
+ * and whose latest JOB-010 offer does not place it with the offer flow. The
+ * ownership matrix is decided by the server; this shape only carries the read.
+ */
+export type UnacceptedPastStartItem = {
+  jobCardId: string;
+  title: string;
+  type: JobCardType;
+  jobPath: string;
+  assignee: { id: string; name: string; active: boolean };
+  scheduledAt: string;
+  elapsedSeconds: number;
+  hasOpenChangeRequest: boolean;
+};
+
+function parseUnacceptedPastStartAssignee(value: unknown) {
+  const v = exactObject(value, 'assignee', ['id', 'name', 'active']);
+  return {
+    id: string(v.id, 'assignee.id'),
+    name: string(v.name, 'assignee.name'),
+    active: boolean(v.active, 'assignee.active'),
+  };
+}
+
+function parseUnacceptedPastStartItem(value: unknown): UnacceptedPastStartItem {
+  const v = exactObject(value, 'unacceptedPastStart', [
+    'jobCardId', 'title', 'type', 'jobPath', 'assignee', 'scheduledAt',
+    'elapsedSeconds', 'hasOpenChangeRequest',
+  ]);
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    title: string(v.title, 'title'),
+    type: oneOf(v.type, 'type', JOB_CARD_TYPES),
+    jobPath: string(v.jobPath, 'jobPath'),
+    assignee: parseUnacceptedPastStartAssignee(v.assignee),
+    scheduledAt: canonicalInstant(v.scheduledAt, 'scheduledAt'),
+    elapsedSeconds: count(v.elapsedSeconds, 'elapsedSeconds'),
+    hasOpenChangeRequest: boolean(v.hasOpenChangeRequest, 'hasOpenChangeRequest'),
+  };
+}
+
+export const listUnacceptedPastStart = async (
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`/api/job-cards/pending-acceptance/past-start${query(page)}`),
+  parseUnacceptedPastStartItem,
+);
+
 export type OpenSubmissionLateItem = {
   jobCardId: string;
   jobTitle: string;
