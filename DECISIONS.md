@@ -3133,8 +3133,9 @@ management decision list.
   and enforces the window. Each release ships PostgreSQL and UI regression tests; the
   contract lists the acceptance scenarios. `SERVORA_MED_API_DRAFT.md` gains
   the new endpoints in the release that adds them.
-- Drift reported separately, not changed here: JOB-006 §6 allows Staff
-  `ADD_NOTE` in `NEW`, but `policy.ts` does not.
+- JOB-006 §6 Staff `ADD_NOTE` in `NEW`, the drift reported when this record was
+  accepted, is resolved: `getAllowedJobActions` grants the assigned Staff member
+  `ADD_NOTE` in `NEW` (and `ACCEPTED`) for every type, matching JOB-006 §6.
 
 ## OVR-5 — Revision correction deadline and authorized deadline extension
 
