@@ -9,7 +9,18 @@ import {
   VisitPairSubmitNote,
 } from './jobs/SalePairPanels';
 import { useVisitPairSale } from './jobs/useVisitPairSale';
+import { DeliveryProvenanceLine, LinkedDeliveryPanel } from './jobs/SaleDeliveryLinks';
 import {
+  buildSaleDeliveryRequest,
+  createSaleDeliveryDraft,
+  hasSaleDeliveryErrors,
+  mapSaleDeliveryServerError,
+  type SaleDeliveryDraft,
+  type SaleDeliveryErrors,
+  type SaleDeliverySource,
+} from './jobs/sale-approval-delivery';
+import {
+  approvalCompletesSale,
   coordinatedSaleVersion,
   lifecycleMovesSale,
   pairConflictGuidance,
@@ -36,7 +47,7 @@ import {
   pastStartAcknowledgementPayload,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
-  type ApproveFollowUpInput, type AssignmentReasonCode, type CustomerScheduleEvaluation,
+  type ApproveDeliveryInput, type ApproveFollowUpInput, type AssignmentReasonCode, type CustomerScheduleEvaluation,
   type DeliveryItem, type FollowUpProposalInput,
   type FollowUpCancelContinuity,
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
@@ -1218,13 +1229,15 @@ async function executeLifecycleCommand(
     followUpProposal?: FollowUpProposalInput;
     followUpContinuity?: FollowUpCancelContinuity;
     followUp?: ApproveFollowUpInput;
+    /** SALE-002 §5.1: the optional delivery an approval that completes a sale opens. */
+    delivery?: ApproveDeliveryInput;
     assignmentReason?: { code: AssignmentReasonCode; text: string };
     correctionDueAt?: string;
     /** SALE-002 §4.5: present only for a coordinated pair command. */
     expectedSaleVersion?: number;
   },
   reason: string,
-): Promise<JobCard & { linkedSaleJobCardId: string | null }> {
+): Promise<JobCard & { linkedSaleJobCardId: string | null; deliveryJobCardId?: string }> {
   const lifecycleInput = { clientActionId: input.clientActionId, expectedVersion: input.expectedVersion };
   switch (command) {
     case 'ACCEPT_ASSIGNMENT':
@@ -1386,6 +1399,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     input: StartJobCardInput & {
       followUpProposal?: FollowUpProposalInput;
       followUp?: ApproveFollowUpInput;
+      delivery?: ApproveDeliveryInput;
       followUpContinuity?: FollowUpCancelContinuity;
       assignmentReason?: { code: AssignmentReasonCode; text: string };
       correctionDueAt?: string;
@@ -1433,6 +1447,60 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     visitAssignedTo: state.kind === 'ready' ? state.detail.job.assignedTo : '',
     visitVersion: state.kind === 'ready' ? state.detail.job.version : 0,
   });
+  /**
+   * SALE-002 §8.2: the optional "Teslim işi aç" draft of the open approve
+   * dialog. It exists only while the approval completes a sale, either through
+   * the visit pair (the coordinated sale is `WAITING_APPROVAL`) or because this
+   * IS the independent sale's own approval.
+   */
+  const [saleDelivery, setSaleDelivery] = useState<{
+    draft: SaleDeliveryDraft;
+    errors: SaleDeliveryErrors | null;
+  } | null>(null);
+  const saleDeliveryFailureSeq = useRef(0);
+  const approveDeliverySource: SaleDeliverySource | null = (() => {
+    if (dialog?.kind !== 'approve' || state.kind !== 'ready') return null;
+    const detail = state.detail;
+    if (detail.kind === 'SALES_MEETING') {
+      if (pairState.kind !== 'ready' || !pairState.coordinated
+        || !approvalCompletesSale(pairState.sale)) return null;
+      return {
+        saleId: pairState.sale.id,
+        title: pairState.sale.title,
+        assignedTo: pairState.sale.assignedTo,
+        customerName: detail.job.customer?.name ?? null,
+        customerActive: true,
+        items: pairState.sale.items,
+        independent: false,
+      };
+    }
+    if (detail.kind === 'SALE' && detail.job.status === 'WAITING_APPROVAL' && detail.job.customerId) {
+      return {
+        saleId: detail.job.id,
+        title: detail.job.title,
+        assignedTo: detail.job.assignedTo,
+        customerName: detail.job.customer?.name ?? null,
+        customerActive: true,
+        items: detail.saleDetails.items,
+        independent: true,
+      };
+    }
+    return null;
+  })();
+  const approveDeliverySourceId = approveDeliverySource?.saleId ?? null;
+  useEffect(() => {
+    if (dialog?.kind !== 'approve') setSaleDelivery(null);
+  }, [dialog?.kind]);
+  useEffect(() => {
+    if (approveDeliverySource === null) return;
+    // Kept across a pair reload (the source briefly disappears while loading) so
+    // the manager's edits are not lost; reset only when the dialog closes.
+    setSaleDelivery((current) => current ?? {
+      draft: createSaleDeliveryDraft(approveDeliverySource, new Date()),
+      errors: null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approveDeliverySourceId]);
   useLayoutEffect(() => {
     const lifetime = sessionLifetime.current;
     lifetime.active = true;
@@ -1895,6 +1963,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     extra?: {
       followUpProposal?: FollowUpProposalInput;
       followUp?: ApproveFollowUpInput;
+      delivery?: ApproveDeliveryInput;
       followUpContinuity?: FollowUpCancelContinuity;
       assignmentReason?: { code: AssignmentReasonCode; text: string };
       correctionDueAt?: string;
@@ -1915,6 +1984,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       let commandInput: StartJobCardInput & {
         followUpProposal?: FollowUpProposalInput;
         followUp?: ApproveFollowUpInput;
+        delivery?: ApproveDeliveryInput;
         followUpContinuity?: FollowUpCancelContinuity;
         assignmentReason?: { code: AssignmentReasonCode; text: string };
         correctionDueAt?: string;
@@ -1948,6 +2018,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!retained) {
         if (extra?.followUpProposal) commandInput = { ...commandInput, followUpProposal: extra.followUpProposal };
         if (extra?.followUp) commandInput = { ...commandInput, followUp: extra.followUp };
+        // §5.4: the delivery is frozen with the attempt (body, key and all), so
+        // an uncertain retry replays it byte-identically.
+        if (extra?.delivery) commandInput = { ...commandInput, delivery: extra.delivery };
         if (extra?.followUpContinuity) {
           commandInput = { ...commandInput, followUpContinuity: extra.followUpContinuity };
         }
@@ -2014,7 +2087,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (transition) {
         setMessage(
           transition.successMessage
-          + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null),
+          + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null)
+          + (updated.deliveryJobCardId ? ' Teslim işi oluşturuldu.' : ''),
         );
       }
       const continuity = attempt.input.followUpContinuity;
@@ -2106,6 +2180,21 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           reloadPair();
           setFeedbackFocusRequest((value) => value + 1);
           return;
+        }
+        if (command === 'APPROVE' && dialog?.kind === 'approve' && saleDelivery?.draft.enabled
+          && isDefinitiveMutationError(caught)) {
+          // SALE-002 §8.3/§5.4: a definitive answer to the delivery payload. The
+          // attempt (and its key) is already reset above, so the corrected
+          // approval is a new intent; the controls are re-enabled and focus
+          // moves to the first invalid one.
+          saleDeliveryFailureSeq.current += 1;
+          const mapped = mapSaleDeliveryServerError(caught, saleDeliveryFailureSeq.current);
+          if (mapped !== null) {
+            setSaleDelivery((current) => current
+              ? { draft: { ...current.draft, ...mapped.patch }, errors: mapped.errors }
+              : current);
+            return;
+          }
         }
         if (isAssignmentWindowStaleError(caught)) {
           // JOB-010 release 2b: the offer moved on the server (deadline passed,
@@ -2755,8 +2844,28 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         : null;
       const followUpRequired = job !== null
         && (requiresMandatoryFollowUpProposal(job, meetingDetails) || Boolean(job.followUpProposal));
+      // The pair is still being discovered: a confirm now would omit the sale
+      // version (400) or silently drop the delivery section, so wait for it.
+      if (state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
+        && pairState.kind === 'loading') return;
+      /** §8.2/§5.1: the delivery body, only when the switch is on. */
+      const resolveDelivery = (): { ok: true; delivery?: ApproveDeliveryInput } | { ok: false } => {
+        if (!approveDeliverySource || !saleDelivery || !saleDelivery.draft.enabled) return { ok: true };
+        saleDeliveryFailureSeq.current += 1;
+        const built = buildSaleDeliveryRequest(saleDelivery.draft, saleDeliveryFailureSeq.current);
+        if (!built.ok) {
+          setSaleDelivery((current) => current ? { ...current, errors: built.errors } : current);
+          return { ok: false };
+        }
+        setSaleDelivery((current) => current ? { ...current, errors: null } : current);
+        return { ok: true, delivery: built.delivery };
+      };
       if (!followUp?.draft) {
-        if (!followUpRequired) void execute('APPROVE', reason);
+        if (!followUpRequired) {
+          const resolved = resolveDelivery();
+          if (!resolved.ok) return;
+          void execute('APPROVE', reason, resolved.delivery ? { delivery: resolved.delivery } : undefined);
+        }
         return;
       }
       if (!followUp.draft.scheduledAt) {
@@ -2767,6 +2876,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setFollowUp((current) => current ? { ...current, inlineError: 'Takip kapsamı zorunludur.' } : current);
         return;
       }
+      const resolved = resolveDelivery();
+      if (!resolved.ok) return;
       void execute('APPROVE', reason, {
         followUp: {
           scheduledAt: followUp.draft.scheduledAt,
@@ -2776,6 +2887,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           priority: followUp.draft.priority ?? 'normal',
           dueDate: followUp.draft.dueDate ?? null,
         },
+        ...(resolved.delivery ? { delivery: resolved.delivery } : {}),
       });
       return;
     }
@@ -2937,9 +3049,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             throw caught;
           }
         }} />}
+    {detail.kind === 'SALE' && <LinkedDeliveryPanel
+      linkedDelivery={detail.job.linkedDelivery !== undefined
+        ? detail.job.linkedDelivery
+        : detail.saleDetails.linkedDelivery}
+    />}
+    {detail.kind === 'PRODUCT_DELIVERY' && <DeliveryProvenanceLine sourceSaleId={detail.job.deliverySourceSaleId} />}
     {detail.kind === 'SALE' && isManagementUser(user) && <section aria-label="Gelecek modüller">
       <h2>Ön Muhasebe — Gelecek sürümde</h2><p>Satış kaydı finansal işlem oluşturmaz. Muhasebe işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
-      <h2>Stok/Depo — Gelecek sürümde</h2><p>Satış kaydı stok hareketi veya teslimat oluşturmaz. Depo işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
+      <h2>Stok/Depo — Gelecek sürümde</h2><p>Satış kaydı stok hareketi oluşturmaz. Onay sırasında ürün teslimi için ayrı bir teslim işi açılabilir; bu iş de stok düşümü yapmaz. Depo işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
     </section>}
     {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} disabled={invalidationLocked} />}
     {editing && detail.kind === 'SALES_MEETING'
@@ -3127,6 +3245,28 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         ? [lifecycleMovesSale(pairState.sale, 'WITHDRAW_FROM_APPROVAL')
           ? `Bağlı satış kaydı da birlikte yeniden düzenlemeye açılır: ${pairState.sale.title}.`
           : `Bağlı satış kaydı olduğu durumda kalır: ${pairState.sale.title} · ${jobCardStatusLabel(pairState.sale.status)}.`]
+        : undefined}
+      saleDelivery={dialog.kind === 'approve' && approveDeliverySource && saleDelivery
+        ? {
+            source: approveDeliverySource,
+            draft: saleDelivery.draft,
+            errors: saleDelivery.errors,
+            pending,
+            uncertain,
+            onChange: (patch, touched) => setSaleDelivery((current) => {
+              if (!current) return current;
+              const errors = current.errors;
+              let nextErrors = errors;
+              if (errors && touched) {
+                const fields = { ...errors.fields };
+                delete fields[touched];
+                const lines = touched === 'items' ? {} : errors.lines;
+                nextErrors = { ...errors, fields, lines, summary: errors.summary };
+                if (!hasSaleDeliveryErrors(nextErrors)) nextErrors = null;
+              }
+              return { draft: { ...current.draft, ...patch }, errors: nextErrors };
+            }),
+          }
         : undefined}
       followUp={(dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
         ? {
