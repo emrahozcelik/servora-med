@@ -9,6 +9,7 @@ import type { StartLocationCapture } from './start-location-input.js';
 import type { FollowUpCancelContinuity } from './follow-up-policy.js';
 import type { JobActionLocationCapture } from './location-types.js';
 import { normalizeExpiryDate } from './delivery-input.js';
+import type { SaleApprovalDeliveryInput } from './sale-approval-delivery-input.js';
 
 /** Resolved captures carry provider metadata; request identity reads core fields only. */
 export type LifecycleLocationCapture = StartLocationCapture | JobActionLocationCapture;
@@ -149,7 +150,43 @@ export type LifecycleRequestIdentity = {
    * receipt recorded before this release keeps replaying byte-identically.
    */
   correctionDueAt?: string | null;
+  /**
+   * SALE-002 §5.4: the normalized sale-approval delivery. Present only when the
+   * client sent one, so every hash recorded before S3 stays byte-identical.
+   */
+  delivery?: SaleApprovalDeliveryInput | null;
 };
+
+/**
+ * SALE-002 §4.5/§5.4: the delivery payload in canonical form. Item lines keep
+ * request order (only product locks are sorted), instants are canonical, the
+ * note is trimmed, the purpose is the resolved one. Optional members the
+ * client omitted stay omitted (`assignedTo`, `pastStartAcknowledgement`); the
+ * key order is fixed because the digest is a JSON string.
+ */
+function normalizedSaleApprovalDelivery(delivery: SaleApprovalDeliveryInput): unknown {
+  return {
+    ...(delivery.assignedTo === undefined ? {} : { assignedTo: delivery.assignedTo }),
+    scheduledAt: canonicalInstantValue(delivery.scheduledAt),
+    scheduledEndsAt: canonicalInstantValue(delivery.scheduledEndsAt),
+    deliveryPurpose: delivery.deliveryPurpose,
+    note: trimmedTextOrNull(delivery.note),
+    items: delivery.items.map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+    })),
+    ...pastStartAcknowledgementIntent(delivery.pastStartAcknowledgement),
+  };
+}
+
+/** Present-only member shared by the single and the pair lifecycle identity. */
+function saleApprovalDeliveryIntent(
+  delivery: SaleApprovalDeliveryInput | null | undefined,
+): Record<string, unknown> {
+  return delivery === undefined || delivery === null
+    ? {}
+    : { delivery: normalizedSaleApprovalDelivery(delivery) };
+}
 
 export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string {
   return hashRequestIdentity({
@@ -183,6 +220,7 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
     ...(identity.correctionDueAt !== undefined && identity.correctionDueAt !== null
       ? { correctionDueAt: canonicalInstantValue(identity.correctionDueAt) }
       : {}),
+    ...saleApprovalDeliveryIntent(identity.delivery),
   });
 }
 
@@ -216,11 +254,10 @@ export type SalePairLifecycleRequestIdentity = {
    */
   correctionDueAt?: string | null;
   /**
-   * SALE-002 S3 (§5) hashes the normalized delivery payload here. S2 has no
-   * delivery input, so the key is absent and an S2 receipt keeps replaying
-   * byte-identically once S3 ships.
+   * SALE-002 §5.4: the normalized delivery payload. Present-only, so an S2
+   * receipt (no delivery input) keeps replaying byte-identically.
    */
-  delivery?: unknown;
+  delivery?: SaleApprovalDeliveryInput | null;
 };
 
 export function salePairLifecycleRequestHash(identity: SalePairLifecycleRequestIdentity): string {
@@ -243,6 +280,7 @@ export function salePairLifecycleRequestHash(identity: SalePairLifecycleRequestI
     ...(identity.correctionDueAt !== undefined && identity.correctionDueAt !== null
       ? { correctionDueAt: canonicalInstantValue(identity.correctionDueAt) }
       : {}),
+    ...saleApprovalDeliveryIntent(identity.delivery),
   });
 }
 

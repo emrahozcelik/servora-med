@@ -861,8 +861,8 @@ type SaleOrigin =
 
 A standalone origin is exactly `{ kind: 'STANDALONE' }` and must not render the
 restricted-source message. `job_cards.delivery_source_sale_id` exists from
-migration `071_sale_standalone_and_delivery_link` but no route reads or writes it
-in S1/S2.
+migration `071_sale_standalone_and_delivery_link`; it is written only by the
+sale approval delivery (SALE-002 S3, below).
 
 ### Coordinated visit+sale commands (SALE-002 §4, S2)
 
@@ -908,8 +908,9 @@ nothing; a changed `saleExpectedVersion`/note/proposal/location, or the same key
 applied to a different linked sale, is `409 CLIENT_ACTION_REUSED`.
 
 **Response.** The anchor detail gains `linkedSaleJobCardId` when the sale moved
-in that command (and `deliveryJobCardId` once S3 ships the delivery payload).
-Both are persisted in the stored receipt, so replays are byte-identical.
+in that command and `deliveryJobCardId` when the approval opened a delivery
+(S3, below). Both are persisted in the stored receipt, so replays are
+byte-identical.
 
 **`expectedSaleVersion` rules.** Required iff a coordinated pair exists for the
 command (`400 VALIDATION_ERROR` otherwise); supplied without one is
@@ -941,6 +942,90 @@ a corrected attempt needs a new `clientActionId` (049 §5.4). Expiry marks both
 `LIFECYCLE_INTENT_EXPIRED`; there is no half-failed pair. The approve path takes
 the customer lock **before** any `job_cards` row (single and pair), removing the
 former `job_cards -> customers` inversion.
+
+### Sale approval opens the delivery (SALE-002 §5, S3)
+
+`POST /api/job-cards/:id/approve` accepts one optional `delivery` object next to
+`clientActionId`, `expectedVersion`, `note`, `followUp` and `expectedSaleVersion`:
+
+```ts
+type SaleApprovalDelivery = {              // strict allowlist, every other key => 400
+  assignedTo?: string                      // active same-org STAFF; omitted = the sale's assignee
+  scheduledAt: string                      // ISO instant, required (JOB-006 §4)
+  scheduledEndsAt?: string                 // must equal the canonical PRODUCT_DELIVERY end
+  deliveryPurpose?: 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER'   // default 'SALE'
+  note?: string | null                     // trimmed, <= 4000; stored as the card description
+  items: Array<{ productId: string; quantity: number }>   // 1-25 distinct, whole units 1..999999999
+  pastStartAcknowledgement?: { code: 'CUSTOMER_CONFIRMED_LATER_TIME' | 'CUSTOMER_WAITING' | 'OTHER'; text: string }
+}
+```
+
+`delivery: null` is invalid; absent means no delivery. `delivery` is accepted only
+when the command **completes a `SALE`**: `:id` is an independent sale (standalone,
+or its source visit is terminal), or `:id` is a visit whose coordinated sale is
+`WAITING_APPROVAL` and is completed by the same pair approval. On any other
+approval (a visit with no coordinated sale, a legacy visit whose sale is not
+`WAITING_APPROVAL`, any other job type) the answer is `400 VALIDATION_ERROR` with
+`details.fieldErrors.delivery`, and nothing is executed. Parser errors are field
+errors rooted under `delivery.` (`delivery.scheduledAt`, `delivery.items`,
+`delivery.items.quantity`, `delivery.note`, ...); the item batch, quantity,
+purpose, past-start acknowledgement and canonical-end parsers are the ones the
+plain Product Delivery create uses.
+
+**One transaction.** The `PRODUCT_DELIVERY` card is created inside the same
+finalization as the approval (single-sale approve and pair approve share one
+helper): status `NEW`, `created_by` = the approving manager, `customer_id` = the
+sale's customer, `delivery_source_sale_id` = the sale, `due_date` and
+`source_job_card_id` NULL, title = the sale title (<= 255 code points), planned
+items with `deliveredAt` NULL, the note as the card description (never a
+`deliveryNote`), priority `normal`. Activities: `JOB_CREATED` and one
+`DELIVERY_ITEM_ADDED` per line on the delivery, and `SALE_DELIVERY_CREATED` on the
+sale with `{ deliveryJobCardId, assignedTo, scheduledAt, itemCount, items }`. The
+JOB-010 assignment offer is opened as a direct producer with
+`opened_reason = 'SALE_APPROVAL'`. Any failure rolls the approval back with it:
+the sale (and visit) stay `WAITING_APPROVAL`, no card, item, offer or realtime
+event exists, and both 049 intents are `FAILED`, so a corrected attempt needs a
+new `clientActionId` (049 / SALE-002 §5.4).
+
+**Response and replay.** The response is the existing anchor detail plus
+`deliveryJobCardId` (and `followUpJobCardId` / `linkedSaleJobCardId` as before).
+The id is persisted in the stored receipt; a replay returns it byte-identically,
+creates nothing and publishes nothing. The normalized `delivery` is part of the
+request hash for both the single approve (`JOB_CARD_LIFECYCLE`) and the pair
+approve (`JOB_APPROVE_PAIR:v1`), present-only (item lines keep request order,
+instants are canonical, the note is trimmed); the same key with a different
+delivery is `409 CLIENT_ACTION_REUSED`.
+
+| Code | Raised when | `details` |
+| --- | --- | --- |
+| `VALIDATION_ERROR` (`400`) | malformed/unknown `delivery` member; `delivery` on an approval that completes no sale | `{ fieldErrors: { 'delivery' \| 'delivery.<field>' } }` |
+| `ASSIGNMENT_WINDOW_TOO_SHORT` (`409`) | the planned window ends within the JOB-010 minimum window | `{ fieldErrors: { 'delivery.scheduledAt' } }` |
+| `PAST_START_ACKNOWLEDGEMENT_REQUIRED` (`409`) | the planned start already passed and no acknowledgement was sent | `{ fieldErrors: { 'delivery.scheduledAt' } }` |
+| `CUSTOMER_INACTIVE` (`409`) | the sale's customer is inactive; blocks the whole approval | - |
+| `PRODUCT_NOT_FOUND` (`404`) | unknown, inactive, cross-organization or non-BUSINESS product | - |
+| `FORBIDDEN` / `ASSIGNEE_NOT_FOUND` | assignee is not an active same-organization STAFF user | - |
+| `SALE_DELIVERY_ALREADY_EXISTS` (`409`) | the sale already has a delivery (unique index `job_cards_one_delivery_per_sale_idx`) | - |
+
+**Lock order (ARC-003).** `processed_actions claim -> users (sorted, now
+including the delivery assignee) -> customer -> products (sorted, FOR SHARE) ->
+job_cards (sorted) -> intents`. The customer and product locks of an approval
+are taken by one shared pre-JobCard `lockReferences` phase for the single and
+the pair path, so no `job_cards -> customers/products/users` inversion exists.
+
+**Realtime.** After commit only: `job.created` (and the offer's `job.updated`)
+for the delivery, whose audience is the delivery assignee, the sale's assignee
+and management; no event of the delivery carries the sale's `job-detail` key.
+
+**Read side.** The job detail of a delivery gains `deliverySourceSaleId`: the
+source sale id when the viewer can read the sale (management, or the sale's own
+assignee), otherwise `null`. The job detail of a sale gains
+`linkedDelivery: { id, status } | null`, null when there is none **or** the
+viewer cannot read it (STAFF: only a delivery assigned to them). Both are keys of
+the JobCard detail DTO on every card type (null where not applicable); the
+`GET /:saleId/sale-details` projection is unchanged. The sale
+activity timeline projects `SALE_DELIVERY_CREATED` as
+`{ kind: 'SALE_DELIVERY', deliveryJobCardId, assignedTo, scheduledAt, itemCount, items }`
+for sale-capable readers and as `{ kind: 'NONE' }` for every other reader.
 
 ### Database note: SALE without START (SALE-002 R9, migration `072`)
 

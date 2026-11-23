@@ -3,7 +3,13 @@ import { AppError } from '../../errors/index.js';
 import { isManagementRole } from '../auth/types.js';
 import { randomUUID } from 'node:crypto';
 import { presentActivity } from './activity-presenter.js';
-import { JobCardSaleService } from './sale-service.js';
+import { JobCardSaleService, mapSaleIntegrityError, saleDeliveryAlreadyExists } from './sale-service.js';
+import {
+  SALE_APPROVAL_DELIVERY_SCHEDULE_FIELD,
+  parseSaleApprovalDelivery,
+  saleApprovalDeliveryNotAllowed,
+  type SaleApprovalDeliveryInput,
+} from './sale-approval-delivery-input.js';
 import { parseDeliveryQuantity } from './delivery-input.js';
 import {
   assertCanCreateForAssignee,
@@ -392,7 +398,11 @@ type PairLifecycleInput = LifecycleInput & { expectedSaleVersion?: unknown };
 type SubmitInput = PairLifecycleInput & {
   followUpProposal?: FollowUpProposalInput; locationCapture?: unknown;
 };
-type ApproveInput = PairLifecycleInput & { followUp?: ApproveFollowUpInput };
+type ApproveInput = PairLifecycleInput & {
+  followUp?: ApproveFollowUpInput;
+  /** SALE-002 §5.1: raw body member, parsed by `parseSaleApprovalDelivery`. */
+  delivery?: unknown;
+};
 type StartInput = LifecycleInput & { locationCapture?: unknown };
 type RevisionInput = PairLifecycleInput & {
   revisionReason: string;
@@ -403,7 +413,11 @@ type CancelInput = LifecycleInput & { cancelReason: string; followUpContinuity?:
 
 /** §4.2: the resolved coordination of the command being executed. */
 type PairPlan =
-  | { kind: 'single' }
+  | {
+    kind: 'single';
+    /** The anchor card's type, known once the pair was read (APPROVE always reads it). */
+    cardType?: JobCardType;
+  }
   | {
     kind: 'pair';
     command: SalePairCommand;
@@ -466,6 +480,8 @@ type LifecycleDefinition = {
   noteContext: JobCardOperationalNoteContext | null;
   followUpProposal?: FollowUpProposalInput;
   approveFollowUp?: ApproveFollowUpInput;
+  /** SALE-002 §5: the delivery the approval opens; only ever set on APPROVE. */
+  saleDelivery?: SaleApprovalDeliveryInput;
   cancelContinuity?: FollowUpCancelContinuity | null;
   /** JOB-010 release 2b: the Staff decline/release reason, part of the hash. */
   assignmentReason?: { code: string; text: string } | null;
@@ -614,13 +630,22 @@ function projectCalendarConflict(actor: JobCardActor, error: AppError): AppError
   return error;
 }
 
+function offerFieldDetails(field: string | undefined, message: string) {
+  return field === undefined ? null : { fieldErrors: { [field]: message } };
+}
+
+type SaleApprovalDeliveryResult = {
+  deliveryJobCardId: string;
+  realtimeEvents: RealtimeEventRecord[];
+};
+
 type DecodedLifecycleReceipt = {
   jobCardId: string;
   evaluatedAt: Date | null;
   followUpJobCardId: string | null;
   /** SALE-002 §5.1: the sale a coordinated command moved (anchor is the visit). */
   linkedSaleJobCardId: string | null;
-  /** SALE-002 §5.1: reserved for the S3 delivery creation. */
+  /** SALE-002 §5.1: the delivery card the approval created atomically. */
   deliveryJobCardId: string | null;
   submitLocationComparison: JobActionLocationComparison | null;
 };
@@ -1005,6 +1030,12 @@ export class JobCardService {
        * notification is suppressed while the activity and realtime event stay.
        */
       suppressNotifications?: boolean;
+      /**
+       * SALE-002 §5.5: users who must see this card's event besides its
+       * assignee and management (the owner of the sale a delivery came from).
+       * Audience only: no resource key of any other card is added.
+       */
+      extraAudienceUserIds?: readonly string[];
     },
   ): Promise<RealtimeEventRecord[]> {
     const mapped = mapJobCardActivityToRealtime({
@@ -1064,7 +1095,12 @@ export class JobCardService {
       }
     }
     // Store one activity-backed event. Replay scopes relation keys and identity per current viewer.
-    let audience = mapped.audience;
+    let audience = input.extraAudienceUserIds && input.extraAudienceUserIds.length > 0
+      ? {
+        roles: mapped.audience.roles,
+        userIds: [...new Set([...mapped.audience.userIds, ...input.extraAudienceUserIds])].sort(),
+      }
+      : mapped.audience;
     if (input.jobType === 'SALES_MEETING') resourceKeys.add('sale-origin-context');
     if (input.jobType === 'SALE') {
       const snapshot = await transaction.getSubmissionSale(input.organizationId, input.jobCardId);
@@ -1076,7 +1112,7 @@ export class JobCardService {
         // legacy pair therefore never receives the other card's job-detail key.
         if (source && source.assignedTo === input.afterAssigneeId) {
           resourceKeys.add('job-detail:' + source.id);
-          audience = { roles: mapped.audience.roles, userIds: [...new Set([...mapped.audience.userIds, source.assignedTo])].sort() };
+          audience = { roles: audience.roles, userIds: [...new Set([...audience.userIds, source.assignedTo])].sort() };
         }
       }
     }
@@ -1264,6 +1300,12 @@ export class JobCardService {
       requestTime: Date;
       direct: boolean;
       acknowledgement?: PastStartAcknowledgementInput | null;
+      /**
+       * SALE-002 §5.4: the request field the two hard returns are reported on
+       * (`delivery.scheduledAt`), so the approval dialog can map them. Absent
+       * for every other producer, whose error shape is unchanged.
+       */
+      scheduleField?: string;
     },
   ): Promise<{ offer: AssignmentOfferRecord; realtimeEvents: RealtimeEventRecord[] } | null> {
     if (!this.assignmentWindowEnabled()) return null;
@@ -1284,6 +1326,7 @@ export class JobCardService {
         'ASSIGNMENT_WINDOW_TOO_SHORT',
         409,
         'Planlanan zaman kabul için çok kısa; lütfen daha ileri bir zaman seçin.',
+        offerFieldDetails(input.scheduleField, 'Planlanan zaman kabul için çok kısa.'),
       );
     }
     if (decision.kind === 'acknowledgement-required') {
@@ -1291,6 +1334,7 @@ export class JobCardService {
         'PAST_START_ACKNOWLEDGEMENT_REQUIRED',
         409,
         'Planlanan başlangıç geçti; müşteri onayı veya bekleme açıklaması zorunludur.',
+        offerFieldDetails(input.scheduleField, 'Planlanan başlangıç geçti.'),
       );
     }
     const acknowledgement = decision.kind === 'open'
@@ -2666,6 +2710,180 @@ export class JobCardService {
       });
     }
     return version;
+  }
+
+  /**
+   * SALE-002 §4.6/§5.2 pre-JobCard reference locks of an approval, shared by the
+   * single-card and the pair finalization so the two can never drift.
+   *
+   * Lock order (ARC-003): users (already taken by `lockUsers`, which includes
+   * the delivery assignee) -> customers -> contacts -> products -> job_cards.
+   * - customer: the approved card's customer. Doing it here, before any JobCard
+   *   row, removes the `job_cards -> customers` inversion that
+   *   `resolveApproveFollowUp` / `validateJobReferences` would otherwise create
+   *   (a concurrent single approval of the same customer cannot cycle with a
+   *   pair approval). Later `getCustomerForUpdate` calls only re-lock a row
+   *   this transaction already holds.
+   * - contacts: none is referenced by an approval or its delivery.
+   * - products: the delivery lines, sorted and de-duplicated, FOR SHARE, exactly
+   *   the order `createProductDelivery` uses; only existence is taken here, the
+   *   eligibility verdict (and its 404) is reached in the helper under the lock.
+   */
+  private async lockApprovalReferences(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    definition: LifecycleDefinition,
+    customerId: string | null,
+  ): Promise<void> {
+    if (definition.command !== 'APPROVE') return;
+    if (customerId !== null) {
+      const customer = await tx.getCustomerForUpdate(actor.organizationId, customerId);
+      if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+    }
+    if (definition.saleDelivery) {
+      const productIds = [...new Set(definition.saleDelivery.items.map((item) => item.productId))].sort();
+      for (const productId of productIds) {
+        await tx.getProduct(actor.organizationId, productId);
+      }
+    }
+  }
+
+  /**
+   * SALE-002 §5: the delivery a manager opens while approving a sale. The one
+   * implementation behind both the independent-sale approval and the pair
+   * approval. It runs inside the approval's finalize transaction, after the
+   * sale's COMPLETED transition, with the sale row, the delivery assignee, the
+   * customer and the products already locked (see `lockApprovalReferences`).
+   * Every failure rolls the approval back with it.
+   *
+   * It mirrors `createProductDelivery` and reuses its pieces: assignee policy,
+   * customer validation, calendar availability, product eligibility,
+   * `insertInitialDeliveryItems` and the JOB-010 offer producer.
+   */
+  private async createSaleApprovalDelivery(
+    tx: JobCardTransaction,
+    input: {
+      actor: JobCardActor;
+      /** The sale after its COMPLETED transition (locked by this transaction). */
+      sale: JobCard;
+      delivery: SaleApprovalDeliveryInput;
+      requestTime: Date;
+      clientActionId: string;
+      lockedAssignees: ReadonlyMap<string, JobCardAssignee>;
+    },
+  ): Promise<SaleApprovalDeliveryResult> {
+    const { actor, sale, delivery, requestTime, clientActionId } = input;
+    if (sale.type !== 'SALE' || sale.customerId === null) {
+      throw new AppError('INVARIANT_VIOLATION', 500, 'Satış kaydı tutarsız.');
+    }
+    // One delivery per sale: the locked sale row serializes this check; the
+    // unique index below stays the last authority.
+    if (await tx.hasDeliveryForSale(actor.organizationId, sale.id)) {
+      throw saleDeliveryAlreadyExists();
+    }
+    const assigneeId = delivery.assignedTo ?? sale.assignedTo;
+    const assignee = this.requiredLockedAssignee(input.lockedAssignees, assigneeId);
+    assertCanCreateForAssignee(actor, assignee);
+    // Inactive customer: only the delivery is blocked, but it rolls the whole
+    // approval back (one transaction), so nothing is partially approved.
+    await this.validateJobReferences(tx, actor.organizationId, sale.customerId, null);
+    if (this.calendar.enabled) {
+      await tx.assertCalendarAvailability({
+        organizationId: actor.organizationId,
+        jobCardId: null,
+        assignedUserId: assigneeId,
+        startsAt: delivery.scheduledAt,
+        endsAt: delivery.scheduledEndsAt,
+      });
+    }
+    // A sale is BUSINESS by its schema CHECK, so its delivery is BUSINESS and
+    // eligibility is asserted against the BUSINESS scope (as the plain create).
+    const businessScope: JobDeliveryScope = { dataClass: 'BUSINESS', demoDatasetId: null };
+    const references = new Map<string, ProductReference>();
+    for (const productId of [...new Set(delivery.items.map((item) => item.productId))].sort()) {
+      const product = await tx.getProduct(actor.organizationId, productId);
+      if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+      assertDeliveryProductEligible(businessScope, product);
+      references.set(productId, product);
+    }
+    const products = delivery.items.map((item) => ({ ...item, product: references.get(item.productId)! }));
+
+    let job: JobCard;
+    try {
+      job = await tx.createJobCard({
+        organizationId: actor.organizationId, type: 'PRODUCT_DELIVERY', status: 'NEW',
+        title: Array.from(sale.title.trim()).slice(0, 255).join(''),
+        description: delivery.note, customerId: sale.customerId, contactId: null,
+        assignedTo: assigneeId, createdBy: actor.id, priority: 'normal', dueDate: null,
+        scheduledAt: delivery.scheduledAt, scheduledEndsAt: delivery.scheduledEndsAt,
+        engagementKind: null, acceptedAt: null, acceptedBy: null,
+        sourceJobCardId: null, followUpInstructions: null,
+        deliverySourceSaleId: sale.id,
+        historySource: 'CREATE', historyRecordedAt: requestTime,
+      });
+    } catch (error) {
+      // The unique index is the last authority for "one delivery per sale".
+      return mapSaleIntegrityError(error);
+    }
+    if (this.calendar.enabled) {
+      await tx.synchronizeCalendarReminder({
+        organizationId: actor.organizationId, jobCardId: job.id,
+        assignedUserId: job.assignedTo, startsAt: job.scheduledAt,
+        endsAt: job.scheduledEndsAt, version: job.version, active: true,
+        now: requestTime, reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+      });
+    }
+    const createdValue: Record<string, unknown> = {
+      status: job.status, assignedTo: job.assignedTo, version: job.version,
+    };
+    if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
+    const created = await tx.appendActivity({
+      organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
+      event: 'JOB_CREATED', clientActionId, newValue: createdValue,
+    });
+    const realtimeEvents = await this.appendRealtimeForActivity(tx, {
+      activity: created, organizationId: actor.organizationId, jobCardId: job.id,
+      actorUserId: actor.id, event: 'JOB_CREATED', beforeAssigneeId: null,
+      afterAssigneeId: job.assignedTo,
+      calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
+      customerId: job.customerId,
+      // §5.5: the sale's owner learns about the delivery even when another
+      // staff member carries it. Audience only; the sale id is never a key here.
+      extraAudienceUserIds: [sale.assignedTo],
+    });
+    await this.insertInitialDeliveryItems(tx, actor, {
+      jobCardId: job.id,
+      jobVersion: job.version,
+      clientActionId,
+      deliveryPurpose: delivery.deliveryPurpose,
+      // The note lives once, as the card description; never as deliveryNote.
+      deliveryNote: null,
+      items: products,
+    });
+    const assignmentOffer = await this.openAssignmentOffer(tx, {
+      actor,
+      job,
+      openedReason: 'SALE_APPROVAL',
+      requestTime,
+      direct: true,
+      acknowledgement: delivery.pastStartAcknowledgement ?? null,
+      scheduleField: SALE_APPROVAL_DELIVERY_SCHEDULE_FIELD,
+    });
+    if (assignmentOffer) realtimeEvents.push(...assignmentOffer.realtimeEvents);
+    await tx.appendActivity({
+      organizationId: actor.organizationId, jobCardId: sale.id, actorId: actor.id,
+      event: 'SALE_DELIVERY_CREATED', clientActionId,
+      metadata: {
+        deliveryJobCardId: job.id,
+        assignedTo: assigneeId,
+        scheduledAt: delivery.scheduledAt,
+        itemCount: delivery.items.length,
+        items: delivery.items.map((item) => ({
+          productId: item.productId, quantity: item.quantity,
+        })),
+      },
+    });
+    return { deliveryJobCardId: job.id, realtimeEvents };
   }
 
   async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {    const title = input.title.trim();
@@ -5679,11 +5897,24 @@ export class JobCardService {
       note: optionalLifecycleNote(input.note), revisionReason: null, cancelReason: null,
       noteContext: 'APPROVE',
       approveFollowUp: input.followUp,
+      // SALE-002 §5.1: syntax first (strict allowlist, reused parsers), before
+      // the intent claim and the hash. Absent = no delivery; null is invalid.
+      ...(input.delivery === undefined
+        ? {}
+        : { saleDelivery: parseSaleApprovalDelivery(input.delivery) }),
     };
     const plan = await this.resolvePairPlan(
       actor, jobCardId, definition.command, input.expectedSaleVersion,
       lifecycleInput.clientActionId,
     );
+    // §5.1: `delivery` completes a SALE. Anything but a sale or a coordinated
+    // pair is a 400 and the approval is not executed. A card's type never
+    // changes, so this early rejection can never hide a replay; the pair's
+    // sale status is proven under the locks (assertPairPolicy).
+    if (definition.saleDelivery !== undefined && plan.kind === 'single'
+      && plan.cardType !== 'SALE') {
+      throw saleApprovalDeliveryNotAllowed();
+    }
     if (plan.kind === 'pair') {
       return this.runPairLifecycle(actor, plan, lifecycleInput, definition);
     }
@@ -5837,7 +6068,7 @@ export class JobCardService {
         });
       }
       if (expectedSaleVersion !== undefined) throw noCoordinatedPair();
-      return { kind: 'single' };
+      return { kind: 'single', cardType: pair.cardType };
     }
     const sale = pair.sale;
     const coordinated = pair.cardType === 'SALES_MEETING' && sale !== null
@@ -5863,7 +6094,7 @@ export class JobCardService {
         }
         throw noCoordinatedPair();
       }
-      return { kind: 'single' };
+      return { kind: 'single', cardType: pair.cardType };
     }
     if (expectedSaleVersion === undefined) throw expectedSaleVersionRequired();
     return {
@@ -5933,6 +6164,11 @@ export class JobCardService {
       { ...visit, assignmentOffer: this.assignmentOfferSummary(visitOffer) },
       definition.command, reason, instant, flags,
     );
+    if (definition.saleDelivery !== undefined && sale.status !== 'WAITING_APPROVAL') {
+      // §5.1: a legacy visit approval that does not complete the sale offers no
+      // delivery; the sale's own later approval has that chance.
+      throw saleApprovalDeliveryNotAllowed();
+    }
     if (definition.command === 'SUBMIT_FOR_APPROVAL') {
       // §4.3 step 3: the sale must be submittable by itself. A sale that still
       // needs a single-card command gets that exact next action, never a
@@ -6011,6 +6247,7 @@ export class JobCardService {
         approveFollowUp: definition.approveFollowUp ?? null,
         locationCapture: actionLocation?.capture ?? null,
         correctionDueAt: definition.correctionDueAt ?? null,
+        delivery: definition.saleDelivery ?? null,
       }),
     };
     const legacyCompleted = await this.repository.findCompletedCriticalAction<unknown>({
@@ -6087,19 +6324,20 @@ export class JobCardService {
               );
             }
           }
+          if (definition.command === 'APPROVE' && definition.saleDelivery) {
+            // §5.2: the delivery assignee joins the sorted users-first lock set
+            // (the pair's sale assignee when the body names none).
+            userIds.push(definition.saleDelivery.assignedTo ?? plan.sale.assignedTo);
+          }
           lockedAssignees = await this.lockUsersInOrder(tx, actor.organizationId, userIds);
         },
         // §4.6: the pair's customer lock is taken BEFORE both JobCard rows, so
         // a pair approval and a single visit approval of the same customer can
         // never form a `customers -> job_cards` / `job_cards -> customers`
-        // cycle. Products/contacts join this phase in S3.
-        lockReferences: async (tx) => {
-          if (definition.command !== 'APPROVE') return;
-          const customerId = lockedVisitSnapshot?.customerId ?? null;
-          if (customerId === null) return;
-          const customer = await tx.getCustomerForUpdate(actor.organizationId, customerId);
-          if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
-        },
+        // cycle; S3 adds the delivery products to the same phase.
+        lockReferences: async (tx) => this.lockApprovalReferences(
+          tx, actor, definition, lockedVisitSnapshot?.customerId ?? null,
+        ),
       },
     );
     if (result.kind === 'processing') {
@@ -6568,17 +6806,33 @@ export class JobCardService {
         target: 'COMPLETED',
       })
       : null;
+    // SALE-002 §5: the delivery commits with the sale's completion, through the
+    // same helper the independent sale approval uses.
+    let delivery: SaleApprovalDeliveryResult | null = null;
+    if (definition.saleDelivery) {
+      if (!saleEffects) throw saleApprovalDeliveryNotAllowed();
+      delivery = await this.createSaleApprovalDelivery(tx, {
+        actor,
+        sale: saleEffects.updated,
+        delivery: definition.saleDelivery,
+        requestTime,
+        clientActionId: context.clientActionId,
+        lockedAssignees: input.lockedAssignees,
+      });
+    }
     return {
       response: {
         jobCardId: input.visit.id,
         evaluatedAt: requestTime.toISOString(),
         ...(followUpJobCardId ? { followUpJobCardId } : {}),
         ...(saleEffects ? { linkedSaleJobCardId: input.sale.id } : {}),
+        ...(delivery ? { deliveryJobCardId: delivery.deliveryJobCardId } : {}),
       },
       realtimeEvents: [
         ...visitEffects.realtimeEvents,
         ...childRealtimeEvents,
         ...(saleEffects?.realtimeEvents ?? []),
+        ...(delivery?.realtimeEvents ?? []),
       ],
     };
   }
@@ -7116,6 +7370,22 @@ export class JobCardService {
           followUpJobCardId = child.job.id;
           childRealtimeEvents = child.realtimeEvents;
         }
+        let saleDeliveryJobCardId: string | null = null;
+        if (definition.command === 'APPROVE' && definition.saleDelivery) {
+          // SALE-002 §5: only a SALE can complete into a delivery. The type is
+          // immutable, so this is a defence-in-depth proof under the lock.
+          if (job.type !== 'SALE') throw saleApprovalDeliveryNotAllowed();
+          const delivery = await this.createSaleApprovalDelivery(tx, {
+            actor,
+            sale: updated,
+            delivery: definition.saleDelivery,
+            requestTime,
+            clientActionId: input.clientActionId,
+            lockedAssignees,
+          });
+          saleDeliveryJobCardId = delivery.deliveryJobCardId;
+          childRealtimeEvents.push(...delivery.realtimeEvents);
+        }
         if (definition.cancelContinuity?.decision === 'RESCHEDULE') {
           // JOB-009: the replacement commits with the cancel. The cancelled
           // visit no longer occupies the calendar, so the same Staff may take
@@ -7177,6 +7447,7 @@ export class JobCardService {
             jobCardId,
             evaluatedAt: requestTime.toISOString(),
             ...(followUpJobCardId ? { followUpJobCardId } : {}),
+            ...(saleDeliveryJobCardId ? { deliveryJobCardId: saleDeliveryJobCardId } : {}),
             ...(submitLocationComparison ? { submitLocationComparison } : {}),
           },
           realtimeEvents: [...realtimeEvents, ...childRealtimeEvents, ...lifecycleOfferEvents],
@@ -7221,6 +7492,11 @@ export class JobCardService {
                   definition.approveFollowUp?.assignedTo,
                 );
               }
+              if (definition.command === 'APPROVE' && definition.saleDelivery) {
+                // SALE-002 §5.2: the delivery assignee (default: the sale's own
+                // assignee, re-proved against this snapshot under the lock).
+                userIds.push(definition.saleDelivery.assignedTo ?? jobSnapshot.assignedTo);
+              }
             }
           }
           lockedAssignees = await this.lockUsersInOrder(tx, actor.organizationId, userIds);
@@ -7231,13 +7507,9 @@ export class JobCardService {
         // and a single visit approval of the same customer can then never form
         // a `customers -> job_cards` / `job_cards -> customers` cycle. The
         // later reads stay, but they are no longer the ordering authority.
-        lockReferences: async (tx) => {
-          if (definition.command !== 'APPROVE') return;
-          const customerId = lockedJobSnapshot?.customerId ?? null;
-          if (customerId === null) return;
-          const customer = await tx.getCustomerForUpdate(actor.organizationId, customerId);
-          if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
-        },
+        lockReferences: async (tx) => this.lockApprovalReferences(
+          tx, actor, definition, lockedJobSnapshot?.customerId ?? null,
+        ),
       },
     );
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
@@ -7899,6 +8171,8 @@ export class JobCardService {
         ...(definition.correctionDueAt === undefined
           ? {}
           : { correctionDueAt: definition.correctionDueAt }),
+        // SALE-002 §5.4: present only when sent, so pre-S3 hashes are stable.
+        ...(definition.saleDelivery ? { delivery: definition.saleDelivery } : {}),
       }),
     };
   }
@@ -8679,6 +8953,9 @@ export class JobCardService {
     const {
       sourceJobCardId,
       followUpInstructions,
+      // SALE-002 §5.5: internal, viewer-scoped below; never spread into the DTO.
+      deliverySourceSale = null,
+      linkedDelivery = null,
       ...job
     } = persistedJob;
     const readinessStatuses: JobCardStatus[] = [
@@ -8780,6 +9057,16 @@ export class JobCardService {
         : {}),
       followUpContext,
       followUpProposal,
+      // SALE-002 §5.5: the provenance link exists only for a viewer who can
+      // read the sale (STAFF: the sale's own assignee).
+      deliverySourceSaleId: deliverySourceSale !== null
+        && (actor.role !== 'STAFF' || deliverySourceSale.assignedTo === actor.id)
+        ? deliverySourceSale.id
+        : null,
+      linkedDelivery: linkedDelivery !== null
+        && (actor.role !== 'STAFF' || linkedDelivery.assignedTo === actor.id)
+        ? { id: linkedDelivery.id, status: linkedDelivery.status }
+        : null,
       // JOB-010 release 2b: latest offer, EXPIRED at read time once its
       // deadline passed.
       assignmentOffer: this.presentAssignmentOffer(persisted.assignmentOffer, evaluatedAt),

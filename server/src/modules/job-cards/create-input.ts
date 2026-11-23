@@ -97,12 +97,12 @@ function optionalScheduledAt(value: unknown) {
   return isoInstant(value, 'scheduledAt');
 }
 
-function requiredScheduledAt(value: unknown) {
+export function requiredScheduledAt(value: unknown) {
   if (value === undefined || value === null) throw validation('scheduledAt');
   return isoInstant(value, 'scheduledAt');
 }
 
-function canonicalScheduledEndsAt(
+export function canonicalScheduledEndsAt(
   type: 'PRODUCT_DELIVERY' | 'SALES_MEETING',
   value: unknown,
   scheduledAt: string,
@@ -216,7 +216,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
   };
 }
 
-function parseInitialDeliveryItems(value: unknown) {
+export function parseInitialDeliveryItems(value: unknown) {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_INITIAL_DELIVERY_ITEMS) {
     throw validation('items');
   }
@@ -234,7 +234,7 @@ function parseInitialDeliveryItems(value: unknown) {
   });
 }
 
-function parseDeliveryPurpose(value: unknown): DeliveryPurpose {
+export function parseDeliveryPurpose(value: unknown): DeliveryPurpose {
   if (!DELIVERY_PURPOSES.includes(value as DeliveryPurpose)) throw validation('deliveryPurpose');
   return value as DeliveryPurpose;
 }

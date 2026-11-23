@@ -113,6 +113,8 @@ export const JOB_ASSIGNMENT_OFFER_OPENED_REASONS = [
   'CANCEL_REPLACEMENT',
   'OFFBOARDING_TRANSFER',
   'REOFFER',
+  // SALE-002 §5.4: the delivery the manager opens while approving a sale.
+  'SALE_APPROVAL',
 ] as const;
 export type JobAssignmentOfferOpenedReason =
   (typeof JOB_ASSIGNMENT_OFFER_OPENED_REASONS)[number];
@@ -277,6 +279,8 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_START_REMINDER_SENT',
   'JOB_APPROVAL_WAIT_ALERT_SENT',
   'JOB_PENDING_ACCEPTANCE_ALERT_SENT',
+  // SALE-002 §5.5: the one delivery an approval opened, recorded on the sale.
+  'SALE_DELIVERY_CREATED',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -527,6 +531,14 @@ export type JobLifecycleFacts = {
 
 export type PersistedJobCardDetail = JobCard & {
   organizationTimezone: string;
+  /**
+   * SALE-002 §5.5: the delivery <-> sale link, read unscoped and only for a
+   * PRODUCT_DELIVERY (`deliverySourceSale`) or a SALE (`linkedDelivery`);
+   * absent otherwise. The presenter applies the viewer rule and exposes
+   * `deliverySourceSaleId` / `linkedDelivery` without the assignees.
+   */
+  deliverySourceSale?: { id: string; assignedTo: string } | null;
+  linkedDelivery?: { id: string; status: JobCardStatus; assignedTo: string } | null;
   assignee: RelatedIdentity;
   customer: RelatedIdentity | null;
   contact: RelatedIdentity | null;
@@ -698,7 +710,20 @@ export type JobCardFollowUpContext = {
 export type JobCardDetail = Omit<
   PersistedJobCardDetail,
   'lifecycle' | 'sourceJobCardId' | 'followUpInstructions' | 'proposer' | 'assignmentOffer'
+  | 'deliverySourceSale' | 'linkedDelivery'
 > & {
+  /**
+   * SALE-002 §5.5 (sale detail): the delivery opened from this sale, only when
+   * the viewer can read it (management, or the delivery's own assignee);
+   * null when there is none or it is not readable.
+   */
+  linkedDelivery: { id: string; status: JobCardStatus } | null;
+  /**
+   * SALE-002 §5.5: the sale a delivery was opened from, only when the viewer
+   * can read that sale (management, or the sale's own assignee); otherwise
+   * null, so a staff member never learns an id they cannot open.
+   */
+  deliverySourceSaleId: string | null;
   workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
   followUpProposal: FollowUpProposal | null;
@@ -1150,6 +1175,14 @@ export type JobCardActivityLocation =
 
 export type JobCardActivityDetails =
   | { kind: 'SALE_RELATION' }
+  | {
+      kind: 'SALE_DELIVERY';
+      deliveryJobCardId: string;
+      assignedTo: string;
+      scheduledAt: string;
+      itemCount: number;
+      items: Array<{ productId: string; quantity: number }>;
+    }
   | { kind: 'SALE_DETAILS'; changedFields: Array<'soldAt' | 'saleContact'> }
   | { kind: 'SALE_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string;
       productName: string; quantity: string; previousQuantity: string | null }

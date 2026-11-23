@@ -28,9 +28,14 @@ export function mapSaleIntegrityError(error: unknown): never {
     throw new AppError('SALE_FROM_VISIT_ACTIVE_EXISTS', 409, 'Bu ziyaret için aktif satış kaydı zaten var.');
   }
   if (isUniqueViolation(error, 'job_cards_one_delivery_per_sale_idx')) {
-    throw new AppError('SALE_DELIVERY_ALREADY_EXISTS', 409, 'Bu satış kaydı için zaten bir teslim işi açılmış.');
+    throw saleDeliveryAlreadyExists();
   }
   throw error;
+}
+
+/** SALE-002 §4.8: the one-delivery-per-sale conflict, shared by the pre-check and the index. */
+export function saleDeliveryAlreadyExists() {
+  return new AppError('SALE_DELIVERY_ALREADY_EXISTS', 409, 'Bu satış kaydı için zaten bir teslim işi açılmış.');
 }
 
 /** Transactional Sale domain service; HTTP wiring delegates without changing receipt semantics. */
