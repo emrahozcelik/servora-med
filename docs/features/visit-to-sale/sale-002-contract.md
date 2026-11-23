@@ -1015,7 +1015,7 @@ environment-dependent case as passed.
   `WAITING_APPROVAL`, same instant, same note, sale `ACCEPTED → WAITING` without a
   `STARTED` fact, visit follow-up proposal still persisted.
 - Joint submit blocked: sale not ready (no write, sale readiness errors returned), sale
-  `NEW`, sale `REVISION_REQUESTED`, stale `saleExpectedVersion`.
+  `NEW`, sale `REVISION_REQUESTED`, stale `expectedSaleVersion`.
 - **Reservation and locking (R19/R20):**
   - both intent rows exist with the same `reserved_at`/`request_hash`, anchor on the visit and
     participant on the sale; both become `COMPLETED` together and `FAILED` together;
@@ -1048,7 +1048,7 @@ environment-dependent case as passed.
 - Cancel/invalidate: visit cancel leaves the sale untouched and the sale then acts alone;
   sale invalidate leaves the delivery untouched.
 - Idempotency: replay of every pair command returns the identical receipt with no new rows;
-  same key + changed `saleExpectedVersion`/delivery payload → `CLIENT_ACTION_REUSED`;
+  same key + changed `expectedSaleVersion`/delivery payload → `CLIENT_ACTION_REUSED`;
   two concurrent pair commands → one commit, other `ACTION_IN_PROGRESS`/conflict;
   `expectedSaleVersion` missing/extra → `400`/`409 SALE_PAIR_STATE_CONFLICT`.
 - Deadlock/lock order: concurrent pair approve and single-card patch; concurrent standalone
@@ -1271,7 +1271,7 @@ This is a UI default only; the manager may pick any time.
 5. **One transaction, two intents.** A coordinated command reserves and finalizes **both**
    cards in one transaction under the documented lock order (users → customer → contacts →
    products → both JobCards sorted by id → both lifecycle intents). The visit owns the
-   receipt; the sale owns a participant reservation. `saleExpectedVersion` is required on
+   receipt; the sale owns a participant reservation. `expectedSaleVersion` is required on
    every pair command. Any definitive failure marks both intents `FAILED`, so a corrected
    attempt uses a new client action key.
 6. **Sale approval may open one delivery.** The approval offers an optional
