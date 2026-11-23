@@ -13,6 +13,7 @@ import {
   coordinatedSaleVersion,
   lifecycleMovesSale,
   pairConflictGuidance,
+  pairManagedSaleCommand,
   pairRedirectGuidance,
   pairSuccessSuffix,
   salePairRedirectFrom,
@@ -692,7 +693,7 @@ export function JobDetailPanel({
   pendingLabel, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
-  deadlineExtensionError = null, pairGuidance,
+  deadlineExtensionError = null, pairGuidance, pairManagedCommand = null,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -738,6 +739,8 @@ export function JobDetailPanel({
   mutationLocked?: boolean;
   /** SALE-002 §4.2: server-named next action for a redirected pair command. */
   pairGuidance?: ReactNode;
+  /** SALE-002 S2: sale command the live visit pair withholds from this card. */
+  pairManagedCommand?: LifecycleCommand | null;
   /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
   deadlineExtensionError?: string | null;
 }) {
@@ -747,6 +750,7 @@ export function JobDetailPanel({
     workflowContext: job.workflowContext,
     deliveryItems: job.type === 'PRODUCT_DELIVERY' ? items : [],
     meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
+    pairManagedCommand,
   });
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
   const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
@@ -3045,6 +3049,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     existingChildrenCount={followUpChildrenCount}
     mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked}
     pairGuidance={pairGuidance ? <SalePairGuidanceNotice guidance={pairGuidance} /> : undefined}
+    pairManagedCommand={detail.kind === 'SALE' && !saleOriginPending
+      && detail.saleDetails.sourceVisit.kind === 'SALE_FROM_VISIT'
+      && detail.saleDetails.sourceVisit.access === 'FULL'
+      ? pairManagedSaleCommand({
+        type: detail.job.type,
+        status: detail.job.status,
+        allowedCommands: detail.job.workflowContext.allowedCommands,
+        sourceVisitAccess: 'FULL',
+      })
+      : null}
     records={recordContent}
     notes={viewNotes ? (
       <JobNotes

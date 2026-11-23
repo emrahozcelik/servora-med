@@ -523,6 +523,54 @@ describe('SALE-002 S2 pair UI', () => {
     expect(panel?.querySelector('a[href="/jobs/visit-1"]')).not.toBeNull();
   });
 
+  function responsibilityText() {
+    return host.querySelector('[data-job-workflow-panel="responsibility"]')?.textContent ?? '';
+  }
+
+  it('points the staff next-step panel at the visit card while the pair coordinates the sale', async () => {
+    const visit = visitCard({ status: 'IN_PROGRESS', commands: [] });
+    const sale = saleCard({ status: 'IN_PROGRESS', commands: ['CANCEL'] });
+    await render(sale.id, staff, { visit, sale });
+
+    const text = responsibilityText();
+    expect(text).toContain('Şimdi sizden beklenen');
+    expect(text).toContain('Bu satış kaydı bağlı ziyaretle birlikte gönderilir. '
+      + 'Ziyaret kartını açıp ziyareti kontrole gönderin.');
+    expect(text).not.toContain('işi yönetici kontrolüne gönderin');
+  });
+
+  it('points the management next-step panel at the visit card for a coordinated sale approval', async () => {
+    const visit = visitCard({ status: 'WAITING_APPROVAL', commands: [] });
+    const sale = saleCard({ status: 'WAITING_APPROVAL', commands: ['CANCEL'] });
+    await render(sale.id, manager, { visit, sale });
+
+    const text = responsibilityText();
+    expect(text).toContain('Bu satış kaydı bağlı ziyaretle birlikte onaylanır. '
+      + 'Onayı ziyaret kartından verin.');
+    expect(text).not.toContain('tamamlar veya düzeltme ister');
+  });
+
+  it('keeps the standard next-step text for a standalone sale and a sale of a completed visit', async () => {
+    const standaloneVisit = visitCard({ status: 'COMPLETED', commands: [] });
+    const standalone = saleCard({ status: 'IN_PROGRESS', commands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'] });
+    await render(standalone.id, staff, {
+      visit: standaloneVisit, sale: standalone, activeSale: 'none', saleOrigin: 'standalone',
+    });
+    expect(responsibilityText())
+      .toContain('Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.');
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    const completedVisit = visitCard({ status: 'COMPLETED', commands: [] });
+    const fromCompleted = saleCard({ status: 'IN_PROGRESS', commands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'] });
+    await render(fromCompleted.id, staff, {
+      visit: completedVisit, sale: fromCompleted, activeSale: 'none',
+    });
+    expect(responsibilityText())
+      .toContain('Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.');
+    expect(responsibilityText()).not.toContain('Ziyaret kartını açıp');
+  });
+
   it('offers SUBMIT from ACCEPTED for a standalone sale without a START step (Q1)', async () => {
     const visit = visitCard({ status: 'COMPLETED', commands: [] });
     const sale = saleCard({
