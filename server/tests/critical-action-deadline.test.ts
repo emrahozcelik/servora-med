@@ -30,3 +30,15 @@ it('F14/TX-12: legacy claim 55P03 and callback 55P03 retain their original error
     expect(query).toHaveBeenCalledWith('ROLLBACK'); expect(release).toHaveBeenCalledOnce();
   }
 });
+
+it('TX-15: a failed ROLLBACK preserves the original error and destroys the connection', async () => {
+  const original = new Error('original failure');
+  const query = vi.fn(async (sql: string) => {
+    if (sql === 'ROLLBACK') throw new Error('connection terminated unexpectedly');
+    return { rowCount: 1, rows: [{ id: 'receipt' }] };
+  });
+  const release = vi.fn(); const pool = { connect: async () => ({ query, release }) } as unknown as Pool;
+  await expect(runCriticalAction(pool, claim, async () => { throw original; })).rejects.toBe(original);
+  expect(query).toHaveBeenCalledWith('ROLLBACK');
+  expect(release).toHaveBeenCalledExactlyOnceWith(true);
+});
