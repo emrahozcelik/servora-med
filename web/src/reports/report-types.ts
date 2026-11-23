@@ -45,14 +45,17 @@ export type StaffPriorPerformance = {
 };
 
 export type StaffExecutionMetrics = {
-  /** Legacy current-assignee Staff execution cohort, not actor attribution. */
+  /**
+   * Completed work attributed to the Staff member assigned at completion;
+   * `staff_completed_at` remains the time basis, not the submitter identity.
+   */
   staffCompletedJobs: number;
   staffCompletionDays: number;
   jobsPerStaffCompletionDay: number;
   missingStaffCompletionTimestamp: number;
 };
 
-/** Current recorded staff_completed_by/staff_completed_at attribution. */
+/** Recorded submission-actor evidence (`staff_completed_by`), not work ownership. */
 export type StaffSubmissionAttributionMetrics = {
   recordedSubmissionCount: number;
   recordedSubmissionDays: number;
@@ -148,7 +151,7 @@ export type StaffReportResponse = {
   staffExecution: StaffExecutionMetrics;
   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
-  /** Selected-period manager-approved completions by recorded submission actor. */
+  /** Selected-period manager-approved completions by the assignee at completion. */
   completionWorkTypes: CompletionWorkType[];
   /** Current active snapshot by current assignee; independent of selected range. */
   currentWorkloadByType: CompletionWorkType[];
@@ -167,7 +170,7 @@ export type StaffPerformanceItem = {
   staffExecution: StaffExecutionMetrics;
   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
-  /** Selected-period manager-approved completions by recorded submission actor. */
+  /** Selected-period manager-approved completions by the assignee at completion. */
   completionWorkTypes: CompletionWorkType[];
   /** Current active snapshot by current assignee; independent of selected range. */
   currentWorkloadByType: CompletionWorkType[];
