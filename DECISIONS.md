@@ -1908,6 +1908,8 @@ behavior changes).
 
 ## SALE-001 — Independent visit-origin product agreement (V1)
 
+- **Superseded in part by:** SALE-002 (the source-visit requirement, IN_PROGRESS-only
+  sources and the no-delivery statement); its other rules remain.
 - A completed sale agreement is its own SALE JobCard with SALE_FROM_VISIT origin
   in sale_source_visit_id. Meeting POSITIVE, delivery SALE and follow-up origin
   source_job_card_id remain distinct concepts.
@@ -2040,6 +2042,88 @@ on top of DOM/SALE without rewriting them.
   changes. PR3 will default Sale quantity to 1 and use integer-only selection,
   addition and correction; adapting ProductSelect for Sale belongs to that slice.
 - Contract and rollout notes: [Sale integer quantity policy](docs/features/visit-to-sale/integer-quantity-policy.md).
+
+
+## SALE-002 — Standalone sale, joint visit+sale approval and sale-driven delivery
+
+- **Date:** 2026-11-23
+- **Status:** Accepted by product owner in chat (2026-11-23); implemented in S1–S4
+  (S1: https://github.com/emrahozcelik/servora-med/pull/492, S2: https://github.com/emrahozcelik/servora-med/pull/493,
+  S3: https://github.com/emrahozcelik/servora-med/pull/494, S4: this PR); production activation is a separate gate.
+- **Scope:** `SALE` origin eligibility, standalone creation, coordinated visit+sale
+  lifecycle, sale-approval delivery creation.
+- **Supersedes in part:** SALE-001's statements that a source visit is always required,
+  that sources are only `IN_PROGRESS`, and that a sale never creates a delivery.
+  SALE-001's provenance, snapshot, one-active-sale, permission and non-financial rules
+  remain.
+
+### Decision
+
+1. **Origins.** A `SALE` may be created from an `IN_PROGRESS` visit, from a `COMPLETED`
+   visit, or standalone (no visit), for example a phone order. A source, when present,
+   must still be a same-organization `BUSINESS` `SALES_MEETING` with an eligible engagement
+   kind and an active STAFF assignee. Migration 071 replaces the "SALE ⇔ source" CHECK with
+   "only a SALE may carry a source" and relaxes the source snapshots to all-or-none.
+2. **Creation and authorization.** STAFF create only for themselves; MANAGER/ADMIN may
+   create for any active STAFF member. Self-created cards are `ACCEPTED`, management-created
+   cards are `NEW`. A customer is required, and the standalone contact must be active and
+   belong to that customer. Snapshot, quantity, one-active-sale-per-visit and non-financial
+   rules are unchanged.
+3. **One submission, one approval.** While a sale's source visit is live, the visit is the
+   only submission and approval surface: the visit's submit also submits its active linked
+   sale, the visit's approve completes both, and revision/withdraw/resume move both cards
+   in one transaction. The approve dialog therefore carries both manager preludes — the
+   follow-up proposal and the "Teslim işi aç" section. A single-card sale command is rejected
+   with a coded redirect while the source is in the coordinating status; once the source is
+   terminal the sale acts independently. Cancel and invalidate never cascade. A card that is
+   not in the matching state (legacy data) is never forced into a state it never had.
+4. **One owner per live pair.** While the source visit is coordinating, the sale and the visit
+   share one assignee. A reassignment that would diverge is rejected; a pre-existing
+   divergent pair is decoupled (independent lifecycles, no shared identifiers) rather than
+   blocked or leaked. Handing the physical work to another person is the delivery assignee's
+   job, not the sale's.
+5. **One transaction, two intents.** A coordinated command reserves and finalizes **both**
+   cards in one transaction under the documented lock order (users → customer → contacts →
+   products → both JobCards sorted by id → both lifecycle intents). The visit owns the
+   receipt; the sale owns a participant reservation. `expectedSaleVersion` is required on
+   every pair command. Any definitive failure marks both intents `FAILED`, so a corrected
+   attempt uses a new client action key.
+6. **Sale approval may open one delivery.** The approval offers an optional
+   "Teslim işi aç" action (visit approval for a pair; sale approval for a standalone or
+   retro sale): prefilled sale items (quantity adjustable, lines removable or added), chosen
+   staff (default the sale's staff, may differ), planned date/time, purpose and note. When
+   requested, exactly one `PRODUCT_DELIVERY` is created atomically with the approval, linked
+   by `job_cards.delivery_source_sale_id`, with planned items (`deliveredAt` NULL), whole-unit
+   quantities, BUSINESS eligibility and the existing assignment-offer window. At most one
+   delivery per sale; no partial deliveries, no remaining-quantity tracking. Sale creation and
+   correction still never create a delivery. A sale owner whose delivery is carried by
+   another staff member sees the delivery's existence and status on the sale, but not the
+   delivery id (`linkedDelivery: { id: null, status }`); the delivery's provenance link to
+   the sale is shown only to viewers who can read the sale.
+7. **Staff friction.** Making the staff member's work easier governs these choices: the
+   sale may be submitted from `ACCEPTED` without the meaningless `START` (Q1 default), the
+   delivery is the default offer at approval (Q7 default), and blocked pair commands always
+   return the exact next action.
+8. **Attribution.** Sale and delivery counts follow REPORT-002's verified performer (the
+   staff assigned at completion). Choosing a different delivery assignee therefore creates
+   two independent attributions by design. No third attribution rule is introduced.
+
+### Consequences
+
+- Migration 071 is additive (CHECK replaced, columns added/nullable, one unique index,
+  two vocabularies widened, one follow-up-exclusion CHECK); existing rows remain valid; no
+  backfill. Migration 072 (S2) relaxes the started-timestamp CHECK for `SALE` only so a
+  sale can be submitted from `ACCEPTED` (Q1); it is additive with no backfill.
+  `HEALTH_SCHEMA_VERSION` moves to 072. 049's intent table needs no migration.
+- The sale detail no longer claims that a sale never creates a delivery; the MOD-001
+  no-stock/no-accounting boundary is unchanged.
+- Reports keep separate meanings: approved sale agreements, approved delivery quantities.
+  They are never summed.
+- A cancelled sale-linked delivery is not replaced automatically; reopening the link needs a
+  new decision.
+- Management can no longer reassign a live-pair sale to another staff member; the delivery
+  assignee covers that need.
+- Calendar changes remain deferred.
 
 
 ## CRM-S4A-001 — Duplicate customer review design; PR1 read-only rollout
