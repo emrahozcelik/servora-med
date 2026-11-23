@@ -1,5 +1,8 @@
 import { ApiError, boolean, json, nullableString, number, object, request, string } from '../services/api';
-import { JOB_CARD_STATUSES, parseSaleQuantity, type JobCardStatus, type Paginated } from './jobs-api';
+import {
+  JOB_CARD_STATUSES, parseLinkedDelivery, parseSaleQuantity,
+  type JobCardStatus, type LinkedDelivery, type Paginated,
+} from './jobs-api';
 
 export type SaleContact = { id: string; name: string; title: string | null };
 export type SaleLink = { access: 'RESTRICTED' } | { access: 'FULL'; id: string; title: string; status: JobCardStatus };
@@ -17,6 +20,8 @@ export type SaleDetails = {
   sourceVisit: SaleSource;
   items: Array<{ id: string; productId: string; name: string; sku: string | null;
     brand: string | null; model: string | null; unit: string | null; quantity: string }>;
+  /** SALE-002 S3: absent while the server does not expose it; `null` = none opened. */
+  linkedDelivery?: LinkedDelivery | null;
 };
 function invalid(): never { throw new ApiError(0, 'INVALID_RESPONSE', 'Satış yanıtı geçersiz.'); }
 function exact(value: unknown, keys: readonly string[]) {
@@ -47,7 +52,7 @@ function link(value: unknown): SaleLink {
   return { access: 'FULL', id: string(row.id, 'id'), title: string(row.title, 'title'), status: status(row.status) };
 }
 export function parseSaleDetails(value: unknown): SaleDetails {
-  const row = exact(value, ['jobCardId', 'jobCardVersion', 'soldAt', 'saleContact', 'sourceVisit', 'items']);
+  const row = exact(value, ['jobCardId', 'jobCardVersion', 'soldAt', 'saleContact', 'sourceVisit', 'items', 'linkedDelivery']);
   const source = object(row.sourceVisit);
   let sourceVisit: SaleSource;
   if (source.kind === 'STANDALONE') {
@@ -79,7 +84,8 @@ export function parseSaleDetails(value: unknown): SaleDetails {
   });
   if (new Set(items.map((item) => item.productId)).size !== items.length) invalid();
   return { jobCardId: string(row.jobCardId, 'jobCardId'), jobCardVersion: integer(row.jobCardVersion, 1),
-    soldAt, saleContact: contact(row.saleContact), sourceVisit, items };
+    soldAt, saleContact: contact(row.saleContact), sourceVisit, items,
+    ...('linkedDelivery' in row ? { linkedDelivery: parseLinkedDelivery(row.linkedDelivery) } : {}) };
 }
 const salePath = (id: string) => '/api/job-cards/' + encodeURIComponent(id);
 export async function getSaleDetails(id: string) {

@@ -285,6 +285,8 @@ export type FollowUpSuggestion = {
   followUpInstructions: string;
   evaluation: CustomerScheduleEvaluation;
 };
+/** SALE-002 §5: the delivery a sale approval opened, as the sale card exposes it. */
+export type LinkedDelivery = { id: string; status: JobCardStatus };
 export type JobCard = {
   id: string; organizationId: string; organizationTimezone?: string;
   type: JobCardType; status: JobCardStatus;
@@ -326,6 +328,16 @@ export type JobCard = {
    * extension reason. The backend stays the authority.
    */
   hasOpenOverdueIncident: boolean;
+  /**
+   * SALE-002 S3: sale card only. Absent while the server does not expose the
+   * link; `null` when no delivery was opened at approval.
+   */
+  linkedDelivery?: LinkedDelivery | null;
+  /**
+   * SALE-002 S3: delivery card only. The sale the delivery was opened from;
+   * absent/`null` when it has no readable source sale.
+   */
+  deliverySourceSaleId?: string | null;
   /**
    * OVR-5: effective correction deadline of the current submission episode
    * (`max(original deadline, stored correction)`) when that episode was armed
@@ -590,6 +602,20 @@ export type FollowUpProposalInput = {
   type: JobCardType;
   assignedTo: string;
   followUpInstructions: string;
+};
+
+/**
+ * SALE-002 §5.1: the optional planned delivery a sale approval opens. Sent only
+ * when the approval completes a `SALE`; absent means "no delivery".
+ */
+export type ApproveDeliveryInput = {
+  assignedTo: string;
+  scheduledAt: string;
+  scheduledEndsAt?: string;
+  deliveryPurpose?: DeliveryPurpose;
+  note?: string;
+  items: Array<{ productId: string; quantity: number }>;
+  pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 
 export type ApproveFollowUpInput = FollowUpProposalInput & {
@@ -1049,7 +1075,17 @@ function parseJobCard(value: unknown): JobCard {
     assignmentOffer: parseAssignmentOffer(v.assignmentOffer),
     hasOpenOverdueIncident: parseHasOpenOverdueIncident(v.hasOpenOverdueIncident),
     correctionDueAt: parseCorrectionDueAt(v.correctionDueAt),
+    ...('linkedDelivery' in v ? { linkedDelivery: parseLinkedDelivery(v.linkedDelivery) } : {}),
+    ...('deliverySourceSaleId' in v && v.deliverySourceSaleId !== undefined
+      ? { deliverySourceSaleId: nullableString(v.deliverySourceSaleId, 'deliverySourceSaleId') }
+      : {}),
   };
+}
+/** SALE-002 §5: `{id,status}` or `null`; anything else is a contract break. */
+export function parseLinkedDelivery(value: unknown): LinkedDelivery | null {
+  if (value === null) return null;
+  const v = object(value);
+  return { id: string(v.id, 'linkedDelivery.id'), status: oneOf(v.status, 'linkedDelivery.status', JOB_CARD_STATUSES) };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
   const v = object(value);
@@ -1865,7 +1901,12 @@ const lifecycle = async (id: string, command: string, input: object, options: { 
  */
 function parseLifecycleReceipt(raw: unknown) {
   const linked = object(raw).linkedSaleJobCardId;
-  return { linkedSaleJobCardId: typeof linked === 'string' && linked ? linked : null };
+  const delivery = object(raw).deliveryJobCardId;
+  return {
+    linkedSaleJobCardId: typeof linked === 'string' && linked ? linked : null,
+    // SALE-002 S3: present only when this approval opened a delivery.
+    ...(typeof delivery === 'string' && delivery ? { deliveryJobCardId: delivery } : {}),
+  };
 }
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 /**
@@ -1920,7 +1961,9 @@ export const startJobCard = (id: string, input: StartJobCardInput) =>
   lifecycle(id, 'start', input, { includeSubmitLocationCapability: true });
 export const submitJobCardForApproval = (id: string, input: SubmitJobCardInput) =>
   lifecycle(id, 'submit-for-approval', input, { includeSubmitLocationCapability: true });
-export const approveJobCard = async (id: string, input: PairLifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {
+export const approveJobCard = async (id: string, input: PairLifecycleInput & {
+  note?: string; followUp?: ApproveFollowUpInput; delivery?: ApproveDeliveryInput;
+}) => {
   const raw = await request(`${jobPath(id)}/approve`, json('POST', input));
   const parsed = parseJobCard(raw);
   const v = raw as Record<string, unknown>;

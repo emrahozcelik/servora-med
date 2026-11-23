@@ -189,6 +189,9 @@ function mockFetch(s: Scenario) {
     if (path.endsWith('/overdue-incidents')) return Response.json(emptyPage);
     if (path.endsWith('/follow-ups')) return Response.json({ ...emptyPage, limit: 100 });
     if (path === '/api/calendar/assignees') return Response.json({ items: [] });
+    // SALE-002 S3: the approve dialog's delivery section loads the active staff;
+    // an empty list keeps these S2 pair tests about the pair, not the delivery.
+    if (path === '/api/staff') return Response.json([]);
     if (s.sale && path === `/api/job-cards/${s.sale.id}`) return Response.json(s.sale);
     if (path === `/api/job-cards/${s.visit.id}`) return Response.json(s.visit);
     throw new Error(`Unexpected GET ${path}`);
@@ -363,6 +366,7 @@ describe('SALE-002 S2 pair UI', () => {
     });
     const approve = mock.posts.find((post) => post.path.endsWith('/approve'));
     expect(approve?.body).toMatchObject({ expectedVersion: 4, expectedSaleVersion: 7 });
+    expect(approve?.body).not.toHaveProperty('delivery');
     expect(host.textContent).toContain('Bağlı satış kaydı da tamamlandı.');
   });
 

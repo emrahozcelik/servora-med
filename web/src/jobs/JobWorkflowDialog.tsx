@@ -19,6 +19,10 @@ import {
   type FollowUpProposalSectionProps,
 } from './FollowUpProposalSection';
 import {
+  SaleApprovalDeliverySection,
+  type SaleApprovalDeliverySectionProps,
+} from './SaleApprovalDeliverySection';
+import {
   RevisionCorrectionDueField,
   type RevisionCorrectionDraft,
 } from './RevisionCorrectionDueField';
@@ -50,6 +54,12 @@ export function JobWorkflowDialog(props: {
    */
   pairNote?: ReactNode;
   pairDetails?: readonly string[];
+  /**
+   * SALE-002 §8.2: the "Teslim işi aç" section, offered only on an approve
+   * dialog that completes a sale (visit pair or independent sale). It renders
+   * after the follow-up proposal prelude.
+   */
+  saleDelivery?: SaleApprovalDeliverySectionProps;
   /** JOB-009: present only when cancelling a follow-up visit. */
   cancelContinuity?: FollowUpCancelContinuitySectionProps;
   /** JOB-010 release 2b: present only for decline / release of an assignment. */
@@ -72,7 +82,7 @@ export function JobWorkflowDialog(props: {
   const {
     dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
     assignmentReason, revisionCorrection, returnFocusRef, restoreFocusEnabledRef,
-    pairNote, pairDetails = [],
+    pairNote, pairDetails = [], saleDelivery,
   } = props;
   const continuity = dialog.kind === 'cancel' ? cancelContinuity : undefined;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
@@ -162,8 +172,11 @@ export function JobWorkflowDialog(props: {
           : undefined;
   // The pair summary is informational, so it sits above the (optionally
   // disabled) prelude and never becomes the initial focus target.
-  const prelude = pairNote || preludeContent
-    ? <>{pairNote}{preludeContent}</>
+  const deliveryContent = dialog.kind === 'approve' && saleDelivery
+    ? <SaleApprovalDeliverySection {...saleDelivery} />
+    : undefined;
+  const prelude = pairNote || preludeContent || deliveryContent
+    ? <>{pairNote}{preludeContent}{deliveryContent}</>
     : undefined;
   const hasPreludeFocus = followUp !== undefined
     || continuity !== undefined
