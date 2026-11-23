@@ -63,8 +63,10 @@ cart are introduced.
 Sale quantities default to 1, use min=1/max=999999999/step=1/inputMode=numeric and
 reject empty, fractional, non-positive or overflow values without rounding.
 Product ID owns each quantity; removal/re-addition resets the new selection to 1.
-The unit remains metadata, never a quantity conversion. Delivery retains its
-fractional min/step=0.001 behavior.
+The unit remains metadata, never a quantity conversion. Delivery uses the same
+whole-unit input contract under DELIVERY-QTY-001
+(min=1/max=999999999/step=1/inputMode=numeric) and rejects fractions without
+rounding.
 
 Sale correction is rendered only with server `EDIT_JOB_FIELDS` permission.
 Waiting approval and terminal records remain read-only. Each details/add/quantity/

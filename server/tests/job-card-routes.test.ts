@@ -168,7 +168,7 @@ describe('JobCard routes', () => {
         scheduledAt: '2026-07-16T14:30:00+03:00', deliveryPurpose: 'SALE',
         deliveryNote: 'Ortak not', items: [
           { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
-          { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.5 },
+          { productId: '55555555-5555-4555-8555-555555555555', quantity: 5 },
         ],
       },
     });
@@ -180,7 +180,7 @@ describe('JobCard routes', () => {
         type: 'PRODUCT_DELIVERY', deliveryPurpose: 'SALE', deliveryNote: 'Ortak not',
         items: [
           { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
-          { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.5 },
+          { productId: '55555555-5555-4555-8555-555555555555', quantity: 5 },
         ],
         scheduledAt: '2026-07-16T11:30:00.000Z',
         scheduledEndsAt: '2026-07-16T12:00:00.000Z',

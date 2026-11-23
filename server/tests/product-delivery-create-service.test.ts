@@ -12,9 +12,10 @@ class ProductDeliveryRepository {
   notificationRows: unknown[] = [];
   webPushRows: unknown[] = [];
   products: ProductReference[] = [
-    { id: 'product-1', organizationId: 'org-1', name: 'Matrix Sistem', sku: 'M-1', model: 'M1', unit: 'kutu', isActive: true },
-    { id: 'product-2', organizationId: 'org-1', name: 'Cycles Kit', sku: 'C-2', model: 'C2', unit: 'adet', isActive: true },
-    { id: 'product-3', organizationId: 'org-1', name: 'Greft Seti', sku: null, model: 'G3', unit: 'paket', isActive: true },
+    { id: 'product-1', organizationId: 'org-1', name: 'Matrix Sistem', sku: 'M-1', model: 'M1', unit: 'kutu', isActive: true, dataClass: 'BUSINESS', demoDatasetId: null },
+    { id: 'product-2', organizationId: 'org-1', name: 'Cycles Kit', sku: 'C-2', model: 'C2', unit: 'adet', isActive: true, dataClass: 'BUSINESS', demoDatasetId: null },
+    { id: 'product-3', organizationId: 'org-1', name: 'Greft Seti', sku: null, model: 'G3', unit: 'paket', isActive: true, dataClass: 'BUSINESS', demoDatasetId: null },
+    { id: 'product-demo', organizationId: 'org-1', name: 'Demo Matrix', sku: 'DEMO-1', model: 'D1', unit: 'adet', isActive: true, dataClass: 'DEMO', demoDatasetId: 'dataset-1' },
   ];
   completed = new Map<string, unknown>();
   failOnItemNumber: number | null = null;
@@ -238,5 +239,40 @@ describe('Product Delivery atomic create', () => {
       ...deliveryInput, clientActionId: 'invalid-quantity', items: [{ productId: 'product-1', quantity: 0 }],
     })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
     expect(repository.jobs).toHaveLength(0);
+  });
+
+  it('accepts the whole-unit create bounds and rejects fractions or range overflow', async () => {
+    for (const [index, quantity] of [1, 999_999_999].entries()) {
+      const repository = new ProductDeliveryRepository();
+      const result = await new JobCardService(repository as never).createProductDelivery(staff, {
+        ...deliveryInput, clientActionId: `quantity-ok-${index}`,
+        items: [{ productId: 'product-1', quantity }],
+      });
+      expect(result.version).toBe(2);
+      expect(repository.items[0]!.quantity).toBe(quantity);
+    }
+    for (const [index, quantity] of [0, 0.5, 1.5, -1, 1_000_000_000, '2'].entries()) {
+      const repository = new ProductDeliveryRepository();
+      await expect(new JobCardService(repository as never).createProductDelivery(staff, {
+        ...deliveryInput, clientActionId: `quantity-bad-${index}`,
+        items: [{ productId: 'product-1', quantity: quantity as number }],
+      })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR', statusCode: 400,
+        details: { fieldErrors: { 'items.quantity': 'items.quantity geçersizdir.' } },
+      });
+      expect(repository.jobs).toHaveLength(0);
+      expect(repository.items).toHaveLength(0);
+    }
+  });
+
+  it('rejects a DEMO product on a BUSINESS product delivery create', async () => {
+    const repository = new ProductDeliveryRepository();
+    await expect(new JobCardService(repository as never).createProductDelivery(staff, {
+      ...deliveryInput, clientActionId: 'demo-product-create',
+      items: [{ productId: 'product-demo', quantity: 1 }],
+    })).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND', statusCode: 404 });
+    expect(repository.jobs).toHaveLength(0);
+    expect(repository.items).toHaveLength(0);
+    expect(repository.activities).toHaveLength(0);
   });
 });

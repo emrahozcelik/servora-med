@@ -142,6 +142,7 @@ class MemoryJobCardRepository implements JobCardRepository {
         this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
       getJobForUpdate: async (organizationId, id) =>
         this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
+      getJobDeliveryScope: async () => ({ dataClass: 'BUSINESS', demoDatasetId: null }),
       getJobDetail: async (organizationId, id) =>
         this.job.organizationId === organizationId && this.job.id === id
           ? this.persistedDetail() as never

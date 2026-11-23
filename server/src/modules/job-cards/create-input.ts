@@ -16,6 +16,7 @@ import {
   type ProductDeliveryCreateInput,
 } from './types.js';
 import { AppError } from '../../errors/index.js';
+import { parseDeliveryQuantity } from './delivery-input.js';
 import {
   boundedTrimmedString,
   isoDate,
@@ -228,10 +229,7 @@ function parseInitialDeliveryItems(value: unknown) {
     const productId = uuidString(record.productId, 'items.productId');
     if (seen.has(productId)) throw validation('items');
     seen.add(productId);
-    if (typeof record.quantity !== 'number' || !Number.isFinite(record.quantity) || record.quantity <= 0) {
-      throw validation('items.quantity');
-    }
-    return { productId, quantity: record.quantity };
+    return { productId, quantity: parseDeliveryQuantity(record.quantity, 'items.quantity') };
   });
 }
 
