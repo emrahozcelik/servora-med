@@ -157,7 +157,7 @@ describe('Messaging M4 context-first creation flow', () => {
     const summary = container.querySelector('.create-selection-summary') as HTMLElement;
     expect(summary.textContent).toContain('Diş ünitesi teslimi');
     expect(summary.textContent).toContain('Klinik A');
-    expect(summary.textContent).toContain('Atandı');
+    expect(summary.textContent).toContain('Kabul edildi');
     unmount();
   });
 

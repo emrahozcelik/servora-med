@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { SignalGlyph, WorkflowCommandIcon } from '../ui/signal-icons';
 import type {
   JobWorkflowPresentation,
   RecordEditPresentation,
@@ -99,7 +100,12 @@ export function JobDecisionPanel({
           : undefined}
         onClick={(event) => onCommand(primary.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : primary.label}
+        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <WorkflowCommandIcon command={primary.command} />
+            {primary.label}
+          </>
+        )}
       </button>}
       {secondaryTransitions.map((transition) => <button
         key={transition.command}
@@ -108,7 +114,12 @@ export function JobDecisionPanel({
         disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
+        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <WorkflowCommandIcon command={transition.command} />
+            {transition.label}
+          </>
+        )}
       </button>)}
       {destructiveTransitions.map((transition) => <button
         key={transition.command}
@@ -117,7 +128,12 @@ export function JobDecisionPanel({
         disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
+        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <WorkflowCommandIcon command={transition.command} />
+            {transition.label}
+          </>
+        )}
       </button>)}
     </div>
     {recordEditAction && <div className="detail-action-record-edit">
@@ -128,7 +144,12 @@ export function JobDecisionPanel({
         disabled={pending}
         onClick={(event) => onRecordEdit?.(recordEditAction.action, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : recordEditAction.label}
+        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <SignalGlyph name="edit" className="button-leading-icon" size={15} />
+            {recordEditAction.label}
+          </>
+        )}
       </button>
     </div>}
   </section>;

@@ -877,7 +877,7 @@ describe('Sales follow-up timezone presentation', () => {
     expect(html).toContain('Ayşe Demir');
     expect(html).toContain('Mehmet Yılmaz');
     expect(html).toContain('Uygulanıyor');
-    expect(html).toContain('Hazırlanıyor');
+    expect(html).toContain('Atandı');
   });
 
   it('small-mobile 390px has no mandatory horizontal core scroll (desktop columns absent)', () => {

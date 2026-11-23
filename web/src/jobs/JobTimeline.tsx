@@ -1,11 +1,80 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../services/api';
-import { ActivityTimeline, type ActivityTimelineItem } from '../ui/antd';
+import {
+  ActivityTimeline,
+  type ActivityTimelineItem,
+  type ActivityTimelineTone,
+} from '../ui/antd';
 import { ResultState } from '../ui/antd/ResultState';
-import { historicalJobStatusLabels, isKnownJobCardActivityEvent, jobActivityLabel } from './job-labels';
+import type { SignalGlyphName } from '../ui/signal-icons';
+import {
+  historicalJobStatusLabels,
+  isKnownJobCardActivityEvent,
+  jobActivityLabel,
+  type KnownJobCardActivityEvent,
+} from './job-labels';
 import { listActivity, type JobCardActivity, type JobCardActivityDetails, type Paginated } from './jobs-api';
 import { formatLocationDistance } from './location-distance-format';
+
+type ActivityVisualMeta = Readonly<{
+  tone: ActivityTimelineTone;
+  icon: SignalGlyphName;
+}>;
+
+const ACTIVITY_META: Record<KnownJobCardActivityEvent, ActivityVisualMeta> = {
+  JOB_APPROVED: { tone: 'success', icon: 'timeline-success' },
+  JOB_ACCEPTED: { tone: 'success', icon: 'timeline-success' },
+  JOB_OVERDUE_ENDED_BY_EXTENSION: { tone: 'success', icon: 'timeline-success' },
+  JOB_CHANGE_REQUEST_RESOLVED: { tone: 'success', icon: 'timeline-success' },
+  SALE_FROM_VISIT_CREATED: { tone: 'success', icon: 'timeline-success' },
+  SALE_DELIVERY_CREATED: { tone: 'success', icon: 'timeline-success' },
+
+  JOB_CREATED: { tone: 'info', icon: 'timeline-info' },
+  JOB_ASSIGNED: { tone: 'info', icon: 'timeline-info' },
+  JOB_PLANNED: { tone: 'info', icon: 'timeline-info' },
+  JOB_STARTED: { tone: 'info', icon: 'timeline-info' },
+  JOB_RESUMED: { tone: 'info', icon: 'timeline-info' },
+  JOB_ASSIGNMENT_OFFER_OPENED: { tone: 'info', icon: 'timeline-info' },
+  JOB_ASSIGNMENT_RELEASED: { tone: 'info', icon: 'timeline-info' },
+
+  JOB_SUBMITTED_FOR_APPROVAL: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_REVISION_REQUESTED: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_APPROVAL_WITHDRAWN: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_SUBMISSION_REMINDER_SENT: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_SUBMISSION_AUTO_REMINDER_SENT: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_SUBMISSION_AUTO_ESCALATION_SENT: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_START_REMINDER_SENT: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_APPROVAL_WAIT_ALERT_SENT: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_PENDING_ACCEPTANCE_ALERT_SENT: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_EARLY_START_AUTHORIZED: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_CHANGE_REQUESTED: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_ASSIGNMENT_DECLINED: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_ASSIGNMENT_OFFER_EXPIRED: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_ASSIGNMENT_OFFER_WITHDRAWN: { tone: 'warning', icon: 'timeline-warning' },
+  JOB_ASSIGNMENT_REMINDER_SENT: { tone: 'warning', icon: 'timeline-warning' },
+
+  JOB_CANCELLED: { tone: 'danger', icon: 'timeline-danger' },
+  JOB_INVALIDATED: { tone: 'danger', icon: 'timeline-danger' },
+  WEEKLY_REPORT_REMOVED: { tone: 'danger', icon: 'timeline-danger' },
+
+  JOB_FIELDS_UPDATED: { tone: 'neutral', icon: 'timeline-neutral' },
+  DELIVERY_ITEM_ADDED: { tone: 'neutral', icon: 'timeline-neutral' },
+  DELIVERY_ITEM_UPDATED: { tone: 'neutral', icon: 'timeline-neutral' },
+  DELIVERY_ITEM_REMOVED: { tone: 'neutral', icon: 'timeline-neutral' },
+  NOTE_ADDED: { tone: 'neutral', icon: 'timeline-neutral' },
+  MEETING_DETAILS_UPDATED: { tone: 'neutral', icon: 'timeline-neutral' },
+  SALE_DETAILS_UPDATED: { tone: 'neutral', icon: 'timeline-neutral' },
+  SALE_ITEM_ADDED: { tone: 'neutral', icon: 'timeline-neutral' },
+  SALE_ITEM_UPDATED: { tone: 'neutral', icon: 'timeline-neutral' },
+  SALE_ITEM_REMOVED: { tone: 'neutral', icon: 'timeline-neutral' },
+};
+
+function activityPresentationMeta(eventType: string): ActivityVisualMeta {
+  return isKnownJobCardActivityEvent(eventType)
+    ? ACTIVITY_META[eventType]
+    : { tone: 'neutral', icon: 'timeline-neutral' };
+}
 
 const PAGE_SIZE = 50;
 const fieldLabels = {
@@ -106,7 +175,18 @@ function formatInstant(value: string) {
     .format(new Date(value));
 }
 
+function submitComparisonBadge(details: JobCardActivityDetails): ActivityTimelineItem['badge'] {
+  if (details.kind !== 'STATUS_TRANSITION') return null;
+  if (details.submitComparison?.outcome !== 'DIFFERENT') return null;
+  return {
+    label: `Konum farkı uyarısı · yaklaşık ${formatLocationDistance(details.submitComparison.distanceMeters)}`,
+    tone: 'warning',
+    testId: 'DIFFERENT',
+  };
+}
+
 function presentActivity(activity: JobCardActivity): ActivityTimelineItem {
+  const meta = activityPresentationMeta(activity.eventType);
   return {
     key: activity.id,
     action: jobActivityLabel(activity.eventType),
@@ -115,6 +195,9 @@ function presentActivity(activity: JobCardActivity): ActivityTimelineItem {
     actor: activity.actor?.name ?? 'Sistem',
     occurredAt: activity.createdAt,
     occurredAtLabel: formatInstant(activity.createdAt),
+    tone: meta.tone,
+    icon: meta.icon,
+    badge: submitComparisonBadge(activity.details),
   };
 }
 

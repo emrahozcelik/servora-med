@@ -783,7 +783,7 @@ describe('SALE-002 S3 approval delivery section', () => {
       const panel = host.querySelector('[data-sale-delivery-link]');
       expect(panel?.textContent).toContain('Bağlı teslimat');
       expect(panel?.querySelector('a[href="/jobs/delivery-9"]')).not.toBeNull();
-      expect(panel?.textContent).toContain('Hazırlanıyor');
+      expect(panel?.textContent).toContain('Atandı');
     });
 
     it('shows the status without a link when another staff member carries the delivery', async () => {

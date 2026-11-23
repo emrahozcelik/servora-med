@@ -1,4 +1,5 @@
 import type { JobCardPriority } from '../jobs/jobs-api';
+import { PrioritySignalIcon } from './signal-icons';
 
 export const priorityChipLabels: Record<JobCardPriority, string> = {
   low: 'Düşük',
@@ -25,6 +26,9 @@ export function PriorityChip({
   const label = longLabel ? priorityChipLabelsLong[priority] : priorityChipLabels[priority];
   return (
     <span className={`priority-chip priority-chip--${priority}`} data-priority={priority}>
+      <span className="priority-chip-icon" aria-hidden="true">
+        <PrioritySignalIcon priority={priority} className="signal-icon" />
+      </span>
       {label}
     </span>
   );

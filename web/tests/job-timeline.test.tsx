@@ -409,4 +409,76 @@ describe('safe JobCard timeline', () => {
       expect(host.textContent).not.toContain('Onaydan geri çekildi');
     }
   });
+
+  it('categorizes timeline events by semantic marker tone and highlights DIFFERENT location warning', async () => {
+    const activities: JobCardActivity[] = [
+      {
+        id: 'approved', jobCardId: 'job-1', eventType: 'JOB_APPROVED',
+        actor: { id: 'm1', name: 'Emrah Yönetici' },
+        details: { kind: 'STATUS_TRANSITION', fromStatus: 'WAITING_APPROVAL', toStatus: 'COMPLETED', reason: null },
+        createdAt: '2026-07-21T10:00:00.000Z',
+      },
+      {
+        id: 'started', jobCardId: 'job-1', eventType: 'JOB_STARTED',
+        actor: { id: 's1', name: 'Ayşe Personel' },
+        details: { kind: 'STATUS_TRANSITION', fromStatus: 'ACCEPTED', toStatus: 'IN_PROGRESS', reason: null },
+        createdAt: '2026-07-21T09:30:00.000Z',
+      },
+      {
+        id: 'rev', jobCardId: 'job-1', eventType: 'JOB_REVISION_REQUESTED',
+        actor: { id: 'm1', name: 'Emrah Yönetici' },
+        details: { kind: 'STATUS_TRANSITION', fromStatus: 'WAITING_APPROVAL', toStatus: 'REVISION_REQUESTED', reason: 'Eksik seri no' },
+        createdAt: '2026-07-21T09:00:00.000Z',
+      },
+      {
+        id: 'cancel', jobCardId: 'job-1', eventType: 'JOB_CANCELLED',
+        actor: { id: 'm1', name: 'Emrah Yönetici' },
+        details: { kind: 'STATUS_TRANSITION', fromStatus: 'NEW', toStatus: 'CANCELLED', reason: 'İptal' },
+        createdAt: '2026-07-21T08:30:00.000Z',
+      },
+      {
+        id: 'note', jobCardId: 'job-1', eventType: 'NOTE_ADDED',
+        actor: { id: 's1', name: 'Ayşe Personel' },
+        details: { kind: 'NOTE' },
+        createdAt: '2026-07-21T08:00:00.000Z',
+      },
+      {
+        id: 'submit-diff', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+        actor: { id: 's1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+          submitComparison: { outcome: 'DIFFERENT', distanceMeters: 1240.5 },
+        },
+        createdAt: '2026-07-21T07:30:00.000Z',
+      },
+      {
+        id: 'submit-match', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+        actor: { id: 's1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+          submitComparison: { outcome: 'MATCH', distanceMeters: 12 },
+        },
+        createdAt: '2026-07-21T07:00:00.000Z',
+      },
+    ];
+    await act(async () => {
+      root.render(<JobTimeline jobId="job-1" load={vi.fn().mockResolvedValue(page(activities))} />);
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(host.querySelector('.activity-timeline-marker--success svg')).not.toBeNull();
+    expect(host.querySelector('.activity-timeline-marker--info svg')).not.toBeNull();
+    expect(host.querySelector('.activity-timeline-marker--warning svg')).not.toBeNull();
+    expect(host.querySelector('.activity-timeline-marker--danger svg')).not.toBeNull();
+    expect(host.querySelector('.activity-timeline-marker--neutral svg')).not.toBeNull();
+    expect(host.textContent).toContain('Yönetici kontrolünde → Düzeltme istendi');
+
+    const diffEntry = host.querySelector('[data-activity-id="submit-diff"]');
+    const warningBadge = diffEntry?.querySelector('[data-location-comparison="DIFFERENT"]');
+    expect(warningBadge?.classList.contains('activity-timeline-badge--warning')).toBe(true);
+    expect(warningBadge?.textContent).toContain('Konum farkı uyarısı');
+
+    const matchEntry = host.querySelector('[data-activity-id="submit-match"]');
+    expect(matchEntry?.querySelector('.activity-timeline-badge')).toBeNull();
+  });
 });

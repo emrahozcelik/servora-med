@@ -104,6 +104,21 @@ describe('OVR-1 overdue row signal', () => {
     expect(html).toContain('data-job-row-signals="true"');
     expect(html).toContain('status-chip');
     expect(html).toContain('priority-chip');
+    expect(html).toContain('job-overdue-signal-icon');
+    expect(html).toContain('job-type-icon');
+  });
+
+  it('renders FollowUpBadge alongside row signals for follow-up engagements', () => {
+    const html = renderList({
+      kind: 'ready',
+      page: page([{
+        ...overdueItem,
+        type: 'SALES_MEETING',
+        engagementKind: 'FOLLOW_UP',
+      }]),
+    });
+    expect(html).toContain('follow-up-badge');
+    expect(html).toContain('Takip');
   });
 
   it('shows the signal to a Staff member viewing their own overdue job', () => {

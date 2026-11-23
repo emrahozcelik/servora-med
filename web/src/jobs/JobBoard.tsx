@@ -3,7 +3,10 @@ import { Link } from 'react-router-dom';
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
+import { formatOverdueLateness } from '../ui/duration';
+import { JobTypeIcon, SignalGlyph, StatusSignalIcon } from '../ui/signal-icons';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
+import { FollowUpBadge } from './FollowUpContinuity';
 import type { JobCardBoard, JobCardListItem } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import { deriveCompactWorkflowSummary } from './job-workflow-presentation';
@@ -24,16 +27,30 @@ function statusHref(
 function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
   const summary = deriveCompactWorkflowSummary({ job, user });
   const schedule = cardScheduleFact(job);
+  const latenessSeconds = job.latenessSeconds ?? null;
+  const overdueSignal = latenessSeconds !== null && latenessSeconds > 0
+    ? formatOverdueLateness(latenessSeconds)
+    : null;
   return (
     <article className="job-board-card" data-board-card={job.id}>
       <Link to={paths.job(job.id)}>
         <strong className="job-board-card-title">{job.title}</strong>
         <span className="job-board-type">
+          <JobTypeIcon type={job.type} engagementKind={job.engagementKind} size={14} />
           {job.type === 'SALES_MEETING'
             ? jobEngagementLabel(job.engagementKind)
             : jobTypeLabels[job.type]}
         </span>
-        <PriorityChip priority={job.priority} longLabel />
+        <span className="job-board-signals">
+          <PriorityChip priority={job.priority} longLabel />
+          <FollowUpBadge visible={job.engagementKind === 'FOLLOW_UP'} />
+          {overdueSignal && (
+            <span className="job-overdue-signal" data-job-overdue-signal="true">
+              <SignalGlyph name="clock" className="job-overdue-signal-icon" />
+              {overdueSignal}
+            </span>
+          )}
+        </span>
         <dl className="job-board-card-facts">
           <div>
             <dt>Müşteri</dt>
@@ -122,7 +139,9 @@ export function JobBoard({ board, user, params, visibleStatus, compact = false }
               <header className="workflow-lane-heading">
                 <h2 id={headingId} className={`job-status-${status.toLowerCase()}`}>
                   <span className="workflow-lane-label">
-                    <span className="job-status-shape" aria-hidden="true" />
+                    <span className="job-status-shape" aria-hidden="true">
+                      <StatusSignalIcon status={status} className="job-status-icon" size={15} />
+                    </span>
                     <span className="workflow-lane-status">{label}</span>
                   </span>
                   <strong className="workflow-lane-count">{column.count}</strong>

@@ -85,7 +85,7 @@ export const historicalJobStatusLabels: Record<JobCardActivityStatus, string> = 
   PLANNED: 'Planlandı',
   IN_PROGRESS: 'Uygulanıyor',
   WAITING_APPROVAL: 'Yönetici kontrolünde',
-  REVISION_REQUESTED: 'Düzeltme gerekiyor',
+  REVISION_REQUESTED: 'Düzeltme istendi',
   COMPLETED: 'Tamamlandı',
   CANCELLED: 'İptal edildi',
   INVALIDATED: 'Geçersiz',
