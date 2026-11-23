@@ -108,7 +108,7 @@ describe('OVR-1 overdue row signal', () => {
     expect(html).toContain('job-type-icon');
   });
 
-  it('renders FollowUpBadge alongside row signals for follow-up engagements', () => {
+  it('does not mistake a follow-up meeting kind for a follow-up chain badge', () => {
     const html = renderList({
       kind: 'ready',
       page: page([{
@@ -117,8 +117,8 @@ describe('OVR-1 overdue row signal', () => {
         engagementKind: 'FOLLOW_UP',
       }]),
     });
-    expect(html).toContain('follow-up-badge');
-    expect(html).toContain('Takip');
+    expect(html).toContain('Takip görüşmesi');
+    expect(html).not.toContain('follow-up-badge');
   });
 
   it('shows the signal to a Staff member viewing their own overdue job', () => {

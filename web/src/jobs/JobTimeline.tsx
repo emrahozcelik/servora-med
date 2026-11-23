@@ -120,16 +120,14 @@ function actionLocationSuffix(
 }
 
 /**
- * Slice 2 advisory comparison suffix. Only DIFFERENT is visually alarming;
- * UNRELIABLE is neutral; MATCH adds nothing (understated by design).
+ * Slice 2 advisory comparison suffix. DIFFERENT is rendered only as the
+ * warning badge; UNRELIABLE is neutral text; MATCH adds nothing (understated).
  */
 function comparisonSuffixText(
   comparison: Extract<JobCardActivityDetails, { kind: 'STATUS_TRANSITION' }>['submitComparison'],
 ): string {
   if (!comparison) return '';
-  if (comparison.outcome === 'DIFFERENT') {
-    return ` · Başlangıç konumundan farklı: yaklaşık ${formatLocationDistance(comparison.distanceMeters)}`;
-  }
+  // DIFFERENT is carried once, by the warning badge (submitComparisonBadge).
   if (comparison.outcome === 'UNRELIABLE') {
     return ' · Konum doğruluğu güvenilir karşılaştırma için yetersiz.';
   }
@@ -179,7 +177,7 @@ function submitComparisonBadge(details: JobCardActivityDetails): ActivityTimelin
   if (details.kind !== 'STATUS_TRANSITION') return null;
   if (details.submitComparison?.outcome !== 'DIFFERENT') return null;
   return {
-    label: `Konum farkı uyarısı · yaklaşık ${formatLocationDistance(details.submitComparison.distanceMeters)}`,
+    label: `Başlangıç konumundan farklı: yaklaşık ${formatLocationDistance(details.submitComparison.distanceMeters)}`,
     tone: 'warning',
     testId: 'DIFFERENT',
   };

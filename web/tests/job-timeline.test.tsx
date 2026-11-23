@@ -476,7 +476,10 @@ describe('safe JobCard timeline', () => {
     const diffEntry = host.querySelector('[data-activity-id="submit-diff"]');
     const warningBadge = diffEntry?.querySelector('[data-location-comparison="DIFFERENT"]');
     expect(warningBadge?.classList.contains('activity-timeline-badge--warning')).toBe(true);
-    expect(warningBadge?.textContent).toContain('Konum farkı uyarısı');
+    expect(warningBadge?.textContent).toContain('Başlangıç konumundan farklı: yaklaşık');
+    // The distance is stated once: the badge owns it, the detail line does not.
+    expect(diffEntry?.querySelector('.activity-timeline-detail')?.textContent)
+      .not.toContain('Başlangıç konumundan farklı');
 
     const matchEntry = host.querySelector('[data-activity-id="submit-match"]');
     expect(matchEntry?.querySelector('.activity-timeline-badge')).toBeNull();

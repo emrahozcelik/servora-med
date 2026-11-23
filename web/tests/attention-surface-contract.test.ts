@@ -33,6 +33,13 @@ describe('C1 follow-up: large surfaces stay lighter than chips', () => {
     expect(block('.conflict-actions')).toMatch(/background:\s*var\(--warning-wash\)/);
   });
 
+  it('keeps revision requested on Delay Amber, never the cancelled red', () => {
+    const chip = block('.status-chip--waiting_approval, .status-chip--revision_requested, .priority-chip--high, .priority-chip--urgent');
+    expect(chip).toMatch(/color:\s*var\(--warning\)/);
+    expect(stylesCss).not.toMatch(/\.status-chip--revision_requested\s*\{/);
+    expect(block('.job-status-revision_requested')).toMatch(/color:\s*var\(--warning\)/);
+  });
+
   it('keeps the destructive decision button on the wash with a visible hover step', () => {
     expect(block('.review-buttons .destructive-button')).toMatch(/background:\s*var\(--error-wash\)/);
     expect(block('.review-buttons .destructive-button:hover:not(:disabled)'))

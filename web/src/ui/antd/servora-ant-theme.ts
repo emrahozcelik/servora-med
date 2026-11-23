@@ -70,6 +70,11 @@ export const servoraAntTheme: ThemeConfig = {
       // warning borders keep their own tokens, so interaction feedback survives.
       colorBorder: controlBorder,
     },
+    // ActivityTimeline renders its own tone marker as the item icon. The
+    // marker fills this node, so the rail offset and marker stay aligned.
+    Timeline: {
+      dotSize: 24,
+    },
   },
 } satisfies ThemeConfig;
 

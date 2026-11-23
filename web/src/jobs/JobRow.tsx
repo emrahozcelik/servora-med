@@ -7,7 +7,6 @@ import { StatusChip } from '../ui/StatusChip';
 import { formatOverdueLateness } from '../ui/duration';
 import { JobTypeIcon, SignalGlyph, WorkflowCommandIcon } from '../ui/signal-icons';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
-import { FollowUpBadge } from './FollowUpContinuity';
 import type { JobCardListItem, LifecycleCommand } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import {
@@ -136,7 +135,6 @@ export function JobRow({ job, user, onCommand }: {
         <div className="job-row-signals" data-job-row-signals="true">
           <StatusChip status={job.status} />
           <PriorityChip priority={job.priority} longLabel />
-          <FollowUpBadge visible={job.engagementKind === 'FOLLOW_UP'} />
           {overdueSignal && (
             <span className="job-overdue-signal" data-job-overdue-signal="true">
               <SignalGlyph name="clock" className="job-overdue-signal-icon" />

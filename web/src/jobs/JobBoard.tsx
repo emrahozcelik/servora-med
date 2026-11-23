@@ -3,10 +3,8 @@ import { Link } from 'react-router-dom';
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
-import { formatOverdueLateness } from '../ui/duration';
-import { JobTypeIcon, SignalGlyph, StatusSignalIcon } from '../ui/signal-icons';
+import { JobTypeIcon, StatusSignalIcon } from '../ui/signal-icons';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
-import { FollowUpBadge } from './FollowUpContinuity';
 import type { JobCardBoard, JobCardListItem } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import { deriveCompactWorkflowSummary } from './job-workflow-presentation';
@@ -27,10 +25,6 @@ function statusHref(
 function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
   const summary = deriveCompactWorkflowSummary({ job, user });
   const schedule = cardScheduleFact(job);
-  const latenessSeconds = job.latenessSeconds ?? null;
-  const overdueSignal = latenessSeconds !== null && latenessSeconds > 0
-    ? formatOverdueLateness(latenessSeconds)
-    : null;
   return (
     <article className="job-board-card" data-board-card={job.id}>
       <Link to={paths.job(job.id)}>
@@ -41,16 +35,7 @@ function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
             ? jobEngagementLabel(job.engagementKind)
             : jobTypeLabels[job.type]}
         </span>
-        <span className="job-board-signals">
-          <PriorityChip priority={job.priority} longLabel />
-          <FollowUpBadge visible={job.engagementKind === 'FOLLOW_UP'} />
-          {overdueSignal && (
-            <span className="job-overdue-signal" data-job-overdue-signal="true">
-              <SignalGlyph name="clock" className="job-overdue-signal-icon" />
-              {overdueSignal}
-            </span>
-          )}
-        </span>
+        <PriorityChip priority={job.priority} longLabel />
         <dl className="job-board-card-facts">
           <div>
             <dt>Müşteri</dt>
