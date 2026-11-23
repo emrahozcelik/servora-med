@@ -11,6 +11,7 @@ import {
   ACTIVE_JOB_CARD_STATUSES,
   CHANGE_REQUEST_REASON_CODES,
   DELIVERY_PURPOSES,
+  FOLLOW_UP_CHILD_JOB_CARD_TYPES,
   JOB_CARD_TYPES,
   PRODUCTIVE_JOB_CARD_TYPES,
   MEETING_OUTCOMES,
@@ -849,11 +850,11 @@ function parseSalesFollowUpStatusDistribution(value: unknown, field: string) {
 
 function parseSalesFollowUpTypeDistribution(value: unknown, field: string) {
   const values = array(value, field);
-  if (values.length !== PRODUCTIVE_JOB_CARD_TYPES.length) invalid(field);
+  if (values.length !== FOLLOW_UP_CHILD_JOB_CARD_TYPES.length) invalid(field);
   return values.map((entry, index) => {
     const row = exactObject(entry, field, ['type', 'count']);
-    const type = oneOf(row.type, `${field}.type`, PRODUCTIVE_JOB_CARD_TYPES);
-    if (type !== PRODUCTIVE_JOB_CARD_TYPES[index]) invalid(field);
+    const type = oneOf(row.type, `${field}.type`, FOLLOW_UP_CHILD_JOB_CARD_TYPES);
+    if (type !== FOLLOW_UP_CHILD_JOB_CARD_TYPES[index]) invalid(field);
     return { type, count: nonNegativeInteger(row.count, `${field}.count`) };
   });
 }

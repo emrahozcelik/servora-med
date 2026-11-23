@@ -193,7 +193,6 @@ const baseReport: SalesFollowUpReportResponse = {
         { type: 'PRODUCT_DELIVERY', count: 1 },
         { type: 'GENERAL_TASK', count: 1 },
         { type: 'SALES_MEETING', count: 1 },
-  { type: 'SALE', count: 0 },
       ],
       overdueDueDatedFollowUpChildren: 1,
     },
@@ -212,7 +211,6 @@ const baseReport: SalesFollowUpReportResponse = {
       { type: 'PRODUCT_DELIVERY', count: 1 },
       { type: 'GENERAL_TASK', count: 1 },
       { type: 'SALES_MEETING', count: 2 },
-  { type: 'SALE', count: 0 },
     ],
   },
   relationships: {
@@ -238,6 +236,23 @@ describe('Sales follow-up strict parser', () => {
   });
 
   it('rejects malformed buckets and enums', () => {
+    expect(() =>
+      parseSalesFollowUpReport({
+        ...baseReport,
+        current: {
+          ...baseReport.current,
+          followUpChildren: {
+            ...baseReport.current.followUpChildren,
+            typeDistribution: [
+              { type: 'PRODUCT_DELIVERY', count: 0 },
+              { type: 'GENERAL_TASK', count: 0 },
+              { type: 'SALES_MEETING', count: 0 },
+              { type: 'SALE', count: 0 },
+            ],
+          },
+        },
+      } as unknown as SalesFollowUpReportResponse),
+    ).toThrow();
     expect(() =>
       parseSalesFollowUpReport({
         ...baseReport,
@@ -275,7 +290,6 @@ describe('Sales follow-up strict parser', () => {
               { type: 'UNKNOWN', count: 0 },
               { type: 'GENERAL_TASK', count: 0 },
               { type: 'SALES_MEETING', count: 0 },
-  { type: 'SALE', count: 0 },
             ],
           },
         },
