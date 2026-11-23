@@ -47,7 +47,11 @@ are distinct from the Sale contact and the source's current title/status.
 | Other organization / unrelated STAFF | 404 | No identity or snapshots | 404 / no hidden children |
 
 Restricted origin is exactly {access: RESTRICTED, kind: SALE_FROM_VISIT};
-it contains no source ID, URL, title, staff or contact snapshot. Restricted
+it contains no source ID, URL, title, staff or contact snapshot. A standalone
+sale (`sale_source_visit_id IS NULL`) has no source to conceal and projects
+exactly {kind: 'STANDALONE'}; its origin block must never render the restricted
+"kaynağa erişiminiz yok" copy (SALE-002 R11). The enclosing `sourceVisit` key is
+unchanged so existing clients keep their field path. Restricted
 activeSale is exactly {access: RESTRICTED}; it contains no child ID, title,
 status, products or contact. Reassignment is evaluated at every read. A closed
 source remains independently readable when authorized and never closes the Sale.

@@ -113,6 +113,8 @@ export const JOB_ASSIGNMENT_OFFER_OPENED_REASONS = [
   'CANCEL_REPLACEMENT',
   'OFFBOARDING_TRANSFER',
   'REOFFER',
+  // SALE-002 §5.4: the delivery the manager opens while approving a sale.
+  'SALE_APPROVAL',
 ] as const;
 export type JobAssignmentOfferOpenedReason =
   (typeof JOB_ASSIGNMENT_OFFER_OPENED_REASONS)[number];
@@ -227,6 +229,26 @@ export type NeedsActionAssignmentOfferItem = {
   jobPath: string;
 };
 
+/**
+ * OVR-6 §6.2: one management unaccepted past-start row. A job that JOB-010
+ * does not own, listed at read time with its elapsed planned-start age.
+ */
+export type UnacceptedPastStartItem = {
+  jobCardId: string;
+  title: string;
+  type: JobCardType;
+  jobPath: string;
+  /**
+   * `active: false` means the assignee was deactivated after planning.
+   * `users.name` is NOT NULL and the list inner-joins `users`, so the name is
+   * always a string (matching the web parser).
+   */
+  assignee: { id: string; name: string; active: boolean };
+  scheduledAt: string;
+  elapsedSeconds: number;
+  hasOpenChangeRequest: boolean;
+};
+
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 
@@ -253,6 +275,12 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_ASSIGNMENT_OFFER_EXPIRED',
   'JOB_ASSIGNMENT_OFFER_WITHDRAWN',
   'JOB_OVERDUE_ENDED_BY_EXTENSION',
+  // OVR-6: quiet-hours-gated automatic lateness alerts.
+  'JOB_START_REMINDER_SENT',
+  'JOB_APPROVAL_WAIT_ALERT_SENT',
+  'JOB_PENDING_ACCEPTANCE_ALERT_SENT',
+  // SALE-002 §5.5: the one delivery an approval opened, recorded on the sale.
+  'SALE_DELIVERY_CREATED',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -503,6 +531,14 @@ export type JobLifecycleFacts = {
 
 export type PersistedJobCardDetail = JobCard & {
   organizationTimezone: string;
+  /**
+   * SALE-002 §5.5: the delivery <-> sale link, read unscoped and only for a
+   * PRODUCT_DELIVERY (`deliverySourceSale`) or a SALE (`linkedDelivery`);
+   * absent otherwise. The presenter applies the viewer rule and exposes
+   * `deliverySourceSaleId` / `linkedDelivery` without the assignees.
+   */
+  deliverySourceSale?: { id: string; assignedTo: string } | null;
+  linkedDelivery?: { id: string; status: JobCardStatus; assignedTo: string } | null;
   assignee: RelatedIdentity;
   customer: RelatedIdentity | null;
   contact: RelatedIdentity | null;
@@ -674,7 +710,22 @@ export type JobCardFollowUpContext = {
 export type JobCardDetail = Omit<
   PersistedJobCardDetail,
   'lifecycle' | 'sourceJobCardId' | 'followUpInstructions' | 'proposer' | 'assignmentOffer'
+  | 'deliverySourceSale' | 'linkedDelivery'
 > & {
+  /**
+   * SALE-002 §5.5 (sale detail): the delivery opened from this sale; null when
+   * there is none. `id` is present only when the viewer can read the delivery
+   * (management, or the delivery's own assignee). A sale owner whose delivery
+   * another staff member carries sees `{ id: null, status }`: the fact and its
+   * progress, never an id they cannot open.
+   */
+  linkedDelivery: { id: string | null; status: JobCardStatus } | null;
+  /**
+   * SALE-002 §5.5: the sale a delivery was opened from, only when the viewer
+   * can read that sale (management, or the sale's own assignee); otherwise
+   * null, so a staff member never learns an id they cannot open.
+   */
+  deliverySourceSaleId: string | null;
   workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
   followUpProposal: FollowUpProposal | null;
@@ -881,6 +932,14 @@ export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
  *   actor and the schedule revision that proved the new boundary;
  * - `endReason` = 'DEADLINE_EXTENDED'; `endNote` = the mandatory reason;
  * - `endedDurationSeconds` = endedAt - breachedAt (same rounding as above).
+ *
+ * OVR-2 invalidation appendix (owner decision 2026-11-20): an authorized
+ * `INVALIDATE` ends every open obligation of the card with `endReason` =
+ * 'CARD_INVALIDATED'. It is neither completion nor recovery: `recoveredAt` /
+ * `recoveryActor` stay null, `totalDelaySeconds` stays null, no schedule
+ * revision is claimed (`endedByScheduleRevisionNo` null) and
+ * `endedDurationSeconds` is the actual delay the card carried until it was
+ * invalidated. Cards invalidated before this rule keep their open rows.
  */
 export type OverdueIncidentHistoryItem = {
   id: string;
@@ -967,6 +1026,17 @@ export type JobCardMutationReceipt = {
   evaluatedAt?: string;
   followUpJobCardId?: string;
   /**
+   * SALE-002 §5.1 (R22): the linked sale that this coordinated pair command
+   * actually moved. Present only when the sale moved; the anchor card remains
+   * the visit.
+   */
+  linkedSaleJobCardId?: string;
+  /**
+   * SALE-002 §5.1: the delivery card created atomically with the approval.
+   * Reserved for S3; never present before the delivery payload ships.
+   */
+  deliveryJobCardId?: string;
+  /**
    * Slice 2 advisory SUBMIT comparison, present only when the finalized
    * SUBMIT classified one. Persisted verbatim on the intent response so
    * replays return the identical durable result. Server-computed; never
@@ -1001,6 +1071,15 @@ export type FollowUpCreateInput = {
   overrideReason?: string | null;
   /** JOB-010 release 2b: see NormalizedJobCardCreateInput. */
   pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
+  /**
+   * PRODUCT_DELIVERY only; the parser requires the purpose and at least one
+   * item, with the note optional. A follow-up delivery JobCard is created
+   * together with its initial delivery lines because no accepted browser
+   * surface adds lines to an existing card yet.
+   */
+  deliveryPurpose?: DeliveryPurpose | null;
+  deliveryNote?: string | null;
+  items?: Array<{ productId: string; quantity: number }>;
 };
 
 export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };
@@ -1098,6 +1177,14 @@ export type JobCardActivityLocation =
 
 export type JobCardActivityDetails =
   | { kind: 'SALE_RELATION' }
+  | {
+      kind: 'SALE_DELIVERY';
+      deliveryJobCardId: string;
+      assignedTo: string;
+      scheduledAt: string;
+      itemCount: number;
+      items: Array<{ productId: string; quantity: number }>;
+    }
   | { kind: 'SALE_DETAILS'; changedFields: Array<'soldAt' | 'saleContact'> }
   | { kind: 'SALE_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string;
       productName: string; quantity: string; previousQuantity: string | null }

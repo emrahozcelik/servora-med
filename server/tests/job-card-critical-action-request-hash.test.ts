@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import {
   jobCardCreateRequestHash,
   lifecycleRequestHash,
+  salePairLifecycleRequestHash,
   meetingDetailsUpdateRequestHash,
   deliveryItemCreateRequestHash,
 } from '../src/modules/job-cards/critical-action-request-hash.js';
@@ -219,5 +220,100 @@ describe('JobCard critical-action request identity', () => {
       .toBe(lifecycleRequestHash({ ...base, approveFollowUp: proposal }));
     expect(lifecycleRequestHash({ ...base, approveFollowUp: proposal }))
       .not.toBe(lifecycleRequestHash({ ...base, approveFollowUp: { ...proposal, overrideReason: 'farklı' } }));
+  });
+
+  it('includes the approval override and correction deadline in the pair identity, present-only', () => {
+    const base = {
+      pairOperation: 'JOB_APPROVE_PAIR', visitId: 'visit-1', visitExpectedVersion: 3,
+      saleId: 'sale-1', saleExpectedVersion: 2, note: null, revisionReason: null,
+    };
+    const override = {
+      type: 'SALES_MEETING' as const, assignedTo: 'staff-1',
+      followUpInstructions: 'Arayın', scheduledAt: '2026-09-20T13:00:00.000Z',
+    };
+    // Absent and explicit null are the same pre-existing identity.
+    expect(salePairLifecycleRequestHash({ ...base, approveFollowUp: null, correctionDueAt: null }))
+      .toBe(salePairLifecycleRequestHash(base));
+    expect(salePairLifecycleRequestHash({ ...base, approveFollowUp: override }))
+      .not.toBe(salePairLifecycleRequestHash(base));
+    expect(salePairLifecycleRequestHash({ ...base, approveFollowUp: override }))
+      .toBe(salePairLifecycleRequestHash({
+        ...base,
+        approveFollowUp: { ...override, scheduledAt: '2026-09-20T16:00:00.000+03:00', priority: 'normal' },
+      }));
+    expect(salePairLifecycleRequestHash({ ...base, approveFollowUp: override }))
+      .not.toBe(salePairLifecycleRequestHash({
+        ...base, approveFollowUp: { ...override, scheduledAt: '2026-09-21T13:00:00.000Z' },
+      }));
+    expect(salePairLifecycleRequestHash({ ...base, approveFollowUp: override }))
+      .not.toBe(salePairLifecycleRequestHash({
+        ...base, approveFollowUp: { ...override, assignedTo: 'staff-2' },
+      }));
+    const due = '2026-09-22T09:00:00.000Z';
+    expect(salePairLifecycleRequestHash({ ...base, correctionDueAt: due }))
+      .not.toBe(salePairLifecycleRequestHash(base));
+    expect(salePairLifecycleRequestHash({ ...base, correctionDueAt: due }))
+      .toBe(salePairLifecycleRequestHash({ ...base, correctionDueAt: '2026-09-22T12:00:00.000+03:00' }));
+    expect(salePairLifecycleRequestHash({ ...base, correctionDueAt: due }))
+      .not.toBe(salePairLifecycleRequestHash({ ...base, correctionDueAt: '2026-09-23T09:00:00.000Z' }));
+  });
+  it('hashes the sale-approval delivery present-only and canonically (single and pair)', () => {
+    const delivery = {
+      assignedTo: 'staff-2',
+      scheduledAt: '2026-10-15T07:00:00.000Z',
+      scheduledEndsAt: '2026-10-15T07:30:00.000Z',
+      deliveryPurpose: 'SALE' as const,
+      note: ' Kapıdan teslim ',
+      items: [
+        { productId: 'p-1', quantity: 2 },
+        { productId: 'p-2', quantity: 5 },
+      ],
+    };
+    const single = {
+      command: 'APPROVE', jobCardId: 'sale-1', expectedVersion: 3,
+      note: null, revisionReason: null, cancelReason: null,
+    };
+    const pair = {
+      pairOperation: 'JOB_APPROVE_PAIR', visitId: 'visit-1', visitExpectedVersion: 3,
+      saleId: 'sale-1', saleExpectedVersion: 2, note: null, revisionReason: null,
+    };
+    for (const [hash, base] of [
+      [lifecycleRequestHash, single],
+      [salePairLifecycleRequestHash, pair],
+    ] as const) {
+      const run = hash as (identity: never) => string;
+      // Absent and explicit null are the pre-S3 identity (receipts keep replaying).
+      expect(run({ ...base, delivery: null } as never)).toBe(run(base as never));
+      expect(run({ ...base, delivery } as never)).not.toBe(run(base as never));
+      // Canonical: trimmed note, offset instants.
+      expect(run({ ...base, delivery } as never)).toBe(run({
+        ...base,
+        delivery: {
+          ...delivery,
+          note: 'Kapıdan teslim',
+          scheduledAt: '2026-10-15T10:00:00.000+03:00',
+          scheduledEndsAt: '2026-10-15T10:30:00.000+03:00',
+        },
+      } as never));
+      // Every material member changes the identity.
+      const variants = [
+        { ...delivery, assignedTo: 'staff-3' },
+        { ...delivery, scheduledAt: '2026-10-16T07:00:00.000Z' },
+        { ...delivery, deliveryPurpose: 'SAMPLE' as const },
+        { ...delivery, note: null },
+        { ...delivery, items: [delivery.items[0]!] },
+        { ...delivery, items: [{ productId: 'p-1', quantity: 3 }, delivery.items[1]!] },
+        { ...delivery, items: [delivery.items[1]!, delivery.items[0]!] },
+        { ...delivery, pastStartAcknowledgement: { code: 'CUSTOMER_WAITING' as const, text: 'Bekliyor' } },
+      ];
+      for (const changed of variants) {
+        expect(run({ ...base, delivery: changed } as never)).not.toBe(run({ ...base, delivery } as never));
+      }
+      // An omitted assignee is not an explicit one.
+      const { assignedTo: _omitted, ...withoutAssignee } = delivery;
+      void _omitted;
+      expect(run({ ...base, delivery: withoutAssignee } as never))
+        .not.toBe(run({ ...base, delivery } as never));
+    }
   });
 });

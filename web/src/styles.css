@@ -749,6 +749,55 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .servora-staff-performance-table .servora-ant-table-thead > tr > th { white-space: normal; overflow-wrap: anywhere; }
 .staff-performance-sort { white-space: normal; }
 .staff-analysis-group .report-section-hint { overflow-wrap: anywhere; }
+/* OVR-7 lateness: staff section and organization card. One responsive grid
+   pattern; no fixed columns, so 390 px never overflows. */
+.staff-lateness-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.staff-lateness-heading h3 { margin: 0; font-size: 1.2rem; letter-spacing: -0.012em; }
+.staff-lateness-freshness { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.staff-lateness-group { margin-top: 1.5rem; }
+.staff-lateness-group > h4 { margin: 0; font-size: 1rem; }
+.staff-lateness-group > .report-section-hint { margin: 0.4rem 0 0.75rem; }
+.staff-lateness-group-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); margin: 1rem 0 0; border-block: 1px solid var(--rule); }
+.staff-lateness-group-counts > div { min-width: 0; padding: 0.9rem 0.75rem; border-right: 1px solid var(--rule); }
+.staff-lateness-group-counts > div:last-child { border-right: 0; }
+.staff-lateness-group-counts dt { color: var(--muted); font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.staff-lateness-group-counts dd { margin: 0.3rem 0 0; font-size: 1.35rem; font-weight: 760; font-variant-numeric: tabular-nums; }
+.staff-lateness-type { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.staff-lateness-type > h5 { margin: 0 0 0.6rem; font-size: 0.95rem; }
+.staff-lateness-type-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 1rem; margin: 0; }
+.staff-lateness-outcome { min-width: 0; padding-top: 0.6rem; border-top: 2px solid var(--rule); }
+.staff-lateness-outcome > dt { color: var(--muted); font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.staff-lateness-outcome > .staff-lateness-count-value { margin: 0.2rem 0 0.6rem; font-size: 1.35rem; font-weight: 760; font-variant-numeric: tabular-nums; }
+.staff-lateness-outcome > dt:not(:first-of-type) { margin-top: 0.5rem; }
+.staff-lateness-outcome > dd:not(.staff-lateness-count-value) { margin: 0.15rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.staff-lateness-reasons { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 0.75rem 1rem; margin: 1rem 0 0; }
+.staff-lateness-reasons > div { min-width: 0; padding: 0.7rem 0.75rem; background: var(--canvas); border-radius: var(--radius-control); }
+.staff-lateness-reasons dt { color: var(--muted); font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.staff-lateness-reasons dd { margin: 0.2rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.staff-lateness-list { margin-top: 1.5rem; }
+.staff-lateness-list > button { min-height: 44px; }
+.staff-lateness-list-status { margin: 1rem 0 0; color: var(--muted); }
+.staff-lateness-records { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.75rem; }
+.staff-lateness-row { min-width: 0; padding: 0.9rem 1rem; border: 1px solid var(--rule); border-radius: var(--radius-control); }
+.staff-lateness-row-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.staff-lateness-row-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 0.5rem 1rem; margin: 0.75rem 0 0; }
+.staff-lateness-row-facts > div { min-width: 0; }
+.staff-lateness-row-facts dt { color: var(--muted); font-size: 0.78rem; }
+.staff-lateness-row-facts dd { margin: 0.15rem 0 0; overflow-wrap: anywhere; }
+.staff-lateness-row-reason { margin: 0.75rem 0 0; font-size: 0.875rem; }
+.staff-lateness-row-meta { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.8125rem; }
+.report-lateness { min-width: 0; }
+.report-lateness .report-section-heading { flex-wrap: wrap; }
+.report-lateness .report-section-heading .secondary-button { min-height: 44px; }
+.report-lateness-metrics { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+.report-lateness-metrics dd { font-size: 1.15rem; overflow-wrap: anywhere; }
+.report-lateness-wait { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.report-lateness-wait h3 { margin: 0; font-size: 0.95rem; }
+.report-lateness-wait-count { margin: 0.35rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.report-lateness-wait-durations { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: 0.5rem 1rem; margin: 0.75rem 0 0; }
+.report-lateness-wait-durations dt { color: var(--muted); font-size: 0.78rem; }
+.report-lateness-wait-durations dd { margin: 0.15rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.report-lateness-loading > p { margin: 0.5rem 0 0; color: var(--muted); }
 .staff-performance-context-snapshot { min-width: 0; }
 .staff-performance-context h4 { margin: 1rem 0 0.4rem; font-size: 0.8rem; }
 .staff-performance-context section { min-width: 0; }
@@ -2208,39 +2257,181 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .record-commands:focus { outline: 3px solid var(--focus); outline-offset: 3px; }
 .delivery-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .task-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
-/* Weekly report manager-question editor.
-   The preset rows are AntD checkboxes, not text controls, but the editor root
-   is a .field-group (it owns the label/help/error rhythm). Two global rules
-   would otherwise reach AntD's visually hidden checkbox input: the generic
-   `.field-group input` full-width control box, and `input { min-height }`.
-   Both are scoped out below, so the checkbox keeps its own AntD geometry and
-   sits immediately left of its prompt instead of becoming a tall, misplaced
-   hit area. The text gap is AntD's own control gap
-   (.servora-ant-checkbox + span). */
-.weekly-question-presets {
+/* Weekly report manager-question editor and create week selector. */
+.weekly-period-choice-group {
   display: grid;
   gap: 0.55rem;
   min-width: 0;
+  margin-top: 1.25rem;
 }
-.weekly-question-preset {
+.weekly-period-choice-group > legend {
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 680;
+}
+.weekly-period-choices {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.weekly-period-choice {
   display: flex;
   align-items: center;
+  gap: 0.65rem;
+  min-height: var(--control-height);
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 550;
+  cursor: pointer;
+}
+.weekly-period-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+.weekly-period-choice input[type="radio"] {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  min-height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.weekly-period-meta {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
   min-width: 0;
 }
-.weekly-question-preset .servora-ant-checkbox-wrapper {
-  min-width: 0;
+.weekly-period-preview {
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  color: var(--ink);
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.weekly-existing-notice {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+  background: var(--warning-wash);
   color: var(--ink);
 }
-.weekly-question-preset .servora-ant-checkbox-wrapper .servora-ant-checkbox-input {
-  width: auto;
-  min-height: 0;
+.weekly-existing-notice-message {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 0;
+  font-weight: 620;
+  line-height: 1.45;
+}
+.weekly-existing-notice-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid var(--border-warning);
+  border-radius: 50%;
+  color: var(--warning);
+  background: var(--warning-soft);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+.weekly-existing-notice-hint {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+.weekly-existing-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.weekly-existing-notice-link {
+  text-decoration: none;
+}
+.weekly-existing-error-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding-inline: 0.25rem;
+}
+.weekly-existing-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-weight: 450;
+}
+.weekly-bulk-result-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
   padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  list-style: none;
+  min-width: 0;
+}
+.weekly-bulk-result-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+.bulk-result-name {
+  min-width: 0;
+  font-weight: 620;
+  overflow-wrap: break-word;
+}
+.bulk-result-outcome {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-chip);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.bulk-result-outcome--created {
+  border-color: var(--border-success);
+  color: var(--success);
+  background: var(--success-soft);
+}
+.bulk-result-outcome--existing {
+  border-color: var(--border-warning);
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.weekly-bulk-result-link {
+  min-width: 0;
+  text-decoration: none;
+  white-space: nowrap;
+}
+@media (max-width: 479px) {
+  .weekly-bulk-result-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .weekly-bulk-result-link {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
 }
 /* "+ Özel soru ekle" is a content-width action, not a stretched grid item. */
 .weekly-question-actions {
@@ -2313,6 +2504,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--canvas);
   color: var(--muted);
 }
+.weekly-report-editor fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .weekly-report-section { display: grid; gap: 0.85rem; min-width: 0; }
 .weekly-report-section + .weekly-report-section { margin-top: 1.35rem; }
 .weekly-report-section .field-group { margin-top: 0; }
@@ -2320,6 +2517,107 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin: 0;
   font-size: 0.95rem;
   font-weight: 700;
+}
+.weekly-legacy-fields {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--rule);
+  min-width: 0;
+}
+.weekly-legacy-fields .form-help {
+  margin: 0;
+}
+.weekly-subsection-heading {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.weekly-mobile-readiness {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  min-width: 0;
+}
+.weekly-mobile-readiness--ready {
+  border-color: var(--border-success);
+  background: var(--success-soft);
+}
+.weekly-mobile-readiness-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.weekly-mobile-readiness--ready .weekly-mobile-readiness-summary {
+  color: var(--success);
+}
+.weekly-mobile-readiness-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.weekly-mobile-readiness-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.weekly-mobile-readiness-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.15rem 0.45rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+.weekly-mobile-readiness-text {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.weekly-mobile-readiness-item--met {
+  color: var(--success);
+}
+.weekly-mobile-readiness-item--invalid {
+  color: var(--warning);
+  font-weight: 650;
+}
+.weekly-mobile-readiness-state {
+  font-weight: 650;
+}
+.weekly-save-status {
+  margin-top: 0.85rem;
+  margin-bottom: 0;
+}
+.weekly-editor-blocked-hint {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+.weekly-mobile-sticky-submit {
+  display: none;
+}
+@media (min-width: 64rem) {
+  .weekly-mobile-readiness,
+  .weekly-editor-blocked-hint {
+    display: none;
+  }
 }
 .weekly-report-locked-notice {
   margin: 0;
@@ -2495,6 +2793,23 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-form-section > .customer-schedule-notice,
 .follow-up-form-section > .available-slots-notice,
 .follow-up-form-section > .field-status { margin-top: 1rem; }
+.follow-up-delivery-items {
+  min-width: 0;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+}
+.follow-up-delivery-items > h2 { margin: 0; font-size: 1rem; }
+.follow-up-delivery-items .product-select-selected-list { container: follow-up-products / inline-size; }
+@container follow-up-products (max-width: 20rem) {
+  .follow-up-delivery-items .product-select-selected-list li.product-select-with-quantity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .follow-up-delivery-items .product-select-quantity { max-width: 6rem; }
+  .follow-up-delivery-items .product-select-remove { justify-self: end; }
+}
+.follow-up-delivery-items > .form-help { margin: 0.35rem 0 1rem; }
+.follow-up-delivery-items > .task-field-pair { margin-top: 1rem; }
 .follow-up-form .available-slots-notice h2 { margin: 0; font-size: 1rem; }
 .follow-up-form .available-slots-notice > p { margin: 0.5rem 0 0; }
 .task-optional { margin: 1.5rem 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
@@ -4066,9 +4381,23 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .overview-section a,
 .settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
+/* OVR-6: the unaccepted past-start card's only target is its job link; keep
+   the 44px touch floor without changing the shared card-title pattern. */
+.unaccepted-past-start-card .servora-operational-card__title a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+}
+/* The shared card title clips overflow (Ant ellipsis contract), and this 44px
+   link fills it, so its focus ring is drawn inside the link box (WCAG 2.4.7,
+   UI-003 OVR-6 review). */
+.unaccepted-past-start-card .servora-operational-card__title a:focus-visible {
+  outline-offset: -3px;
+}
 .overview-section .servora-operational-card__body > span,
 .overview-section .servora-operational-card__body > p,
 .overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.overview-section .unaccepted-past-start-card [data-unaccepted-past-start-change-request] { margin-top: 0.45rem; }
 .overview-trend { margin-block: 1rem; }
 .overview-distribution-list {
   display: grid;
@@ -5880,4 +6209,112 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   /* A compact button in a stacked mobile form footer keeps the 44px target
      (UI-003 OVR-5b review); desktop compact sizing is unchanged. */
   .review-buttons .compact-button { min-height: var(--control-height); }
+}
+
+@media (max-width: 63.9375rem) {
+  /* WR-WEEK mobile/tablet Staff save/submit bar: stays reachable while filling
+     the form without scrolling past the single-column rail (< 64rem); clears
+     .mobile-bottom-nav inside AppShell without duplicate safe-area padding. */
+  html:has(.weekly-editor-actions) {
+    scroll-padding-bottom: 9.5rem;
+  }
+  html:has(.authenticated-shell--mobile .weekly-editor-actions) {
+    scroll-padding-bottom: calc(13.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .weekly-report-editor textarea,
+  .weekly-report-editor input,
+  .weekly-report-editor button {
+    scroll-margin-bottom: 9.5rem;
+  }
+  .authenticated-shell--mobile .weekly-report-editor textarea,
+  .authenticated-shell--mobile .weekly-report-editor input,
+  .authenticated-shell--mobile .weekly-report-editor button {
+    scroll-margin-bottom: calc(13.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .weekly-editor-actions.form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 15;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: stretch;
+    gap: 0.5rem;
+    margin: 1.25rem -1.15rem -1rem;
+    padding: 0.75rem 1.15rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--rule);
+    border-radius: 0 0 var(--radius-control) var(--radius-control);
+    background: var(--paper);
+    box-shadow: var(--shadow-raised);
+  }
+  .authenticated-shell--mobile .weekly-editor-actions.form-actions {
+    bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: 0.75rem;
+  }
+  .weekly-editor-actions.form-actions button {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+    min-height: var(--control-height);
+    padding-inline: 0.6rem;
+  }
+  .weekly-editor-actions[data-dirty="false"]:has(.weekly-mobile-sticky-submit) > button[type="submit"] {
+    border-color: var(--rule);
+    color: var(--ink);
+    background: var(--paper);
+  }
+  .weekly-editor-actions[data-dirty="false"]:has(.weekly-mobile-sticky-submit) > button[type="submit"]:hover:not(:disabled) {
+    background: var(--canvas);
+    border-color: var(--border-control);
+  }
+  .weekly-mobile-sticky-submit {
+    display: inline-flex;
+  }
+  /* Avoid duplicate primary button in focus order while sticky primary is active. */
+  [data-weekly-report-detail="true"]:has(.weekly-mobile-sticky-submit) [data-job-decision-panel="true"] .review-buttons > .primary-button {
+    display: none;
+  }
+}
+@media (max-width: 63.9375rem) and (max-height: 540px), (max-width: 359px) {
+  html:has(.weekly-editor-actions),
+  html:has(.authenticated-shell--mobile .weekly-editor-actions) {
+    scroll-padding-bottom: 5.5rem;
+  }
+  .weekly-report-editor textarea,
+  .weekly-report-editor input,
+  .weekly-report-editor button,
+  .authenticated-shell--mobile .weekly-report-editor textarea,
+  .authenticated-shell--mobile .weekly-report-editor input,
+  .authenticated-shell--mobile .weekly-report-editor button {
+    scroll-margin-bottom: 5.5rem;
+  }
+  .weekly-editor-actions.form-actions,
+  .authenticated-shell--mobile .weekly-editor-actions.form-actions {
+    position: static;
+    bottom: auto;
+    margin: 1.25rem 0 0;
+    padding: 0.75rem 0 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+}
+@media (max-width: 479px) {
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-view > table,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-view > table > tbody,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-row,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-label,
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-content {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-label {
+    border-inline-end: 0;
+    border-bottom: 0;
+    padding-bottom: 0.25rem;
+  }
+  [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-content {
+    border-inline-end: 0;
+    padding-top: 0.25rem;
+  }
 }

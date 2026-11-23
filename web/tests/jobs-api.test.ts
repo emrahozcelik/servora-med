@@ -1215,6 +1215,24 @@ describe('OVR-5a overdue incident history ending transport', () => {
     });
   });
 
+  it('accepts a card-invalidated ending with no schedule revision', async () => {
+    const invalidated = {
+      ...historyItem,
+      endedBy: { id: 'a1', name: 'Sistem Yöneticisi' },
+      endReason: 'CARD_INVALIDATED',
+      endNote: null,
+      endedByScheduleRevisionNo: null,
+      manualReminderSentAt: null,
+      manualReminderCount: 0,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [invalidated], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listOverdueIncidents('job-1')).resolves.toEqual({
+      items: [invalidated], total: 1, limit: 25, offset: 0,
+    });
+  });
+
   it('still rejects unknown keys and unknown end reasons on an incident row', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
       items: [{ ...historyItem, rawEndNote: 'gizli' }], total: 1, limit: 25, offset: 0,
@@ -1245,5 +1263,27 @@ it('parses Sale activity quantities with the integer detail contract', async () 
       fetch.mockResolvedValueOnce(Response.json({ items: [{ ...activity, details: { ...activity.details, [field]: value } }], total: 1, limit: 50, offset: 0 }));
       await expect(listActivity('sale')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     }
+  }
+});
+
+it('parses the SALE-002 S3 sale-delivery activity and rejects drift', async () => {
+  const activity = {
+    id: 'sale-delivery-audit', jobCardId: 'sale', eventType: 'SALE_DELIVERY_CREATED', actor: null,
+    createdAt: '2026-11-23T08:00:00.000Z',
+    details: { kind: 'SALE_DELIVERY', deliveryJobCardId: 'delivery-1', assignedTo: 'staff-1',
+      scheduledAt: '2026-11-24T07:00:00.000Z', itemCount: 2,
+      items: [{ productId: 'p1', quantity: 2 }, { productId: 'p2', quantity: 4 }] },
+  };
+  const fetch = vi.fn().mockResolvedValue(Response.json({ items: [activity], total: 1, limit: 50, offset: 0 }));
+  vi.stubGlobal('fetch', fetch);
+  expect((await listActivity('sale')).items[0]?.details).toEqual(activity.details);
+  for (const details of [
+    { ...activity.details, raw: 'x' },
+    { ...activity.details, itemCount: 0 },
+    { ...activity.details, items: [{ productId: 'p1', quantity: 0.5 }] },
+    { ...activity.details, scheduledAt: 'yarın' },
+  ]) {
+    fetch.mockResolvedValueOnce(Response.json({ items: [{ ...activity, details }], total: 1, limit: 50, offset: 0 }));
+    await expect(listActivity('sale')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   }
 });

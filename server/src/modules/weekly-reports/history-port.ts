@@ -18,7 +18,7 @@ export type WeeklyReportHistoryItem = {
   staffUserId: string;
   /** Organization-local calendar date (`YYYY-MM-DD`), a Monday. */
   periodStart: string;
-  /** Organization-local calendar date (`YYYY-MM-DD`), the following Sunday. */
+  /** Organization-local calendar date (`YYYY-MM-DD`), Saturday of the working week (or Sunday for legacy 7-day reports). */
   periodEnd: string;
   /** Canonical lifecycle status — owned by the backing JobCard, never duplicated. */
   status: JobCardStatus;

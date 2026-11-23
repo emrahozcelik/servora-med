@@ -1,3 +1,24 @@
+> **SALE-002 S2 checkpoint (2026-11-23):** coordinated visit+sale commands ship:
+> pair discovery, the one-owner invariant, the five redirect guards with their
+> coded errors, joint submit/approve/revision/withdraw/resume in one transaction
+> with two 049 intents and sorted JobCard locks, the approve-path customer
+> pre-lock, `expectedSaleVersion` on the five handlers, and the pair receipt ids
+> (`linkedSaleJobCardId`). Migration `072_sale_submit_without_start` relaxes the
+> 006 started-timestamp CHECK for `SALE` so accepted Q1 (submit from `ACCEPTED`)
+> is representable. The sale-approval **delivery payload** is **not** part of S2;
+> it arrives in S3 per [the accepted contract](sale-002-contract.md). Statements
+> below that a visit and its sale are two independent lifecycles describe S1 and
+> stay true only when the source visit is **not** live.
+
+> **SALE-002 S1 checkpoint (2026-11-23):** migration `071_sale_standalone_and_delivery_link`
+> ships the standalone/retro sale schema and creation path: standalone
+> `POST /api/job-cards/sales`, a `COMPLETED` visit source, the `{kind: 'STANDALONE'}`
+> origin projection, and the currently unused `job_cards.delivery_source_sale_id` link
+> column with its one-delivery unique index. Pair submit/approve and sale-approval
+> delivery writes are **not** part of S1; they arrive in S2/S3 per
+> [the accepted contract](sale-002-contract.md). The PR3/PR1 statements below remain
+> historical.
+
 > PR3 checkpoint: dedicated Sale HTTP writes and create/correction UI are implemented
 > in this slice. See [write-ui-integration.md](write-ui-integration.md) for the current
 > exposure, integer selection, frozen retry and authorization contract. PR1 rollout
@@ -23,12 +44,15 @@ Original documents in the ignored discovery worktree must remain unchanged.
   CUSTOMER_VISIT, SALES_MEETING, PRODUCT_DEMO or FOLLOW_UP. Source customer must be
   active; source assignee must be active STAFF. STAFF may create only from their
   own currently assigned source. Management may create for that source's staff.
+  **SALE-002 S1 widens the eligible source status to `IN_PROGRESS` or `COMPLETED`
+  and adds standalone creation; the rest of this V1 paragraph is unchanged.**
 - Server selects customer, assignee and origin. STAFF creates ACCEPTED; management
   creates NEW. Sale has no schedule, due date, engagement kind or root contact.
 - At most one active Sale per source: NEW, ACCEPTED, IN_PROGRESS,
   WAITING_APPROVAL and REVISION_REQUESTED occupy the slot. COMPLETED, CANCELLED
-  and INVALIDATED release it. A second independent agreement still requires an
-  eligible IN_PROGRESS source. Terminal history remains persisted.
+  and INVALIDATED release it. A second independent agreement requires another
+  eligible source visit or standalone creation (SALE-002 S1). Terminal history
+  remains persisted.
 - Source status, version, meeting results and assignment remain unchanged by
   Sale creation/correction. There is no automatic delivery, follow-up, invoice,
   payment, stock transaction or backup. No price/currency/total/discount fields
@@ -75,8 +99,9 @@ refinement supersedes the initial unmerged 058 design, whose NUMERIC(12,3)
 typmod rounded some raw SQL fractions before CHECK. Fractional historical rows
 fail without changes; data owners must decide remediation separately. Exact raw
 SQL fractions now fail as well. Private reads preserve v1 `1.000` identity across
-valid storage scales; public reads emit `"1"`. Delivery's fractional quantity
-policy is unchanged. See [integer quantity policy](integer-quantity-policy.md)
+valid storage scales; public reads emit `"1"`. Delivery now uses whole-unit
+quantities under DELIVERY-QTY-001; reports keep the historical three-decimal
+presentation. See [integer quantity policy](integer-quantity-policy.md)
 for rollout, lock behavior and recovery of local databases on the earlier draft.
 
 Creation requires 1–25 distinct lines. Draft removal may leave zero lines;
@@ -129,6 +154,15 @@ origin/details, valid sold time and valid nonempty snapshot lines are required.
 Current source status and current catalog activity do not invalidate a previously
 created agreement at submission time. Staff cannot approve; review edits require
 withdraw or revision. Normal terminal immutability applies to all Sale writers.
+
+SALE-002 S2 makes that paragraph conditional: while the source visit is **live**
+(`IN_PROGRESS`, `WAITING_APPROVAL`, `REVISION_REQUESTED`) and both cards share one
+assignee, the visit is the only submission/approval surface and a single-card sale
+submit/approve/revision/withdraw/resume is redirected with a coded `409`
+(`SALE_*_VIA_VISIT_REQUIRED`). A `SALE` may now also be submitted straight from
+`ACCEPTED` (R9/Q1; migration `072`), and a live pair keeps one owner
+(`SALE_PAIR_ASSIGNEE_CONFLICT`). Terminal sources, standalone sales and decoupled
+legacy pairs keep the independent lifecycle described above.
 
 Generic creation and manual follow-up creation have runtime type allowlists that
 exclude SALE. SALE is also excluded from V1 follow-up source/suggestion/proposal

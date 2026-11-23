@@ -29,7 +29,7 @@ describe('JobCard create input', () => {
       deliveryPurpose: 'SALE', deliveryNote: '  Aynı teslimat  ',
       items: [
         { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
-        { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.001 },
+        { productId: '55555555-5555-4555-8555-555555555555', quantity: 3 },
       ],
     })).toMatchObject({
       type: 'PRODUCT_DELIVERY', scheduledAt: SCHEDULED_AT,
@@ -37,9 +37,26 @@ describe('JobCard create input', () => {
       deliveryPurpose: 'SALE', deliveryNote: 'Aynı teslimat',
       items: [
         { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
-        { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.001 },
+        { productId: '55555555-5555-4555-8555-555555555555', quantity: 3 },
       ],
     });
+  });
+
+  it('accepts whole-unit initial item bounds and rejects fractions or range overflow', () => {
+    expect(parseProductDeliveryCreateInput(productDeliveryBody([
+      { productId: productId(1), quantity: 1 },
+    ]))).toMatchObject({ items: [{ productId: productId(1), quantity: 1 }] });
+    expect(parseProductDeliveryCreateInput(productDeliveryBody([
+      { productId: productId(1), quantity: 999_999_999 },
+    ]))).toMatchObject({ items: [{ productId: productId(1), quantity: 999_999_999 }] });
+    for (const quantity of [0, 0.5, 1.5, -1, 1_000_000_000, '2']) {
+      expect(() => parseProductDeliveryCreateInput(productDeliveryBody([
+        { productId: productId(1), quantity },
+      ]))).toThrowError(expect.objectContaining({
+        code: 'VALIDATION_ERROR', statusCode: 400,
+        details: { fieldErrors: { 'items.quantity': 'items.quantity geçersizdir.' } },
+      }));
+    }
   });
 
   it('rejects an empty, duplicate, malformed, non-positive, or over-bound item collection', () => {

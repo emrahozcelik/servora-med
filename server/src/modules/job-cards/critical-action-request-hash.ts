@@ -9,6 +9,7 @@ import type { StartLocationCapture } from './start-location-input.js';
 import type { FollowUpCancelContinuity } from './follow-up-policy.js';
 import type { JobActionLocationCapture } from './location-types.js';
 import { normalizeExpiryDate } from './delivery-input.js';
+import type { SaleApprovalDeliveryInput } from './sale-approval-delivery-input.js';
 
 /** Resolved captures carry provider metadata; request identity reads core fields only. */
 export type LifecycleLocationCapture = StartLocationCapture | JobActionLocationCapture;
@@ -149,7 +150,43 @@ export type LifecycleRequestIdentity = {
    * receipt recorded before this release keeps replaying byte-identically.
    */
   correctionDueAt?: string | null;
+  /**
+   * SALE-002 §5.4: the normalized sale-approval delivery. Present only when the
+   * client sent one, so every hash recorded before S3 stays byte-identical.
+   */
+  delivery?: SaleApprovalDeliveryInput | null;
 };
+
+/**
+ * SALE-002 §4.5/§5.4: the delivery payload in canonical form. Item lines keep
+ * request order (only product locks are sorted), instants are canonical, the
+ * note is trimmed, the purpose is the resolved one. Optional members the
+ * client omitted stay omitted (`assignedTo`, `pastStartAcknowledgement`); the
+ * key order is fixed because the digest is a JSON string.
+ */
+function normalizedSaleApprovalDelivery(delivery: SaleApprovalDeliveryInput): unknown {
+  return {
+    ...(delivery.assignedTo === undefined ? {} : { assignedTo: delivery.assignedTo }),
+    scheduledAt: canonicalInstantValue(delivery.scheduledAt),
+    scheduledEndsAt: canonicalInstantValue(delivery.scheduledEndsAt),
+    deliveryPurpose: delivery.deliveryPurpose,
+    note: trimmedTextOrNull(delivery.note),
+    items: delivery.items.map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+    })),
+    ...pastStartAcknowledgementIntent(delivery.pastStartAcknowledgement),
+  };
+}
+
+/** Present-only member shared by the single and the pair lifecycle identity. */
+function saleApprovalDeliveryIntent(
+  delivery: SaleApprovalDeliveryInput | null | undefined,
+): Record<string, unknown> {
+  return delivery === undefined || delivery === null
+    ? {}
+    : { delivery: normalizedSaleApprovalDelivery(delivery) };
+}
 
 export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string {
   return hashRequestIdentity({
@@ -183,6 +220,67 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
     ...(identity.correctionDueAt !== undefined && identity.correctionDueAt !== null
       ? { correctionDueAt: canonicalInstantValue(identity.correctionDueAt) }
       : {}),
+    ...saleApprovalDeliveryIntent(identity.delivery),
+  });
+}
+
+/**
+ * SALE-002 §4.5: the coordinated visit+sale request identity. Both cards are
+ * part of it — the same `clientActionId` applied to a *different* linked sale,
+ * a different expected version, note, proposal or location is a different
+ * request (`409 CLIENT_ACTION_REUSED`, never a silent act on the new card).
+ *
+ * The discriminator is the pair operation (`<PAIR_OPERATION>:v1`), so a pair
+ * receipt can never collide with the single-card lifecycle identity of either
+ * member card. Optional members are present only when sent, exactly like the
+ * sale-create contract: an absent key is not an explicit null.
+ */
+export type SalePairLifecycleRequestIdentity = {
+  /** `JOB_SUBMIT_FOR_APPROVAL_PAIR`, `JOB_APPROVE_PAIR`, ... (§4.5). */
+  pairOperation: string;
+  visitId: string;
+  visitExpectedVersion: number;
+  saleId: string;
+  saleExpectedVersion: number;
+  note: string | null;
+  revisionReason: string | null;
+  followUpProposal?: FollowUpProposalInput | null;
+  /** The manager's approval follow-up override; same normalization as single-card. */
+  approveFollowUp?: ApproveFollowUpInput | null;
+  locationCapture?: LifecycleLocationCapture | null;
+  /**
+   * OVR-5b: the REQUEST_REVISION correction deadline. Present-only, so every
+   * pair hash recorded without it stays byte-identical.
+   */
+  correctionDueAt?: string | null;
+  /**
+   * SALE-002 §5.4: the normalized delivery payload. Present-only, so an S2
+   * receipt (no delivery input) keeps replaying byte-identically.
+   */
+  delivery?: SaleApprovalDeliveryInput | null;
+};
+
+export function salePairLifecycleRequestHash(identity: SalePairLifecycleRequestIdentity): string {
+  return hashRequestIdentity({
+    operation: `${identity.pairOperation}:v1`,
+    pairOperation: identity.pairOperation,
+    visitId: identity.visitId,
+    visitExpectedVersion: identity.visitExpectedVersion,
+    saleId: identity.saleId,
+    saleExpectedVersion: identity.saleExpectedVersion,
+    note: identity.note,
+    revisionReason: identity.revisionReason,
+    followUpProposal: normalizedProposalIntent(identity.followUpProposal),
+    // Present only when sent, so pair hashes recorded before these members
+    // existed stay byte-identical (an absent key is not an explicit null).
+    ...(identity.approveFollowUp !== undefined && identity.approveFollowUp !== null
+      ? { approveFollowUp: normalizedApproveIntent(identity.approveFollowUp) }
+      : {}),
+    location: normalizedLocationIntent(identity.locationCapture),
+    ...(identity.correctionDueAt !== undefined && identity.correctionDueAt !== null
+      ? { correctionDueAt: canonicalInstantValue(identity.correctionDueAt) }
+      : {}),
+    ...saleApprovalDeliveryIntent(identity.delivery),
   });
 }
 
@@ -304,6 +402,14 @@ export function followUpCreateRequestHash(
     engagementKind: input.engagementKind ?? null,
     overrideReason: input.overrideReason ?? null,
     ...pastStartAcknowledgementIntent(input.pastStartAcknowledgement),
+    // A follow-up carries delivery intent only when its initial batch was
+    // supplied, so every other follow-up request hash (including pre-batch
+    // delivery follow-ups in flight) stays byte-identical.
+    ...(input.items !== undefined ? {
+      deliveryPurpose: input.deliveryPurpose ?? null,
+      deliveryNote: input.deliveryNote ?? null,
+      items: input.items ?? null,
+    } : {}),
   });
 }
 

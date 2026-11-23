@@ -73,3 +73,44 @@ export async function saleFixture(pool: Pool) {
 export async function withSaleFixture(run: (fixture: Awaited<ReturnType<typeof saleFixture>>) => Promise<void>) {
   await withIntentSchema(process.env.TEST_DATABASE_URL, async (pool) => run(await saleFixture(pool)));
 }
+
+/**
+ * SALE-002 §4.3 fixture helper: makes the fixture visit submittable.
+ * `outcome: 'POSITIVE'` makes the JOB-008 follow-up proposal mandatory, so the
+ * caller must send one; `'NO_DECISION'` keeps the submission proposal-free.
+ */
+export async function readyVisit(
+  f: Awaited<ReturnType<typeof saleFixture>>,
+  input: {
+    expectedVersion: number;
+    outcome?: 'POSITIVE' | 'NO_DECISION';
+    clientActionId?: string;
+  },
+): Promise<number> {
+  const details = await f.service.patchMeetingDetails(f.staff, f.visitId, {
+    clientActionId: input.clientActionId ?? 'pair-visit-ready',
+    expectedVersion: input.expectedVersion,
+    meetingAt: saleTime.toISOString(),
+    outcome: input.outcome ?? 'NO_DECISION',
+    meetingSummary: 'Ürünler görüşüldü, sipariş toplandı.',
+  });
+  return details.jobCardVersion;
+}
+
+/** A standalone (phone order) sale, for independent-lifecycle coverage. */
+export async function standaloneSale(
+  f: Awaited<ReturnType<typeof saleFixture>>,
+  overrides: Record<string, unknown> = {},
+) {
+  return f.service.createStandaloneSale(f.staff, {
+    clientActionId: 'pair-standalone-create',
+    title: 'Telefon siparişi',
+    description: null,
+    customerId: f.customerId,
+    assignedTo: f.staff.id,
+    soldAt: saleTime.toISOString(),
+    saleContactId: f.metContactId,
+    items: [{ productId: f.products[0]!, quantity: 2 }],
+    ...overrides,
+  });
+}

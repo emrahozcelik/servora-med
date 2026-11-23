@@ -1,0 +1,90 @@
+/* SALE-002 S3 "Teslim işi aç" section: token-only, mounted inside the visit
+   and independent sale approve dialogs. Status never relies on colour alone
+   (text + a warning glyph); the checkbox row reuses .form-checkbox-row so the
+   whole row stays a 44px target. */
+.sale-delivery {
+  min-width: 0;
+  margin: 0 0 1rem;
+}
+/* Scoped under .sale-delivery so it outranks the dialogs' bare-fieldset reset
+   (`.workflow-dialog fieldset`, styles.css), which would strip the padding and
+   border and leave the controls flush against the tinted background. */
+.sale-delivery .sale-delivery-fieldset {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+.sale-delivery-legend {
+  padding: 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+.sale-delivery-switch {
+  margin-top: 0;
+}
+.sale-delivery-help,
+.sale-delivery-fieldset p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sale-delivery-impossible,
+.sale-delivery-summary {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+  background: var(--warning-wash);
+  color: var(--warning);
+}
+.sale-delivery-summary {
+  border-color: var(--border-error);
+  background: var(--error-wash);
+  color: var(--error);
+}
+.sale-delivery-summary-title {
+  font-weight: 650;
+}
+.sale-delivery-summary ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+.sale-delivery-status {
+  color: var(--muted);
+}
+.sale-delivery-body {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.sale-delivery-body .field-group,
+.sale-delivery-body .product-select {
+  min-width: 0;
+  margin-top: 0;
+}
+.sale-delivery-body .product-select-selected-list {
+  container: sale-delivery-products / inline-size;
+}
+@container sale-delivery-products (max-width: 20rem) {
+  .sale-delivery-body .product-select-selected-list li.product-select-with-quantity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sale-delivery-body .product-select-quantity { max-width: 6rem; }
+  .sale-delivery-body .product-select-remove { justify-self: end; }
+}
+/* Always stacked: the approve dialog is narrow even on desktop, and a
+   side-by-side datetime-local field clips its time segment. */
+.sale-delivery-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+  min-width: 0;
+}
+.sale-delivery-ack {
+  display: grid;
+  gap: 0.75rem;
+}

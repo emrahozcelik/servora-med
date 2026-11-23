@@ -35,16 +35,18 @@ const statuses = [
   { status: 'REVISION_REQUESTED' as const, count: 0 },
 ];
 const types = report.completionWorkTypes.map(item => ({ ...item, count: 0 }));
+// Follow-up children are never SALE: their buckets use the productive three types.
+const followUpChildTypes = types.filter(item => item.type !== 'SALE');
 export const salesFollowUp: SalesFollowUpReportResponse = {
   range: business.range,
   current: {
     salesMeetings: { total: 0, statusDistribution: statuses, items: [], limit: 50, offset: 0 },
     proposalQueue: { total: 0, items: [], limit: 50, offset: 0 },
-    followUpChildren: { total: 0, statusDistribution: statuses, typeDistribution: types, overdueDueDatedFollowUpChildren: 0 },
+    followUpChildren: { total: 0, statusDistribution: statuses, typeDistribution: followUpChildTypes, overdueDueDatedFollowUpChildren: 0 },
   },
   period: { salesMeetingsCreated: 0, salesMeetingsManagerApproved: 0,
     meetingOutcomeDistribution: report.meetingsByOutcome.map(item => ({ ...item, count: 0 })),
-    followUpChildrenCreated: 0, followUpChildrenCreatedByType: types },
+    followUpChildrenCreated: 0, followUpChildrenCreatedByType: followUpChildTypes },
   relationships: { directFollowUpLinks: 0, currentCustomerDivergence: 0 },
 };
 

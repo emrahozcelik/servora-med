@@ -92,6 +92,11 @@ export type DeriveJobWorkflowPresentationInput = {
   workflowContext: JobWorkflowContext;
   deliveryItems: DeliveryItem[];
   meetingDetails: MeetingDetails | null;
+  /**
+   * SALE-002 S2: the sale command a live visit pair withholds from this card
+   * (`pairManagedSaleCommand`). The next-step copy then names the visit card.
+   */
+  pairManagedCommand?: LifecycleCommand | null;
 };
 
 export const requirementLabels: Record<SubmissionRequirement['code'], string> = {
@@ -433,7 +438,15 @@ function responsibilityFor(
   role: ExpectedRole,
   user: CurrentUser,
   lifecycle: JobLifecycleFacts,
+  pairManagedCommand: LifecycleCommand | null,
 ): JobWorkflowPresentation['responsibility'] {
+  const pairManaged = (description: string): JobWorkflowPresentation['responsibility'] => ({
+    role,
+    title: 'Şimdi sizden beklenen',
+    description,
+    consequence: null,
+    submission: null,
+  });
   const submissionFacts = (): JobWorkflowPresentation['responsibility']['submission'] => {
     if (status !== 'WAITING_APPROVAL') return null;
     return {
@@ -460,6 +473,10 @@ function responsibilityFor(
         submission: null,
       };
     case 'IN_PROGRESS':
+      if (pairManagedCommand === 'SUBMIT_FOR_APPROVAL') {
+        return pairManaged('Bu satış kaydı bağlı ziyaretle birlikte gönderilir. '
+          + 'Ziyaret kartını açıp ziyareti kontrole gönderin.');
+      }
       return {
         role,
         title: 'Şimdi sizden beklenen',
@@ -468,6 +485,13 @@ function responsibilityFor(
         submission: null,
       };
     case 'REVISION_REQUESTED':
+      if (pairManagedCommand === 'RESUME') {
+        return {
+          ...pairManaged('Bu satış kaydının düzeltmesi bağlı ziyaretle birlikte başlar. '
+            + 'Ziyaret kartını açıp düzeltmeye başlayın.'),
+          title: 'Düzeltme gerekiyor',
+        };
+      }
       return {
         role,
         title: 'Düzeltme gerekiyor',
@@ -477,6 +501,14 @@ function responsibilityFor(
       };
     case 'WAITING_APPROVAL': {
       const staffViewer = user.role === 'STAFF';
+      if (!staffViewer && pairManagedCommand === 'APPROVE') {
+        return {
+          ...pairManaged('Bu satış kaydı bağlı ziyaretle birlikte onaylanır. '
+            + 'Onayı ziyaret kartından verin.'),
+          title: 'Yönetici kontrolü',
+          submission: submissionFacts(),
+        };
+      }
       return {
         role,
         title: staffViewer ? 'Yönetici kontrolünde' : 'Yönetici kontrolü',
@@ -514,12 +546,18 @@ function responsibilityFor(
   }
 }
 
-function preferredPrimaryCommand(status: JobCardStatus): LifecycleCommand | null {
+function preferredPrimaryCommand(
+  status: JobCardStatus,
+  type: JobCard['type'],
+): LifecycleCommand | null {
   switch (status) {
     case 'NEW':
       return 'ACCEPT_ASSIGNMENT';
     case 'ACCEPTED':
-      return 'START';
+      // SALE-002 Q1: a SALE submits straight from ACCEPTED. START captures a
+      // location for a field interval a sale does not have; the IN_PROGRESS
+      // state stays reachable as a secondary command for sales that do start.
+      return type === 'SALE' ? 'SUBMIT_FOR_APPROVAL' : 'START';
     case 'IN_PROGRESS':
       return 'SUBMIT_FOR_APPROVAL';
     case 'REVISION_REQUESTED':
@@ -673,7 +711,7 @@ function deriveTransitions(
 
   let primary: TransitionPresentation | null = null;
   if (viewerOwnsPrimary(job.status, user, job)) {
-    const preferred = preferredPrimaryCommand(job.status);
+    const preferred = preferredPrimaryCommand(job.status, job.type);
     if (preferred && allowed.includes(preferred)) {
       primary = transitionPresentation(preferred, opts);
     }
@@ -757,7 +795,9 @@ export function deriveJobWorkflowPresentation(
     };
   }
 
-  const responsibility = responsibilityFor(job.status, expectedRole, user, lifecycle);
+  const responsibility = responsibilityFor(
+    job.status, expectedRole, user, lifecycle, input.pairManagedCommand ?? null,
+  );
   if (primaryTransition) {
     responsibility.consequence = primaryTransition.consequence;
   }

@@ -18,6 +18,9 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.get('/', secured, h.list);
   app.post('/', secured, h.create);
   app.post('/product-deliveries', secured, h.createProductDelivery);
+  // SALE-002 §6.1: standalone sale creation is a static one-segment path. It is
+  // registered with the other collection creates, before the '/:id' readers.
+  app.post('/sales', secured, h.createStandaloneSale);
   app.post('/weekly-reports', secured, h.createWeeklyReport);
   app.post('/weekly-reports/bulk-request', secured, h.bulkRequestWeeklyReports);
   app.get('/weekly-reports/reference', secured, h.getWeeklyReportReference);
@@ -34,6 +37,10 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.post('/customer-schedule/evaluate', secured, h.previewCustomerSchedule);
   app.post('/available-slots', secured, h.availableSlots);
   app.get('/board', secured, h.board);
+  // OVR-6 §6.2: static two-segment path, registered before '/:id' so the
+  // management unaccepted past-start list can never be shadowed by the
+  // one-segment job detail route.
+  app.get('/pending-acceptance/past-start', secured, h.listUnacceptedPastStart);
   app.get<{ Params: { id: string } }>('/:id', secured, h.detail);
   app.get<{ Params: { id: string } }>('/:id/sale-create-context', secured, h.saleCreateContext);
   app.get<{ Params: { id: string } }>('/:id/sales', secured, h.relatedSales);

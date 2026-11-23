@@ -4,6 +4,7 @@ import type {
   AssignmentOfferUrgentReason,
   AssignmentReasonCode,
   ChangeRequestReasonCode,
+  DeliveryPurpose,
   JobCardActivityStatus,
   JobCardEngagementKind,
   JobCardInvalidationReasonCode,
@@ -54,6 +55,15 @@ export function jobEngagementLabel(kind: JobCardEngagementKind | null | undefine
   if (!kind) return jobTypeLabels.SALES_MEETING;
   return JOB_CARD_ENGAGEMENT_LABELS[kind];
 }
+
+/** Canonical delivery purpose labels (DOM-001 vocabulary). */
+export const DELIVERY_PURPOSE_LABELS: Record<DeliveryPurpose, string> = {
+  SALE: 'Satış',
+  SAMPLE: 'Numune',
+  CONSIGNMENT: 'Konsinye',
+  RETURN: 'İade',
+  OTHER: 'Diğer',
+};
 
 /** Current JobCard presentation labels; PLANNED remains readable for legacy data only. */
 export const jobStatusLabels: Record<JobCardActivityStatus, string> = {
@@ -214,7 +224,7 @@ export function pastStartAcknowledgementLabel(
 
 export const JOB_CARD_ACTIVITY_EVENTS = [
   'WEEKLY_REPORT_REMOVED',
-  'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
+  'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED', 'SALE_DELIVERY_CREATED',
   'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_INVALIDATED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
@@ -223,6 +233,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_APPROVAL_WITHDRAWN',
   'JOB_SUBMISSION_REMINDER_SENT', 'JOB_SUBMISSION_AUTO_REMINDER_SENT',
   'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
+  'JOB_START_REMINDER_SENT', 'JOB_APPROVAL_WAIT_ALERT_SENT', 'JOB_PENDING_ACCEPTANCE_ALERT_SENT',
   'JOB_OVERDUE_ENDED_BY_EXTENSION',
   'JOB_EARLY_START_AUTHORIZED',
   'JOB_CHANGE_REQUESTED', 'JOB_CHANGE_REQUEST_RESOLVED',
@@ -240,6 +251,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   SALE_ITEM_ADDED: 'Satış ürünü eklendi',
   SALE_ITEM_UPDATED: 'Satış miktarı düzeltildi',
   SALE_ITEM_REMOVED: 'Satış ürünü kaldırıldı',
+  SALE_DELIVERY_CREATED: 'Satıştan teslim işi açıldı',
   JOB_CREATED: 'İş oluşturuldu',
   JOB_ASSIGNED: 'Atanan personel değiştirildi',
   JOB_PLANNED: 'İş planlandı',
@@ -261,6 +273,9 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_SUBMISSION_REMINDER_SENT: 'Onaya gönderme hatırlatması gönderildi',
   JOB_SUBMISSION_AUTO_REMINDER_SENT: 'Otomatik onaya gönderme hatırlatması',
   JOB_SUBMISSION_AUTO_ESCALATION_SENT: 'Yöneticiye gecikme bildirimi',
+  JOB_START_REMINDER_SENT: 'Başlangıç hatırlatması gönderildi',
+  JOB_APPROVAL_WAIT_ALERT_SENT: 'Onay beklemesi uyarısı gönderildi',
+  JOB_PENDING_ACCEPTANCE_ALERT_SENT: 'Kabul bekleyen iş uyarısı gönderildi',
   JOB_OVERDUE_ENDED_BY_EXTENSION: 'Gecikme, tarih uzatılmasıyla sonlandırıldı',
   JOB_EARLY_START_AUTHORIZED: 'Erken başlama izni verildi',
   JOB_CHANGE_REQUESTED: 'Personel düzenleme / sonlandırma önerisi gönderdi',

@@ -927,6 +927,36 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
+  it('rejects a Product Delivery follow-up created during approval', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'GENERAL_TASK', title: 'Ürün kontrolü', assignedTo: staffA.id, customerId: null,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görev tamamlandı.',
+      });
+      await expect(service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        followUp: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'PRODUCT_DELIVERY',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Teslim',
+        },
+      })).rejects.toMatchObject({
+        code: 'FOLLOW_UP_PROPOSAL_INVALID',
+        statusCode: 400,
+        message: 'Ürün teslimi takibi onay sırasında açılamaz; ürünleriyle birlikte Takip işi oluştur ekranından açın.',
+      });
+      const after = await service.detail(manager, job.id);
+      expect(after.status).toBe('WAITING_APPROVAL');
+      expect(after.followUpProposal).toBeNull();
+    });
+  });
+
   it('R1-6: Staff receives no frequency escalation', async () => {
     await withFixture(async ({
       service, pool, manager, staffA, staffB, organizationId, customerId, createInProgressJob,
@@ -934,7 +964,12 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       const job = await createInProgressJob({
         type: 'SALES_MEETING', title: 'Kontrol görüşmesi', assignedTo: staffA.id,
       });
-      for (const [index, at] of [1, 2, 3].map((days) => new Date(Date.parse(PROPOSAL_AT) - days * DAY_MS).toISOString()).entries()) {
+      // Anchor the past visits on the instant the service actually proposes.
+      // The fixture's PROPOSAL_AT can differ from it by up to a day depending
+      // on the DB clock's time of day, which pushed one visit past the
+      // proposal and made this test fail in the evening.
+      const proposedAt = Date.parse((await service.getFollowUpSuggestion(manager, job.id)).scheduledAt!);
+      for (const [index, at] of [1, 2, 3].map((days) => new Date(proposedAt - days * DAY_MS).toISOString()).entries()) {
         const visit = await pool.query<{ id: string }>(
           `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
              started_at, staff_completed_at, staff_completed_by, manager_approved_at, manager_approved_by,

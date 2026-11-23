@@ -39,6 +39,13 @@ export const PRODUCTIVE_JOB_CARD_TYPES = [
   'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'SALE',
 ] as const;
 /**
+ * Follow-up children can never be `SALE`: migration 057 requires
+ * `source_job_card_id IS NULL` for every SALE, so a SALE child bucket would
+ * always be a fabricated zero. Server parity for the follow-up report buckets.
+ */
+export const FOLLOW_UP_CHILD_JOB_CARD_TYPES = PRODUCTIVE_JOB_CARD_TYPES
+  .filter((type) => type !== 'SALE');
+/**
  * Every JobCard type the API can return, including administrative weekly
  * reports. Job-row parsers, filters and labels use this list so a
  * WEEKLY_REPORT row can never crash exact parsing.
@@ -278,6 +285,8 @@ export type FollowUpSuggestion = {
   followUpInstructions: string;
   evaluation: CustomerScheduleEvaluation;
 };
+/** SALE-002 §5: the delivery a sale approval opened, as the sale card exposes it. */
+export type LinkedDelivery = { id: string | null; status: JobCardStatus };
 export type JobCard = {
   id: string; organizationId: string; organizationTimezone?: string;
   type: JobCardType; status: JobCardStatus;
@@ -319,6 +328,16 @@ export type JobCard = {
    * extension reason. The backend stays the authority.
    */
   hasOpenOverdueIncident: boolean;
+  /**
+   * SALE-002 S3: sale card only. Absent while the server does not expose the
+   * link; `null` when no delivery was opened at approval.
+   */
+  linkedDelivery?: LinkedDelivery | null;
+  /**
+   * SALE-002 S3: delivery card only. The sale the delivery was opened from;
+   * absent/`null` when it has no readable source sale.
+   */
+  deliverySourceSaleId?: string | null;
   /**
    * OVR-5: effective correction deadline of the current submission episode
    * (`max(original deadline, stored correction)`) when that episode was armed
@@ -374,7 +393,14 @@ type FollowUpCreateCommon = {
   pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 export type FollowUpCreateInput = FollowUpCreateCommon & (
-  | { type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' }
+  | { type: 'GENERAL_TASK' }
+  | {
+    type: 'PRODUCT_DELIVERY';
+    /** Initial delivery batch: no accepted browser surface adds lines later. */
+    deliveryPurpose: DeliveryPurpose;
+    deliveryNote?: string | null;
+    items: Array<{ productId: string; quantity: number }>;
+  }
   | { type: 'SALES_MEETING'; engagementKind: JobCardEngagementKind }
 );
 export type JobCardCreateInput =
@@ -472,6 +498,7 @@ export type JobCardActivityDetails =
   | { kind: 'SALE_RELATION' }
   | { kind: 'SALE_DETAILS'; changedFields: Array<'soldAt' | 'saleContact'> }
   | { kind: 'SALE_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; productName: string; quantity: string; previousQuantity: string | null }
+  | { kind: 'SALE_DELIVERY'; deliveryJobCardId: string; assignedTo: string; scheduledAt: string; itemCount: number; items: Array<{ productId: string; quantity: number }> }
   | {
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardActivityStatus;
@@ -553,6 +580,12 @@ type DeliveryInput = {
   deliveryNote?: string | null;
 };
 type LifecycleInput = { clientActionId: string; expectedVersion: number };
+/**
+ * SALE-002 §4.5/R18: the sale version a coordinated visit+sale pair command
+ * must carry. Only the five pair-capable commands accept it; `start`, `accept`,
+ * `cancel`, `decline` and `release` keep rejecting it.
+ */
+export type PairLifecycleInput = LifecycleInput & { expectedSaleVersion?: number };
 export type JobCardInvalidationInput = {
   clientActionId: string;
   expectedVersion: number;
@@ -560,7 +593,7 @@ export type JobCardInvalidationInput = {
   note?: string | null;
 };
 export type StartJobCardInput = LifecycleInput & { locationCapture?: StartLocationCapture };
-export type SubmitJobCardInput = LifecycleInput & {
+export type SubmitJobCardInput = PairLifecycleInput & {
   note: string;
   followUpProposal?: FollowUpProposalInput;
   locationCapture?: ActionLocationCapture;
@@ -570,6 +603,20 @@ export type FollowUpProposalInput = {
   type: JobCardType;
   assignedTo: string;
   followUpInstructions: string;
+};
+
+/**
+ * SALE-002 §5.1: the optional planned delivery a sale approval opens. Sent only
+ * when the approval completes a `SALE`; absent means "no delivery".
+ */
+export type ApproveDeliveryInput = {
+  assignedTo: string;
+  scheduledAt: string;
+  scheduledEndsAt?: string;
+  deliveryPurpose?: DeliveryPurpose;
+  note?: string;
+  items: Array<{ productId: string; quantity: number }>;
+  pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 
 export type ApproveFollowUpInput = FollowUpProposalInput & {
@@ -1029,7 +1076,17 @@ function parseJobCard(value: unknown): JobCard {
     assignmentOffer: parseAssignmentOffer(v.assignmentOffer),
     hasOpenOverdueIncident: parseHasOpenOverdueIncident(v.hasOpenOverdueIncident),
     correctionDueAt: parseCorrectionDueAt(v.correctionDueAt),
+    ...('linkedDelivery' in v ? { linkedDelivery: parseLinkedDelivery(v.linkedDelivery) } : {}),
+    ...('deliverySourceSaleId' in v && v.deliverySourceSaleId !== undefined
+      ? { deliverySourceSaleId: nullableString(v.deliverySourceSaleId, 'deliverySourceSaleId') }
+      : {}),
   };
+}
+/** SALE-002 §5: `{id,status}` or `null`; anything else is a contract break. */
+export function parseLinkedDelivery(value: unknown): LinkedDelivery | null {
+  if (value === null) return null;
+  const v = object(value);
+  return { id: nullableString(v.id, 'linkedDelivery.id'), status: oneOf(v.status, 'linkedDelivery.status', JOB_CARD_STATUSES) };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
   const v = object(value);
@@ -1214,6 +1271,18 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     itemId: string(v.itemId, 'itemId'),
     purpose: v.purpose === null ? null : oneOf(v.purpose, 'purpose', DELIVERY_PURPOSES),
     quantity: v.quantity === null ? null : positiveFiniteNumber(v.quantity, 'quantity') };
+  if (kind === 'SALE_DELIVERY') {
+    const detail = exactObject(v, 'details', ['kind', 'deliveryJobCardId', 'assignedTo', 'scheduledAt', 'itemCount', 'items']);
+    return { kind,
+      deliveryJobCardId: string(detail.deliveryJobCardId, 'deliveryJobCardId'),
+      assignedTo: string(detail.assignedTo, 'assignedTo'),
+      scheduledAt: canonicalInstant(detail.scheduledAt, 'scheduledAt'),
+      itemCount: positiveCount(detail.itemCount, 'itemCount'),
+      items: array(detail.items, 'items').map((entry) => {
+        const item = exactObject(entry, 'items', ['productId', 'quantity']);
+        return { productId: string(item.productId, 'items.productId'), quantity: positiveCount(item.quantity, 'items.quantity') };
+      }) };
+  }
   if (kind === 'NOTE') return { kind, noteId: string(v.noteId, 'noteId') };
   if (kind === 'MEETING_DETAILS') {
     const detail = exactObject(v, 'details', ['kind', 'changedFields']);
@@ -1637,6 +1706,55 @@ export const listAssignmentOffersNeedingAction = async (
   parseAssignmentOfferNeedingActionItem,
 );
 
+/**
+ * OVR-6 §6 management list item: a `NEW` job whose planned start has passed
+ * and whose latest JOB-010 offer does not place it with the offer flow. The
+ * ownership matrix is decided by the server; this shape only carries the read.
+ */
+export type UnacceptedPastStartItem = {
+  jobCardId: string;
+  title: string;
+  type: JobCardType;
+  jobPath: string;
+  assignee: { id: string; name: string; active: boolean };
+  scheduledAt: string;
+  elapsedSeconds: number;
+  hasOpenChangeRequest: boolean;
+};
+
+function parseUnacceptedPastStartAssignee(value: unknown) {
+  const v = exactObject(value, 'assignee', ['id', 'name', 'active']);
+  return {
+    id: string(v.id, 'assignee.id'),
+    name: string(v.name, 'assignee.name'),
+    active: boolean(v.active, 'assignee.active'),
+  };
+}
+
+function parseUnacceptedPastStartItem(value: unknown): UnacceptedPastStartItem {
+  const v = exactObject(value, 'unacceptedPastStart', [
+    'jobCardId', 'title', 'type', 'jobPath', 'assignee', 'scheduledAt',
+    'elapsedSeconds', 'hasOpenChangeRequest',
+  ]);
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    title: string(v.title, 'title'),
+    type: oneOf(v.type, 'type', JOB_CARD_TYPES),
+    jobPath: string(v.jobPath, 'jobPath'),
+    assignee: parseUnacceptedPastStartAssignee(v.assignee),
+    scheduledAt: canonicalInstant(v.scheduledAt, 'scheduledAt'),
+    elapsedSeconds: count(v.elapsedSeconds, 'elapsedSeconds'),
+    hasOpenChangeRequest: boolean(v.hasOpenChangeRequest, 'hasOpenChangeRequest'),
+  };
+}
+
+export const listUnacceptedPastStart = async (
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`/api/job-cards/pending-acceptance/past-start${query(page)}`),
+  parseUnacceptedPastStartItem,
+);
+
 export type OpenSubmissionLateItem = {
   jobCardId: string;
   jobTitle: string;
@@ -1694,12 +1812,13 @@ export type OverdueIncidentHistoryItem = {
   recoveryActor: RelatedName | null;
   /**
    * OVR-5a: an authorized deadline extension ends the obligation without
-   * touching the breach evidence. Ended rows keep the ending facts and never
-   * become recovered or on-time rows.
+   * touching the breach evidence. OVR-2: an INVALIDATE ends it as a card
+   * invalidation. Ended rows keep the ending facts and never become recovered
+   * or on-time rows.
    */
   endedAt: string | null;
   endedBy: { id: string; name: string | null } | null;
-  endReason: 'DEADLINE_EXTENDED' | null;
+  endReason: 'DEADLINE_EXTENDED' | 'CARD_INVALIDATED' | null;
   endNote: string | null;
   endedByScheduleRevisionNo: number | null;
   endedDurationSeconds: number | null;
@@ -1750,7 +1869,7 @@ function parseOverdueIncidentHistoryItem(value: unknown): OverdueIncidentHistory
     endedBy: nullableActor(v.endedBy, 'endedBy'),
     endReason: v.endReason === null
       ? null
-      : oneOf(v.endReason, 'endReason', ['DEADLINE_EXTENDED'] as const),
+      : oneOf(v.endReason, 'endReason', ['DEADLINE_EXTENDED', 'CARD_INVALIDATED'] as const),
     endNote: nullableString(v.endNote, 'endNote'),
     endedByScheduleRevisionNo: v.endedByScheduleRevisionNo === null
       ? null
@@ -1782,10 +1901,26 @@ export async function removeDeliveryItem(id: string, itemId: string, expectedVer
   return { id: string(v.id, 'id'), jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion') };
 }
 
-const lifecycle = async (id: string, command: string, input: object, options: { includeSubmitLocationCapability?: boolean } = {}) =>
-  parseJobCard(await request(`${jobPath(id)}/${command}${query({
+const lifecycle = async (id: string, command: string, input: object, options: { includeSubmitLocationCapability?: boolean } = {}) => {
+  const raw = await request(`${jobPath(id)}/${command}${query({
     includeSubmitLocationCapability: options.includeSubmitLocationCapability === true ? 'true' : undefined,
-  })}`, json('POST', input)));
+  })}`, json('POST', input));
+  return { ...parseJobCard(raw), ...parseLifecycleReceipt(raw) };
+};
+/**
+ * SALE-002 §5.1/R22: the presented receipt names the linked sale only when the
+ * command actually moved it. Replay returns the same value from the stored
+ * receipt; an absent field means "the sale did not move".
+ */
+function parseLifecycleReceipt(raw: unknown) {
+  const linked = object(raw).linkedSaleJobCardId;
+  const delivery = object(raw).deliveryJobCardId;
+  return {
+    linkedSaleJobCardId: typeof linked === 'string' && linked ? linked : null,
+    // SALE-002 S3: present only when this approval opened a delivery.
+    ...(typeof delivery === 'string' && delivery ? { deliveryJobCardId: delivery } : {}),
+  };
+}
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 /**
  * JOB-010 release 2b: the assigned Staff member declines (from `NEW`) or
@@ -1839,13 +1974,16 @@ export const startJobCard = (id: string, input: StartJobCardInput) =>
   lifecycle(id, 'start', input, { includeSubmitLocationCapability: true });
 export const submitJobCardForApproval = (id: string, input: SubmitJobCardInput) =>
   lifecycle(id, 'submit-for-approval', input, { includeSubmitLocationCapability: true });
-export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {
+export const approveJobCard = async (id: string, input: PairLifecycleInput & {
+  note?: string; followUp?: ApproveFollowUpInput; delivery?: ApproveDeliveryInput;
+}) => {
   const raw = await request(`${jobPath(id)}/approve`, json('POST', input));
   const parsed = parseJobCard(raw);
   const v = raw as Record<string, unknown>;
   return {
     ...parsed,
     followUpJobCardId: typeof v.followUpJobCardId === 'string' ? v.followUpJobCardId : null,
+    ...parseLifecycleReceipt(raw),
   };
 };
 export const getFollowUpSuggestion = async (id: string, at?: string) =>
@@ -1868,7 +2006,7 @@ export const findAvailableSlots = async (input: AvailableSlotsInput) =>
   );
 export const requestJobCardRevision = (
   id: string,
-  input: LifecycleInput & {
+  input: PairLifecycleInput & {
     revisionReason: string;
     /**
      * OVR-5 §3: optional correction deadline (ISO instant). Omitted → the
@@ -1878,8 +2016,9 @@ export const requestJobCardRevision = (
     correctionDueAt?: string;
   },
 ) => lifecycle(id, 'request-revision', input);
-export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
-export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);
+export const withdrawJobCardFromApproval = (id: string, input: PairLifecycleInput) =>
+  lifecycle(id, 'withdraw-from-approval', input);
+export const resumeJobCard = (id: string, input: PairLifecycleInput) => lifecycle(id, 'resume', input);
 export const cancelJobCard = async (
   id: string,
   input: LifecycleInput & { cancelReason: string; followUpContinuity?: FollowUpCancelContinuity },

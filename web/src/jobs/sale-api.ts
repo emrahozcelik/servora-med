@@ -1,9 +1,16 @@
 import { ApiError, boolean, json, nullableString, number, object, request, string } from '../services/api';
-import { JOB_CARD_STATUSES, parseSaleQuantity, type JobCardStatus, type Paginated } from './jobs-api';
+import {
+  JOB_CARD_STATUSES, parseLinkedDelivery, parseSaleQuantity,
+  type JobCardStatus, type LinkedDelivery, type Paginated,
+} from './jobs-api';
 
 export type SaleContact = { id: string; name: string; title: string | null };
 export type SaleLink = { access: 'RESTRICTED' } | { access: 'FULL'; id: string; title: string; status: JobCardStatus };
-export type SaleSource = { access: 'RESTRICTED'; kind: 'SALE_FROM_VISIT' } | {
+/**
+ * A standalone Sale has no source visit, so there is no source to conceal:
+ * SALE-002 §6.1 / R11 projects exactly `{kind:'STANDALONE'}`.
+ */
+export type SaleSource = { kind: 'STANDALONE' } | { access: 'RESTRICTED'; kind: 'SALE_FROM_VISIT' } | {
   access: 'FULL'; kind: 'SALE_FROM_VISIT'; id: string; title: string; status: JobCardStatus;
   versionAtCreation: number; titleSnapshot: string; customerNameSnapshot: string;
   plannedContact: SaleContact | null; metContact: SaleContact | null;
@@ -13,6 +20,8 @@ export type SaleDetails = {
   sourceVisit: SaleSource;
   items: Array<{ id: string; productId: string; name: string; sku: string | null;
     brand: string | null; model: string | null; unit: string | null; quantity: string }>;
+  /** SALE-002 S3: absent while the server does not expose it; `null` = none opened. */
+  linkedDelivery?: LinkedDelivery | null;
 };
 function invalid(): never { throw new ApiError(0, 'INVALID_RESPONSE', 'Satış yanıtı geçersiz.'); }
 function exact(value: unknown, keys: readonly string[]) {
@@ -43,10 +52,14 @@ function link(value: unknown): SaleLink {
   return { access: 'FULL', id: string(row.id, 'id'), title: string(row.title, 'title'), status: status(row.status) };
 }
 export function parseSaleDetails(value: unknown): SaleDetails {
-  const row = exact(value, ['jobCardId', 'jobCardVersion', 'soldAt', 'saleContact', 'sourceVisit', 'items']);
+  const row = exact(value, ['jobCardId', 'jobCardVersion', 'soldAt', 'saleContact', 'sourceVisit', 'items', 'linkedDelivery']);
   const source = object(row.sourceVisit);
   let sourceVisit: SaleSource;
-  if (source.access === 'RESTRICTED') {
+  if (source.kind === 'STANDALONE') {
+    // No source visit exists, so the origin carries no access key, id or snapshot.
+    exact(source, ['kind']);
+    sourceVisit = { kind: 'STANDALONE' };
+  } else if (source.access === 'RESTRICTED') {
     exact(source, ['access', 'kind']);
     if (source.kind !== 'SALE_FROM_VISIT') invalid();
     sourceVisit = { access: 'RESTRICTED', kind: 'SALE_FROM_VISIT' };
@@ -71,7 +84,8 @@ export function parseSaleDetails(value: unknown): SaleDetails {
   });
   if (new Set(items.map((item) => item.productId)).size !== items.length) invalid();
   return { jobCardId: string(row.jobCardId, 'jobCardId'), jobCardVersion: integer(row.jobCardVersion, 1),
-    soldAt, saleContact: contact(row.saleContact), sourceVisit, items };
+    soldAt, saleContact: contact(row.saleContact), sourceVisit, items,
+    ...('linkedDelivery' in row ? { linkedDelivery: parseLinkedDelivery(row.linkedDelivery) } : {}) };
 }
 const salePath = (id: string) => '/api/job-cards/' + encodeURIComponent(id);
 export async function getSaleDetails(id: string) {
@@ -108,6 +122,12 @@ export type SaleCreateInput = {
   description: string | null; soldAt: string; saleContactId: string | null;
   items: Array<{ productId: string; quantity: number }>;
 };
+/** SALE-002 §6.1: a standalone sale is created without any source visit. */
+export type StandaloneSaleCreateInput = {
+  clientActionId: string; title: string; description: string | null;
+  customerId: string; assignedTo: string; soldAt: string; saleContactId: string | null;
+  items: Array<{ productId: string; quantity: number }>;
+};
 export type SaleCorrection =
   | { kind: 'details'; input: { clientActionId: string; expectedVersion: number; soldAt?: string; saleContactId?: string | null } }
   | { kind: 'add'; input: { clientActionId: string; expectedVersion: number; productId: string; quantity: number } }
@@ -119,6 +139,13 @@ function receipt(value: unknown): SaleReceipt {
 }
 export async function createSaleFromVisit(id: string, input: SaleCreateInput) {
   return receipt(await request(salePath(id) + '/sales?includeSaleCapability=true', json('POST', input)));
+}
+/**
+ * SALE-002 §6.1 standalone create. The strict server allowlist accepts exactly
+ * this body; the response is the same `{jobCardId,version}` receipt.
+ */
+export async function createStandaloneSale(input: StandaloneSaleCreateInput) {
+  return receipt(await request('/api/job-cards/sales', json('POST', input)));
 }
 export async function correctSale(id: string, attempt: SaleCorrection) {
   const suffix = attempt.kind === 'details' ? '/sale-details' : '/sale-items'

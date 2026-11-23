@@ -5,14 +5,16 @@ import { listStaff, type StaffProfile } from '../services/people-api';
 import { LoadingSkeleton, RecordDescriptions, ResultState } from '../ui/antd';
 import { counterState } from '../ui/counter-policy';
 import { ProgressiveCounter } from '../ui/ProgressiveCounter';
-import { JOB_CARD_ENGAGEMENT_LABELS, jobTypeLabels } from './job-labels';
+import { JOB_CARD_ENGAGEMENT_LABELS, jobTypeLabels, DELIVERY_PURPOSE_LABELS } from './job-labels';
 import {
   createFollowUp,
+  DELIVERY_PURPOSES,
   getJobCard,
   getFollowUpSuggestion,
   getMeetingDetails,
   JOB_CARD_ENGAGEMENT_KINDS,
   type AvailableSlot,
+  type DeliveryPurpose,
   type FollowUpCreateInput,
   type JobCard,
   type JobCardEngagementKind,
@@ -38,6 +40,14 @@ import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } fr
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
 import { pastStartAcknowledgementPayload, type PastStartAcknowledgement } from './jobs-api';
 import { PageHeader } from '../ui/PageHeader';
+import { ProductSelect } from '../ProductSelect';
+import { loadDeliveryProducts } from '../DeliveryCreate';
+import type { Product } from '../services/products-api';
+
+/** Server contract: `MAX_INITIAL_DELIVERY_ITEMS` in job-cards create-input. */
+const MAX_INITIAL_DELIVERY_ITEMS = 25;
+/** Cap message associated with the product area, not a colour-only hint. */
+const DELIVERY_ITEMS_LIMIT_MESSAGE = `En fazla ${MAX_INITIAL_DELIVERY_ITEMS} ürün eklenebilir.`;
 
 type LoadState =
   | { kind: 'loading' }
@@ -45,7 +55,8 @@ type LoadState =
   | { kind: 'error'; status: '403' | '404' | 'error'; message: string };
 
 type FieldErrors = Partial<Record<
-  'title' | 'followUpInstructions' | 'assignedTo' | 'scheduledAt' | 'type' | 'engagementKind',
+  'title' | 'followUpInstructions' | 'assignedTo' | 'scheduledAt' | 'type' | 'engagementKind'
+  | 'items',
   string
 >>;
 
@@ -98,6 +109,10 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [assignedTo, setAssignedTo] = useState('');
   const [priority, setPriority] = useState<JobCardPriority>('normal');
   const [engagementKind, setEngagementKind] = useState<JobCardEngagementKind>('FOLLOW_UP');
+  const [selectedProducts, setSelectedProducts] = useState<Array<{ product: Product; quantity: number | '' }>>([]);
+  const [deliveryPurpose, setDeliveryPurpose] = useState<DeliveryPurpose>('SALE');
+  const [deliveryNote, setDeliveryNote] = useState('');
+  const [productLimitError, setProductLimitError] = useState('');
   const [pending, setPending] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -131,6 +146,10 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setAssignedTo('');
     setPriority('normal');
     setEngagementKind('FOLLOW_UP');
+    setSelectedProducts([]);
+    setDeliveryPurpose('SALE');
+    setDeliveryNote('');
+    setProductLimitError('');
     setPending(false);
     setSubmitError('');
     setFieldErrors({});
@@ -294,7 +313,35 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   function changeType(nextType: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING') {
     if (customerless && nextType !== 'GENERAL_TASK') return;
     setType(nextType);
-    setFieldErrors((current) => ({ ...current, type: undefined, scheduledAt: undefined, engagementKind: undefined }));
+    setProductLimitError('');
+    setFieldErrors((current) => ({
+      ...current, type: undefined, scheduledAt: undefined, engagementKind: undefined, items: undefined,
+    }));
+  }
+
+  function addSelectedProduct(product: Product) {
+    if (selectedProducts.some((entry) => entry.product.id === product.id)) return;
+    // The server rejects more than 25 initial lines; stop the selection here so
+    // the extra product is never shown as added.
+    if (selectedProducts.length >= MAX_INITIAL_DELIVERY_ITEMS) {
+      setProductLimitError(DELIVERY_ITEMS_LIMIT_MESSAGE);
+      return;
+    }
+    setProductLimitError('');
+    setSelectedProducts((current) => [...current, { product, quantity: 1 }]);
+  }
+
+  function removeSelectedProduct(productId: string) {
+    setProductLimitError('');
+    setSelectedProducts((current) => current.filter((entry) => entry.product.id !== productId));
+  }
+
+  function updateSelectedQuantity(productId: string, value: string) {
+    setSelectedProducts((current) => current.map((entry) => (
+      entry.product.id === productId
+        ? { ...entry, quantity: value === '' ? '' : Number(value) }
+        : entry
+    )));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -314,6 +361,20 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     if (type !== 'GENERAL_TASK' && !scheduledLocal) nextErrors.scheduledAt = 'Planlanan zamanı seçin.';
     if (type === 'SALES_MEETING' && !engagementKind) nextErrors.engagementKind = 'Görüşme türünü seçin.';
     if (customerless && type !== 'GENERAL_TASK') nextErrors.type = CUSTOMERLESS_FOLLOW_UP_EXPLANATION;
+    // The backend creates the delivery lines atomically with the child card and
+    // still validates the batch; this is only the browser-side counterpart.
+    const invalidQuantityProduct = type === 'PRODUCT_DELIVERY'
+      ? selectedProducts.find((entry) => entry.quantity === ''
+        || !Number.isInteger(entry.quantity) || entry.quantity < 1 || entry.quantity > 999999999)
+      : undefined;
+    if (type === 'PRODUCT_DELIVERY') {
+      if (selectedProducts.length > MAX_INITIAL_DELIVERY_ITEMS) {
+        nextErrors.items = DELIVERY_ITEMS_LIMIT_MESSAGE;
+      } else if (selectedProducts.length === 0) nextErrors.items = 'En az bir ürün seçin.';
+      else if (invalidQuantityProduct) {
+        nextErrors.items = `${invalidQuantityProduct.product.name} için 1–999999999 arasında tam sayı adet girin.`;
+      }
+    }
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors);
       setSubmitError('Formdaki işaretli alanları kontrol edin.');
@@ -334,7 +395,19 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     };
     const input: FollowUpCreateInput = type === 'SALES_MEETING'
       ? { ...base, type, engagementKind, clientActionId: crypto.randomUUID() }
-      : { ...base, type, clientActionId: crypto.randomUUID() };
+      : type === 'PRODUCT_DELIVERY'
+        ? {
+          ...base,
+          type,
+          deliveryPurpose,
+          deliveryNote: deliveryNote.trim() || null,
+          items: selectedProducts.map((entry) => ({
+            productId: entry.product.id,
+            quantity: Number(entry.quantity),
+          })),
+          clientActionId: crypto.randomUUID(),
+        }
+        : { ...base, type, clientActionId: crypto.randomUUID() };
     const attemptValue: Attempt = { sourceId: sourceIdAtSubmit, input };
     attempt.current = attemptValue;
     await sendAttempt(attemptValue);
@@ -476,6 +549,39 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
             >{instructionCount}/4000 karakter</ProgressiveCounter>
             {fieldErrors.followUpInstructions && <span id="follow-up-instructions-error" className="field-error">{fieldErrors.followUpInstructions}</span>}
           </div>
+          {type === 'PRODUCT_DELIVERY' && <div className="follow-up-delivery-items" data-follow-up-delivery-items="true">
+            <h2 id="follow-up-products-heading">Ürünler ve miktarlar</h2>
+            <p className="form-help">Teslim edilecek en az bir ürün ve miktar seçin. Ürünler iş oluşturulurken kaydedilir.</p>
+            <ProductSelect load={loadDeliveryProducts}
+              selectedProducts={selectedProducts.map((entry) => entry.product)}
+              onAdd={addSelectedProduct}
+              onRemove={removeSelectedProduct}
+              renderQuantity={(product) => <>
+                <label htmlFor={`follow-up-delivery-quantity-${product.id}`}>Miktar<span className="sr-only">: {product.name}</span></label>
+                <input className="form-control" id={`follow-up-delivery-quantity-${product.id}`} type="number"
+                  min="1" max="999999999" step="1" inputMode="numeric" required
+                  value={selectedProducts.find((entry) => entry.product.id === product.id)!.quantity}
+                  aria-invalid={fieldErrors.items ? true : undefined}
+                  aria-describedby={fieldErrors.items ? 'follow-up-items-error' : undefined}
+                  onChange={(event) => updateSelectedQuantity(product.id, event.target.value)} />
+              </>} />
+            {productLimitError && <span className="field-error" role="alert">{productLimitError}</span>}
+            {fieldErrors.items && <span id="follow-up-items-error" className="field-error">{fieldErrors.items}</span>}
+            <div className="task-field-pair">
+              <div className="field-group"><label htmlFor="follow-up-delivery-purpose">Teslim amacı</label>
+                <select id="follow-up-delivery-purpose" value={deliveryPurpose}
+                  onChange={(event) => setDeliveryPurpose(event.target.value as DeliveryPurpose)}>
+                  {DELIVERY_PURPOSES.map((purpose) => (
+                    <option key={purpose} value={purpose}>{DELIVERY_PURPOSE_LABELS[purpose]}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field-group"><label htmlFor="follow-up-delivery-note">Teslim notu (isteğe bağlı)</label>
+                <textarea id="follow-up-delivery-note" rows={3} value={deliveryNote}
+                  onChange={(event) => setDeliveryNote(event.target.value)} />
+              </div>
+            </div>
+          </div>}
         </section>
         <section className="follow-up-form-section" data-follow-up-section="assignment" aria-labelledby="follow-up-assignment-heading">
           <div className="follow-up-form-section-heading">

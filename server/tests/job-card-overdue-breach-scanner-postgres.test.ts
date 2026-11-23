@@ -469,8 +469,59 @@ describe.skipIf(!databaseUrl)('OVR-3 clock-only breach scanner (PostgreSQL)', ()
         [organizationId, jobCardId, EARLY, staffId],
       );
       const report = await scannerFor(pool).runOnce(new Date('2026-08-04T00:00:00.000Z'));
-      expect(report.skippedIncompleteEvidence).toBe(1);
+      // The permanently unprovable row is excluded at discovery, not selected
+      // and skipped on every tick: it can never occupy a bounded batch slot.
+      expect(report.candidates).toBe(0);
+      expect(report.skippedIncompleteEvidence).toBe(0);
       expect(await incidents(pool, organizationId, jobCardId)).toHaveLength(0);
+    });
+  });
+
+  it('LATE_SUBMISSION: a full batch of permanently unprovable legacy rows cannot starve a fresh breach', async () => {
+    await withIntentSchema(databaseUrl, async (pool) => {
+      const organizationId = await seedOrganization(pool, 'UTC');
+      const staffId = await seedStaff(pool, organizationId);
+      const batchSize = 50;
+      // Pre-044 legacy shape: REVISION_REQUESTED episode 1 with a mutable
+      // started_at but no durable activation row. The scanner can never prove
+      // that episode, so these rows must never occupy a bounded batch: each
+      // scan would re-select them forever and detect nothing new.
+      for (let index = 0; index < batchSize; index += 1) {
+        const legacyJobId = await seedJob(pool, {
+          organizationId, staffId, status: 'IN_PROGRESS', acceptedAt: EARLY,
+          startedAt: EARLY, scheduledAt: EARLY, scheduledEndsAt: BOUNDARY,
+          revisionCreatedAt: EARLY,
+        });
+        await pool.query(
+          `UPDATE job_cards
+              SET status = 'REVISION_REQUESTED',
+                  staff_completed_at = $3, staff_completed_by = $4,
+                  revision_requested_at = $3, revision_requested_by = $4,
+                  revision_reason = 'Legacy fixture'
+            WHERE organization_id = $1 AND id = $2`,
+          [organizationId, legacyJobId, EARLY, staffId],
+        );
+      }
+      // A fresh, provable breach sorts after every legacy row by first-late
+      // instant, so it can only be reached if the skipped rows are excluded.
+      const freshJobId = await seedJob(pool, {
+        organizationId, staffId, status: 'IN_PROGRESS', acceptedAt: EARLY,
+        startedAt: EARLY, scheduledAt: EARLY,
+        scheduledEndsAt: new Date(BOUNDARY.getTime() + 60 * 60_000),
+        revisionCreatedAt: EARLY,
+      });
+      const report = await scannerFor(pool, batchSize).runOnce(
+        new Date(BOUNDARY.getTime() + 2 * 60 * 60_000),
+      );
+      expect(report.inserted).toBe(1);
+      expect(report.skippedIncompleteEvidence).toBe(0);
+      expect(await incidents(pool, organizationId, freshJobId)).toHaveLength(1);
+      // The legacy rows stay unprovable history: no fabricated incident.
+      expect(await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_overdue_incidents
+          WHERE organization_id = $1 AND delay_type = 'LATE_SUBMISSION'`,
+        [organizationId],
+      )).toMatchObject({ rows: [{ count: '1' }] });
     });
   });
 
@@ -864,6 +915,53 @@ describe.skipIf(!databaseUrl)('OVR-3 clock-only breach scanner (PostgreSQL)', ()
       expect(unknownRows[0]).toMatchObject({
         accountable_user_id: null, accountable_source: 'UNKNOWN',
       });
+    });
+  });
+
+  it('invalidation beats a stale scanner candidate and the scanner finds nothing afterwards', async () => {
+    await withIntentSchema(databaseUrl, async (pool) => {
+      const organizationId = await seedOrganization(pool, 'UTC');
+      const staffId = await seedStaff(pool, organizationId);
+      const adminId = (await pool.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role, is_active)
+         VALUES ($1, 'OVR3 Admin', $2, 'test-hash', 'ADMIN', TRUE) RETURNING id`,
+        [organizationId, `ovr3-admin-${randomUUID()}@test.local`],
+      )).rows[0]!.id;
+      const jobCardId = await seedJob(pool, {
+        organizationId, staffId, status: 'ACCEPTED', acceptedAt: EARLY,
+        scheduledAt: EARLY, scheduledEndsAt: BOUNDARY, revisionCreatedAt: EARLY,
+      });
+      const scanTime = new Date(BOUNDARY.getTime() + 60_000);
+      const scannerRepository = new PostgresOverdueBreachScannerRepository(
+        new PostgresJobCardRepository(pool),
+      );
+      // Discovery happens before invalidation: the worker holds a stale
+      // candidate that must not materialize after the card is terminal.
+      const candidates = await scannerRepository.listCandidates({
+        delayType: 'LATE_START', scanTime, limit: 50,
+      });
+      expect(candidates).toHaveLength(1);
+
+      const service = buildService(pool, { now: scanTime });
+      await service.invalidate(
+        { id: adminId, organizationId, role: 'ADMIN' },
+        jobCardId,
+        {
+          clientActionId: randomUUID(),
+          expectedVersion: 1,
+          reasonCode: 'DUPLICATE',
+          note: null,
+        } as never,
+      );
+
+      const stale = await scannerRepository.scanCandidate({
+        delayType: 'LATE_START', candidate: candidates[0]!, scanTime,
+      });
+      expect(stale).toEqual({ kind: 'skipped-state-changed' });
+      expect(await incidents(pool, organizationId, jobCardId)).toHaveLength(0);
+      expect(await scannerRepository.listCandidates({
+        delayType: 'LATE_START', scanTime, limit: 50,
+      })).toHaveLength(0);
     });
   });
 });

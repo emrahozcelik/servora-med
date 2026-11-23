@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { Pool } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
@@ -14,8 +14,9 @@ import {
   PostgresOverdueReminderWorkerRepository,
   createOverdueReminderWorker,
 } from '../src/modules/job-cards/overdue-reminder-worker.js';
+import { ALWAYS_OPEN_NOTIFICATION_WINDOW } from '../src/modules/notifications/quiet-hours.js';
 import { resolveOverdueReminderTiming } from '../src/modules/job-cards/overdue-reminder-policy.js';
-import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { PostgresJobCardRepository, PostgresJobCardTransaction } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
@@ -230,7 +231,9 @@ async function scanOnce(pool: Pool, scanTime: Date) {
 function reminderWorker(pool: Pool, published: RealtimeEventRecord[]) {
   const repository = new PostgresJobCardRepository(pool);
   return createOverdueReminderWorker(
-    new PostgresOverdueReminderWorkerRepository(repository, false),
+    new PostgresOverdueReminderWorkerRepository(
+      repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+    ),
     {
       publisher: { publish: (event) => published.push(event) },
       timing: {},
@@ -247,7 +250,9 @@ function boundedReminderWorker(
 ) {
   const repository = new PostgresJobCardRepository(pool);
   return createOverdueReminderWorker(
-    new PostgresOverdueReminderWorkerRepository(repository, false),
+    new PostgresOverdueReminderWorkerRepository(
+      repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+    ),
     {
       publisher: { publish: (event) => published.push(event) },
       timing,
@@ -747,7 +752,9 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
 
       const repository = new PostgresJobCardRepository(pool);
-      const workerRepository = new PostgresOverdueReminderWorkerRepository(repository, false);
+      const workerRepository = new PostgresOverdueReminderWorkerRepository(
+        repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      );
       const scanTime = shiftMs(breachedAt, 61 * 60_000);
       const candidate = { organizationId, jobCardId: job.id };
       const [first, second] = await Promise.all([
@@ -1069,7 +1076,12 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       );
 
       const repository = new PostgresJobCardRepository(pool);
-      const selected = await repository.listDueOpenSubmissionLateEpisodes({ scanTime: dueAt, timing: TIMING, limit: 2 });
+      const selected = await repository.listDueOpenSubmissionLateEpisodes({
+        scanTime: dueAt,
+        timing: TIMING,
+        limit: 2,
+        notificationWindow: ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      });
       expect(selected.map((candidate) => candidate.jobCardId)).toHaveLength(2);
       const blocked = jobsWithStaff.find(({ job }) => job.id === selected[0]!.jobCardId)!;
       const unblocked = jobsWithStaff.filter(({ job }) => job.id !== blocked.job.id);
@@ -1079,7 +1091,12 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
         [organizationId, blocked.staffId],
       );
 
-      const next = await repository.listDueOpenSubmissionLateEpisodes({ scanTime: dueAt, timing: TIMING, limit: 2 });
+      const next = await repository.listDueOpenSubmissionLateEpisodes({
+        scanTime: dueAt,
+        timing: TIMING,
+        limit: 2,
+        notificationWindow: ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      });
       expect(next.map((candidate) => candidate.jobCardId).sort()).toEqual(
         unblocked.map(({ job }) => job.id).sort(),
       );
@@ -1151,14 +1168,18 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       // a transport failure is contained per candidate and converges on retry.
       const repository = new PostgresJobCardRepository(pool);
       const worker = createOverdueReminderWorker(
-        new PostgresOverdueReminderWorkerRepository(repository, false),
+        new PostgresOverdueReminderWorkerRepository(
+          repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+        ),
         { publisher: failingPublisher, timing: {}, batchSize: 50 },
       );
       // Delivery + notification rows commit before the transport publish,
-      // so the iteration reports both the send and the publish failure.
+      // so the iteration reports the send and a separate publish failure; the
+      // committed candidate is not also counted as failed.
       const failed = await worker.runOnce(shiftMs(breachedAt, 15 * 60_000));
       expect(failed.sent).toBe(1);
-      expect(failed.failed).toBe(1);
+      expect(failed.failed).toBe(0);
+      expect(failed.publishFailed).toBe(1);
       expect(await selectDeliveries(pool, organizationId, job.id)).toHaveLength(1);
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(1);
 
@@ -1174,6 +1195,191 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       const incidents = await selectIncidents(pool, organizationId, job.id);
       expect(incidents).toHaveLength(1);
       expect(incidents[0]!.recovered_at).not.toBeNull();
+    });
+  });
+
+  it('23: takes the assignee users lock before the JobCard lock', { timeout: 30_000 }, async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Lock Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      let job = await createTask(service, staffA, { title: 'Kilit sırası görevi', dueDate });
+      job = await startJob(service, staffA, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
+      const worker = createOverdueReminderWorker(
+        new PostgresOverdueReminderWorkerRepository(
+          new PostgresJobCardRepository(pool), false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+        ),
+        { timing: {}, batchSize: 50 },
+      );
+
+      const locker = await pool.connect();
+      const probe = await pool.connect();
+      let pending: ReturnType<typeof worker.runOnce> | null = null;
+      try {
+        // Hold the JobCard row only. Lock order users -> JobCard means the
+        // worker takes the assignee's users row first and then waits here.
+        await locker.query('BEGIN');
+        await locker.query(
+          `SELECT id FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
+          [organizationId, job.id],
+        );
+        pending = worker.runOnce(shiftMs(breachedAt, 15 * 60_000));
+        const deadline = Date.now() + 10_000;
+        let userLockHeldByWorker = false;
+        while (Date.now() < deadline) {
+          await probe.query('BEGIN');
+          try {
+            await probe.query(
+              `SELECT id FROM users WHERE organization_id = $1 AND id = $2 FOR UPDATE NOWAIT`,
+              [organizationId, staffAId],
+            );
+            await probe.query('ROLLBACK');
+          } catch (error) {
+            await probe.query('ROLLBACK');
+            if ((error as { code?: string }).code === '55P03') {
+              userLockHeldByWorker = true;
+              break;
+            }
+            throw error;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(
+          userLockHeldByWorker,
+          'worker reached the JobCard lock before locking the assignee users row',
+        ).toBe(true);
+        await locker.query('ROLLBACK');
+        const report = await pending;
+        expect(report.sent).toBe(1);
+        expect(report.byKind).toMatchObject({ STAFF_REMINDER: 1 });
+      } finally {
+        try {
+          await locker.query('ROLLBACK');
+        } catch {
+          // already rolled back
+        }
+        if (pending) await pending.catch(() => undefined);
+        locker.release();
+        probe.release();
+      }
+    });
+  });
+
+  it('24: a reassignment between the worker snapshot and the JobCard lock is skipped', { timeout: 30_000 }, async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Reassign Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      let job = await createTask(service, staffA, { title: 'Yeniden atanan gecikmiş görev', dueDate });
+      job = await startJob(service, staffA, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
+      const worker = createOverdueReminderWorker(
+        new PostgresOverdueReminderWorkerRepository(
+          new PostgresJobCardRepository(pool), false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+        ),
+        { timing: {}, batchSize: 50 },
+      );
+
+      // Reassign in the exact unlocked window: after the worker read its
+      // snapshot, before it holds the JobCard lock. The version is left
+      // untouched, so the outcome can only come from the worker's own
+      // assignment re-check rather than from a version fence elsewhere.
+      const actualSnapshot = PostgresJobCardTransaction.prototype.getLatenessAlertJobSnapshot;
+      const spy = vi.spyOn(PostgresJobCardTransaction.prototype, 'getLatenessAlertJobSnapshot')
+        .mockImplementationOnce(async function (organizationId, jobCardId) {
+          const snapshot = await actualSnapshot.call(this, organizationId, jobCardId);
+          await pool.query(
+            `UPDATE job_cards SET assigned_to = $1 WHERE organization_id = $2 AND id = $3`,
+            [staffBId, organizationId, jobCardId],
+          );
+          return snapshot;
+        });
+      try {
+        const report = await worker.runOnce(shiftMs(breachedAt, 15 * 60_000));
+        expect(report.candidates).toBe(1);
+        expect(report.skippedStateChanged).toBe(1);
+        expect(report.sent).toBe(0);
+        expect(report.failed).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+      // Nothing was delivered to either assignee: the tick retries later.
+      expect(await selectDeliveries(pool, organizationId, job.id)).toHaveLength(0);
+      expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(0);
+    });
+  });
+
+  it('25: invalidation beats a stale reminder candidate and no reminder fires afterwards', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Invalidation Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'Yönetici');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { manager, staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      let job = await createTask(service, staffA, { title: 'Geçersiz kılınacak görev', dueDate });
+      job = await startJob(service, staffA, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
+
+      // The worker discovered the candidate before invalidation committed.
+      const repository = new PostgresJobCardRepository(pool);
+      const workerRepository = new PostgresOverdueReminderWorkerRepository(
+        repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      );
+      const scanTime = shiftMs(breachedAt, 15 * 60_000);
+      const candidates = await workerRepository.listCandidates({
+        scanTime, timing: TIMING, limit: 50,
+      });
+      expect(candidates).toHaveLength(1);
+
+      await syncClock(pool, clock);
+      const invalidated = await service.invalidate(
+        { id: adminId, organizationId, role: 'ADMIN' } as JobCardActor,
+        job.id,
+        {
+          clientActionId: randomUUID(),
+          expectedVersion: job.version,
+          reasonCode: 'DUPLICATE',
+          note: null,
+        } as never,
+      );
+
+      const stale = await workerRepository.processCandidate({
+        candidate: candidates[0]!, scanTime, timing: TIMING,
+      });
+      expect(stale.outcome).toEqual({ kind: 'skipped-state-changed' });
+      expect(await selectDeliveries(pool, organizationId, job.id)).toHaveLength(0);
+      expect((await selectNotifications(pool, organizationId, job.id))
+        .filter((notification) => notification.kind.startsWith('job.submission_'))).toHaveLength(0);
+
+      // A fresh worker iteration finds nothing to send for the invalidated card.
+      const after = await reminderWorker(pool, []).runOnce(scanTime);
+      expect(after.candidates).toBe(0);
+      expect(after.sent).toBe(0);
+
+      // The manual reminder path is fail-closed after invalidation too.
+      await expect(service.sendSubmissionReminder(manager, job.id, {
+        clientActionId: randomUUID(), expectedVersion: invalidated.version,
+      })).rejects.toMatchObject({ code: 'SUBMISSION_REMINDER_NOT_APPLICABLE' });
+      expect(await selectManualReminders(pool, organizationId, job.id)).toHaveLength(0);
     });
   });
 });

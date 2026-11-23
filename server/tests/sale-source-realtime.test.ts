@@ -33,7 +33,13 @@ describe('Source visit → Sale invalidation', () => {
         clientActionId: 'close-first', expectedVersion: 1, cancelReason: 'First independent agreement closed',
       });
       const second = await f.service.createSaleFromVisit(f.staff, f.visitId, { ...f.input, clientActionId: 'second-sale' });
-      const reassignedSale = await f.service.patch(f.manager, second.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      // SALE-002 §4.2 (R17) forbids creating a divergent live pair through the
+      // API; this suite needs the legacy decoupled shape, so it writes it
+      // directly (exactly what pre-S2 data looks like).
+      const reassignedSale = (await f.pool.query<{ version: number }>(
+        'UPDATE job_cards SET assigned_to=$2, version=version+1 WHERE id=$1 RETURNING version',
+        [second.jobCardId, f.otherStaff.id],
+      )).rows[0]!;
       await f.service.cancel(f.manager, second.jobCardId, {
         clientActionId: 'close-second', expectedVersion: reassignedSale.version, cancelReason: 'Second independent agreement closed',
       });
@@ -175,8 +181,12 @@ describe('Source visit → Sale invalidation', () => {
   it('delivers the source reassignment to the former source owner without exposing the sale', async () => {
     await withSaleFixture(async (f) => {
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
-      // B owns the sale while A keeps the source visit.
-      await f.service.patch(f.manager, sale.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      // B owns the sale while A keeps the source visit (legacy decoupled pair;
+      // SALE-002 §4.2 R17 forbids creating it through the API now).
+      await f.pool.query(
+        'UPDATE job_cards SET assigned_to=$2, version=version+1 WHERE id=$1',
+        [sale.jobCardId, f.otherStaff.id],
+      );
       const c = await f.user('STAFF');
       await f.pool.query('INSERT INTO staff_profiles(organization_id,user_id,manager_user_id) VALUES($1,$2,$3)',
         [f.organizationId, c.id, f.manager.id]);
@@ -204,7 +214,10 @@ describe('Source visit → Sale invalidation', () => {
       await f.service.cancel(f.manager, history.jobCardId, { clientActionId: 'history-close',
         expectedVersion: 1, cancelReason: 'Historical agreement' });
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, { ...f.input, clientActionId: 'active-sale' });
-      await f.service.patch(f.manager, sale.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      await f.pool.query(
+        'UPDATE job_cards SET assigned_to=$2, version=version+1 WHERE id=$1',
+        [sale.jobCardId, f.otherStaff.id],
+      );
       const c = await f.user('STAFF');
       await f.pool.query('INSERT INTO staff_profiles(organization_id,user_id,manager_user_id) VALUES($1,$2,$3)',
         [f.organizationId, c.id, f.manager.id]);

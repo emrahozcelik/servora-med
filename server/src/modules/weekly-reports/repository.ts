@@ -234,7 +234,7 @@ export type CreateWeeklyReportInput = {
   organizationId: string;
   jobCardId: string;
   staffUserId: string;
-  /** Local `YYYY-MM-DD`; must be a Monday. `periodEnd` derives as +6 days. */
+  /** Local `YYYY-MM-DD`; must be a Monday. `periodEnd` derives as +5 days. */
   periodStart: string;
   questions: unknown;
 };

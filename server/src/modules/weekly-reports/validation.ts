@@ -20,10 +20,10 @@ import type {
 
 /**
  * Defensive technical ceiling for one report's manager questions. Product
- * intent: five canonical presets plus as many custom questions as reasonably
- * needed, so the bound is generous (50), not the historical "five total".
- * JSONB storage has no schema-level count constraint; this bound exists for
- * API/PDF resource safety only.
+ * intent: managers add report-specific custom questions as needed, so the
+ * bound is generous (50), not the historical "five total". JSONB storage has
+ * no schema-level count constraint; this bound exists for API/PDF resource
+ * safety only.
  */
 export const MAX_MANAGER_QUESTIONS = 50;
 export const MAX_QUESTION_PROMPT_LENGTH = 500;
@@ -41,9 +41,10 @@ const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * Canonical Weekly Report period parser (single SSOT for Monday arithmetic).
  *
- * Input is a local `YYYY-MM-DD`; output derives `periodEnd = start + 6 days`
- * with calendar-day arithmetic from `local-calendar.ts` (DST-independent).
- * Never guesses timezones from `new Date('YYYY-MM-DD')`.
+ * Input is a local `YYYY-MM-DD`; output derives `periodEnd = start + 5 days`
+ * (Monday–Saturday working week) with calendar-day arithmetic from
+ * `local-calendar.ts` (DST-independent). Never guesses timezones from
+ * `new Date('YYYY-MM-DD')`.
  */
 export function parsePeriodStart(value: unknown): WeeklyReportPeriod {
   if (typeof value !== 'string' || !DATE_KEY_PATTERN.test(value)) {
@@ -59,7 +60,7 @@ export function parsePeriodStart(value: unknown): WeeklyReportPeriod {
       { fieldErrors: { periodStart: 'Rapor haftası Pazartesi günü başlamalıdır.' } },
     );
   }
-  return { periodStart, periodEnd: addCalendarDaysToDateKey(periodStart, 6) };
+  return { periodStart, periodEnd: addCalendarDaysToDateKey(periodStart, 5) };
 }
 
 const QUESTION_KEY_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;

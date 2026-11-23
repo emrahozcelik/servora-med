@@ -4,6 +4,8 @@ import { parseFollowUpCreateInput } from '../src/modules/job-cards/create-input.
 
 const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 const CONTACT_ID = '22222222-2222-4222-8222-222222222222';
+const PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
+const SECOND_PRODUCT_ID = '44444444-4444-4444-8444-444444444444';
 const SCHEDULED_AT = '2026-08-03T09:00:00.000Z';
 const validationError = expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 });
 
@@ -16,6 +18,16 @@ function general(overrides: Record<string, unknown> = {}) {
     assignedTo: STAFF_ID,
     ...overrides,
   };
+}
+
+function delivery(overrides: Record<string, unknown> = {}) {
+  return general({
+    type: 'PRODUCT_DELIVERY',
+    scheduledAt: SCHEDULED_AT,
+    deliveryPurpose: 'SALE',
+    items: [{ productId: PRODUCT_ID, quantity: 2 }],
+    ...overrides,
+  });
 }
 
 describe('linked follow-up create input', () => {
@@ -36,25 +48,24 @@ describe('linked follow-up create input', () => {
   });
 
   it('normalizes Product Delivery and all six Sales Meeting engagement kinds', () => {
-    expect(parseFollowUpCreateInput(general({
-      type: 'PRODUCT_DELIVERY',
-      scheduledAt: SCHEDULED_AT,
+    expect(parseFollowUpCreateInput(delivery({
       priority: 'high',
       dueDate: '2026-08-03',
       contactId: null,
+      deliveryNote: '  Klinik deposuna bırakılacak.  ',
     }))).toMatchObject({
       type: 'PRODUCT_DELIVERY',
       scheduledAt: SCHEDULED_AT,
       priority: 'high',
       contactId: null,
       engagementKind: null,
+      deliveryPurpose: 'SALE',
+      deliveryNote: 'Klinik deposuna bırakılacak.',
+      items: [{ productId: PRODUCT_ID, quantity: 2 }],
     });
 
-    expect(() => parseFollowUpCreateInput(general({
-      type: 'PRODUCT_DELIVERY',
-      scheduledAt: SCHEDULED_AT,
-      contactId: CONTACT_ID,
-    }))).toThrowError(validationError);
+    expect(() => parseFollowUpCreateInput(delivery({ contactId: CONTACT_ID })))
+      .toThrowError(validationError);
 
     for (const engagementKind of [
       'SALES_MEETING', 'CUSTOMER_VISIT', 'PRODUCT_DEMO',
@@ -65,6 +76,62 @@ describe('linked follow-up create input', () => {
         scheduledAt: SCHEDULED_AT,
         engagementKind,
       }))).toMatchObject({ type: 'SALES_MEETING', engagementKind, dueDate: null });
+    }
+  });
+
+  it('requires the initial delivery batch on a Product Delivery follow-up', () => {
+    for (const deliveryPurpose of [undefined, null, '', 'GIFT']) {
+      expect(() => parseFollowUpCreateInput(delivery({ deliveryPurpose })))
+        .toThrowError(validationError);
+    }
+    for (const items of [undefined, null, [], 'product-list', { productId: PRODUCT_ID }]) {
+      expect(() => parseFollowUpCreateInput(delivery({ items }))).toThrowError(validationError);
+    }
+  });
+
+  it('applies the shared initial delivery item contract to the follow-up batch', () => {
+    expect(parseFollowUpCreateInput(delivery({ deliveryNote: '   ' }))).toMatchObject({
+      deliveryNote: null,
+    });
+    expect(parseFollowUpCreateInput(delivery({
+      items: [
+        { productId: PRODUCT_ID, quantity: 3 },
+        { productId: SECOND_PRODUCT_ID, quantity: 1 },
+      ],
+    }))).toMatchObject({
+      items: [
+        { productId: PRODUCT_ID, quantity: 3 },
+        { productId: SECOND_PRODUCT_ID, quantity: 1 },
+      ],
+    });
+
+    const invalidItems = [
+      [{ productId: PRODUCT_ID, quantity: 0 }],
+      [{ productId: PRODUCT_ID, quantity: -1 }],
+      [{ productId: PRODUCT_ID, quantity: Number.NaN }],
+      [{ productId: PRODUCT_ID, quantity: 1.5 }],
+      [{ productId: PRODUCT_ID, quantity: 1, lotNo: 'LOT-1' }],
+      [{ productId: PRODUCT_ID, quantity: 1 }, { productId: PRODUCT_ID, quantity: 2 }],
+      [{ productId: 'not-a-product', quantity: 1 }],
+      Array.from({ length: 26 }, () => ({ productId: PRODUCT_ID, quantity: 1 })),
+    ];
+    for (const items of invalidItems) {
+      expect(() => parseFollowUpCreateInput(delivery({ items }))).toThrowError(validationError);
+    }
+    expect(() => parseFollowUpCreateInput(delivery({ deliveryNote: 'a'.repeat(4_001) })))
+      .toThrowError(validationError);
+  });
+
+  it('rejects delivery fields on non-delivery follow-up types', () => {
+    for (const field of ['deliveryPurpose', 'deliveryNote', 'items']) {
+      expect(() => parseFollowUpCreateInput(general({ [field]: 'unexpected' })))
+        .toThrowError(validationError);
+      expect(() => parseFollowUpCreateInput(general({
+        type: 'SALES_MEETING',
+        scheduledAt: SCHEDULED_AT,
+        engagementKind: 'FOLLOW_UP',
+        [field]: 'unexpected',
+      }))).toThrowError(validationError);
     }
   });
 

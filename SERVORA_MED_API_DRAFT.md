@@ -158,6 +158,7 @@ Rules:
 - atomic processing claim before business side effects
 - completed duplicate returns the original status and response body
 - concurrent duplicate returns `409 ACTION_IN_PROGRESS`
+- a transaction rolled back by PostgreSQL deadlock (`40P01`) or serialization failure (`40001`) also returns `409 ACTION_IN_PROGRESS`; no receipt remains, so the identical request may be retried; a failing `ROLLBACK` never replaces the original error and the broken connection is not returned to the pool
 - a failed command may return its recorded failure according to the processed-action policy
 
 Ordinary profile, customer, contact, product, and field updates do not use full processed-response caching by default. Their validation, authorization, database constraints, and applicable version checks still apply.
@@ -498,7 +499,9 @@ or audit.
 Deactivation prevents new delivery selection and Product replacement only. Existing
 delivery rows and snapshots remain unchanged. Quantity or note may still be edited when
 the existing delivery item's `productId` is not replaced. A supplied replacement Product
-must be active and belong to the authenticated organization.
+must be active, belong to the authenticated organization and be eligible for the
+job's data class: a BUSINESS delivery accepts only BUSINESS products, a DEMO
+delivery also accepts a DEMO product from its own dataset (DELIVERY-QTY-001).
 
 Web clients use this endpoint as the canonical Product catalog source. JobCard backend
 transactions use a transaction-scoped Product read and never call the Product HTTP API.
@@ -781,19 +784,21 @@ The one-way closing facts are reported next to it:
 - `recoveredAt: string | null`, `recoveryActor: { id, name } | null` — the lifecycle action
   that resolved the obligation.
 - `endedAt: string | null`, `endedBy: { id, name } | null`,
-  `endReason: 'DEADLINE_EXTENDED' | null`, `endNote: string | null`,
-  `endedByScheduleRevisionNo: number | null` — OVR-5: an authorized deadline extension
-  ended the obligation. Recovery and ending are mutually exclusive; an ended incident is
+  `endReason: 'DEADLINE_EXTENDED' | 'CARD_INVALIDATED' | null`, `endNote: string | null`,
+  `endedByScheduleRevisionNo: number | null` — `DEADLINE_EXTENDED`: OVR-5, an authorized
+  deadline extension ended the obligation; `CARD_INVALIDATED`: OVR-2 (2026-11-20), an
+  administrative `INVALIDATE` ended it with the card, without a schedule revision or a
+  note. Recovery and ending are mutually exclusive; an ended incident is
   never reported as recovered, on time or successfully completed. These five fields (and
   `endedDurationSeconds` below) are null on a non-ended row.
 - `totalDelaySeconds` — `recoveredAt - breachedAt` in whole seconds; `null` while open and
   `null` for an ended row.
 - `endedDurationSeconds` — `endedAt - breachedAt` in whole seconds (same rounding);
   `null` for a non-ended row.
-- `manualReminderSentAt`, `manualReminderCount` — OVR-4 manual manager reminders of the
-  episode up to the closing instant (`recoveredAt` or `endedAt`); statistics stop at
-  `endedAt`. `postReminderDelaySeconds` = `recoveredAt - manualReminderSentAt`, `null` for
-  ended rows.
+- `manualReminderSentAt`, `manualReminderCount` — OVR-4 manual manager reminders of that
+  incident (LATE_SUBMISSION only) up to the closing instant (`recoveredAt` or `endedAt`);
+  statistics stop at `endedAt`. `postReminderDelaySeconds` = `recoveredAt -
+  manualReminderSentAt`, `null` for ended rows.
 
 `GET /api/job-cards/:jobCardId/submission-lateness` reports the canonical open
 `LATE_SUBMISSION` breach of the job and the automatic/manual reminder state. "Open" means
@@ -802,6 +807,237 @@ list, the per-job snapshot, the scanner and OVR-4 discovery, the manual reminder
 (`409 SUBMISSION_NOT_LATE`) and recovery. OVR-4 delivery state is keyed on the canonical
 open incident: a reminder/escalation kind is due for an episode only while no delivery of
 that kind references a still-open incident of the same `(job, delayType, episodeNo)`.
+
+### Sale origin and standalone creation (SALE-001 / SALE-002 S1)
+
+`POST /api/job-cards/sales` creates a standalone `SALE` with no source visit
+(authenticated; no legacy `includeSaleCapability` opt-in is required for this new
+surface):
+
+```ts
+type SaleStandaloneCreateInput = {
+  clientActionId: string
+  title: string                        // 1–255 code points after trim
+  description?: string | null         // ≤ 4000
+  customerId: string                  // active, BUSINESS, same organization
+  assignedTo: string                  // STAFF: must equal the actor
+  soldAt: string                      // ISO instant, not in the future
+  saleContactId?: string | null       // active, belongs to customerId
+  items: Array<{ productId: string; quantity: number }>  // 1–25 distinct BUSINESS lines
+}
+```
+
+The body is a strict allowlist; `type`, `status`, `expectedSourceVersion`, source
+fields and snapshots are rejected with `400 VALIDATION_ERROR`. STAFF create only
+for themselves and receive `ACCEPTED`; MANAGER/ADMIN may name any active
+same-organization STAFF user and receive `NEW`. `201` returns the existing
+`{ jobCardId, version }` receipt. Idempotency is `SALE_STANDALONE_CREATE`
+(discriminator `SALE_STANDALONE_CREATE:v1`, normalized body hash): replay returns
+the original receipt and a changed payload is `409 CLIENT_ACTION_REUSED`. Errors
+are the existing `CUSTOMER_NOT_FOUND`, `CUSTOMER_INACTIVE`,
+`SALE_REFERENCE_NOT_ELIGIBLE`, `CONTACT_NOT_FOUND`, `CONTACT_NOT_IN_CUSTOMER`,
+`CONTACT_INACTIVE`, `PRODUCT_NOT_FOUND`, `SALE_PRODUCT_DUPLICATE`,
+`SALE_ITEM_LIMIT` and `SALE_TIME_INVALID`. Lock order is sorted users → customer
+`FOR UPDATE` → sorted contacts `FOR SHARE` → sorted products `FOR SHARE` →
+insert. The transaction writes the root, `job_card_sale_details` with every
+source column NULL, items, `JOB_CREATED` plus one `SALE_ITEM_ADDED` per line,
+realtime, and the receipt; it writes no delivery, follow-up or visit mutation.
+
+`POST /api/job-cards/:visitId/sales` keeps its existing body and behavior; the
+locked source visit may now be `IN_PROGRESS` **or** `COMPLETED` (a cancelled or
+invalidated visit stays `409 SALE_FROM_VISIT_SOURCE_NOT_ELIGIBLE`). Customer,
+assignee and origin snapshots are still derived from the visit, the one-active-sale
+slot rule is unchanged, and the visit receives `SALE_FROM_VISIT_CREATED`.
+
+`GET /api/job-cards/:saleId/sale-details` keeps the `sourceVisit` key. Its union
+is now:
+
+```ts
+type SaleOrigin =
+  | { kind: 'STANDALONE' }                                   // no source to conceal
+  | { access: 'RESTRICTED'; kind: 'SALE_FROM_VISIT' }
+  | { access: 'FULL'; kind: 'SALE_FROM_VISIT'; /* snapshots as before */ }
+```
+
+A standalone origin is exactly `{ kind: 'STANDALONE' }` and must not render the
+restricted-source message. `job_cards.delivery_source_sale_id` exists from
+migration `071_sale_standalone_and_delivery_link`; it is written only by the
+sale approval delivery (SALE-002 S3, below).
+
+### Coordinated visit+sale commands (SALE-002 §4, S2)
+
+A `SALES_MEETING` visit plus its one active linked `SALE`
+(`sale_source_visit_id`, status in `NEW/ACCEPTED/IN_PROGRESS/WAITING_APPROVAL/
+REVISION_REQUESTED`) form a **pair**. Pair discovery is server-side: no route
+accepts a card id of the other side, and the visit is the only submission and
+approval surface.
+
+While the source visit is live (`IN_PROGRESS`, `WAITING_APPROVAL`,
+`REVISION_REQUESTED`) **and** both cards share one assignee, the five lifecycle
+commands act on the pair. The five pair-capable handlers accept
+`expectedSaleVersion` (`SUBMIT_FOR_APPROVAL`, `APPROVE`, `REQUEST_REVISION`,
+`WITHDRAW_FROM_APPROVAL`, `RESUME`). `START`, accept/decline/release,
+`CANCEL`/invalidate, the generic patch allowlists, `POST /:visitId/sales` and
+the standalone sale create keep rejecting it with `400 VALIDATION_ERROR`.
+
+| Command | Behavior |
+| --- | --- |
+| `SUBMIT_FOR_APPROVAL` (`:id` = visit) | Validates the visit first (`MEETING_NOT_READY`), then the linked sale (`400 SALE_NOT_READY` with `details: { readiness }`, nothing written; the same error and payload apply to a single-card sale submit), then moves both `→ WAITING_APPROVAL` in one transaction with one instant. A sale already `WAITING_APPROVAL` keeps its own submission facts (no second event). A sale in `NEW`/`REVISION_REQUESTED` is `409 SALE_PAIR_STATE_CONFLICT` with `allowedSaleCommand: ACCEPT_ASSIGNMENT` / `RESUME`. |
+| `APPROVE` (`:id` = visit) | Completes the visit and completes the sale **only if** it is `WAITING_APPROVAL`. Both completed cards share `manager_approved_at/by/note`. The JOB-008 follow-up child is still created from the visit. A legacy sale in another state is left untouched and becomes independent. |
+| `REQUEST_REVISION` | Moves the visit and, only when it is `WAITING_APPROVAL`, the sale; the same reason/instant/actor, one `JOB_REVISION_REQUESTED` per moved card. The OVR-5b correction deadline stays visit-only. |
+| `WITHDRAW_FROM_APPROVAL` | Returns the visit to `IN_PROGRESS` and, only when it is `WAITING_APPROVAL`, the sale. Prior submission facts stay. |
+| `RESUME` | Returns every pair card currently in `REVISION_REQUESTED` to `IN_PROGRESS`. |
+
+`CANCEL`/`INVALIDATE` on the visit stay single-card and never cascade; after the
+source is terminal the sale runs its own lifecycle. A pair whose assignees
+diverge (pre-S2 data only) is **decoupled**: no redirects, no shared ids, each
+card acts alone.
+
+**Request identity.** `clientActionId` + operation key
+(`JOB_SUBMIT_FOR_APPROVAL_PAIR:<visitId>`, `JOB_APPROVE_PAIR:<visitId>`,
+`JOB_REQUEST_REVISION_PAIR:<visitId>`, `JOB_WITHDRAW_FROM_APPROVAL_PAIR:<visitId>`,
+`JOB_RESUME_PAIR:<visitId>`) is the identity; the discriminator is
+`<PAIR_OPERATION>:v1` and the hash covers
+`{pairOperation, visitId, visitExpectedVersion, saleId, saleExpectedVersion,
+note, revisionReason, followUpProposal, locationCapture}` (S3 adds normalized
+`delivery`). As in the single-card lifecycle identity, the manager's approval follow-up
+override (`approveFollowUp`, normalized the same way) and the OVR-5b `correctionDueAt`
+(`REQUEST_REVISION`) are included **only when the client sent them** (present-only, so a
+receipt recorded without them keeps replaying byte-identically). Replay returns the stored anchor (visit) detail and publishes
+nothing; a changed `saleExpectedVersion`/note/proposal/location, or the same key
+applied to a different linked sale, is `409 CLIENT_ACTION_REUSED`.
+
+**Response.** The anchor detail gains `linkedSaleJobCardId` when the sale moved
+in that command and `deliveryJobCardId` when the approval opened a delivery
+(S3, below). Both are persisted in the stored receipt, so replays are
+byte-identical.
+
+**`expectedSaleVersion` rules.** Required iff a coordinated pair exists for the
+command (`400 VALIDATION_ERROR` otherwise); supplied without one is
+`409 SALE_PAIR_STATE_CONFLICT` with `details: { reason: 'NO_COORDINATED_PAIR' }`
+(a race or a stale view, never a validation error). It is part of the request
+hash in both cases.
+
+**New error codes (all `409` unless noted).**
+
+| Code | Raised when | `details` |
+| --- | --- | --- |
+| `SALE_SUBMIT_VIA_VISIT_REQUIRED` | single-card sale submit while the source visit is `IN_PROGRESS`/`REVISION_REQUESTED` | `{ visitId, saleId, saleStatus, allowedSaleCommand }` |
+| `SALE_APPROVE_VIA_VISIT_REQUIRED` | single-card sale approve while the source is `WAITING_APPROVAL` | idem |
+| `SALE_REVISION_VIA_VISIT_REQUIRED` | single-card sale revision request while the source is `WAITING_APPROVAL` | idem |
+| `SALE_WITHDRAW_VIA_VISIT_REQUIRED` | single-card sale withdraw while the source is `WAITING_APPROVAL` | idem |
+| `SALE_RESUME_VIA_VISIT_REQUIRED` | single-card sale resume while the source is `REVISION_REQUESTED` | idem |
+| `SALE_PAIR_STATE_CONFLICT` | visit submit blocked by an unsubmittable linked sale; `expectedSaleVersion` missing/extra race. For a `NEW` linked sale (`allowedSaleCommand: ACCEPT_ASSIGNMENT`) the message is `Bağlı satış kaydı önce kabul edilmelidir.` | `{ visitId?, saleId?, saleStatus?, allowedSaleCommand? }` or `{ reason: 'NO_COORDINATED_PAIR' }` |
+| `SALE_PAIR_ASSIGNEE_CONFLICT` | reassignment that would make a live pair diverge (either card) | `{ visitAssignee, requestedAssignee }` |
+| `VALIDATION_ERROR` (`400`) | coordinated pair without `expectedSaleVersion` | `{ fieldErrors: { expectedSaleVersion } }` |
+
+**Locking and atomicity (SALE-002 §4.6).** One transaction, two 049 intents and
+two `job_cards` row locks, in the documented order:
+`processed_actions claim → users (sorted) → customers → contacts → products →
+job_cards (sorted by id) → intents`. The visit owns the anchor intent and the
+receipt; the sale owns the participant intent `<anchor>:participant` with the
+same `reserved_at`/`request_hash` and `expected_version = expectedSaleVersion`.
+A definitive 4xx marks **both** intents `FAILED` with the same failure code, so
+a corrected attempt needs a new `clientActionId` (049 §5.4). Expiry marks both
+`LIFECYCLE_INTENT_EXPIRED`; there is no half-failed pair. The approve path takes
+the customer lock **before** any `job_cards` row (single and pair), removing the
+former `job_cards -> customers` inversion.
+
+### Sale approval opens the delivery (SALE-002 §5, S3)
+
+`POST /api/job-cards/:id/approve` accepts one optional `delivery` object next to
+`clientActionId`, `expectedVersion`, `note`, `followUp` and `expectedSaleVersion`:
+
+```ts
+type SaleApprovalDelivery = {              // strict allowlist, every other key => 400
+  assignedTo?: string                      // active same-org STAFF; omitted = the sale's assignee
+  scheduledAt: string                      // ISO instant, required (JOB-006 §4)
+  scheduledEndsAt?: string                 // must equal the canonical PRODUCT_DELIVERY end
+  deliveryPurpose?: 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER'   // default 'SALE'
+  note?: string | null                     // trimmed, <= 4000; stored as the card description
+  items: Array<{ productId: string; quantity: number }>   // 1-25 distinct, whole units 1..999999999
+  pastStartAcknowledgement?: { code: 'CUSTOMER_CONFIRMED_LATER_TIME' | 'CUSTOMER_WAITING' | 'OTHER'; text: string }
+}
+```
+
+`delivery: null` is invalid; absent means no delivery. `delivery` is accepted only
+when the command **completes a `SALE`**: `:id` is an independent sale (standalone,
+or its source visit is terminal), or `:id` is a visit whose coordinated sale is
+`WAITING_APPROVAL` and is completed by the same pair approval. On any other
+approval (a visit with no coordinated sale, a legacy visit whose sale is not
+`WAITING_APPROVAL`, any other job type) the answer is `400 VALIDATION_ERROR` with
+`details.fieldErrors.delivery`, and nothing is executed. Parser errors are field
+errors rooted under `delivery.` (`delivery.scheduledAt`, `delivery.items`,
+`delivery.items.quantity`, `delivery.note`, ...); the item batch, quantity,
+purpose, past-start acknowledgement and canonical-end parsers are the ones the
+plain Product Delivery create uses.
+
+**One transaction.** The `PRODUCT_DELIVERY` card is created inside the same
+finalization as the approval (single-sale approve and pair approve share one
+helper): status `NEW`, `created_by` = the approving manager, `customer_id` = the
+sale's customer, `delivery_source_sale_id` = the sale, `due_date` and
+`source_job_card_id` NULL, title = the sale title (<= 255 code points), planned
+items with `deliveredAt` NULL, the note as the card description (never a
+`deliveryNote`), priority `normal`. Activities: `JOB_CREATED` and one
+`DELIVERY_ITEM_ADDED` per line on the delivery, and `SALE_DELIVERY_CREATED` on the
+sale with `{ deliveryJobCardId, assignedTo, scheduledAt, itemCount, items }`. The
+JOB-010 assignment offer is opened as a direct producer with
+`opened_reason = 'SALE_APPROVAL'`. Any failure rolls the approval back with it:
+the sale (and visit) stay `WAITING_APPROVAL`, no card, item, offer or realtime
+event exists, and both 049 intents are `FAILED`, so a corrected attempt needs a
+new `clientActionId` (049 / SALE-002 §5.4).
+
+**Response and replay.** The response is the existing anchor detail plus
+`deliveryJobCardId` (and `followUpJobCardId` / `linkedSaleJobCardId` as before).
+The id is persisted in the stored receipt; a replay returns it byte-identically,
+creates nothing and publishes nothing. The normalized `delivery` is part of the
+request hash for both the single approve (`JOB_CARD_LIFECYCLE`) and the pair
+approve (`JOB_APPROVE_PAIR:v1`), present-only (item lines keep request order,
+instants are canonical, the note is trimmed); the same key with a different
+delivery is `409 CLIENT_ACTION_REUSED`.
+
+| Code | Raised when | `details` |
+| --- | --- | --- |
+| `VALIDATION_ERROR` (`400`) | malformed/unknown `delivery` member; `delivery` on an approval that completes no sale | `{ fieldErrors: { 'delivery' \| 'delivery.<field>' } }` |
+| `ASSIGNMENT_WINDOW_TOO_SHORT` (`409`) | the planned window ends within the JOB-010 minimum window | `{ fieldErrors: { 'delivery.scheduledAt' } }` |
+| `PAST_START_ACKNOWLEDGEMENT_REQUIRED` (`409`) | the planned start already passed and no acknowledgement was sent | `{ fieldErrors: { 'delivery.scheduledAt' } }` |
+| `CUSTOMER_INACTIVE` (`409`) | the sale's customer is inactive; blocks the whole approval | - |
+| `PRODUCT_NOT_FOUND` (`404`) | unknown, inactive, cross-organization or non-BUSINESS product | - |
+| `FORBIDDEN` / `ASSIGNEE_NOT_FOUND` | assignee is not an active same-organization STAFF user | - |
+| `SALE_DELIVERY_ALREADY_EXISTS` (`409`) | the sale already has a delivery (unique index `job_cards_one_delivery_per_sale_idx`) | - |
+
+**Lock order (ARC-003).** `processed_actions claim -> users (sorted, now
+including the delivery assignee) -> customer -> products (sorted, FOR SHARE) ->
+job_cards (sorted) -> intents`. The customer and product locks of an approval
+are taken by one shared pre-JobCard `lockReferences` phase for the single and
+the pair path, so no `job_cards -> customers/products/users` inversion exists.
+
+**Realtime.** After commit only: `job.created` (and the offer's `job.updated`)
+for the delivery, whose audience is the delivery assignee, the sale's assignee
+and management; no event of the delivery carries the sale's `job-detail` key.
+
+**Read side.** The job detail of a delivery gains `deliverySourceSaleId`: the
+source sale id when the viewer can read the sale (management, or the sale's own
+assignee), otherwise `null`. The job detail of a sale gains
+`linkedDelivery: { id, status } | null`, null when there is none **or** the
+viewer cannot read it (STAFF: only a delivery assigned to them). Both are keys of
+the JobCard detail DTO on every card type (null where not applicable); the
+`GET /:saleId/sale-details` projection is unchanged. The sale
+activity timeline projects `SALE_DELIVERY_CREATED` as
+`{ kind: 'SALE_DELIVERY', deliveryJobCardId, assignedTo, scheduledAt, itemCount, items }`
+for sale-capable readers and as `{ kind: 'NONE' }` for every other reader.
+
+### Database note: SALE without START (SALE-002 R9, migration `072`)
+
+Accepted Q1 allows `SUBMIT_FOR_APPROVAL` from `ACCEPTED` for a `SALE`, so a sale
+may reach `WAITING_APPROVAL`/`IN_PROGRESS`/`COMPLETED` without a START.
+`006_job_cards_started_status_timestamp_check` required `started_at` for those
+statuses; migration `072_sale_submit_without_start` exempts `type = 'SALE'`.
+Nothing is fabricated: no `STARTED` accountability fact is written and
+`started_at` stays NULL. `072` is additive (a weaker predicate; every existing
+row still satisfies it), is deployed schema-first, and moves
+`HEALTH_SCHEMA_VERSION` to `072_sale_submit_without_start`.
+
 
 ## 11. Delivery Items
 
@@ -842,7 +1078,8 @@ Rules:
 - Parent type must be `PRODUCT_DELIVERY`.
 - Parent must be in an editable state.
 - Product belongs to the authenticated organization and is active at creation.
-- Quantity is greater than zero.
+- Quantity is a whole-unit product count in 1–999999999 (DELIVERY-QTY-001);
+  fractions, zero, negatives and overflow are rejected without rounding.
 - Purpose is one canonical delivery purpose.
 - Delivered time (`deliveredAt`) is the actual delivery instant. It may be null while the
   job is still being planned or prepared; submission requires every item to have a valid
@@ -1202,6 +1439,27 @@ Management only. Jobs still `NEW` whose latest offer is `DECLINED`, `RELEASED`, 
 urgentReason, scheduledAt, assignee: { id, name }, customer: { id, name } | null, jobPath }`,
 plus `total`, `limit`, `offset`.
 
+`GET /api/job-cards/pending-acceptance/past-start?limit&offset`
+
+Management only (`403 FORBIDDEN` before any lookup). `NEW` jobs with an assignee whose
+`scheduled_at` has passed and that JOB-010 does not own: no offer at all, a stale
+`ACCEPTED` offer, or a `WITHDRAWN` offer whose reason is not `PLANNED_WINDOW_PASSED` (the
+OVR-6 ownership matrix). A still answerable `OPEN` offer keeps the job in the offer flow
+and on **neither** list, and every offer state the needs-action list claims is never
+listed here, so a job has exactly one owner. Evaluated against the request clock, oldest
+planned start first; a job with an open change request stays listed but receives no
+notification. Item:
+`{ jobCardId, title, type, jobPath, assignee: { id, name, active }, scheduledAt,
+elapsedSeconds, hasOpenChangeRequest }`, plus `total`, `limit`, `offset`. This list is
+never quiet-hours gated; only the automatic alert is.
+
+With `LATENESS_ALERTS_ENABLED=true` the worker writes one activity per delivery
+(`JOB_START_REMINDER_SENT`, `JOB_APPROVAL_WAIT_ALERT_SENT`,
+`JOB_PENDING_ACCEPTANCE_ALERT_SENT`) and one in-app notification per recipient
+(`job.start_reminder` → the assignee, `job.approval_wait_alert` and
+`job.pending_acceptance_alert` → every active MANAGER/ADMIN at send time). All three are
+sent only Monday–Saturday 08:00–21:00 organization time; outside that window they wait.
+
 The job detail exposes the latest offer as
 `assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name } } | null`
 (management and assignee); an `OPEN` offer past its deadline is presented with
@@ -1360,6 +1618,50 @@ All facts come from one read statement. Calendar bounds, partial-day comparison,
 actual event timestamps and distinct relationship scope are specified in the
 [overview UI/read contract](docs/features/reporting/reports-overview-ui.md).
 This endpoint does not implement verified personal performer attribution.
+
+### Lateness extension (2026-11-22)
+
+Implements `DECISIONS.md` OVR-7 and
+[docs/features/reporting/lateness-reports.md](docs/features/reporting/lateness-reports.md).
+Read-only; no migration or write path.
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/lateness` | admin, manager | organization lateness groups and management approval wait |
+| GET | `/staff/:userId/lateness-incidents` | admin, manager | paged proven Staff lateness incidents |
+| GET | `/staff/me/lateness-incidents` | staff | the authenticated Staff member's own incidents |
+
+`GET /api/reports/staff/:userId` and `GET /api/reports/staff/me` now also return
+`lateness: StaffLatenessSummary`. `/staff/me/lateness-incidents` is registered
+before `/staff/:userId/lateness-incidents`; Staff calling the management paths
+or `/lateness` receives `403`, and a malformed or non-Staff `userId` on the
+management path receives the existing `404 STAFF_PROFILE_NOT_FOUND`.
+
+The three reads accept the existing paired `from`/`to` range, the 366-day limit
+and `includeSaleCapability=true` opt-in; the incident list additionally accepts
+`limit` (integer 1–200, default 50) and `offset` (integer from 0, default 0).
+An incident belongs to the organization-local period of its `breached_at`.
+Incidents on `INVALIDATED` jobs and, without the capability opt-in, on `SALE`
+jobs are excluded. Incidents are written from 2026-09-21 onward, so earlier
+periods may be incomplete and responses carry `trackingStartedOn`.
+
+Each cohort incident is exactly one accountability class (`STAFF_PROVEN`,
+`STAFF_UNKNOWN`, `MANAGEMENT`) and one outcome (`RECOVERED`, `EXTENDED`,
+`OPEN`). Staff groups show `LATE_START` and `LATE_SUBMISSION` in that fixed
+order with per-outcome count, median and maximum integer seconds; a proven
+Staff incident that overlaps the same Staff member's own change request that
+management provably resolved is regrouped as operational (`byReason`) and is
+never added to Staff responsibility. No response contains a summed duration,
+rate, score or ranking. Durations use
+`GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (end - breached_at))))::int`.
+
+The management incident list is ordered `breached_at DESC, id DESC` and returns
+`range`, `items`, `total`, `limit`, `offset`. For a Staff viewer, `job` is
+present only while the JobCard is currently assigned to that Staff member,
+otherwise it is `null`; reason text and the requesting user are never exposed.
+The organization card returns `totalIncidentCount` plus the four incident
+counts (`staffResponsibility`, `operational`, `unknownAccountability`,
+`managementApprovalWait`), which reconcile to the cohort size.
 
 ## 17. Health `/api/health`
 

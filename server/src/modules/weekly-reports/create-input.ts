@@ -22,7 +22,7 @@ const CREATE_FIELDS = [
  */
 export type WeeklyReportCreateInput = {
   clientActionId: string;
-  /** Canonical Monday; service derives periodEnd +6 and the canonical deadline. */
+  /** Canonical Monday; service derives periodEnd +5 and the canonical deadline. */
   periodStart: string;
   periodEnd: string;
   /** Null = self (STAFF path); uuid = single target (MANAGER/ADMIN path). */
@@ -81,7 +81,7 @@ export type WeeklyReportBulkRequestInput = {
    * so the caller's intent is never reinterpreted.
    */
   staffUserIds: string[];
-  /** Canonical Monday; periodEnd derives +6 and the canonical deadline +1. */
+  /** Canonical Monday; periodEnd derives +5 and the canonical deadline max(periodEnd + 2, creationDate). */
   periodStart: string;
   periodEnd: string;
   /** Raw question definitions; copied independently into each report row. */
@@ -187,7 +187,8 @@ export function weeklyReportCreateRequestHash(input: {
   // intent only (clientActionId/requestTime/generated ids never hashed).
   // Callers pass validated canonical questions, never raw input. The deadline
   // is deliberately NOT part of the identity: it is server-canonical
-  // (periodEnd + 1) so there is no caller-provided dueDate dimension.
+  // (max(periodEnd + 2, requestDate)) so there is no caller-provided dueDate
+  // dimension.
   return hashRequestIdentity({
     operation: 'WEEKLY_REPORT_CREATE:v1',
     periodStart: input.periodStart,
@@ -211,9 +212,9 @@ export function weeklyReportBulkRequestHash(input: {
   questions: unknown;
   instructions: string | null;
 }): string {
-  // The deadline is server-canonical (periodEnd + 1), so — exactly like the
-  // single create — the request identity carries no caller-provided dueDate
-  // dimension.
+  // The deadline is server-canonical (max(periodEnd + 2, requestDate)), so —
+  // exactly like the single create — the request identity carries no
+  // caller-provided dueDate dimension.
   return hashRequestIdentity({
     operation: 'WEEKLY_REPORT_BULK_REQUEST:v1',
     staffUserIds: [...input.staffUserIds].sort(),

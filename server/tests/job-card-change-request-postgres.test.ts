@@ -14,6 +14,7 @@ import {
   PostgresOverdueReminderWorkerRepository,
   createOverdueReminderWorker,
 } from '../src/modules/job-cards/overdue-reminder-worker.js';
+import { ALWAYS_OPEN_NOTIFICATION_WINDOW } from '../src/modules/notifications/quiet-hours.js';
 import { resolveOverdueReminderTiming } from '../src/modules/job-cards/overdue-reminder-policy.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
@@ -300,7 +301,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2a — Staff change/termination r
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]?.version).toMatch(/^067_/);
+      expect(head.rows[0]?.version).toMatch(/^072_/);
       const table = await pool.query<{ table: string | null }>(
         "SELECT to_regclass('job_card_change_requests')::text AS table",
       );
@@ -1095,7 +1096,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2a — Staff change/termination r
         // candidate list still contains the job.
         const candidate = { organizationId, jobCardId: job.id };
         const processed = await new PostgresOverdueReminderWorkerRepository(
-          new PostgresJobCardRepository(pool), false,
+          new PostgresJobCardRepository(pool), false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
         ).processCandidate({
           candidate,
           scanTime: new Date(breachedAt.getTime() + 17 * MINUTE_MS),
@@ -1277,7 +1278,9 @@ async function scanOnce(pool: Pool, scanTime: Date) {
 function reminderWorker(pool: Pool, published: RealtimeEventRecord[]) {
   const repository = new PostgresJobCardRepository(pool);
   return createOverdueReminderWorker(
-    new PostgresOverdueReminderWorkerRepository(repository, false),
+    new PostgresOverdueReminderWorkerRepository(
+      repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+    ),
     {
       publisher: { publish: (event) => published.push(event) },
       timing: {},

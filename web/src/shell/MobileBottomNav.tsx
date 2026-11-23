@@ -13,6 +13,7 @@ export function MobileBottomNav({
   menuTriggerRef,
   onCreateMeeting,
   onCreateTask,
+  onCreateSale,
   onCreateDelivery,
   onCreateWeeklyReport,
 }: {
@@ -23,6 +24,7 @@ export function MobileBottomNav({
   menuTriggerRef: RefObject<HTMLButtonElement | null>;
   onCreateMeeting?: () => void;
   onCreateTask?: () => void;
+  onCreateSale?: () => void;
   onCreateDelivery?: () => void;
   onCreateWeeklyReport?: () => void;
 }) {
@@ -54,6 +56,7 @@ export function MobileBottomNav({
                 triggerIcon={<NavigationIcon id={item.id} />}
                 onCreateMeeting={onCreateMeeting}
                 onCreateTask={onCreateTask}
+                onCreateSale={onCreateSale}
                 onCreateDelivery={onCreateDelivery}
                 onCreateWeeklyReport={onCreateWeeklyReport}
               />

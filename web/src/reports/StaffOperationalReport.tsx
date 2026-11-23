@@ -12,11 +12,18 @@ import {
 } from '../ui/OperationalTable';
 import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
 import { SegmentedDistributionBar, TrendBars } from './report-charts';
-import { getOwnStaffReport, getStaffReport } from './reports-api';
+import {
+  getOwnStaffReport,
+  getStaffReport,
+  listOwnLatenessIncidents,
+  listStaffLatenessIncidents,
+} from './reports-api';
+import { StaffLatenessSection } from './StaffLatenessSection';
 import type {
   DeliveryPurposeItem,
   RequestedReportRange,
   ResolvedReportRange,
+  StaffLatenessIncidentListResponse,
   StaffReportResponse,
 } from './report-types';
 
@@ -164,7 +171,21 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
   </section>;
 }
 
-export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = true }: { report: StaffReportResponse; showCurrentWorkloadMetrics?: boolean }) {
+export function StaffOperationalReport({
+  report,
+  showCurrentWorkloadMetrics = true,
+  loadLatenessIncidents,
+  onRefresh,
+}: {
+  report: StaffReportResponse;
+  showCurrentWorkloadMetrics?: boolean;
+  /** Supplied by the screen; absent in static renders, which hide the list toggle. */
+  loadLatenessIncidents?: (page: {
+    limit: number;
+    offset: number;
+  }) => Promise<StaffLatenessIncidentListResponse>;
+  onRefresh?: () => void;
+}) {
   const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
   const submission = report.staffSubmissionAttribution;
   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
@@ -206,14 +227,14 @@ export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = tr
         <div><dt>Eklenen operasyon notları</dt><dd>{report.performance.authoredOperationalNotes}</dd></div>
       </dl>
       <p className="report-section-hint">
-        Tamamlananlar, seçilen dönemde yönetici tarafından onaylanan ve onaya gönderme kaydı bu personele ait işleri kapsar.
+        Tamamlananlar, seçilen dönemde yönetici tarafından onaylanan işlerden tamamlandığı anda bu personele
+        atanmış olanları kapsar. İşi bir yönetici onaya gönderse veya tamamlasa da atıf atanmış personelde kalır.
       </p>
       <details className="report-data-disclosure staff-report-method">
         <summary>Nasıl hesaplanır?</summary>
         <p className="report-section-hint">
-          Atıf tarihsel onaya gönderme kaydına dayanır; güncel görev atamasına göre değişmez.
-          Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.
-          Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
+          Atıf, işin tamamlandığı andaki atanmış personeline dayanır; işi kimin gönderdiği bu sayıyı değiştirmez.
+          Onaya gönderme kaydı bu atıftan ayrıdır ve işi kimin gönderdiğini gösterir.
           Tekrar gönderimlerin olay geçmişini saymaz. Kaydı bulunan işler{' '}
           {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
         </p>
@@ -221,7 +242,7 @@ export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = tr
       <WorkTypeDistribution
         headingId="completion-work-types-title"
         title="Tamamlanan işlerin türleri"
-        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, tarihsel onaya gönderme atfı ve iş türüne göre ayrılır."
+        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, tamamlandığı andaki atama ve iş türüne göre ayrılır."
         items={report.completionWorkTypes}
       />
       <section className="staff-detail-section staff-completion-trend" aria-labelledby="daily-completion-title">
@@ -241,6 +262,15 @@ export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = tr
         </details>
       </section>
     </section>
+
+    <StaffLatenessSection
+      key={`${report.staff.userId}:${report.range.from}:${report.range.to}`}
+      lateness={report.lateness}
+      timezone={report.range.timezone}
+      range={report.range}
+      loadIncidents={loadLatenessIncidents}
+      onRefresh={onRefresh}
+    />
 
     <section className="staff-analysis-group staff-analysis-context" aria-labelledby="staff-context-title">
       <h3 id="staff-context-title">Operasyon bağlamı</h3>
@@ -271,24 +301,49 @@ export function StaffOperationalReportScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const requestSequence = useRef(0);
+  // The scope of the report currently on screen. A reload of the same scope
+  // ("Yenile", realtime invalidation) keeps the report mounted so the lateness
+  // list keeps its state and focus; a new Staff member or range shows the
+  // loading state.
+  const shownScope = useRef<string | null>(null);
+  const requestedFrom = requestedRange?.from;
+  const requestedTo = requestedRange?.to;
+  const scope = `${staffUserId ?? 'me'}|${requestedFrom ?? ''}|${requestedTo ?? ''}`;
 
   const load = useCallback(async () => {
     const requestId = ++requestSequence.current;
-    setLoading(true);
+    const background = shownScope.current === scope;
+    if (!background) setLoading(true);
     setError('');
     try {
       const next = staffUserId
         ? await getStaffReport(staffUserId, requestedRange)
         : await getOwnStaffReport(requestedRange);
       if (requestId !== requestSequence.current) return;
+      shownScope.current = scope;
       setReport(next);
     } catch (reason) {
       if (requestId !== requestSequence.current) return;
+      shownScope.current = null;
       setError(reason instanceof Error ? reason.message : 'Personel operasyon raporu yüklenemedi.');
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
-  }, [staffUserId, requestedRange?.from, requestedRange?.to]);
+  }, [staffUserId, requestedRange?.from, requestedRange?.to, scope]);
+
+  // The parent owns the path: management reaches `/staff/:userId/...`, the Staff
+  // self view reaches `/staff/me/...`; the section never decides it itself.
+  const loadLatenessIncidents = useCallback(
+    (page: { limit: number; offset: number }) => {
+      const range = requestedFrom && requestedTo
+        ? { from: requestedFrom, to: requestedTo }
+        : null;
+      return staffUserId
+        ? listStaffLatenessIncidents(staffUserId, range, page)
+        : listOwnLatenessIncidents(range, page);
+    },
+    [staffUserId, requestedFrom, requestedTo],
+  );
 
   useEffect(() => { void load(); }, [load]);
   useRealtimeInvalidation(['reports'], () => { void load(); });
@@ -315,7 +370,7 @@ export function StaffOperationalReportScreen({
         <h2>{report.staff.name}</h2>
         <span className="status-label">{report.staff.isActive ? 'Aktif personel' : 'Pasif personel'}</span>
       </header>}
-      <StaffOperationalReport report={report} showCurrentWorkloadMetrics={showCurrentWorkloadMetrics} />
+      <StaffOperationalReport report={report} showCurrentWorkloadMetrics={showCurrentWorkloadMetrics} loadLatenessIncidents={loadLatenessIncidents} onRefresh={() => { void load(); }} />
     </>}
   </>;
 

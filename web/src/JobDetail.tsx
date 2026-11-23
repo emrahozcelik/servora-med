@@ -2,6 +2,36 @@ import { SaleCorrectionSection } from './jobs/SaleCorrection';
 import { getSaleDetails, type SaleDetails } from './jobs/sale-api';
 import { RelatedSalesSection, SaleDetailsSection } from './jobs/SaleDetails';
 import {
+  SalePairContextPanel,
+  SalePairGuidanceNotice,
+  VisitPairApproveNote,
+  VisitPairLifecycleNote,
+  VisitPairSubmitNote,
+} from './jobs/SalePairPanels';
+import { useVisitPairSale } from './jobs/useVisitPairSale';
+import { DeliveryProvenanceLine, LinkedDeliveryPanel } from './jobs/SaleDeliveryLinks';
+import {
+  buildSaleDeliveryRequest,
+  createSaleDeliveryDraft,
+  hasSaleDeliveryErrors,
+  mapSaleDeliveryServerError,
+  type SaleDeliveryDraft,
+  type SaleDeliveryErrors,
+  type SaleDeliverySource,
+} from './jobs/sale-approval-delivery';
+import {
+  approvalCompletesSale,
+  coordinatedSaleVersion,
+  lifecycleMovesSale,
+  pairConflictGuidance,
+  pairManagedSaleCommand,
+  pairRedirectGuidance,
+  pairSuccessSuffix,
+  salePairRedirectFrom,
+  salePairStateConflictFrom,
+  type SalePairGuidance,
+} from './jobs/sale-pair';
+import {
   useEffect, useLayoutEffect, useRef, useState,
   type FormEvent, type ReactNode, type Ref,
 } from 'react';
@@ -17,7 +47,7 @@ import {
   pastStartAcknowledgementPayload,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
-  type ApproveFollowUpInput, type AssignmentReasonCode, type CustomerScheduleEvaluation,
+  type ApproveDeliveryInput, type ApproveFollowUpInput, type AssignmentReasonCode, type CustomerScheduleEvaluation,
   type DeliveryItem, type FollowUpProposalInput,
   type FollowUpCancelContinuity,
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
@@ -106,7 +136,7 @@ import {
 } from './jobs/assignment-window-errors';
 import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
-import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
+import { jobEngagementLabel, jobCardStatusLabel, jobTypeLabels } from './jobs/job-labels';
 import { JobConversationAction } from './jobs/JobConversationAction';
 import {
   JobInvalidationAction,
@@ -208,9 +238,18 @@ export async function prepareMeetingEdit(
   job: JobCard & { type: 'SALES_MEETING' },
   clientActionId: string,
   withdraw: typeof withdrawJobCardFromApproval = withdrawJobCardFromApproval,
+  /**
+   * SALE-002 §4.5: a coordinated pair's withdraw must carry the linked sale's
+   * version; an undefined value omits the field entirely.
+   */
+  expectedSaleVersion?: number,
 ) {
   if (job.status !== 'WAITING_APPROVAL') return job;
-  return withdraw(job.id, { clientActionId, expectedVersion: job.version });
+  return withdraw(job.id, {
+    clientActionId,
+    expectedVersion: job.version,
+    ...(expectedSaleVersion === undefined ? {} : { expectedSaleVersion }),
+  });
 }
 
 const purposeLabels = {
@@ -665,7 +704,7 @@ export function JobDetailPanel({
   pendingLabel, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
-  deadlineExtensionError = null,
+  deadlineExtensionError = null, pairGuidance, pairManagedCommand = null,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -709,6 +748,10 @@ export function JobDetailPanel({
   messagingActionVisible?: boolean;
   invalidationAction?: ReactNode;
   mutationLocked?: boolean;
+  /** SALE-002 §4.2: server-named next action for a redirected pair command. */
+  pairGuidance?: ReactNode;
+  /** SALE-002 S2: sale command the live visit pair withholds from this card. */
+  pairManagedCommand?: LifecycleCommand | null;
   /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
   deadlineExtensionError?: string | null;
 }) {
@@ -718,6 +761,7 @@ export function JobDetailPanel({
     workflowContext: job.workflowContext,
     deliveryItems: job.type === 'PRODUCT_DELIVERY' ? items : [],
     meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
+    pairManagedCommand,
   });
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
   const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
@@ -921,6 +965,16 @@ export function JobDetailPanel({
           data-job-detail-section="feedback"
         >
           {message}
+        </div>
+      )}
+      {pairGuidance && (
+        <div
+          ref={message ? undefined : feedbackRef}
+          tabIndex={-1}
+          data-job-detail-section="feedback"
+          data-job-detail-pair-guidance="true"
+        >
+          {pairGuidance}
         </div>
       )}
       {realtimeStaleNotice}
@@ -1175,11 +1229,15 @@ async function executeLifecycleCommand(
     followUpProposal?: FollowUpProposalInput;
     followUpContinuity?: FollowUpCancelContinuity;
     followUp?: ApproveFollowUpInput;
+    /** SALE-002 §5.1: the optional delivery an approval that completes a sale opens. */
+    delivery?: ApproveDeliveryInput;
     assignmentReason?: { code: AssignmentReasonCode; text: string };
     correctionDueAt?: string;
+    /** SALE-002 §4.5: present only for a coordinated pair command. */
+    expectedSaleVersion?: number;
   },
   reason: string,
-): Promise<JobCard> {
+): Promise<JobCard & { linkedSaleJobCardId: string | null; deliveryJobCardId?: string }> {
   const lifecycleInput = { clientActionId: input.clientActionId, expectedVersion: input.expectedVersion };
   switch (command) {
     case 'ACCEPT_ASSIGNMENT':
@@ -1217,7 +1275,9 @@ async function executeLifecycleCommand(
     case 'RESUME':
       return resumeJobCard(jobId, input);
     case 'CANCEL':
-      return cancelJobCard(jobId, { ...input, cancelReason: reason });
+      // Cancel is never a pair command: the linked sale is not cancelled or
+      // edited (SALE-002 §4.3), so the receipt never names it.
+      return { ...(await cancelJobCard(jobId, { ...input, cancelReason: reason })), linkedSaleJobCardId: null };
     default: {
       const _exhaustive: never = command;
       throw new Error(`Unsupported lifecycle command: ${_exhaustive}`);
@@ -1268,6 +1328,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [followUpChildrenCount, setFollowUpChildrenCount] = useState<number | null>(null);
   const [invalidationMutation, setInvalidationMutation] = useState<JobInvalidationMutationState>({ kind: 'idle' });
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
+  /**
+   * SALE-002 §4.2/§8.1: pair commands answered with a coded redirect or a
+   * non-coordinated pair state. Rendered as the server-named next action so a
+   * stale single-card view never becomes a dead end.
+   */
+  const [pairGuidance, setPairGuidance] = useState<SalePairGuidance | null>(null);
   /**
    * OVR-5 §3.9: correction deadline draft of the open revision dialog, present
    * only when the job has an original submission deadline.
@@ -1333,13 +1399,18 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     input: StartJobCardInput & {
       followUpProposal?: FollowUpProposalInput;
       followUp?: ApproveFollowUpInput;
+      delivery?: ApproveDeliveryInput;
       followUpContinuity?: FollowUpCancelContinuity;
       assignmentReason?: { code: AssignmentReasonCode; text: string };
       correctionDueAt?: string;
     };
     reason: string;
   } | null>(null);
-  const withdrawEditAttempt = useRef<{ job: JobCard & { type: 'SALES_MEETING' }; clientActionId: string } | null>(null);
+  const withdrawEditAttempt = useRef<{
+    job: JobCard & { type: 'SALES_MEETING' };
+    clientActionId: string;
+    expectedSaleVersion: number | null;
+  } | null>(null);
   const [saleCorrectionLocked, setSaleCorrectionLocked] = useState(false);
   const saleCorrectionLockedRef = useRef(false);
   const [uncertain, setUncertain] = useState(false);
@@ -1364,6 +1435,72 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     token: nextSessionToken(),
     active: true,
   });
+  /**
+   * SALE-002 §4.1: the visit's linked sale, discovered from existing reads and
+   * reloaded whenever the visit version or either card's realtime key moves.
+   * Only a visit card can carry a pair, so other types stay idle.
+   */
+  const [pairState, reloadPair] = useVisitPairSale({
+    visitId: jobId,
+    visitType: state.kind === 'ready' ? state.detail.job.type : 'GENERAL_TASK',
+    visitStatus: state.kind === 'ready' ? state.detail.job.status : 'NEW',
+    visitAssignedTo: state.kind === 'ready' ? state.detail.job.assignedTo : '',
+    visitVersion: state.kind === 'ready' ? state.detail.job.version : 0,
+  });
+  /**
+   * SALE-002 §8.2: the optional "Teslim işi aç" draft of the open approve
+   * dialog. It exists only while the approval completes a sale, either through
+   * the visit pair (the coordinated sale is `WAITING_APPROVAL`) or because this
+   * IS the independent sale's own approval.
+   */
+  const [saleDelivery, setSaleDelivery] = useState<{
+    draft: SaleDeliveryDraft;
+    errors: SaleDeliveryErrors | null;
+  } | null>(null);
+  const saleDeliveryFailureSeq = useRef(0);
+  const approveDeliverySource: SaleDeliverySource | null = (() => {
+    if (dialog?.kind !== 'approve' || state.kind !== 'ready') return null;
+    const detail = state.detail;
+    if (detail.kind === 'SALES_MEETING') {
+      if (pairState.kind !== 'ready' || !pairState.coordinated
+        || !approvalCompletesSale(pairState.sale)) return null;
+      return {
+        saleId: pairState.sale.id,
+        title: pairState.sale.title,
+        assignedTo: pairState.sale.assignedTo,
+        customerName: detail.job.customer?.name ?? null,
+        customerActive: true,
+        items: pairState.sale.items,
+        independent: false,
+      };
+    }
+    if (detail.kind === 'SALE' && detail.job.status === 'WAITING_APPROVAL' && detail.job.customerId) {
+      return {
+        saleId: detail.job.id,
+        title: detail.job.title,
+        assignedTo: detail.job.assignedTo,
+        customerName: detail.job.customer?.name ?? null,
+        customerActive: true,
+        items: detail.saleDetails.items,
+        independent: true,
+      };
+    }
+    return null;
+  })();
+  const approveDeliverySourceId = approveDeliverySource?.saleId ?? null;
+  useEffect(() => {
+    if (dialog?.kind !== 'approve') setSaleDelivery(null);
+  }, [dialog?.kind]);
+  useEffect(() => {
+    if (approveDeliverySource === null) return;
+    // Kept across a pair reload (the source briefly disappears while loading) so
+    // the manager's edits are not lost; reset only when the dialog closes.
+    setSaleDelivery((current) => current ?? {
+      draft: createSaleDeliveryDraft(approveDeliverySource, new Date()),
+      errors: null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approveDeliverySourceId]);
   useLayoutEffect(() => {
     const lifetime = sessionLifetime.current;
     lifetime.active = true;
@@ -1803,12 +1940,30 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       meetingDetails: detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null,
     });
   }
+  /**
+   * SALE-002 §4.2: the linked sale only coordinates while it is active and
+   * shares the visit's assignee. Anything else omits `expectedSaleVersion`.
+   */
+  function coordinatedPairSale() {
+    return pairState.kind === 'ready' && pairState.coordinated ? pairState.sale : null;
+  }
+  /** Sale card only: the readable source visit, for pair guidance targets. */
+  function saleSourceVisitId(): string | null {
+    if (state.kind !== 'ready' || state.detail.kind !== 'SALE') return null;
+    const source = state.detail.saleDetails.sourceVisit;
+    return source.kind === 'SALE_FROM_VISIT' && source.access === 'FULL' ? source.id : null;
+  }
+  /** Visit card only: the discovered linked sale, for conflict targets. */
+  function salePairId(): string | null {
+    return pairState.kind === 'ready' ? pairState.sale.id : null;
+  }
   async function execute(
     command: LifecycleCommand,
     reason = '',
     extra?: {
       followUpProposal?: FollowUpProposalInput;
       followUp?: ApproveFollowUpInput;
+      delivery?: ApproveDeliveryInput;
       followUpContinuity?: FollowUpCancelContinuity;
       assignmentReason?: { code: AssignmentReasonCode; text: string };
       correctionDueAt?: string;
@@ -1821,6 +1976,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
+    setPairGuidance(null);
     const retained = lifecycleAttempt.current;
     const input = retained?.input ?? { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
     const presentation = presentationFor(state.detail);
@@ -1828,9 +1984,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       let commandInput: StartJobCardInput & {
         followUpProposal?: FollowUpProposalInput;
         followUp?: ApproveFollowUpInput;
+        delivery?: ApproveDeliveryInput;
         followUpContinuity?: FollowUpCancelContinuity;
         assignmentReason?: { code: AssignmentReasonCode; text: string };
         correctionDueAt?: string;
+        expectedSaleVersion?: number;
       } = input;
       if (!retained && command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
@@ -1860,6 +2018,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!retained) {
         if (extra?.followUpProposal) commandInput = { ...commandInput, followUpProposal: extra.followUpProposal };
         if (extra?.followUp) commandInput = { ...commandInput, followUp: extra.followUp };
+        // §5.4: the delivery is frozen with the attempt (body, key and all), so
+        // an uncertain retry replays it byte-identically.
+        if (extra?.delivery) commandInput = { ...commandInput, delivery: extra.delivery };
         if (extra?.followUpContinuity) {
           commandInput = { ...commandInput, followUpContinuity: extra.followUpContinuity };
         }
@@ -1868,6 +2029,18 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }
         if (extra?.correctionDueAt !== undefined) {
           commandInput = { ...commandInput, correctionDueAt: extra.correctionDueAt };
+        }
+        // SALE-002 §4.5: the sale version is frozen into the attempt, so an
+        // uncertain retry replays the identical body and the server hashes the
+        // same pair identity.
+        const expectedSaleVersion = coordinatedSaleVersion({
+          command,
+          visitStatus: state.detail.job.status,
+          visitAssignedTo: state.detail.job.assignedTo,
+          sale: coordinatedPairSale(),
+        });
+        if (expectedSaleVersion !== null) {
+          commandInput = { ...commandInput, expectedSaleVersion };
         }
         lifecycleAttempt.current = { command, input: structuredClone(commandInput), reason };
       }
@@ -1911,7 +2084,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setRevisionCorrection(null);
       }
       const transition = findTransition(presentation, command);
-      if (transition) setMessage(transition.successMessage);
+      if (transition) {
+        setMessage(
+          transition.successMessage
+          + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null)
+          + (updated.deliveryJobCardId ? ' Teslim işi oluşturuldu.' : ''),
+        );
+      }
       const continuity = attempt.input.followUpContinuity;
       if (command === 'CANCEL' && continuity?.decision === 'RESCHEDULE') {
         setMessage(`İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
@@ -1971,6 +2150,51 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
+        }
+        const pairRedirect = salePairRedirectFrom(caught);
+        const pairConflict = pairRedirect === null ? salePairStateConflictFrom(caught) : null;
+        const guidance = pairRedirect !== null
+          ? pairRedirectGuidance(pairRedirect, saleSourceVisitId())
+          : pairConflict !== null
+            ? pairConflictGuidance(pairConflict, salePairId(), jobId)
+            : null;
+        if (guidance !== null) {
+          // SALE-002 §4.2/§4.5: a coded redirect or a pair that no longer
+          // coordinates is a definitive answer. Close the now-impossible dialog,
+          // name the exact next action, and re-read both sides.
+          lifecycleAttempt.current = null;
+          setUncertain(false);
+          if (command === 'SUBMIT_FOR_APPROVAL') submitCapture.current = null;
+          setDialog(null);
+          setRevisionCorrection(null);
+          setFollowUp(null);
+          setPairGuidance(guidance);
+          try {
+            if (!(await refreshTruth())) return;
+            if (!(await requestRealtimeDrain())) return;
+          } catch {
+            if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+            setRealtimeStale(true);
+          }
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+          reloadPair();
+          setFeedbackFocusRequest((value) => value + 1);
+          return;
+        }
+        if (command === 'APPROVE' && dialog?.kind === 'approve' && saleDelivery?.draft.enabled
+          && isDefinitiveMutationError(caught)) {
+          // SALE-002 §8.3/§5.4: a definitive answer to the delivery payload. The
+          // attempt (and its key) is already reset above, so the corrected
+          // approval is a new intent; the controls are re-enabled and focus
+          // moves to the first invalid one.
+          saleDeliveryFailureSeq.current += 1;
+          const mapped = mapSaleDeliveryServerError(caught, saleDeliveryFailureSeq.current);
+          if (mapped !== null) {
+            setSaleDelivery((current) => current
+              ? { draft: { ...current.draft, ...mapped.patch }, errors: mapped.errors }
+              : current);
+            return;
+          }
         }
         if (isAssignmentWindowStaleError(caught)) {
           // JOB-010 release 2b: the offer moved on the server (deadline passed,
@@ -2084,13 +2308,24 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
     if (lifecycleAttempt.current) { endMutationOperation(owner); return; }
-    withdrawEditAttempt.current ??= { job: structuredClone(state.detail.job), clientActionId: crypto.randomUUID() };
+    withdrawEditAttempt.current ??= {
+      job: structuredClone(state.detail.job),
+      clientActionId: crypto.randomUUID(),
+      // §4.5: frozen with the attempt so an uncertain retry replays the same pair.
+      expectedSaleVersion: coordinatedSaleVersion({
+        command: 'WITHDRAW_FROM_APPROVAL',
+        visitStatus: state.detail.job.status,
+        visitAssignedTo: state.detail.job.assignedTo,
+        sale: coordinatedPairSale(),
+      }),
+    };
     const attempt = withdrawEditAttempt.current;
     try {
       const updated = await prepareMeetingEdit(
         attempt.job,
         attempt.clientActionId,
         withdrawJobCardFromApproval,
+        attempt.expectedSaleVersion ?? undefined,
       );
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       withdrawEditAttempt.current = null;
@@ -2609,8 +2844,28 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         : null;
       const followUpRequired = job !== null
         && (requiresMandatoryFollowUpProposal(job, meetingDetails) || Boolean(job.followUpProposal));
+      // The pair is still being discovered: a confirm now would omit the sale
+      // version (400) or silently drop the delivery section, so wait for it.
+      if (state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
+        && pairState.kind === 'loading') return;
+      /** §8.2/§5.1: the delivery body, only when the switch is on. */
+      const resolveDelivery = (): { ok: true; delivery?: ApproveDeliveryInput } | { ok: false } => {
+        if (!approveDeliverySource || !saleDelivery || !saleDelivery.draft.enabled) return { ok: true };
+        saleDeliveryFailureSeq.current += 1;
+        const built = buildSaleDeliveryRequest(saleDelivery.draft, saleDeliveryFailureSeq.current);
+        if (!built.ok) {
+          setSaleDelivery((current) => current ? { ...current, errors: built.errors } : current);
+          return { ok: false };
+        }
+        setSaleDelivery((current) => current ? { ...current, errors: null } : current);
+        return { ok: true, delivery: built.delivery };
+      };
       if (!followUp?.draft) {
-        if (!followUpRequired) void execute('APPROVE', reason);
+        if (!followUpRequired) {
+          const resolved = resolveDelivery();
+          if (!resolved.ok) return;
+          void execute('APPROVE', reason, resolved.delivery ? { delivery: resolved.delivery } : undefined);
+        }
         return;
       }
       if (!followUp.draft.scheduledAt) {
@@ -2621,6 +2876,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setFollowUp((current) => current ? { ...current, inlineError: 'Takip kapsamı zorunludur.' } : current);
         return;
       }
+      const resolved = resolveDelivery();
+      if (!resolved.ok) return;
       void execute('APPROVE', reason, {
         followUp: {
           scheduledAt: followUp.draft.scheduledAt,
@@ -2630,6 +2887,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           priority: followUp.draft.priority ?? 'normal',
           dueDate: followUp.draft.dueDate ?? null,
         },
+        ...(resolved.delivery ? { delivery: resolved.delivery } : {}),
       });
       return;
     }
@@ -2775,6 +3033,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
 
   const recordContent = <>
     {detail.kind === 'SALE' && <SaleDetailsSection details={detail.saleDetails} originPending={saleOriginPending} />}
+    {detail.kind === 'SALE' && <SalePairContextPanel
+      job={detail.job}
+      sourceVisit={detail.saleDetails.sourceVisit}
+      originPending={saleOriginPending}
+    />}
     {detail.kind === 'SALE' && detail.job.customerId && (actions.includes('EDIT_JOB_FIELDS') || saleCorrectionLocked)
       && <SaleCorrectionSection details={detail.saleDetails} customerId={detail.job.customerId}
         disabled={pending || uncertain || invalidationMutationLocked || !actions.includes('EDIT_JOB_FIELDS')}
@@ -2786,9 +3049,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             throw caught;
           }
         }} />}
+    {detail.kind === 'SALE' && <LinkedDeliveryPanel
+      linkedDelivery={detail.job.linkedDelivery !== undefined
+        ? detail.job.linkedDelivery
+        : detail.saleDetails.linkedDelivery}
+    />}
+    {detail.kind === 'PRODUCT_DELIVERY' && <DeliveryProvenanceLine sourceSaleId={detail.job.deliverySourceSaleId} />}
     {detail.kind === 'SALE' && isManagementUser(user) && <section aria-label="Gelecek modüller">
       <h2>Ön Muhasebe — Gelecek sürümde</h2><p>Satış kaydı finansal işlem oluşturmaz. Muhasebe işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
-      <h2>Stok/Depo — Gelecek sürümde</h2><p>Satış kaydı stok hareketi veya teslimat oluşturmaz. Depo işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
+      <h2>Stok/Depo — Gelecek sürümde</h2><p>Satış kaydı stok hareketi oluşturmaz. Onay sırasında ürün teslimi için ayrı bir teslim işi açılabilir; bu iş de stok düşümü yapmaz. Depo işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
     </section>}
     {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} disabled={invalidationLocked} />}
     {editing && detail.kind === 'SALES_MEETING'
@@ -2897,6 +3166,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
     mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked}
+    pairGuidance={pairGuidance ? <SalePairGuidanceNotice guidance={pairGuidance} /> : undefined}
+    pairManagedCommand={detail.kind === 'SALE' && !saleOriginPending
+      && detail.saleDetails.sourceVisit.kind === 'SALE_FROM_VISIT'
+      && detail.saleDetails.sourceVisit.access === 'FULL'
+      ? pairManagedSaleCommand({
+        type: detail.job.type,
+        status: detail.job.status,
+        allowedCommands: detail.job.workflowContext.allowedCommands,
+        sourceVisitAccess: 'FULL',
+      })
+      : null}
     records={recordContent}
     notes={viewNotes ? (
       <JobNotes
@@ -2950,6 +3230,44 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       uncertain={uncertain}
       onClose={() => { if (!uncertain) closeDialog(); }}
       onConfirm={confirmDialog}
+      pairNote={dialog.kind === 'submit'
+        ? <VisitPairSubmitNote pair={pairState} onRetry={reloadPair} />
+        : dialog.kind === 'approve'
+          ? <VisitPairApproveNote pair={pairState} onRetry={reloadPair} />
+          : dialog.kind === 'revision'
+            ? <VisitPairLifecycleNote
+                pair={pairState}
+                command="REQUEST_REVISION"
+                onRetry={reloadPair}
+              />
+            : undefined}
+      pairDetails={dialog.kind === 'withdraw-edit' && pairState.kind === 'ready' && pairState.coordinated
+        ? [lifecycleMovesSale(pairState.sale, 'WITHDRAW_FROM_APPROVAL')
+          ? `Bağlı satış kaydı da birlikte yeniden düzenlemeye açılır: ${pairState.sale.title}.`
+          : `Bağlı satış kaydı olduğu durumda kalır: ${pairState.sale.title} · ${jobCardStatusLabel(pairState.sale.status)}.`]
+        : undefined}
+      saleDelivery={dialog.kind === 'approve' && approveDeliverySource && saleDelivery
+        ? {
+            source: approveDeliverySource,
+            draft: saleDelivery.draft,
+            errors: saleDelivery.errors,
+            pending,
+            uncertain,
+            onChange: (patch, touched) => setSaleDelivery((current) => {
+              if (!current) return current;
+              const errors = current.errors;
+              let nextErrors = errors;
+              if (errors && touched) {
+                const fields = { ...errors.fields };
+                delete fields[touched];
+                const lines = touched === 'items' ? {} : errors.lines;
+                nextErrors = { ...errors, fields, lines, summary: errors.summary };
+                if (!hasSaleDeliveryErrors(nextErrors)) nextErrors = null;
+              }
+              return { draft: { ...current.draft, ...patch }, errors: nextErrors };
+            }),
+          }
+        : undefined}
       followUp={(dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
         ? {
             mode: dialog.kind === 'submit' ? 'staff' : 'manager',
@@ -2959,6 +3277,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             assigneeName: followUp.assigneeName,
             assignees: followUp.assignees,
             allowTypeEdit: dialog.kind === 'approve',
+            mandatoryVisitFollowUp: dialog.kind === 'approve'
+              && state.kind === 'ready'
+              && state.detail.kind === 'SALES_MEETING'
+              && requiresMandatoryFollowUpProposal(state.detail.job, state.detail.meetingDetails),
             inlineError: followUp.inlineError,
             autoSupported: dialog.kind === 'submit'
               && followUp.draft !== null

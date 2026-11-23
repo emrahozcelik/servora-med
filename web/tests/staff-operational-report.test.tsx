@@ -9,13 +9,20 @@ import {
   StaffOperationalReport,
   StaffOperationalReportScreen,
 } from '../src/reports/StaffOperationalReport';
-import { getOwnStaffReport, getStaffReport } from '../src/reports/reports-api';
+import {
+  getOwnStaffReport,
+  getStaffReport,
+  listOwnLatenessIncidents,
+  listStaffLatenessIncidents,
+} from '../src/reports/reports-api';
 import type { StaffReportResponse } from '../src/reports/report-types';
 import { renderWithRoute } from './route-test-helpers';
 
 vi.mock('../src/reports/reports-api', () => ({
   getOwnStaffReport: vi.fn(),
   getStaffReport: vi.fn(),
+  listOwnLatenessIncidents: vi.fn(),
+  listStaffLatenessIncidents: vi.fn(),
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -60,6 +67,32 @@ const report: StaffReportResponse = {
   ],
   currentWorkload: { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
     overdueJobCards: 1 },
+  lateness: {
+    trackingStartedOn: '2026-09-21',
+    generatedAt: '2026-07-31T12:00:00.000Z',
+    staffResponsibility: {
+      delayedJobCount: 2,
+      incidentCount: 3,
+      byType: [
+        { delayType: 'LATE_START', incidentCount: 2,
+          recovered: { count: 1, medianSeconds: 8_100, maxSeconds: 8_100 },
+          extended: { count: 1, medianSeconds: 90_000, maxSeconds: 90_000 },
+          open: { count: 0, maxElapsedSeconds: null } },
+        { delayType: 'LATE_SUBMISSION', incidentCount: 1,
+          recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+          extended: { count: 0, medianSeconds: null, maxSeconds: null },
+          open: { count: 1, maxElapsedSeconds: 7_200 } },
+      ],
+    },
+    operational: {
+      delayedJobCount: 2,
+      incidentCount: 2,
+      byReason: [
+        { reasonCode: 'CUSTOMER_ABSENT', incidentCount: 1 },
+        { reasonCode: 'MISSING_STOCK_OR_EQUIPMENT', incidentCount: 1 },
+      ],
+    },
+  },
 };
 
 describe('Staff operational report', () => {
@@ -72,6 +105,8 @@ describe('Staff operational report', () => {
     root = createRoot(container);
     vi.mocked(getOwnStaffReport).mockReset();
     vi.mocked(getStaffReport).mockReset();
+    vi.mocked(listOwnLatenessIncidents).mockReset();
+    vi.mocked(listStaffLatenessIncidents).mockReset();
   });
 
   afterEach(async () => {
@@ -85,11 +120,12 @@ describe('Staff operational report', () => {
     expect(html).not.toContain('Europe/Istanbul');
     expect(html).not.toMatch(/\b(?:NEW|ACCEPTED|IN_PROGRESS)\b/);
     expect(html).toContain('Pasif personel');
-    expect(html).toContain('Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.');
+    expect(html).toContain('tamamlandığı anda bu personele atanmış');
+    expect(html).toContain('İşi bir yönetici onaya gönderse veya tamamlasa da atıf atanmış personelde kalır.');
+    expect(html).toContain('Onaya gönderme kaydı bu atıftan ayrıdır ve işi kimin gönderdiğini gösterir.');
     expect(html).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
     expect(html).not.toContain('hâlen bu personele atanmış');
-    expect(html).toContain('onaya gönderme kaydı bu personele ait');
-    expect(html).toContain('Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.');
+    expect(html).not.toContain('fiilen yapan');
     for (const label of [
       'Şu an — mevcut operasyon yükü', 'Seçilen dönem — yönetici onaylı sonuçlar',
       'Aksiyon alınabilir', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor',
@@ -109,6 +145,10 @@ describe('Staff operational report', () => {
     expect(html).toContain('Birim belirtilmedi');
     expect(html).toContain('Görüşme sonuçları');
     expect(html).toContain('Takip gerekli');
+    expect(html).toContain('Gecikme kayıtları');
+    expect(html).toContain('Personel sorumluluğundaki gecikmeler');
+    expect(html).toContain('Yönetimce sonuçlandırılan değişiklik talebiyle ilişkili gecikmeler');
+    expect(html).toContain('Stok veya ekipman eksik');
     expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(3);
     expect(html).toContain('<caption class="sr-only">Onaylı teslimler</caption>');
     expect(html).toContain('<caption class="sr-only">Görüşme sonuçları</caption>');
@@ -121,7 +161,10 @@ describe('Staff operational report', () => {
     for (const value of ['Satış', 'Kutu', '12.500', 'Olumlu']) {
       expect((html.match(new RegExp(value, 'g')) ?? []).length).toBeGreaterThanOrEqual(2);
     }
-    expect(html).not.toMatch(/performans|puan|sıralama|ciro|stok|komisyon|Personelin bitirme zamanı|Mevcut plana göre zamanında|type="date"|select/i);
+    // The reused change-request reason label is context, not a stock metric:
+    // the guard keeps forbidding stock metrics and allows exactly this label.
+    expect(html.split('Stok veya ekipman eksik').join(''))
+      .not.toMatch(/performans|puan|sıralama|ciro|stok|komisyon|Personelin bitirme zamanı|Mevcut plana göre zamanında|type="date"|select/i);
   });
 
   it('omits duplicated counters while preserving the current type distribution in a profile', () => {
@@ -211,6 +254,81 @@ describe('Staff operational report', () => {
 
     expect(getStaffReport).toHaveBeenCalledWith(STAFF_ID, requestedRange);
     expect(container.querySelector('.page-header')).toBeTruthy();
+  });
+
+  it('loads management lateness incidents through the staff path', async () => {
+    vi.mocked(getStaffReport).mockResolvedValue(report);
+    vi.mocked(listStaffLatenessIncidents).mockResolvedValue({
+      range: report.range, items: [], total: 0, limit: 20, offset: 0,
+    });
+    await act(async () => root.render(
+      <MemoryRouter>
+        <StaffOperationalReportScreen staffUserId={STAFF_ID} />
+      </MemoryRouter>,
+    ));
+    await act(async () => { await Promise.resolve(); });
+
+    const toggle = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kayıtları göster')!;
+    await act(async () => toggle.click());
+    await act(async () => { await Promise.resolve(); });
+
+    expect(listStaffLatenessIncidents).toHaveBeenCalledWith(
+      STAFF_ID,
+      null,
+      { limit: 20, offset: 0 },
+    );
+    expect(listOwnLatenessIncidents).not.toHaveBeenCalled();
+  });
+
+  it('keeps the report mounted and the list open when "Yenile" reloads the same scope', async () => {
+    const refreshed = { ...report, lateness: { ...report.lateness, generatedAt: '2026-07-31T12:05:00.000Z' } };
+    vi.mocked(getStaffReport).mockResolvedValueOnce(report).mockResolvedValueOnce(refreshed);
+    vi.mocked(listStaffLatenessIncidents).mockResolvedValue({
+      range: report.range, items: [], total: 0, limit: 20, offset: 0,
+    });
+    await act(async () => root.render(
+      <MemoryRouter>
+        <StaffOperationalReportScreen staffUserId={STAFF_ID} />
+      </MemoryRouter>,
+    ));
+    await act(async () => { await Promise.resolve(); });
+    const button = (label: string) => Array.from(container.querySelectorAll('button'))
+      .find((candidate) => candidate.textContent === label);
+    await act(async () => button('Kayıtları göster')!.click());
+    await act(async () => { await Promise.resolve(); });
+    const refresh = button('Yenile')!;
+
+    await act(async () => refresh.click());
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(getStaffReport).toHaveBeenCalledTimes(2);
+    // Same element: the section was not unmounted behind a loading state.
+    expect(button('Yenile')).toBe(refresh);
+    expect(button('Kayıtları gizle')?.getAttribute('aria-expanded')).toBe('true');
+    // The newer generatedAt reloads the open list's newest page.
+    expect(listStaffLatenessIncidents).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(listStaffLatenessIncidents).mock.calls[1]).toEqual([
+      STAFF_ID, null, { limit: 20, offset: 0 },
+    ]);
+  });
+
+  it('loads the Staff self lateness incidents through the me path', async () => {
+    vi.mocked(getOwnStaffReport).mockResolvedValue(report);
+    vi.mocked(listOwnLatenessIncidents).mockResolvedValue({
+      range: report.range, items: [], total: 0, limit: 20, offset: 0,
+    });
+    await act(async () => root.render(<StaffOperationalReportScreen />));
+    await act(async () => { await Promise.resolve(); });
+
+    const toggle = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kayıtları göster')!;
+    await act(async () => toggle.click());
+    await act(async () => { await Promise.resolve(); });
+
+    expect(listOwnLatenessIncidents).toHaveBeenCalledWith(null, { limit: 20, offset: 0 });
+    expect(listStaffLatenessIncidents).not.toHaveBeenCalled();
   });
 
   it('keeps exactly one h1 on the management report route in every state', async () => {

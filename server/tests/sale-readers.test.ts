@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { withSaleFixture } from './support/sale-harness.js';
+import { saleTime, standaloneSale, withSaleFixture } from './support/sale-harness.js';
 import { PostgresSaleReader } from '../src/modules/job-cards/sale-reader.js';
 import { PostgresReportsRepository } from '../src/modules/reports/repository.js';
 import { mapSourceWorkRow } from '../src/modules/weekly-reports/source-work.js';
@@ -59,11 +59,16 @@ describe('Sale read projections', () => {
 
   it('counts Sale as operational work without delivery/outcome effects and preserves legacy buckets', async () => {
     await withSaleFixture(async (f) => {
-      const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
-      await f.service.start(f.staff, sale.jobCardId, { clientActionId: 'report-start', expectedVersion: 1 });
-      await f.service.submitForApproval(f.staff, sale.jobCardId, { clientActionId: 'report-submit', expectedVersion: 2, note: 'Ready' });
+      // A standalone sale: SALE-002 §4.2 redirects a visit-origin sale's own
+      // submit while the source visit is live.
+      const sale = await standaloneSale(f, {
+        clientActionId: 'report-sale-create',
+        items: [{ productId: f.products[0]!, quantity: 1 }, { productId: f.products[1]!, quantity: 15 }],
+      });
+      await f.service.start(f.staff, sale.jobCardId, { clientActionId: 'report-start', expectedVersion: sale.version });
+      await f.service.submitForApproval(f.staff, sale.jobCardId, { clientActionId: 'report-submit', expectedVersion: sale.version + 1, note: 'Ready' });
       // Pin the creation cohort independently of the day on which CI runs.
-      await f.pool.query('UPDATE job_cards SET created_at=$1 WHERE id=$2', [f.input.soldAt, sale.jobCardId]);
+      await f.pool.query('UPDATE job_cards SET created_at=$1 WHERE id=$2', [saleTime, sale.jobCardId]);
       const reports = new PostgresReportsRepository(f.pool);
       const input = { organizationId: f.organizationId, requestedRange: { from: '2026-10-14', to: '2026-10-14' },
         requestTime: new Date('2026-10-14T23:00:00Z') };

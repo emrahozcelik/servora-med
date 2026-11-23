@@ -586,12 +586,16 @@ ID behavior were verified in Slice 07. Notes do not increment JobCard version.
 
 - **Date:** 2026-07-14
 - **Status:** Accepted; universal personal-result attribution partially superseded
-  by REPORT-001 (2026-11-04, product contract accepted; implementation pending).
+  by REPORT-001 (2026-11-04, product contract accepted; implementation pending),
+  then confirmed for every Staff report metric by REPORT-002 (2026-11-23).
 - **Scope:** Slice 08 Staff Profile and Operational Reports
 
 The original decision below is retained. REPORT-001 replaces current-assignee
 attribution for the new approved personal-activity/commercial-result metrics.
-Current workload and existing delivery-report contracts remain unchanged.
+REPORT-002 (2026-11-23) amends that replacement for every Staff report metric:
+attribution stays with the assignee at completion and no separate performer
+capture is added. Current workload and existing delivery-report contracts
+remain unchanged.
 
 ### Context
 
@@ -2533,6 +2537,10 @@ backup failure without stranding the protected OLD behind an active owner.
 - **Date:** 2026-11-04
 - **Status:** Accepted product contract; implementation and runtime verification
   pending. Current task is documentation-only.
+- **Amended by REPORT-002 (2026-11-23):** no separate performer declaration or
+  capture is implemented; the verified performer of a completed card is its
+  assignee at completion for every Staff report metric. The remaining REPORT-001
+  boundaries stay as written.
 - **Owner:** [Reporting contract](docs/features/reporting/README.md).
 - **Supersedes:** DOM-006's universal current-assignee ownership rule only for
   new approved personal-activity/commercial-result metrics and their meeting
@@ -3166,8 +3174,9 @@ management decision list.
   and enforces the window. Each release ships PostgreSQL and UI regression tests; the
   contract lists the acceptance scenarios. `SERVORA_MED_API_DRAFT.md` gains
   the new endpoints in the release that adds them.
-- Drift reported separately, not changed here: JOB-006 §6 allows Staff
-  `ADD_NOTE` in `NEW`, but `policy.ts` does not.
+- JOB-006 §6 Staff `ADD_NOTE` in `NEW`, the drift reported when this record was
+  accepted, is resolved: `getAllowedJobActions` grants the assigned Staff member
+  `ADD_NOTE` in `NEW` (and `ACCEPTED`) for every type, matching JOB-006 §6.
 
 ## OVR-5 — Revision correction deadline and authorized deadline extension
 
@@ -3209,3 +3218,286 @@ management decision list.
   live and 067 is not applied; after OVR-5b, fixes go forward.
 - Reports are unchanged (stage 3 of the lateness plan).
 
+
+## WR-WEEK — Weekly Report working week (Monday–Saturday) and Monday deadline
+
+- **Date:** 2026-11-21
+- **Status:** Accepted product contract (owner, 2026-11-21: proposed defaults
+  accepted with "evet hazırla"; late-request rule option (a) chosen with
+  "önerinle a ile devam edelim"; period and deadline revised the same day,
+  before any release: "raporlar pazartesiden cumartesiye olacakmış. haftalık
+  rapor istendiğinde cumartesi gününü kapsayacak. rapor pazar ve pazartesiye
+  kadar gönderilebilecek."; clarified and approved the same day: overdue at the
+  end of Monday, submission allowed any time before, a late request due on its
+  creation day); implemented and verified locally, hosted CI pending. Ships with the code in one
+  PR. Contract: [weekly-report-workweek.md](./docs/features/weekly-report-workweek.md).
+
+### Decision
+
+1. A new Weekly Report covers the organization-local working week: ISO Monday
+   `period_start`, `period_end = period_start + 5` (Saturday).
+2. The deadline is the Monday after the period (`due_date = period_end + 2`),
+   still server-only and immutable; Staff may submit any time before it,
+   including Sunday and Monday. Overdue starts Tuesday 00:00
+   organization-local under the unchanged overdue contract.
+3. The automatic work list covers Monday 00:00 → Sunday 00:00; Sunday
+   completions belong to no weekly report. The create screen defaults to the
+   current ISO week (on Sunday the week that just ended).
+4. The Staff form has three sections (Bu hafta, Sorunlar ve destek ihtiyacı,
+   Gelecek hafta planı); the five preset manager questions are removed and
+   custom questions remain.
+5. Existing reports, drafts, submissions, frozen questions/answers, source-work
+   snapshots and PDFs are never rewritten and keep rendering all stored fields
+   with their original labels.
+6. A manager request that resolves to an existing report never navigates as if
+   one was created; bulk results state created and existing counts separately.
+7. A request created after the deadline of its week is never born overdue:
+   `due_date = max(period_end + 2, organization-local creation date)`.
+8. Weekly-report screens get the accepted UI changes: week choice, period and
+   deadline preview, Turkish calendar dates, and mobile-reachable Staff actions.
+
+### Consequences
+
+- Supersedes only these parts of earlier records: the Monday–Sunday period of
+  "Weekly Report V1 Slice 1", the "day after `period_end`" due-date formula and
+  six body sections of "Slice 2", the deadline formula of the field-test
+  server-only deadline rule, and the five preset questions of the V1 field-test
+  remediation. Identity/uniqueness, Admin removal, CANCEL/INVALIDATE week
+  reservation and the recurrence retirement are unchanged.
+- Migration 068 widens the period constraints so that old 7-day rows stay valid
+  and binds each submission's period to its report; applied migrations are not
+  edited.
+- The weekly-report reference read gains an additive `today` field.
+- Reports open at deploy time keep their 7-day period and deadline.
+- Historical production labels are one week ahead of the work they describe.
+  Right after the release, old-convention reports labelled with the release
+  week or later are removed with the Admin removal command (history kept);
+  older reports are untouched. Release order: 066 → 067 → 068.
+
+## OVR-6 — Lateness notifications: quiet hours, start reminder and management alerts
+
+- **Date:** 2026-11-22
+- **Status:** Accepted product contract (owner: stage-2 direction 2026-11-20,
+  Q1–Q4 answered 2026-11-21, owner review revisions and "evet başlayalım"
+  2026-11-22). Contract:
+  [lateness-notifications-quiet-hours.md](./docs/features/lateness-notifications-quiet-hours.md).
+  Amends OVR-4 send timing. Shipped in PR #477 and activated in production on
+  2026-11-22 without the staged §9.3 procedure, by owner decision
+  ([activation record](./docs/operations/2026-11-22-ovr6-lateness-alerts-activation.md)).
+
+### Decision
+
+1. Lateness-related automatic operational alerts (OVR-4 reminder and
+   escalation, start reminder, approval-wait alert, unaccepted-job alert) are
+   sent only Monday–Saturday 08:00–21:00 organization time; Sunday is closed.
+   Deferral changes sending time only, never incidents, deadlines or
+   thresholds. JOB-010 acceptance, calendar and request-driven notifications
+   are not deferred.
+2. Staff get one start reminder 15 minutes after the planned start of an
+   accepted, unstarted job (per planned start and recipient); it is not
+   lateness and `LATE_START` is unchanged.
+3. Management gets one alert per open `APPROVAL_WAIT` incident, not while a
+   change request is open.
+4. Unaccepted past-start jobs that JOB-010 does not own (ownership matrix in
+   the contract) get a management list and one alert per planned start, not
+   while a change request is open; never Staff lateness.
+5. Delivery state, activity, realtime, in-app notifications and Web Push queue
+   rows are written atomically; identity per planned start / incident.
+
+### Consequences
+
+- Migration 069 (delivery table, incident composite key, widened notification
+  and activity CHECKs). New worker behind `LATENESS_ALERTS_ENABLED`; activation
+  and rollback require the read-only evidence in the contract §9.
+
+
+## OVR-7 — Lateness reports
+
+- **Date:** 2026-11-22
+- **Status:** Accepted product contract (owner: stage-3 direction 2026-11-20,
+  Q1–Q4 answered 2026-11-22, owner review revisions and "Kabul, başla"
+  2026-11-22). Contract:
+  [lateness-reports.md](./docs/features/reporting/lateness-reports.md).
+  Implements REPORT-001 §6 and JOB-010 D1 §7 for OVR-2 incidents; REPORT-001
+  performer attribution and optional lateness explanations stay separate.
+
+### Decision
+
+1. Reports read `job_card_overdue_incidents` read-only. An incident belongs to
+   the organization-local period of its `breached_at`; incidents on
+   `INVALIDATED` jobs are excluded.
+2. Attribution is the incident's own accountability at the breach instant.
+   Proven Staff incidents appear in that Staff member's report (management view
+   and the Staff self view); unknown accountability and `APPROVAL_WAIT`
+   (management delay) appear only on the organization card. No per-Staff
+   comparison, rate, score, ranking or summed duration.
+3. Each incident is `RECOVERED`, `EXTENDED` (OVR-5, never on time) or `OPEN`;
+   medians and maxima are per type and outcome.
+4. A proven Staff incident overlapped by the same Staff member's own change
+   request that management provably resolved (corrected, rescheduled, linked
+   new job, or cancelled by someone other than the assignee) is shown in a
+   separate group "Yönetimce sonuçlandırılan değişiklik talebiyle ilişkili
+   gecikmeler" and is not added to Staff responsibility. The group states a
+   relationship, not a proven cause.
+
+### Consequences
+
+- No migration, column, index or write path. New reads:
+  `GET /api/reports/lateness`, `GET /api/reports/staff/:userId/lateness-incidents`,
+  `GET /api/reports/staff/me/lateness-incidents`, and `lateness` on the Staff
+  report. Existing on-time and "Gecikmiş" measures are unchanged.
+
+## DELIVERY-QTY-001 — Whole-unit delivery quantities
+
+- **Date:** 2026-11-20
+- **Status:** Accepted by product owner in chat (owner decision, 2026-11-20)
+- **Scope:** Product Delivery item quantity input and persistence writes
+- Product Delivery quantity is the number of countable products delivered: a
+  JSON number that is a whole integer in **1–999999999**. Fractional deliveries
+  (including 0.5 and 1.5), nonnumbers, nonfinite numbers, zero, negatives and
+  overflow are rejected, never rounded or truncated. Catalog units (`adet`,
+  `kutu`, ml, etc.) remain metadata and do not convert or qualify this count.
+- Create, initial-item batch, add-item and a supplied patched quantity share one
+  server-side validator; the browser mirrors `min=1`, `max=999999999`, `step=1`
+  and `inputMode=numeric`.
+- Historical delivery rows are preserved: no backfill, rounding or alteration,
+  and no new database constraint or migration now. A patch that does not supply
+  a new quantity keeps working on a legacy fractional row; only a supplied
+  replacement quantity is validated. A future integer CHECK migration is
+  authorized only after the data owner inspects production rows; it must not
+  silently convert or delete historical values.
+- Delivery product eligibility follows the demo data-class boundary: a BUSINESS
+  delivery references only BUSINESS products, while a DEMO delivery may keep a
+  BUSINESS product or a DEMO product from its own dataset. Ineligible products
+  share the existing inactive/cross-organization concealment.
+- Delivery reports keep their existing three-decimal-scale presentation of
+  persisted quantities (DOM-006); this record changes input acceptance only.
+- **Supersedes:** the "Delivery fractions must remain supported" statement in
+  [`integer-quantity-policy.md`](docs/features/visit-to-sale/integer-quantity-policy.md)
+  (SALE-QTY-001 PR3 handoff) for new delivery quantity input.
+- SALE-QTY-001, DOM-001, DOM-004, DOM-006, MOD-001 and the existing product and
+  physical-measurement policy are unchanged. A future measured-goods sector
+  (ml, mg, litre) needs a new accepted decision; it is not inferred from
+  catalog units.
+
+## OVR-2 — Invalidation ends open overdue obligations — 2026-11-20
+
+- **Date:** 2026-11-20 (owner decision).
+- **Status:** Accepted product-owner decision. This addendum amends the OVR-2
+  rule that only a lifecycle recovery closes an incident and extends the OVR-5
+  ending family with one administrative reason. It supersedes the earlier
+  `invalidated_at`/`invalidated_by_user_id` proposal, which was never accepted
+  or migrated. Contract:
+  [overdue-correction-deadline-and-extension.md](./docs/features/overdue-correction-deadline-and-extension.md)
+  §10.
+- **Scope:** `INVALIDATE` (and a Weekly Report removal that invalidates its
+  root) and `job_card_overdue_incidents`. Earlier OVR-2/OVR-5 records stay as
+  history; this record adds the missing administrative closure and rewrites
+  none of them.
+
+### Decision
+
+1. **All open obligations end with the card.** An authorized `INVALIDATE` ends
+   every still-open overdue incident of that JobCard, across all delay types
+   (`LATE_START`, `LATE_SUBMISSION`, `APPROVAL_WAIT`), episodes and schedule
+   revisions. No open obligation may outlive the card.
+2. **History is immutable.** `deadline_at`, `breached_at`, accountable
+   user/role/source, episode number, schedule revision, producer source and
+   evidence are never changed or deleted by invalidation.
+3. **Same transaction and canonical command identity.** Closure commits in the
+   same transaction as `invalidate()`, under the same JobCard lock, using that
+   command's canonical request time and actor. A rolled-back invalidation closes
+   nothing; a replayed `clientActionId` returns the stored receipt without
+   double-ending or moving timestamps.
+4. **Invalidation is neither completion nor recovery.** It never populates
+   `recovered_at` / `recovery_actor_user_id`: those mean the delay was made good
+   and feed `totalDelaySeconds` and recovery metrics. The model reuses the
+   OVR-5 ending (`ended_at`, `ended_by_user_id`, `end_reason`, `end_note`,
+   `ended_by_schedule_revision_no`) with the new reason `CARD_INVALIDATED`.
+   Migration `070_overdue_incident_invalidation_closure` widens the
+   `end_reason` CHECK and redefines the all-or-none ending shape: a
+   `DEADLINE_EXTENDED` row keeps note and appended revision, a
+   `CARD_INVALIDATED` row requires the instant, actor and reason and must leave
+   `ended_by_schedule_revision_no` NULL (no revision proves a new boundary).
+   No DML, no backfill.
+5. **Operational reads already exclude closed incidents.** An incident is open
+   only when `recovered_at IS NULL AND ended_at IS NULL`; every list, reminder,
+   snapshot and duration read uses that pair today, so no reader query changes.
+   The history DTO keeps `endedAt` / `endReason` / `endedBy` /
+   `endedDurationSeconds` and now also carries `endReason = 'CARD_INVALIDATED'`;
+   `recoveredAt`/`recoveryActor` and `totalDelaySeconds` stay NULL. The web
+   history label is "Geçersiz kılındı" and shows the actual ended duration.
+6. **No new incident and no backfill.** Invalidation never materializes an
+   incident. Already recovered or already ended incidents are untouched.
+   Cards invalidated before this rule keep their existing open rows exactly as
+   they are: the owner explicitly rejects evidence-less historical backfill.
+7. **Other lifecycle commands are unchanged.** `CANCEL`, `START`,
+   `SUBMIT_FOR_APPROVAL`, `APPROVE`, revision/withdraw and their recovery or
+   materialization behavior stay as accepted; invalidation is a separate
+   administrative closure, not a lifecycle recovery substitute. A Weekly
+   Report removal closes rows only when that removal itself invalidates the
+   root; an already invalidated root is unchanged history.
+8. **Verification.** PostgreSQL regressions prove per-delay-type closure from
+   every applicable source status, immutable history, idempotent replay,
+   recovered/ended-row preservation, stale scanner and reminder candidates,
+   exclusion from active lists and the snapshot, the `INVALIDATED` history
+   state, the Weekly Report removal path, and OVR-7 reports never classifying
+   `CARD_INVALIDATED` as `EXTENDED` (`EXTENDED` stays the OVR-5 extension).
+   The existing `JOB_INVALIDATED` / `WEEKLY_REPORT_REMOVED` activity metadata
+   carries `closedOverdueIncidents`; no new activity event type is added.
+
+### Consequences
+
+- Migration 070 is additive (two CHECKs redefined, no DML). `HEALTH_SCHEMA_VERSION`
+  moves to `070_overdue_incident_invalidation_closure`.
+- There is no safe rollback to a release that treats `recovered_at IS NULL`
+  alone as open: it would resume reminders for closed rows. The OVR-5 §8
+  rollback floor applies unchanged.
+
+## REPORT-002 — Staff attribution follows the assignee at completion
+
+- **Date:** 2026-11-23 (product-owner decision in chat).
+- **Status:** Accepted by the product owner; implemented and verified in the
+  same change.
+- **Owner:** [Reporting contract](docs/features/reporting/README.md).
+- **Amends:** REPORT-001 (2026-11-04) by removing the separate performer
+  declaration/capture requirement for Staff report metrics. Confirms DOM-006
+  for every Staff report metric; does not supersede its workload, delivery,
+  timezone, quantity or non-financial rules.
+- **Resolves drift:** commit `6285d72` switched Staff completion metrics to
+  `staff_completed_by`; this record returns them to `assigned_to`.
+
+### Decision
+
+1. Completed work belongs to the Staff member the JobCard is assigned to at
+   completion. A manager or admin submitting or completing another member's
+   job never moves that work to the manager. A job reassigned before completion
+   belongs to the assignee at completion. Assignment cannot change after a job
+   is completed, so the completed row's `assigned_to` is stable.
+2. The rule covers every Staff report metric: completed-in-period count,
+   completion days and work-type distribution, Staff execution, on-time
+   performance, correction-request events, the daily completion trend, delivery
+   purpose quantities, delivery report Staff grouping and Staff filtering, and
+   the meeting outcome breakdown.
+3. `staff_completed_by` remains recorded submission-actor evidence only; it
+   feeds the separately labelled "Onaya gönderme kaydı" metric together with
+   its `staff_completed_at` time basis and never decides work ownership.
+   Authored operational notes remain attributed through `author_id`. Reporting
+   time-basis columns are unchanged.
+4. No separate performer declaration or capture is added. The verified
+   performer of a completed card is its assignee at completion; reports do not
+   claim an independently verified performer beyond that identity. REPORT-001's
+   unknown-performer and attribution-correction machinery is not implemented
+   and is not required for these Staff metrics.
+5. Historical rows are not rewritten, backfilled or reinterpreted. Reports
+   recompute from persisted assignment. OVR-7 lateness accountability cohorts
+   keep their own historical meaning and are not changed by this record.
+
+### Consequences
+
+- A management submission on behalf of the assigned Staff member stays in that
+  member's Staff report, while the submission record still shows who submitted.
+- Staff deliveries and meeting outcomes follow the assignee even when the
+  meeting was submitted by management.
+- The Staff summary and completion-performance aggregate remain paired under
+  the Reports service invariant; both use the same assignment rule.

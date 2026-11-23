@@ -176,8 +176,17 @@ const ASSIGNMENT_REOFFER_FIELDS = [
 ] as const;
 const START_FIELDS = [...LIFECYCLE_FIELDS, 'locationCapture'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
-const SUBMIT_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUpProposal', 'locationCapture'] as const;
-const APPROVE_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUp'] as const;
+// SALE-002 §4.5 (R18): the five pair-capable commands accept the linked sale's
+// concurrency precondition. LIFECYCLE_FIELDS, START_FIELDS, the cancel list and
+// ASSIGNMENT_DECISION_FIELDS stay untouched and keep rejecting it.
+const PAIR_VERSION_FIELDS = [...LIFECYCLE_FIELDS, 'expectedSaleVersion'] as const;
+const SUBMIT_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUpProposal', 'locationCapture', 'expectedSaleVersion'] as const;
+// SALE-002 §5.1: `delivery` is the optional sale-approval delivery object; the
+// service parses it with its own strict allowlist (parseSaleApprovalDelivery).
+const APPROVE_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUp', 'expectedSaleVersion', 'delivery'] as const;
+const REVISION_FIELDS = [
+  'clientActionId', 'expectedVersion', 'revisionReason', 'correctionDueAt', 'expectedSaleVersion',
+] as const;
 
 export function createJobCardHandlers(service: JobCardService) {
   return {
@@ -253,6 +262,10 @@ export function createJobCardHandlers(service: JobCardService) {
       requireSaleCapability(request);
       return service.getSaleDetails(actor(request), request.params.id);
     },
+    createStandaloneSale: async (request: FastifyRequest, reply: FastifyReply) =>
+      // SALE-002 §6.1: a dedicated route is already an explicit new-client
+      // surface, so it needs no legacy `includeSaleCapability` opt-in.
+      reply.code(201).send(await service.createStandaloneSale(actor(request), request.body)),
     createSale: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) => {
       requireSaleCapability(request);
       return reply.code(201).send(await service.createSaleFromVisit(actor(request), request.params.id, request.body));
@@ -335,6 +348,10 @@ export function createJobCardHandlers(service: JobCardService) {
     )),
     listAssignmentOffersNeedingAction: async (request: FastifyRequest) =>
       service.listAssignmentOffersNeedingAction(actor(request), page(request.query, 25)),
+    // OVR-6 §6.2: the management unaccepted past-start list shares the
+    // needs-action pagination contract (limit/offset, default 25).
+    listUnacceptedPastStart: async (request: FastifyRequest) =>
+      service.listUnacceptedPastStart(actor(request), page(request.query, 25)),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
       service.start(
         actor(request),
@@ -365,11 +382,11 @@ export function createJobCardHandlers(service: JobCardService) {
     availableSlots: async (request: FastifyRequest) =>
       service.availableSlots(actor(request), parseAvailableSlotsInput(request.body)),
     requestRevision: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason', 'correctionDueAt']) as never),
+      service.requestRevision(actor(request), request.params.id, body(request, REVISION_FIELDS) as never),
     withdrawFromApproval: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.withdrawFromApproval(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
+      service.withdrawFromApproval(actor(request), request.params.id, body(request, PAIR_VERSION_FIELDS) as never),
     resume: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.resume(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
+      service.resume(actor(request), request.params.id, body(request, PAIR_VERSION_FIELDS) as never),
     cancel: async (request: FastifyRequest<{ Params: Params }>) =>
       service.cancel(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'cancelReason', 'followUpContinuity']) as never),
     invalidate: async (request: FastifyRequest<{ Params: Params }>) =>

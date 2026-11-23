@@ -30,8 +30,13 @@ import {
   type RealtimeEventPublisher,
 } from '../realtime/event-bus.js';
 import { mapJobCardActivityToRealtime } from '../realtime/event-mapper.js';
+import { lockAssigneesInOrder } from './assignee-lock.js';
 import type { RealtimeEventRecord } from '../realtime/types.js';
 import type { NotificationDraft } from '../notifications/types.js';
+import {
+  DEFAULT_NOTIFICATION_WINDOW,
+  type NotificationWindowPolicy,
+} from '../notifications/quiet-hours.js';
 import {
   dueOverdueReminderKinds,
   resolveOverdueReminderTiming,
@@ -45,7 +50,7 @@ import type {
   OverdueScanCandidate,
   PersistedOverdueIncident,
 } from './repository.js';
-import type { JobCardActivityEvent } from './types.js';
+import type { JobCardActivityEvent, JobCardAssignee } from './types.js';
 
 /** Result of processing one discovered job. */
 export type OverdueReminderCandidateOutcome =
@@ -56,7 +61,13 @@ export type OverdueReminderCandidateOutcome =
   | { kind: 'skipped-state-changed' }
   | { kind: 'skipped-recipient-unprovable' }
   /** JOB-010 release 2a: an OPEN change/termination request pauses OVR-4. */
-  | { kind: 'skipped-change-request-open' };
+  | { kind: 'skipped-change-request-open' }
+  /**
+   * OVR-6 §3.6: the sending window closed between discovery and the under-lock
+   * re-check. Nothing is written; the first tick inside the next window sends
+   * the reminder if it is still due and eligible.
+   */
+  | { kind: 'deferred-quiet-hours' };
 
 /** Bounded operational visibility for one worker iteration. */
 export type OverdueReminderIterationReport = {
@@ -69,7 +80,14 @@ export type OverdueReminderIterationReport = {
   skippedStateChanged: number;
   skippedRecipientUnprovable: number;
   skippedChangeRequestOpen: number;
+  /** OVR-6 §3.6: candidates whose under-lock window check found it closed. */
+  deferredQuietHours: number;
   failed: number;
+  /**
+   * Live realtime publish failures after a committed outcome. Transport-only:
+   * the candidate is already counted by its outcome and is never retried.
+   */
+  publishFailed: number;
   byKind: Readonly<Record<OverdueReminderKind, number>>;
 };
 
@@ -100,13 +118,22 @@ const NOTIFICATION_KIND_BY_KIND = {
 
 export class PostgresOverdueReminderWorkerRepository
 implements OverdueReminderWorkerRepository {
+  /**
+   * OVR-6 §3.4: the sending window is injected (default: the real one). Both
+   * discovery and the under-lock re-check use this single policy instance, so
+   * a test that opens the window cannot disagree with production SQL.
+   */
   constructor(
     private readonly repository: JobCardRepository,
     private readonly webPushEnabled: boolean = false,
+    private readonly notificationWindow: NotificationWindowPolicy = DEFAULT_NOTIFICATION_WINDOW,
   ) {}
 
   listCandidates(input: { scanTime: Date; timing: ResolvedOverdueReminderTiming; limit: number }) {
-    return this.repository.listDueOpenSubmissionLateEpisodes(input);
+    return this.repository.listDueOpenSubmissionLateEpisodes({
+      ...input,
+      notificationWindow: this.notificationWindow,
+    });
   }
 
   async processCandidate(input: {
@@ -116,10 +143,26 @@ implements OverdueReminderWorkerRepository {
   }): Promise<{ outcome: OverdueReminderCandidateOutcome; realtimeEvents: readonly RealtimeEventRecord[] }> {
     const { organizationId, jobCardId } = input.candidate;
     return this.repository.executeTransaction(async (tx) => {
+      // Lock order users -> JobCard (assignee-lock.ts, JOB-010 §9): read the
+      // assignee without a lock, lock that user, then the JobCard, and treat a
+      // reassignment in between as a state change (retried on a later tick).
+      const snapshot = await tx.getLatenessAlertJobSnapshot(organizationId, jobCardId);
+      if (snapshot === null) {
+        return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
+      }
+      const lockedAssignees = await lockAssigneesInOrder(tx, organizationId, [snapshot.assignedTo]);
       const job = await tx.getJobForUpdate(organizationId, jobCardId);
       if (job === null
+        || job.assignedTo !== snapshot.assignedTo
         || !(SUBMITTABLE_STATUSES as readonly string[]).includes(job.status)) {
         return { outcome: { kind: 'skipped-state-changed' }, realtimeEvents: [] };
+      }
+      // OVR-6 §3.5/§3.6: the window is a due-gate evaluated at `scanTime`,
+      // re-checked under the lock. A candidate discovered inside the window
+      // whose boundary passed while waiting is deferred with nothing written.
+      const timezone = await tx.getOrganizationTimezone(organizationId);
+      if (!this.notificationWindow.isOpen(input.scanTime, timezone)) {
+        return { outcome: { kind: 'deferred-quiet-hours' }, realtimeEvents: [] };
       }
       // JOB-010 release 2a (D1 §5): re-check the OPEN change/termination
       // request under the JobCard lock. The discovery prefilter already
@@ -161,6 +204,7 @@ implements OverdueReminderWorkerRepository {
         for (const kind of dueKinds) {
           const result = await this.sendDueKind(tx, {
             job: { organizationId, jobCardId, assignedTo: job.assignedTo },
+            assignee: lockedAssignees.get(job.assignedTo) ?? null,
             canonical,
             episodeNo,
             kind,
@@ -205,6 +249,8 @@ implements OverdueReminderWorkerRepository {
     tx: JobCardTransaction,
     input: {
       job: { organizationId: string; jobCardId: string; assignedTo: string };
+      /** The assignee row already locked users-first by `processCandidate`. */
+      assignee: JobCardAssignee | null;
       canonical: PersistedOverdueIncident;
       episodeNo: number;
       kind: OverdueReminderKind;
@@ -232,7 +278,7 @@ implements OverdueReminderWorkerRepository {
     if (input.kind === 'STAFF_REMINDER') {
       // Operational recipient is the current assignee (who can act now);
       // incident accountability history is never rewritten by this choice.
-      const assignee = await tx.getAssigneeForUpdate(organizationId, input.job.assignedTo);
+      const assignee = input.assignee;
       if (assignee === null || !assignee.isActive || assignee.role !== 'STAFF') {
         return { status: 'recipient-unprovable' };
       }
@@ -381,7 +427,9 @@ export function createOverdueReminderWorker(
       skippedStateChanged: 0,
       skippedRecipientUnprovable: 0,
       skippedChangeRequestOpen: 0,
+      deferredQuietHours: 0,
       failed: 0,
+      publishFailed: 0,
     };
     const candidates = await repository.listCandidates({ scanTime, timing, limit: batchSize });
     for (const candidate of candidates) {
@@ -403,8 +451,20 @@ export function createOverdueReminderWorker(
           case 'skipped-state-changed': counts.skippedStateChanged += 1; break;
           case 'skipped-recipient-unprovable': counts.skippedRecipientUnprovable += 1; break;
           case 'skipped-change-request-open': counts.skippedChangeRequestOpen += 1; break;
+          case 'deferred-quiet-hours': counts.deferredQuietHours += 1; break;
         }
-        for (const event of realtimeEvents) publisher.publish(event);
+        // The transaction has committed: delivery, activity, realtime rows and
+        // notifications are durable. A live-publish failure is transport-only
+        // (clients refetch on reconnect): it is counted in `publishFailed`,
+        // never as a failed candidate on top of the committed outcome.
+        for (const event of realtimeEvents) {
+          try {
+            publisher.publish(event);
+          } catch (error) {
+            counts.publishFailed += 1;
+            reportError(error);
+          }
+        }
       } catch (error) {
         counts.failed += 1;
         reportError(error);
@@ -454,7 +514,9 @@ function runOnceFailedReport(scanTime: Date): OverdueReminderIterationReport {
     skippedStateChanged: 0,
     skippedRecipientUnprovable: 0,
     skippedChangeRequestOpen: 0,
+    deferredQuietHours: 0,
     failed: 1,
+    publishFailed: 0,
     byKind: { STAFF_REMINDER: 0, MANAGEMENT_ESCALATION: 0 },
   };
 }

@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { PageHeader } from './ui/PageHeader';
 import { ServoraSelect } from './ui/antd';
+import {
+  addCalendarDays,
+  formatCalendarDayWithWeekday,
+  formatCalendarRange,
+  isMondayDateKey,
+} from './ui/calendar-date';
 import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import {
   MAX_BULK_TARGETS,
@@ -17,7 +24,6 @@ import {
   type WeeklyReportReference,
 } from './jobs/weekly-report-api';
 import {
-  WEEKLY_REPORT_PRESET_QUESTIONS,
   WeeklyReportQuestionEditor,
   collectManagerQuestions,
   nextCustomQuestionKey,
@@ -26,8 +32,14 @@ import {
 } from './jobs/WeeklyReportQuestionEditor';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
+type WeekChoiceMode = 'this_week' | 'last_week' | 'custom';
 type FieldErrors = {
   periodStart?: string; staffUserIds?: string; questions?: string;
+};
+type ExistingReportNotice = {
+  jobCardId: string;
+  message: string;
+  hint: string;
 };
 /**
  * A frozen attempt. `single` is the STAFF self-create command; `bulk` is the
@@ -38,7 +50,15 @@ type CreateAttempt =
   | { kind: 'single'; input: WeeklyReportCreateInput }
   | { kind: 'bulk'; input: WeeklyReportBulkRequestInput };
 
-const MONDAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const CANCELLED_REPLACE_HINT =
+  'İptal edilmiş bir rapor varsa, yalnızca bir Admin kaldırdıktan sonra yerine yeni rapor oluşturulabilir.';
+
+function previewDueDate(periodStart: string, reference: WeeklyReportReference | null): string | null {
+  if (!reference) return null;
+  const mondayDeadline = addCalendarDays(periodStart, 7);
+  // WR-WEEK D9: max(periodEnd + 2, organization-local creation date).
+  return mondayDeadline < reference.today ? reference.today : mondayDeadline;
+}
 
 export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPeriodStart, initialStaffUserId }: {
   user: CurrentUser;
@@ -49,10 +69,9 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
 }) {
   const isStaff = user.role === 'STAFF';
   const [periodStart, setPeriodStart] = useState(initialPeriodStart ?? '');
+  const [weekMode, setWeekMode] = useState<WeekChoiceMode>(initialPeriodStart ? 'custom' : 'this_week');
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>(!isStaff && initialStaffUserId ? [initialStaffUserId] : []);
-  const [selectedPresetKeys, setSelectedPresetKeys] = useState<ReadonlySet<string>>(new Set());
   const [customQuestions, setCustomQuestions] = useState<CustomQuestionDraft[]>([]);
-  const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [instructions, setInstructions] = useState('');
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<LoadState>(isStaff ? 'ready' : 'loading');
@@ -61,15 +80,23 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [existingJobId, setExistingJobId] = useState<string | null>(null);
+  const [existingNotice, setExistingNotice] = useState<ExistingReportNotice | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [ambiguous, setAmbiguous] = useState(false);
   const [bulkResult, setBulkResult] = useState<WeeklyReportBulkResult | null>(null);
+  const periodStartRef = useRef(initialPeriodStart ?? '');
   const attemptRef = useRef<CreateAttempt | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const existingNoticeRef = useRef<HTMLDivElement>(null);
   const gate = useRef(createRequestGate());
   // Separate request gate: the canonical-week load and the staff list load are
   // independent reads and must not cancel each other.
   const referenceGate = useRef(createRequestGate());
+
+  function updatePeriodStart(next: string) {
+    periodStartRef.current = next;
+    setPeriodStart(next);
+  }
 
   async function loadReference() {
     const generation = referenceGate.current.next();
@@ -79,11 +106,23 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
       if (!referenceGate.current.isCurrent(generation)) return;
       setReference(canonical);
       setReferenceState('ready');
+      const lastWeekStart = addCalendarDays(canonical.periodStart, -7);
       // Prefill only when the user has not already picked a week.
-      setPeriodStart((current) => (current ? current : canonical.periodStart));
+      const currentPeriod = periodStartRef.current;
+      if (!currentPeriod) {
+        setWeekMode('this_week');
+        updatePeriodStart(canonical.periodStart);
+      } else if (currentPeriod === canonical.periodStart) {
+        setWeekMode('this_week');
+      } else if (currentPeriod === lastWeekStart) {
+        setWeekMode('last_week');
+      } else {
+        setWeekMode('custom');
+      }
     } catch {
       if (!referenceGate.current.isCurrent(generation)) return;
       setReferenceState('error');
+      setWeekMode('custom');
     }
   }
 
@@ -109,36 +148,33 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
 
   useEffect(() => () => { gate.current.next(); referenceGate.current.next(); }, []);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => { if (existingNotice) existingNoticeRef.current?.focus(); }, [existingNotice]);
   useEffect(() => {
     void loadReference();
   // Canonical default week is loaded once per mount from the organization calendar.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-
   // The server owns the bulk ceiling; this mirror only prevents an oversized
   // command from leaving the browser.
   const activeStaffCount = staff.length;
   const selectedCount = selectedStaffIds.length;
 
-  function togglePreset(key: string, checked: boolean) {
-    setSelectedPresetKeys((current) => {
-      const next = new Set(current);
-      if (checked) next.add(key); else next.delete(key);
-      return next;
-    });
+  function selectWeekMode(mode: WeekChoiceMode) {
+    setWeekMode(mode);
+    setExistingNotice(null);
+    setFieldErrors((current) => ({ ...current, periodStart: undefined }));
+    if (!reference) return;
+    if (mode === 'this_week') updatePeriodStart(reference.periodStart);
+    else if (mode === 'last_week') updatePeriodStart(addCalendarDays(reference.periodStart, -7));
   }
 
   function addCustomQuestion() {
     // The key is minted once at add-time against the keys already owned by
-    // this screen (preset semantics + existing rows) and never renumbered, so
-    // a frozen attempt replays the exact same question keys on an ambiguous
-    // retry.
+    // this screen and never renumbered, so a frozen attempt replays the exact
+    // same question keys on an ambiguous retry.
     setCustomQuestions((current) => {
-      const key = nextCustomQuestionKey([
-        ...WEEKLY_REPORT_PRESET_QUESTIONS.map((preset) => preset.key),
-        ...current.map((question) => question.key),
-      ]);
+      const key = nextCustomQuestionKey(current.map((question) => question.key));
       return [...current, { key, prompt: '' }];
     });
   }
@@ -160,6 +196,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
    * selected or silently choosing an arbitrary subset.
    */
   function selectAllStaff() {
+    setExistingNotice(null);
     if (activeStaffCount > MAX_BULK_TARGETS) {
       setFieldErrors((current) => ({
         ...current,
@@ -175,6 +212,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   }
 
   function clearStaffSelection() {
+    setExistingNotice(null);
     setSelectedStaffIds([]);
     setFieldErrors((current) => ({ ...current, staffUserIds: undefined }));
   }
@@ -186,6 +224,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
    * were not added.
    */
   function selectStaff(next: string[]) {
+    setExistingNotice(null);
     if (next.length > MAX_BULK_TARGETS) {
       setSelectedStaffIds(next.slice(0, MAX_BULK_TARGETS));
       setFieldErrors((current) => ({
@@ -200,15 +239,19 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
 
   function collectFieldErrors(): FieldErrors {
     const nextErrors: FieldErrors = {};
-    if (!MONDAY_PATTERN.test(periodStart)) nextErrors.periodStart = 'Rapor haftası (Pazartesi) seçin.';
+    if (!periodStart) {
+      nextErrors.periodStart = 'Rapor haftası (Pazartesi) seçin.';
+    } else if (!isMondayDateKey(periodStart)) {
+      nextErrors.periodStart = 'Rapor haftası bir Pazartesi günü başlamalıdır.';
+    }
     // selectedStaffIds can never exceed the ceiling (selectStaff caps it), so
     // the only remaining rule is the lower bound.
     if (!isStaff && selectedStaffIds.length === 0) {
       nextErrors.staffUserIds = 'Aktif bir sorumlu personel seçin.';
     }
-    const questions = collectManagerQuestions(selectedPresetKeys, customQuestions);
+    const questions = collectManagerQuestions(customQuestions);
     if (questions.length > 50) {
-      nextErrors.questions = `En fazla 50 yönetici sorusu eklenebilir.`;
+      nextErrors.questions = 'En fazla 50 yönetici sorusu eklenebilir.';
     }
     for (const question of customQuestions) {
       const prompt = question.prompt.trim();
@@ -219,18 +262,17 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   }
 
   /**
-   * The frozen question payload: selected presets (canonical order) plus
-   * non-empty custom questions (UI order), with stable semantic keys. The same
-   * ambiguous retry sends the exact same list because state, not the render,
-   * owns it.
+   * The frozen question payload: non-empty custom questions (UI order) with
+   * stable semantic keys. The same ambiguous retry sends the exact same list
+   * because state, not the render, owns it.
    */
   function managerQuestionPayload() {
-    const questions = collectManagerQuestions(selectedPresetKeys, customQuestions);
+    const questions = collectManagerQuestions(customQuestions);
     return questions.length > 0 ? { questions } : {};
   }
 
   async function sendAttempt(attempt: CreateAttempt) {
-    setPending(true); setError(''); setExistingJobId(null);
+    setPending(true); setError(''); setExistingJobId(null); setExistingNotice(null);
     try {
       if (attempt.kind === 'single') {
         const created = await createWeeklyReport(attempt.input);
@@ -240,10 +282,20 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
       }
       const result = await bulkRequestWeeklyReports(attempt.input);
       attemptRef.current = null; setAmbiguous(false);
-      // Exactly one target behaves like a single request: go straight to the
-      // canonical report. Many targets get an outcome summary instead of an
-      // arbitrary navigation.
-      if (result.items.length === 1) { onCreated(result.items[0]!.jobCardId); return; }
+      // WR-WEEK D8: navigate only when a single target was newly created.
+      if (result.items.length === 1) {
+        const item = result.items[0]!;
+        if (item.outcome === 'created') {
+          onCreated(item.jobCardId);
+          return;
+        }
+        setExistingNotice({
+          jobCardId: item.jobCardId,
+          message: 'Bu personelin bu hafta için raporu zaten var.',
+          hint: CANCELLED_REPLACE_HINT,
+        });
+        return;
+      }
       setBulkResult(result);
     } catch (caught) {
       const definitive = isDefinitiveMutationError(caught);
@@ -262,6 +314,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    setExistingNotice(null);
     if (ambiguous) { const attempt = attemptRef.current; if (attempt) await sendAttempt(attempt); return; }
     const nextErrors = collectFieldErrors();
     setFieldErrors(nextErrors);
@@ -273,12 +326,11 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
     const questionPayload = isStaff ? {} : managerQuestionPayload();
     const instructionPayload = trimmedInstructions ? { instructions: trimmedInstructions } : {};
     // Two distinct commands, two distinct payload shapes. No command carries a
-    // client due date: the server derives the canonical next-Monday deadline.
+    // client due date: the server derives the canonical Monday (or max(Monday, today)) deadline.
     const attempt: CreateAttempt = isStaff
       ? { kind: 'single', input: {
           // STAFF self-create: no command carries a dueDate — the deadline is
-          // server-canonical (periodEnd + 1) and the request shapes do not
-          // even accept one (also: never questions on a self-create).
+          // server-canonical and the request shape does not accept one.
           clientActionId: crypto.randomUUID(), periodStart, ...questionPayload, ...instructionPayload,
         } }
       : { kind: 'bulk', input: {
@@ -293,11 +345,23 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
   }
 
   const staffUnavailable = !isStaff && staffState !== 'ready';
+  const referenceLoadingWithoutPeriod = referenceState === 'loading' && !periodStart;
+  const showDateInput = referenceState === 'error'
+    || (weekMode === 'custom' && (referenceState === 'ready' || Boolean(initialPeriodStart)));
+  const validMondaySelected = isMondayDateKey(periodStart);
+  const previewSaturday = validMondaySelected ? addCalendarDays(periodStart, 5) : null;
+  const previewDeadline = validMondaySelected ? previewDueDate(periodStart, reference) : null;
 
   if (bulkResult) {
     const nameById = new Map(staff.map((profile) => [profile.user.id, profile.user.name]));
     const created = bulkResult.items.filter((item) => item.outcome === 'created').length;
     const existing = bulkResult.items.length - created;
+    const periodLabel = formatCalendarRange(bulkResult.periodStart, bulkResult.periodEnd);
+    const summarySentence = existing === 0
+      ? `Seçilen ${created} personel için ayrı haftalık rapor oluşturuldu.`
+      : created === 0
+        ? `Seçilen ${existing} personel için bu haftaya ait rapor zaten mevcut.`
+        : `${created} yeni rapor oluşturuldu, ${existing} personel için mevcut rapor korundu.`;
     return <main className="task-create">
       <PageHeader eyebrow="Sonuç" description="Haftalık rapor" fallbackTitle="Yeni iş" />
       <section className="task-form" aria-labelledby="weekly-bulk-result-title">
@@ -310,18 +374,25 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
           <span id="weekly-bulk-existing">{existing} zaten mevcuttu</span>
         </p>
         <p className="form-help">
-          Her personel için ayrı bir haftalık rapor oluşturuldu. Rapor haftası: {bulkResult.periodStart} – {bulkResult.periodEnd}.
+          {summarySentence} Rapor haftası: {periodLabel}.
         </p>
-        <ul className="activity-list" id="weekly-bulk-result-items">
+        {existing > 0 && (
+          <p className="form-help">{CANCELLED_REPLACE_HINT}</p>
+        )}
+        <ul className="activity-list weekly-bulk-result-list" id="weekly-bulk-result-items">
           {bulkResult.items.map((item) => (
-            <li key={item.jobCardId}>
+            <li key={item.jobCardId} className="weekly-bulk-result-row">
               <span className="bulk-result-name">
                 {nameById.get(item.staffUserId) ?? item.staffUserId}
               </span>
-              <span className="bulk-result-outcome">
+              <span
+                className={item.outcome === 'created'
+                  ? 'bulk-result-outcome bulk-result-outcome--created'
+                  : 'bulk-result-outcome bulk-result-outcome--existing'}
+              >
                 {item.outcome === 'created' ? 'Oluşturuldu' : 'Zaten mevcut'}
               </span>
-              <a href={`/jobs/${encodeURIComponent(item.jobCardId)}`}>Raporu aç</a>
+              <a className="secondary-button weekly-bulk-result-link" href={paths.job(item.jobCardId)}>Raporu aç</a>
             </li>
           ))}
         </ul>
@@ -332,22 +403,114 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
     </main>;
   }
 
+  const thisWeekStart = reference?.periodStart ?? null;
+  const thisWeekLabel = thisWeekStart
+    ? `Bu hafta · ${formatCalendarRange(thisWeekStart, addCalendarDays(thisWeekStart, 5), { includeYear: false })}`
+    : 'Bu hafta';
+  const lastWeekStart = thisWeekStart ? addCalendarDays(thisWeekStart, -7) : null;
+  const lastWeekLabel = lastWeekStart
+    ? `Geçen hafta · ${formatCalendarRange(lastWeekStart, addCalendarDays(lastWeekStart, 5), { includeYear: false })}`
+    : 'Geçen hafta';
+
   return <main className="task-create">
     <PageHeader eyebrow="Yeni kayıt" description="Haftalık rapor" fallbackTitle="Yeni iş" />
     <p className="form-intro">{isStaff
-      ? 'Kendi haftalık raporunuz için bir istek oluşturun. Rapor haftası Pazartesi başlar; teslim son tarihi dönemi izleyen Pazartesi günüdür.'
-      : `Seçilen her personel için ayrı bir haftalık rapor isteği oluşturun (en fazla ${MAX_BULK_TARGETS} personel). Rapor haftası Pazartesi başlar; teslim son tarihi dönemi izleyen Pazartesi günüdür.`}</p>
+      ? 'Kendi haftalık raporunuz için bir istek oluşturun. Rapor haftası Pazartesi–Cumartesi çalışma haftasını kapsar; teslim son tarihi dönemi izleyen Pazartesi günüdür.'
+      : `Seçilen her personel için ayrı bir haftalık rapor isteği oluşturun (en fazla ${MAX_BULK_TARGETS} personel). Rapor haftası Pazartesi–Cumartesi çalışma haftasını kapsar; teslim son tarihi dönemi izleyen Pazartesi günüdür.`}</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>
       {error}
-      {existingJobId && <>{' '}<a href={`/jobs/${encodeURIComponent(existingJobId)}`}>Mevcut rapora git</a></>}
+      {existingJobId && <>
+        {' '}
+        <a className="weekly-existing-error-link" href={paths.job(existingJobId)}>Mevcut rapora git</a>
+        {' '}
+        <span className="weekly-existing-hint">{CANCELLED_REPLACE_HINT}</span>
+      </>}
     </div>}
+    {existingNotice && (
+      <div
+        className="weekly-existing-notice"
+        id="weekly-existing-notice"
+        role="status"
+        tabIndex={-1}
+        ref={existingNoticeRef}
+      >
+        <p className="weekly-existing-notice-message">
+          <span className="weekly-existing-notice-icon" aria-hidden="true">!</span>
+          <span>{existingNotice.message}</span>
+        </p>
+        <p className="weekly-existing-notice-hint">{existingNotice.hint}</p>
+        <div className="weekly-existing-notice-actions">
+          <a className="secondary-button weekly-existing-notice-link" href={paths.job(existingNotice.jobCardId)}>
+            Mevcut rapora git
+          </a>
+        </div>
+      </div>
+    )}
     <form className="task-form" onSubmit={submit} noValidate>
       <fieldset disabled={pending || ambiguous}>
-        <div className="field-group">
-          <label htmlFor="weekly-period">Rapor haftası (Pazartesi)</label>
-          <input id="weekly-period" name="periodStart" type="date" required value={periodStart}
-            aria-invalid={fieldErrors.periodStart ? true : undefined}
-            onChange={(event) => setPeriodStart(event.target.value)} />
+        {referenceState === 'ready' && reference && (
+          <fieldset className="weekly-period-choice-group" aria-label="Rapor haftası seçimi">
+            <legend>Rapor haftası</legend>
+            <div className="weekly-period-choices">
+              <label className="weekly-period-choice">
+                <input
+                  type="radio"
+                  name="weeklyPeriodChoice"
+                  value="this_week"
+                  checked={weekMode === 'this_week'}
+                  onChange={() => selectWeekMode('this_week')}
+                />
+                <span>{thisWeekLabel}</span>
+              </label>
+              <label className="weekly-period-choice">
+                <input
+                  type="radio"
+                  name="weeklyPeriodChoice"
+                  value="last_week"
+                  checked={weekMode === 'last_week'}
+                  onChange={() => selectWeekMode('last_week')}
+                />
+                <span>{lastWeekLabel}</span>
+              </label>
+              <label className="weekly-period-choice">
+                <input
+                  type="radio"
+                  name="weeklyPeriodChoice"
+                  value="custom"
+                  checked={weekMode === 'custom'}
+                  onChange={() => selectWeekMode('custom')}
+                />
+                <span>Başka hafta</span>
+              </label>
+            </div>
+          </fieldset>
+        )}
+        {showDateInput && (
+          <div className="field-group">
+            <label htmlFor="weekly-period">Rapor haftası başlangıcı (Pazartesi)</label>
+            <input
+              id="weekly-period"
+              name="periodStart"
+              type="date"
+              required
+              value={periodStart}
+              aria-invalid={fieldErrors.periodStart ? true : undefined}
+              onChange={(event) => {
+                setExistingNotice(null);
+                updatePeriodStart(event.target.value);
+                setFieldErrors((current) => ({ ...current, periodStart: undefined }));
+              }}
+            />
+          </div>
+        )}
+        <div className="weekly-period-meta">
+          {validMondaySelected && previewSaturday && (
+            <p className="weekly-period-preview" id="weekly-period-preview" role="status">
+              {previewDeadline
+                ? `Dönem ${formatCalendarRange(periodStart, previewSaturday)} · Son teslim ${formatCalendarDayWithWeekday(previewDeadline)}`
+                : `Dönem ${formatCalendarRange(periodStart, previewSaturday)} · Son teslim tarihi sunucuda belirlenir`}
+            </p>
+          )}
           {referenceState === 'loading' && <span className="field-status" role="status">Rapor haftası organizasyon takviminden yükleniyor…</span>}
           {referenceState === 'ready' && reference && <span className="field-status" role="status">
             Varsayılan hafta organizasyon takvimine göre belirlendi ({reference.timezone}).
@@ -398,13 +561,11 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
         {!isStaff && <WeeklyReportQuestionEditor
           idPrefix="weekly"
           locked={pending || ambiguous}
-          selectedPresetKeys={selectedPresetKeys}
-          onTogglePreset={togglePreset}
           customQuestions={customQuestions}
           onChangeCustomPrompt={changeCustomPrompt}
           onAddCustom={addCustomQuestion}
           onRemoveCustom={removeCustomQuestion}
-          helpText="Seçili sorular her personel için ayrı ayrı dondurulur."
+          helpText="Eklenen sorular her personel için ayrı ayrı dondurulur."
           error={fieldErrors.questions}
         />}
         <div className="field-group">
@@ -417,7 +578,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
         <button className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
         {ambiguous && <button className="secondary-button" type="button" disabled={pending}
           onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>}
-        <button className="primary-button" type="submit" disabled={pending || ambiguous || staffUnavailable}>
+        <button className="primary-button" type="submit" disabled={pending || ambiguous || staffUnavailable || referenceLoadingWithoutPeriod}>
           {pending
             ? 'Rapor isteği gönderiliyor…'
             : isStaff ? 'Raporu oluştur' : 'Rapor isteklerini oluştur'}

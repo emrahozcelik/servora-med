@@ -135,6 +135,17 @@ function shiftMs(base: Date, ms: number): Date {
   return new Date(base.getTime() + ms);
 }
 
+/**
+ * The organization-local (Europe/Istanbul) calendar date of an instant. The
+ * tests derive a due date's local end as `${date}T21:00:00.000Z`, which is only
+ * true for the Istanbul date; the UTC date differs between 21:00 and 24:00 UTC.
+ */
+function istanbulDate(instant: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(instant);
+}
+
 // Mixed lifecycle/patch flows: patch/create paths run on the injected
 // clock while lifecycle paths run on the DB reservation clock. Refresh the
 // injected clock after lifecycle commands so a patch requestTime never
@@ -196,7 +207,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
   it('migration 067 is the schema head with 050 present', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('067_overdue_delivery_identity_per_incident');
+      expect(catalog.head?.version).toBe('072_sale_submit_without_start');
       // The 049 lifecycle-intent prerequisite stays applied beneath OVR-3.
       expect(catalog.entries.map((entry) => entry.version))
         .toContain('049_job_card_lifecycle_intents');
@@ -204,7 +215,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.map((row) => row.version).at(-1))
-        .toBe('067_overdue_delivery_identity_per_incident');
+        .toBe('072_sale_submit_without_start');
     });
   });
 
@@ -284,7 +295,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
       const service = buildService(pool, clock);
-      const dueDate = shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const dueDate = istanbulDate(shiftMs(baseline, -3 * 24 * 60 * 60_000));
 
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
@@ -801,7 +812,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         contactId: null,
         assignedTo: staffA.id,
         priority: 'normal',
-        dueDate: shiftMs(baseline, 3 * 24 * 60 * 60_000).toISOString().slice(0, 10),
+        dueDate: istanbulDate(shiftMs(baseline, 3 * 24 * 60 * 60_000)),
         scheduledAt: null,
         scheduledEndsAt: undefined,
         engagementKind: undefined,
@@ -1166,6 +1177,595 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         accountable_user_id: staffAId,
         recovered_at: reservedStart,
         recovery_actor_user_id: staffAId,
+        // OVR-2: a recovered row is already closed; invalidation never
+        // rewrites it into an ending.
+        ended_at: null,
+        ended_by_user_id: null,
+        end_reason: null,
+        ended_by_schedule_revision_no: null,
+      });
+    });
+  });
+
+  it('invalidation ends every open delay type from every source status and preserves facts', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Closure', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'OVR2 Admin');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'OVR2 Personel');
+      const admin: JobCardActor = { id: adminId, organizationId, role: 'ADMIN' };
+      const invalidateAt = new Date('2026-08-04T09:00:00.000Z');
+      const clock = { now: invalidateAt };
+      const service = buildService(pool, clock);
+      const base = new Date('2026-08-03T06:00:00.000Z');
+      const statuses = [
+        'NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED',
+        'WAITING_APPROVAL', 'COMPLETED', 'CANCELLED',
+      ] as const;
+
+      for (const status of statuses) {
+        const needsAccept = status !== 'NEW';
+        const needsStart = [
+          'IN_PROGRESS', 'REVISION_REQUESTED', 'WAITING_APPROVAL', 'COMPLETED',
+        ].includes(status);
+        const needsStaffCompletion = [
+          'REVISION_REQUESTED', 'WAITING_APPROVAL', 'COMPLETED',
+        ].includes(status);
+        const needsApproval = status === 'COMPLETED';
+        const needsCancellation = status === 'CANCELLED';
+        const jobId = (await pool.query<{ id: string }>(
+          `INSERT INTO job_cards
+             (organization_id, type, status, title, assigned_to, created_by,
+              accepted_at, accepted_by, started_at,
+              staff_completed_at, staff_completed_by,
+              revision_requested_at, revision_requested_by, revision_reason,
+              manager_approved_at, manager_approved_by,
+              cancelled_at, cancelled_by, cancel_reason,
+              scheduled_at, scheduled_ends_at)
+           VALUES ($1, 'PRODUCT_DELIVERY', $2, $3, $4, $4,
+                   $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                   $15, $16, $17, $18, $19)
+           RETURNING id`,
+          [
+            organizationId, status, `Invalidate ${status}`, staffId,
+            needsAccept ? base : null, needsAccept ? staffId : null,
+            needsStart ? new Date(base.getTime() - 3_600_000) : null,
+            needsStaffCompletion ? new Date(base.getTime() - 1_800_000) : null,
+            needsStaffCompletion ? staffId : null,
+            status === 'REVISION_REQUESTED' ? new Date(base.getTime() - 1_800_000) : null,
+            status === 'REVISION_REQUESTED' ? staffId : null,
+            status === 'REVISION_REQUESTED' ? 'Düzeltme gerekli.' : null,
+            needsApproval ? new Date(base.getTime() - 600_000) : null,
+            needsApproval ? adminId : null,
+            needsCancellation ? new Date(base.getTime() - 600_000) : null,
+            needsCancellation ? adminId : null,
+            needsCancellation ? 'Test iptali.' : null,
+            new Date(base.getTime() - 3_600_000), base,
+          ],
+        )).rows[0]!.id;
+        await pool.query(
+          `INSERT INTO job_card_schedule_revisions
+             (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+              organization_timezone, source, created_by, created_at)
+           VALUES ($1, $2, 1, $3, $4, 'Europe/Istanbul', 'BASELINE', $5, $6)`,
+          [organizationId, jobId, new Date(base.getTime() - 3_600_000), base,
+            staffId, new Date(base.getTime() - 7_200_000)],
+        );
+        // Direct fixtures intentionally place every delay type on every source
+        // status: invalidation must end whatever open row survived into that
+        // status (legacy history or a producer race), not only the delay type
+        // the current status would normally materialize.
+        for (const delayType of ['LATE_START', 'LATE_SUBMISSION', 'APPROVAL_WAIT']) {
+          await pool.query(
+            `INSERT INTO job_card_overdue_incidents
+               (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+                deadline_at, breached_at, accountable_user_id, accountable_role,
+                accountable_source, source)
+             VALUES ($1, $2, $3, 1, 1, $4, $4, $5, 'STAFF',
+                     'ASSIGNMENT_AT_BREACH', 'SCANNER')`,
+            [organizationId, jobId, delayType, base, staffId],
+          );
+        }
+
+        const invalidated = await service.invalidate(admin, jobId, {
+          clientActionId: randomUUID(),
+          expectedVersion: 1,
+          reasonCode: 'DUPLICATE',
+          note: null,
+        } as never);
+        expect(invalidated.status).toBe('INVALIDATED');
+        // The detail flag reads the same open pair; the closure must clear it.
+        expect(invalidated.hasOpenOverdueIncident).toBe(false);
+
+        const rows = await selectIncidents(pool, organizationId, jobId);
+        expect(rows).toHaveLength(3);
+        for (const row of rows) {
+          expect(row).toMatchObject({
+            deadline_at: base,
+            breached_at: base,
+            accountable_user_id: staffId,
+            accountable_role: 'STAFF',
+            accountable_source: 'ASSIGNMENT_AT_BREACH',
+            source: 'SCANNER',
+            recovered_at: null,
+            recovery_actor_user_id: null,
+            ended_at: invalidateAt,
+            ended_by_user_id: adminId,
+            end_reason: 'CARD_INVALIDATED',
+            end_note: null,
+            ended_by_schedule_revision_no: null,
+          });
+        }
+
+        const history = await service.listOverdueIncidents(
+          admin, jobId, { limit: 25, offset: 0 },
+        );
+        expect(history.total).toBe(3);
+        for (const item of history.items) {
+          expect(item).toMatchObject({
+            endReason: 'CARD_INVALIDATED',
+            endedAt: invalidateAt.toISOString(),
+            endedBy: { id: adminId, name: 'OVR2 Admin' },
+            endedByScheduleRevisionNo: null,
+            endNote: null,
+            recoveredAt: null,
+            recoveryActor: null,
+            totalDelaySeconds: null,
+            endedDurationSeconds: Math.floor(
+              (invalidateAt.getTime() - base.getTime()) / 1000,
+            ),
+          });
+        }
+        // A closed obligation is no longer a running lateness: the per-job
+        // snapshot and the manager list must both stay empty.
+        expect((await service.getSubmissionLateness(admin, jobId)).open).toBeNull();
+      }
+
+      const openList = await service.listOpenSubmissionLate(admin, { limit: 50, offset: 0 });
+      expect(openList.total).toBe(0);
+      expect(openList.items).toHaveLength(0);
+    });
+  });
+
+  it('invalidation closure replays idempotently without double-ending or moving timestamps', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Replay', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'OVR2 Admin');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'OVR2 Personel');
+      const admin: JobCardActor = { id: adminId, organizationId, role: 'ADMIN' };
+      const invalidateAt = new Date('2026-08-04T10:00:00.000Z');
+      const clock = { now: invalidateAt };
+      const service = buildService(pool, clock);
+      const jobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, assigned_to, created_by,
+            accepted_at, accepted_by, started_at, scheduled_at, scheduled_ends_at)
+         VALUES ($1, 'PRODUCT_DELIVERY', 'IN_PROGRESS', 'Replay işi', $2, $2,
+                 '2026-08-03T06:00:00.000Z', $2, '2026-08-03T06:10:00.000Z',
+                 '2026-08-03T06:00:00.000Z', '2026-08-03T06:30:00.000Z')
+         RETURNING id`,
+        [organizationId, staffId],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_schedule_revisions
+           (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+            organization_timezone, source, created_by, created_at)
+         VALUES ($1, $2, 1, '2026-08-03T06:00:00.000Z', '2026-08-03T06:30:00.000Z',
+                 'Europe/Istanbul', 'BASELINE', $3, '2026-08-03T05:00:00.000Z')`,
+        [organizationId, jobId, staffId],
+      );
+      await pool.query(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_user_id, accountable_role,
+            accountable_source, source)
+         VALUES ($1, $2, 'LATE_SUBMISSION', 1, 1, '2026-08-03T06:30:00.001Z',
+                 '2026-08-03T06:30:00.001Z', $3, 'STAFF',
+                 'ASSIGNMENT_AT_BREACH', 'SCANNER')`,
+        [organizationId, jobId, staffId],
+      );
+      const input = {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+        reasonCode: 'DUPLICATE' as const,
+        note: null,
+      };
+      const first = await service.invalidate(admin, jobId, input);
+      const firstRows = await selectIncidents(pool, organizationId, jobId);
+      expect(firstRows[0]).toMatchObject({
+        ended_at: invalidateAt, ended_by_user_id: adminId, end_reason: 'CARD_INVALIDATED',
+      });
+
+      // Same client action identity: the stored receipt comes back, no second
+      // ending and no moved timestamp.
+      const replay = await service.invalidate(admin, jobId, input);
+      expect(replay.invalidatedAt).toBe(first.invalidatedAt);
+      const replayedRows = await selectIncidents(pool, organizationId, jobId);
+      expect(replayedRows).toHaveLength(1);
+      expect(replayedRows[0]).toMatchObject({
+        ended_at: invalidateAt,
+        ended_by_user_id: adminId,
+        end_reason: 'CARD_INVALIDATED',
+        recovered_at: null,
+      });
+
+      // A new deliberate action on an already invalidated card is rejected; it
+      // never appends a second closure.
+      await expect(service.invalidate(admin, jobId, {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+        reasonCode: 'OTHER',
+        note: 'İkinci deneme',
+      } as never)).rejects.toMatchObject({ code: 'JOB_ALREADY_INVALIDATED' });
+      expect(await selectIncidents(pool, organizationId, jobId)).toHaveLength(1);
+    });
+  });
+
+  it('invalidation ends only the still-open rows, never materializes one and keeps the ledger count', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone) VALUES ('OVR2 OnlyOpen', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'OVR2 Admin');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'OVR2 Personel');
+      const admin: JobCardActor = { id: adminId, organizationId, role: 'ADMIN' };
+      const clock = { now: new Date('2026-08-04T11:00:00.000Z') };
+      const service = buildService(pool, clock);
+      const base = new Date('2026-08-03T06:00:00.000Z');
+      const jobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, assigned_to, created_by,
+            accepted_at, accepted_by, started_at, staff_completed_at,
+            staff_completed_by, scheduled_at, scheduled_ends_at)
+         VALUES ($1, 'PRODUCT_DELIVERY', 'WAITING_APPROVAL', 'Karma geçmiş', $2, $2,
+                 $3, $2, $4, $5, $2, $3, $6)
+         RETURNING id`,
+        [organizationId, staffId, base, new Date(base.getTime() - 3_600_000),
+          new Date(base.getTime() - 1_800_000), new Date(base.getTime() + 1_800_000)],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_schedule_revisions
+           (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+            organization_timezone, source, created_by, created_at)
+         VALUES ($1, $2, 1, $3, $4, 'Europe/Istanbul', 'BASELINE', $5, $6)`,
+        [organizationId, jobId, new Date(base.getTime() - 3_600_000),
+          new Date(base.getTime() + 1_800_000), staffId, new Date(base.getTime() - 7_200_000)],
+      );
+      // One recovered row, one ended row (OVR-5 extension) and one open row.
+      await pool.query(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_user_id, accountable_role,
+            accountable_source, source, recovered_at, recovery_actor_user_id)
+         VALUES ($1, $2, 'LATE_START', 1, 1, $3, $3, $4, 'STAFF',
+                 'ASSIGNMENT_AT_BREACH', 'SCANNER', $5, $4)`,
+        [organizationId, jobId, base, staffId, new Date(base.getTime() + 60_000)],
+      );
+      await pool.query(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_user_id, accountable_role,
+            accountable_source, source, ended_at, ended_by_user_id, end_reason,
+            end_note, ended_by_schedule_revision_no)
+         VALUES ($1, $2, 'LATE_SUBMISSION', 1, 1, $3, $3, $4, 'STAFF',
+                 'ASSIGNMENT_AT_BREACH', 'SCANNER', $5, $6, 'DEADLINE_EXTENDED',
+                 'Tarih yönetimce güncellendi.', 1)`,
+        [organizationId, jobId, new Date(base.getTime() + 1),
+          staffId, new Date(base.getTime() + 120_000), adminId],
+      );
+      await pool.query(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_role, accountable_source, source)
+         VALUES ($1, $2, 'APPROVAL_WAIT', 1, 1, $3, $3, 'MANAGEMENT', 'ROLE_POLICY',
+                 'SCANNER')`,
+        [organizationId, jobId, new Date(base.getTime() + 1_800_000)],
+      );
+      const before = await selectIncidents(pool, organizationId, jobId);
+      expect(before).toHaveLength(3);
+
+      await service.invalidate(admin, jobId, {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+        reasonCode: 'WRONG_CUSTOMER',
+        note: null,
+      } as never);
+
+      const after = await selectIncidents(pool, organizationId, jobId);
+      expect(after).toHaveLength(3);
+      const byType = new Map(after.map((row) => [row.delay_type as string, row]));
+      expect(byType.get('LATE_START')).toMatchObject({
+        recovered_at: new Date(base.getTime() + 60_000),
+        recovery_actor_user_id: staffId,
+        ended_at: null,
+        end_reason: null,
+      });
+      expect(byType.get('LATE_SUBMISSION')).toMatchObject({
+        recovered_at: null,
+        ended_at: new Date(base.getTime() + 120_000),
+        ended_by_user_id: adminId,
+        end_reason: 'DEADLINE_EXTENDED',
+        end_note: 'Tarih yönetimce güncellendi.',
+        ended_by_schedule_revision_no: 1,
+      });
+      expect(byType.get('APPROVAL_WAIT')).toMatchObject({
+        recovered_at: null,
+        ended_at: clock.now,
+        ended_by_user_id: adminId,
+        end_reason: 'CARD_INVALIDATED',
+        ended_by_schedule_revision_no: null,
+      });
+
+      // The existing JOB_INVALIDATED ledger row carries the closure count; no
+      // new event type is invented for the administrative closure.
+      const activity = (await pool.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM job_card_activity_logs
+          WHERE organization_id = $1 AND job_card_id = $2 AND event_type = 'JOB_INVALIDATED'
+          ORDER BY created_at DESC LIMIT 1`,
+        [organizationId, jobId],
+      )).rows[0]!;
+      expect(activity.metadata).toMatchObject({ closedOverdueIncidents: 1 });
+
+      // A card without incidents gains none: closure never materializes one.
+      const emptyJobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (organization_id, type, status, title, assigned_to, created_by)
+         VALUES ($1, 'GENERAL_TASK', 'NEW', 'Gecikmesiz iş', $2, $2) RETURNING id`,
+        [organizationId, staffId],
+      )).rows[0]!.id;
+      clock.now = new Date('2026-08-04T11:30:00.000Z');
+      await service.invalidate(admin, emptyJobId, {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+        reasonCode: 'CREATED_BY_MISTAKE',
+        note: null,
+      } as never);
+      expect(await selectIncidents(pool, organizationId, emptyJobId)).toHaveLength(0);
+      const emptyActivity = (await pool.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM job_card_activity_logs
+          WHERE organization_id = $1 AND job_card_id = $2 AND event_type = 'JOB_INVALIDATED'
+          ORDER BY created_at DESC LIMIT 1`,
+        [organizationId, emptyJobId],
+      )).rows[0]!;
+      expect(emptyActivity.metadata).toMatchObject({ closedOverdueIncidents: 0 });
+    });
+  });
+
+  it('invalidation never backfills or mutates a card invalidated before the closure rule', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Legacy', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'OVR2 Admin');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'OVR2 Personel');
+      const admin: JobCardActor = { id: adminId, organizationId, role: 'ADMIN' };
+      const service = buildService(pool, { now: new Date('2026-08-04T12:00:00.000Z') });
+      // Historical shape: the card was invalidated before this rule and its
+      // open incident was never backfilled. No command may rewrite it.
+      const jobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, assigned_to, created_by,
+            invalidated_at, invalidated_by, invalidation_reason_code)
+         VALUES ($1, 'GENERAL_TASK', 'INVALIDATED', 'Eski geçersiz iş', $2, $2,
+                 '2026-07-01T09:00:00.000Z', $3, 'DUPLICATE')
+         RETURNING id`,
+        [organizationId, staffId, adminId],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_schedule_revisions
+           (organization_id, job_card_id, revision_no, organization_timezone,
+            source, created_by, created_at)
+         VALUES ($1, $2, 1, 'Europe/Istanbul', 'BASELINE', $3, '2026-07-01T08:00:00.000Z')`,
+        [organizationId, jobId, staffId],
+      );
+      await pool.query(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_user_id, accountable_role,
+            accountable_source, source)
+         VALUES ($1, $2, 'LATE_SUBMISSION', 1, 1, '2026-06-30T07:30:00.001Z',
+                 '2026-06-30T07:30:00.001Z', $3, 'STAFF',
+                 'ASSIGNMENT_AT_BREACH', 'SCANNER')`,
+        [organizationId, jobId, staffId],
+      );
+
+      await expect(service.invalidate(admin, jobId, {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+        reasonCode: 'OTHER',
+        note: 'Tekrar deneme',
+      } as never)).rejects.toMatchObject({ code: 'JOB_ALREADY_INVALIDATED' });
+
+      const rows = await selectIncidents(pool, organizationId, jobId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        recovered_at: null,
+        recovery_actor_user_id: null,
+        ended_at: null,
+        ended_by_user_id: null,
+        end_reason: null,
+      });
+    });
+  });
+
+  it('manual LATE_SUBMISSION reminder metrics never attach to an APPROVAL_WAIT episode', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('OVR4 Attribution', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR4 Manager');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'OVR4 Personel');
+      const manager: JobCardActor = { id: managerId, organizationId, role: 'MANAGER' };
+      // Read-model state after a late START followed by a late SUBMIT: the
+      // submission episode 1 breach is recovered by the submit, the approval
+      // wait episode 1 is still open, and the manager's reminder belongs to
+      // the submission episode only.
+      const acceptedAt = new Date('2026-08-03T07:00:00.000Z');
+      const scheduledEndsAt = new Date('2026-08-03T07:30:00.000Z');
+      const startedAt = new Date('2026-08-03T07:40:00.000Z');
+      const reminderSentAt = new Date('2026-08-03T07:50:00.000Z');
+      const submittedAt = new Date('2026-08-03T08:00:00.000Z');
+      const jobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, assigned_to, created_by,
+            accepted_at, accepted_by, started_at, staff_completed_at, staff_completed_by,
+            scheduled_at, scheduled_ends_at)
+         VALUES ($1, 'PRODUCT_DELIVERY', 'WAITING_APPROVAL', 'Gecikmeli teslim',
+                 $2, $2, $3, $2, $4, $5, $2, $3, $6)
+         RETURNING id`,
+        [organizationId, staffId, acceptedAt, startedAt, submittedAt, scheduledEndsAt],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_schedule_revisions
+           (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+            organization_timezone, source, created_by, created_at)
+         VALUES ($1, $2, 1, $3, $4, 'Europe/Istanbul', 'BASELINE', $5, $6)`,
+        [organizationId, jobId, acceptedAt, scheduledEndsAt, staffId, acceptedAt],
+      );
+      const submissionIncidentId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_user_id, accountable_role,
+            accountable_source, source, recovered_at, recovery_actor_user_id)
+         VALUES ($1, $2, 'LATE_SUBMISSION', 1, 1, $3, $3, $4, 'STAFF',
+                 'ASSIGNMENT_AT_BREACH', 'SCANNER', $5, $4)
+         RETURNING id`,
+        [organizationId, jobId,
+          new Date(scheduledEndsAt.getTime() + 1), staffId, submittedAt],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_role, accountable_source, source)
+         VALUES ($1, $2, 'APPROVAL_WAIT', 1, 1, $3, $3, 'MANAGEMENT', 'ROLE_POLICY',
+                 'SCANNER')`,
+        [organizationId, jobId, new Date(submittedAt.getTime() + 86_400_000)],
+      );
+      await pool.query(
+        `INSERT INTO job_card_submission_reminders
+           (organization_id, job_card_id, incident_id, episode_no, schedule_revision_no,
+            manager_user_id, target_staff_user_id, sent_at, client_action_id, operation_key)
+         VALUES ($1, $2, $3, 1, 1, $4, $5, $6, $7, 'JOB_SUBMISSION_REMINDER')`,
+        [organizationId, jobId, submissionIncidentId, managerId, staffId,
+          reminderSentAt, randomUUID()],
+      );
+
+      const clock = { now: submittedAt };
+      const service = buildService(pool, clock);
+      const page = await service.listOverdueIncidents(manager, jobId, { limit: 25, offset: 0 });
+      expect(page.total).toBe(2);
+      const submission = page.items.find((item) => item.delayType === 'LATE_SUBMISSION');
+      const approvalWait = page.items.find((item) => item.delayType === 'APPROVAL_WAIT');
+      expect(submission).toMatchObject({
+        manualReminderSentAt: reminderSentAt.toISOString(),
+        manualReminderCount: 1,
+        postReminderDelaySeconds: 600,
+      });
+      expect(approvalWait).toMatchObject({
+        manualReminderSentAt: null,
+        manualReminderCount: 0,
+        postReminderDelaySeconds: null,
+      });
+    });
+  });
+
+  it('a second incident of the same episode after an extension keeps its own reminder statistics', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('OVR4 Revisions', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR4 Manager');
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'OVR4 Admin');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'OVR4 Personel');
+      const manager: JobCardActor = { id: managerId, organizationId, role: 'MANAGER' };
+      const base = new Date('2026-08-03T06:00:00.000Z');
+      const jobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, assigned_to, created_by,
+            accepted_at, accepted_by, started_at, staff_completed_at, staff_completed_by,
+            revision_requested_at, revision_requested_by, revision_reason,
+            scheduled_at, scheduled_ends_at)
+         VALUES ($1, 'PRODUCT_DELIVERY', 'REVISION_REQUESTED', 'İki revizyon',
+                 $2, $2, $3, $2, $3, $4, $2, $4, $2, 'Düzeltme gerekli.', $3, $5)
+         RETURNING id`,
+        [organizationId, staffId, base, new Date(base.getTime() + 600_000),
+          new Date(base.getTime() + 3_600_000)],
+      )).rows[0]!.id;
+      for (const revisionNo of [1, 2]) {
+        await pool.query(
+          `INSERT INTO job_card_schedule_revisions
+             (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+              organization_timezone, source, created_by, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'Europe/Istanbul', 'BASELINE', $6, $7)`,
+          [organizationId, jobId, revisionNo, base,
+            new Date(base.getTime() + 3_600_000), staffId,
+            new Date(base.getTime() - 3_600_000 + revisionNo * 60_000)],
+        );
+      }
+      // Cycle 1: episode 1 revision 1, ended by an authorized extension.
+      const endedIncidentId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_user_id, accountable_role,
+            accountable_source, source, ended_at, ended_by_user_id, end_reason,
+            end_note, ended_by_schedule_revision_no)
+         VALUES ($1, $2, 'LATE_SUBMISSION', 1, 1, $3, $3, $4, 'STAFF',
+                 'ASSIGNMENT_AT_BREACH', 'SCANNER', $5, $6, 'DEADLINE_EXTENDED',
+                 'Düzeltme süresi verildi.', 2)
+         RETURNING id`,
+        [organizationId, jobId, new Date(base.getTime() + 1), staffId,
+          new Date(base.getTime() + 7_200_000), adminId],
+      )).rows[0]!.id;
+      // Cycle 2: the same episode's next revision, still open.
+      const openIncidentId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_overdue_incidents
+           (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+            deadline_at, breached_at, accountable_user_id, accountable_role,
+            accountable_source, source)
+         VALUES ($1, $2, 'LATE_SUBMISSION', 1, 2, $3, $3, $4, 'STAFF',
+                 'ASSIGNMENT_AT_BREACH', 'SCANNER')
+         RETURNING id`,
+        [organizationId, jobId, new Date(base.getTime() + 1), staffId],
+      )).rows[0]!.id;
+      const firstReminderAt = new Date(base.getTime() + 600_000);
+      const secondReminderAt = new Date(base.getTime() + 3_600_000);
+      for (const [incidentId, sentAt] of [
+        [endedIncidentId, firstReminderAt],
+        [openIncidentId, secondReminderAt],
+      ] as const) {
+        await pool.query(
+          `INSERT INTO job_card_submission_reminders
+             (organization_id, job_card_id, incident_id, episode_no, schedule_revision_no,
+              manager_user_id, target_staff_user_id, sent_at, client_action_id, operation_key)
+           VALUES ($1, $2, $3, 1, 1, $4, $5, $6, $7, 'JOB_SUBMISSION_REMINDER')`,
+          [organizationId, jobId, incidentId, managerId, staffId, sentAt, randomUUID()],
+        );
+      }
+
+      const service = buildService(pool, { now: new Date(base.getTime() + 8_000_000) });
+      const page = await service.listOverdueIncidents(manager, jobId, { limit: 25, offset: 0 });
+      expect(page.total).toBe(2);
+      const ended = page.items.find((item) => item.id === endedIncidentId);
+      const open = page.items.find((item) => item.id === openIncidentId);
+      // Episode-only keying would report both reminders on both rows; the
+      // per-incident key keeps each cycle's nudge its own.
+      expect(ended).toMatchObject({
+        endReason: 'DEADLINE_EXTENDED',
+        manualReminderCount: 1,
+        manualReminderSentAt: firstReminderAt.toISOString(),
+        totalDelaySeconds: null,
+        postReminderDelaySeconds: null,
+      });
+      expect(open).toMatchObject({
+        endReason: null,
+        recoveredAt: null,
+        manualReminderCount: 1,
+        manualReminderSentAt: secondReminderAt.toISOString(),
+        totalDelaySeconds: null,
       });
     });
   });
@@ -1357,7 +1957,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         contactId: null,
         assignedTo: staffA.id,
         priority: 'normal',
-        dueDate: shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10),
+        dueDate: istanbulDate(shiftMs(baseline, -3 * 24 * 60 * 60_000)),
         scheduledAt: null,
         scheduledEndsAt: undefined,
         engagementKind: undefined,
@@ -1765,7 +2365,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       // Management extends the elapsed deadline into the future with the
       // required reason: the old revision evidence stays, the obligation ends.
       const baseline = await dbBaseline(pool);
-      const futureDue = shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 7 * 24 * 60 * 60_000));
       await syncClock(pool, clock);
       job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
@@ -1904,7 +2504,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const clock = { now: baseline };
       const service = buildService(pool, clock);
       // Old deadline in the future (no rev1 incident), new deadline elapsed.
-      const futureDue = shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 7 * 24 * 60 * 60_000));
       let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
@@ -1974,7 +2574,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const service = buildService(pool, clock);
       // Submit on time against a future due date (no ep1 incident), then
       // revise: episode 2 is pending with the same future deadline.
-      const due = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const due = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       const dueEnd = new Date(`${due}T21:00:00.000Z`);
       let job = await moveToRevisionRequested(
         service, clock, ctx.staffA, ctx.manager, due,
@@ -2014,13 +2614,13 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const clock = { now: baseline };
       const service = buildService(pool, clock);
       // Far-future due: submit on time, then revise (episode 2 pending).
-      const farDue = shiftMs(baseline, 2 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const farDue = istanbulDate(shiftMs(baseline, 2 * 24 * 60 * 60_000));
       let job = await moveToRevisionRequested(
         service, clock, ctx.staffA, ctx.manager, farDue,
       );
       // Backward move to a nearer (but still elapsed-at-request) due date:
       // the new revision breaches at the patch requestTime.
-      const nearDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const nearDue = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       const nearEnd = new Date(`${nearDue}T21:00:00.000Z`);
       clock.now = shiftMs(nearEnd, 60 * 60_000);
       job = await service.patch(ctx.staffA, job.id, {
@@ -2047,7 +2647,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
       const service = buildService(pool, clock);
-      const due = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const due = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       const dueEnd = new Date(`${due}T21:00:00.000Z`);
       let job = await moveToRevisionRequested(
         service, clock, ctx.staffA, ctx.manager, due,
@@ -2312,7 +2912,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const service = buildService(pool, clock);
       // GENERAL_TASK has no interval end (START never attributable), while
       // the past due date makes the submission episode late at CANCEL.
-      const dueDate = shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const dueDate = istanbulDate(shiftMs(baseline, -3 * 24 * 60 * 60_000));
       const dueEnd = new Date(`${dueDate}T21:00:00.000Z`);
       let job = (await service.create(ctx.staffA, {
         clientActionId: randomUUID(),
@@ -2568,7 +3168,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const service = buildService(pool, clock);
       // GENERAL_TASK with a future due date: the first submit lands on time
       // (no ep1 incident). START never attributes (no interval end).
-      const futureDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       let job = (await service.create(ctx.staffA, {
         clientActionId: randomUUID(),
         type: 'GENERAL_TASK',
@@ -2597,7 +3197,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       });
       // Move the due date into the past (new revision).
       await syncClock(pool, clock);
-      const pastDue = shiftMs(baseline, -24 * 60 * 60_000).toISOString().slice(0, 10);
+      const pastDue = istanbulDate(shiftMs(baseline, -24 * 60 * 60_000));
       const pastEnd = new Date(`${pastDue}T21:00:00.000Z`);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
@@ -2710,7 +3310,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const clock = { now: baseline };
       const service = buildService(pool, clock);
       // Future due: the first submit lands on time (no ep1 incident).
-      const futureDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 24 * 60 * 60_000));
       let job = (await service.create(ctx.staffA, {
         clientActionId: randomUUID(),
         type: 'GENERAL_TASK',
@@ -2745,7 +3345,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       // Move the due date into the past while IN_PROGRESS: the pending
       // episode binds the new revision from the patch requestTime.
       await syncClock(pool, clock);
-      const pastDue = shiftMs(baseline, -24 * 60 * 60_000).toISOString().slice(0, 10);
+      const pastDue = istanbulDate(shiftMs(baseline, -24 * 60 * 60_000));
       const pastEnd = new Date(`${pastDue}T21:00:00.000Z`);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
@@ -2815,7 +3415,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const ctx = await setupOrg(pool);
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
-      const futureDue = shiftMs(baseline, 2 * 86_400_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 2 * 86_400_000));
       const service = buildService(pool, clock);
       let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
@@ -2874,7 +3474,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const ctx = await setupOrg(pool);
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
-      const futureDue = shiftMs(baseline, 2 * 86_400_000).toISOString().slice(0, 10);
+      const futureDue = istanbulDate(shiftMs(baseline, 2 * 86_400_000));
       const service = buildService(pool, clock);
       let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
@@ -2897,7 +3497,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       const withdraw1At = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_WITHDRAW_FROM_APPROVAL:${job.id}`, withdrawId);
       // Completed episode 2 has no breach. Model an already elapsed deadline
       // before re-arming episode 3; its activation must prevent backdating.
-      const pastDue = shiftMs(baseline, -2 * 86_400_000).toISOString().slice(0, 10);
+      const pastDue = istanbulDate(shiftMs(baseline, -2 * 86_400_000));
       await pool.query('UPDATE job_cards SET due_date=$2 WHERE id=$1', [job.id, pastDue]);
       await pool.query('UPDATE job_card_schedule_revisions SET due_date=$2 WHERE job_card_id=$1', [job.id, pastDue]);
       const withdraw2Id = randomUUID();

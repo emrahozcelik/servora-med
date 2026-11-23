@@ -20,8 +20,10 @@ import { ServoraAntProvider } from '../src/ui/antd';
 const JOB_ID = '22222222-2222-4222-8222-222222222222';
 const STAFF_ID = '44444444-4444-4444-8444-444444444444';
 const MANAGER_ID = 'manager-1';
+const params = new URLSearchParams(window.location.search);
+const legacy = params.get('legacy') === '1';
 const PERIOD_START = '2026-08-03';
-const PERIOD_END = '2026-08-09';
+const PERIOD_END = legacy ? '2026-08-09' : '2026-08-08';
 const DUE_DATE = '2026-08-10';
 
 type StateName =
@@ -214,9 +216,9 @@ function submissionsFor(state: StateName) {
       summary: 'Gönderilen özet.',
       blockers: null,
       nextWeekPlan: 'Gönderilen plan.',
-      highlights: null,
-      fieldObservations: null,
-      supportNeeded: null,
+      highlights: legacy ? 'Eski dönem öne çıkan çalışmalar.' : null,
+      fieldObservations: legacy ? 'Eski dönem saha gözlemleri.' : null,
+      supportNeeded: legacy ? 'Eski dönem destek ihtiyacı.' : null,
     },
     questions: [{ key: 'q1', prompt: 'Bu hafta ne öğrendin?' }],
     answers: [{ questionKey: 'q1', answer: 'Gönderilen yanıt.' }],
@@ -282,7 +284,6 @@ function ReadySignal() {
   return null;
 }
 
-const params = new URLSearchParams(window.location.search);
 const requested = params.get('state') ?? 'NEW';
 const state: StateName = (STATE_NAMES as readonly string[]).includes(requested)
   ? requested as StateName

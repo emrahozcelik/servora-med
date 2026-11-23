@@ -65,6 +65,23 @@ describe('Notification API transport', () => {
     }
   });
 
+  it('accepts the OVR-6 lateness alert kinds', () => {
+    for (const kind of [
+      'job.start_reminder', 'job.approval_wait_alert', 'job.pending_acceptance_alert',
+    ] as const) {
+      const page = parseNotificationPage({
+        items: [{
+          id: '11111111-1111-4111-8111-111111111111', kind,
+          title: 'Planlanan başlangıç geçti', body: 'Planlanan başlangıç saati geçti.',
+          entity: { type: 'job-card', id: '22222222-2222-4222-8222-222222222222' },
+          createdAt: '2026-11-22T09:15:00.000Z', readAt: null,
+        }],
+        nextCursor: null,
+      });
+      expect(page.items[0]?.kind).toBe(kind);
+    }
+  });
+
   it('marks an item read through the API and preserves server errors', async () => {
     const item = {
       id: '11111111-1111-4111-8111-111111111111', kind: 'job.approved',

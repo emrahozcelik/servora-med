@@ -137,6 +137,32 @@ describe('OpenSubmissionLateSection (UI polish slice A)', () => {
     expect(historyDetail({ ...ended, endedBy: null })).toContain('Sonlandıran: Belirtilmedi');
   });
 
+  it('labels a card-invalidated ending distinctly and keeps the actual ended duration', () => {
+    const endedAt = '2026-11-21T08:30:00.000Z';
+    const invalidated = {
+      id: 'i-invalidated', delayType: 'LATE_SUBMISSION', episodeNo: 1, scheduleRevisionNo: 2,
+      deadlineAt: '2026-11-20T09:00:00.000Z', breachedAt: '2026-11-20T10:00:00.000Z',
+      accountableRole: 'STAFF', accountableSource: 'ASSIGNMENT_AT_BREACH', accountableUser: null,
+      source: 'SCANNER', recordedAt: '2026-11-20T10:00:01.000Z',
+      recoveredAt: null, recoveryActor: null,
+      endedAt, endedBy: { id: 'a1', name: 'Sistem Yöneticisi' },
+      endReason: 'CARD_INVALIDATED' as const, endNote: null,
+      endedByScheduleRevisionNo: null, endedDurationSeconds: 90_061,
+      totalDelaySeconds: null, manualReminderSentAt: null, manualReminderCount: 0,
+      postReminderDelaySeconds: null,
+    };
+    const detail = historyDetail(invalidated);
+    expect(detail).toContain(`Geçersiz kılındı: ${
+      new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+        .format(new Date(endedAt))
+    }`);
+    expect(detail).not.toContain('Tarih uzatılmasıyla sonlandırıldı');
+    expect(detail).toContain('Sonlandıran: Sistem Yöneticisi');
+    expect(detail).toContain('Sonlandırılana kadar: 1 gün 1 saat');
+    expect(detail).not.toContain('Gecikme bitişi');
+    expect(detail).not.toContain('Toplam gecikme');
+  });
+
   it('keeps title and metadata in distinct elements', async () => {
     const { section } = await renderHtml();
     const link = section?.querySelector('.servora-operational-card__title a');

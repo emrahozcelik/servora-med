@@ -71,12 +71,14 @@ describe('weekly report api parsers', () => {
   it('parses the canonical organization reporting-week reference exactly', () => {
     const reference = {
       timezone: 'Europe/Istanbul',
+      today: '2026-08-07',
       periodStart: '2026-08-03',
-      periodEnd: '2026-08-09',
+      periodEnd: '2026-08-08',
       dueDate: '2026-08-10',
     };
     expect(parseWeeklyReportReference(reference)).toEqual(reference);
     expect(() => parseWeeklyReportReference({ ...reference, bogus: 1 })).toThrow();
+    expect(() => parseWeeklyReportReference({ ...reference, today: 'nope' })).toThrow();
     expect(() => parseWeeklyReportReference({ ...reference, periodStart: 'nope' })).toThrow();
     expect(() => parseWeeklyReportReference({ ...reference, timezone: 3 })).toThrow();
   });

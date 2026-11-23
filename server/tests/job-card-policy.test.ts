@@ -6,10 +6,18 @@ import {
   assertCanCreateForAssignee,
   assertCanCreateFollowUp,
   assertCanGrantEarlyStartAuthorization,
+  assertCanListAssignmentOffersNeedingAction,
   assertCanListFollowUps,
+  assertCanListOpenChangeRequests,
+  assertCanListOpenSubmissionLate,
+  assertCanListUnacceptedPastStart,
   assertCanInvalidate,
   assertCanEdit,
   assertCanAddNote,
+  assertCanReadOverdueIncidentHistory,
+  assertCanReofferAssignment,
+  assertCanResolveChangeRequest,
+  assertCanSendSubmissionReminder,
   assertCanTransition,
   assertDeliveryReadyForSubmission,
   assertFollowUpSourceEligible,
@@ -290,7 +298,7 @@ describe('JobCard policy', () => {
       'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' })).toEqual([
-      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'REQUEST_CHANGE',
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'REQUEST_CHANGE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'ACCEPTED' })).toEqual([
       'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'REQUEST_CHANGE',
@@ -320,23 +328,26 @@ describe('JobCard policy', () => {
     expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, delivery)).toEqual([]);
   });
 
-  it('exposes accepted-stage notes for assigned Staff and conceals other Staff', () => {
+  it('exposes assignment-stage notes for assigned Staff and conceals other Staff', () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const };
-    expect(getAllowedJobActions(staff, { ...meeting, status: 'ACCEPTED' }))
-      .toEqual(expect.arrayContaining(['VIEW_NOTES', 'ADD_NOTE']));
-    expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' }))
-      .toEqual(expect.arrayContaining(['VIEW_NOTES']));
-    expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' }))
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
+      expect(getAllowedJobActions(staff, { ...meeting, status }))
+        .toEqual(expect.arrayContaining(['VIEW_NOTES', 'ADD_NOTE']));
+      expect(() => assertCanAddNote(staff, { ...meeting, status })).not.toThrow();
+    }
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'WAITING_APPROVAL' }))
       .not.toContain('ADD_NOTE');
-    expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, { ...meeting, status: 'ACCEPTED' }))
+    expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, { ...meeting, status: 'NEW' }))
       .toEqual([]);
+    expect(() => assertCanAddNote({ ...staff, id: 'staff-2' }, { ...meeting, status: 'NEW' }))
+      .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
   });
 
   it('uses actor and stage for standalone note mutation without job-type drift', () => {
     for (const type of ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const) {
       for (const status of JOB_CARD_STATUSES) {
         const candidate = { ...job, type, status };
-        const staffCanAdd = ['ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED']
+        const staffCanAdd = ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED']
           .includes(status);
         expect(getAllowedJobActions(staff, candidate).includes('ADD_NOTE'))
           .toBe(staffCanAdd);
@@ -413,6 +424,48 @@ it('keeps action projection and write/read guards in parity', () => {
   ] as const)('forbids Staff %s even on an assigned %s job', (command, status) => {
     expect(() => assertCanTransition(staff, { ...job, status }, command, 'Neden'))
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
+  });
+
+  it('grants approval, revision and management surfaces with a positive role check', () => {
+    const waiting = { ...job, status: 'WAITING_APPROVAL' as const };
+    const managementGuards = [
+      assertCanCreateFollowUp,
+      assertCanListFollowUps,
+      assertCanReadOverdueIncidentHistory,
+      assertCanSendSubmissionReminder,
+      assertCanGrantEarlyStartAuthorization,
+      assertCanResolveChangeRequest,
+      assertCanListOpenChangeRequests,
+      assertCanReofferAssignment,
+      assertCanListAssignmentOffersNeedingAction,
+      assertCanListUnacceptedPastStart,
+      assertCanListOpenSubmissionLate,
+    ];
+    // Fail-closed proof: a role outside the management pair is treated like the
+    // non-approver path, never as an implicit manager.
+    const nonManagement = { ...staff, role: 'AUDITOR' as never };
+    expect(getAllowedLifecycleCommands(nonManagement, waiting)).toEqual([
+      'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+    ]);
+    for (const command of ['APPROVE', 'REQUEST_REVISION'] as const) {
+      expect(() => assertCanTransition(nonManagement, waiting, command, 'Neden'))
+        .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+    }
+    // JOB-006 §6's note gate is a positive management check too.
+    expect(getAllowedJobActions(nonManagement, { ...job, status: 'WAITING_APPROVAL' }))
+      .not.toContain('ADD_NOTE');
+    for (const guard of managementGuards) {
+      expect(() => guard(nonManagement))
+        .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+    }
+    for (const actor of [manager, admin]) {
+      expect(getAllowedLifecycleCommands(actor, waiting)).toEqual([
+        'APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+      ]);
+      expect(() => assertCanTransition(actor, waiting, 'APPROVE')).not.toThrow();
+      expect(() => assertCanTransition(actor, waiting, 'REQUEST_REVISION', 'Neden')).not.toThrow();
+      for (const guard of managementGuards) expect(() => guard(actor)).not.toThrow();
+    }
   });
 
   it.each([manager, admin] as const)('forbids management acceptance by %s with FORBIDDEN', (actor) => {

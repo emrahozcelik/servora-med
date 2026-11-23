@@ -17,6 +17,7 @@ const jobs = vi.hoisted(() => ({
 }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({ listContacts: vi.fn() }));
+const products = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => ({
   defaultScheduledLocalValue: vi.fn(() => '2026-08-01T12:30'),
   isoInstantToLocalDateTime: vi.fn((value: string) => value === '2026-08-17T10:00:00.000Z'
@@ -37,6 +38,9 @@ vi.mock('../src/services/people-api', async (original) => ({
 }));
 vi.mock('../src/services/crm-api', async (original) => ({
   ...await original<typeof import('../src/services/crm-api')>(), ...crm,
+}));
+vi.mock('../src/services/products-api', async (original) => ({
+  ...await original<typeof import('../src/services/products-api')>(), ...products,
 }));
 vi.mock('../src/jobs/scheduling', () => scheduling);
 
@@ -86,6 +90,33 @@ const contact = {
   id: 'contact-1', organizationId: 'org-1', customerId: 'customer-1', name: 'Dr. Deniz',
   title: null, phone: null, email: null, isPrimary: true, isActive: true, version: 1,
 };
+const product = {
+  id: 'product-1', organizationId: 'org-1', name: 'Greft Seti', sku: 'GRF-1',
+  brand: 'Dünya Dental', category: null, model: 'M1', unit: 'adet', referencePrice: null,
+  isActive: true, version: 1, createdAt: '2026-07-13T08:00:00.000Z',
+  updatedAt: '2026-07-13T08:00:00.000Z',
+};
+
+function productSearchButton(container: HTMLElement) {
+  return Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement;
+}
+
+async function addSelectedProduct(container: HTMLElement) {
+  const field = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
+  await act(async () => change(field, 'greft'));
+  await act(async () => productSearchButton(container).click());
+  await flush();
+  await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
+}
+
+async function addProductById(container: HTMLElement, productId: string) {
+  const field = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
+  await act(async () => change(field, productId));
+  await act(async () => productSearchButton(container).click());
+  await flush();
+  await act(async () => (container.querySelector(`[data-product-id="${productId}"]`) as HTMLButtonElement).click());
+}
 
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement
@@ -153,6 +184,7 @@ describe('Follow-up create page', () => {
     });
     people.listStaff.mockResolvedValue([profile]);
     crm.listContacts.mockResolvedValue({ items: [contact], total: 1, limit: 200, offset: 0 });
+    products.listProducts.mockResolvedValue({ items: [product], total: 1, limit: 8, offset: 0 });
     onCreated = vi.fn();
     host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   });
@@ -576,19 +608,154 @@ describe('Follow-up create page', () => {
     expect(jobs.createFollowUp.mock.calls[0]?.[1]).not.toHaveProperty('sourceAssigneeId');
   });
 
-  it('removes Contact from a Product Delivery follow-up and submits null', async () => {
+  it('removes Contact from a Product Delivery follow-up and submits null with its initial batch', async () => {
     await render();
     change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
     expect(host.querySelector('#follow-up-contact')).toBeNull();
     change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Yeni teslim');
     change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Ürünü teslim et.');
     change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await addSelectedProduct(host);
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
     await flush();
     expect(jobs.createFollowUp).toHaveBeenCalledWith(source.id, expect.objectContaining({
       type: 'PRODUCT_DELIVERY',
       contactId: null,
+      items: [{ productId: 'product-1', quantity: 1 }],
     }));
+  });
+
+  it('shows the shared product selection only for a Product Delivery follow-up', async () => {
+    await render();
+    expect(host.querySelector('[data-follow-up-delivery-items]')).toBeNull();
+    expect(host.querySelector('#follow-up-delivery-purpose')).toBeNull();
+
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    const block = host.querySelector('[data-follow-up-delivery-items]')!;
+    expect(block).not.toBeNull();
+    expect(block.textContent).toContain('Ürünler ve miktarlar');
+    expect(block.textContent).toContain('Arama yaparak ürün seçin.');
+    expect((host.querySelector('#follow-up-delivery-purpose') as HTMLSelectElement).value).toBe('SALE');
+    expect(Array.from((host.querySelector('#follow-up-delivery-purpose') as HTMLSelectElement).options)
+      .map((option) => option.textContent)).toEqual(['Satış', 'Numune', 'Konsinye', 'İade', 'Diğer']);
+    // Selecting a product keeps the follow-up section structure unchanged.
+    await addSelectedProduct(host);
+    expect(host.querySelector('[data-selected-product-id="product-1"]')).not.toBeNull();
+    // Same BUSINESS-scoped loader as the normal delivery create: a DEMO product
+    // is concealed by the delivery write paths, so the picker must not offer one.
+    expect(products.listProducts).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'active', dataClass: 'BUSINESS' }),
+    );
+
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'GENERAL_TASK');
+    expect(host.querySelector('[data-follow-up-delivery-items]')).toBeNull();
+  });
+
+  it('caps the initial delivery batch at the server limit of 25 products', async () => {
+    const manyProducts = Array.from({ length: 26 }, (_, index) => ({
+      ...product,
+      id: `product-${index + 1}`,
+      name: `Ürün ${index + 1}`,
+    }));
+    products.listProducts.mockResolvedValue({ items: manyProducts, total: 26, limit: 26, offset: 0 });
+    await render();
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Yeni teslim');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Toplu teslim.');
+    change(host.querySelector('#follow-up-scheduled-at') as HTMLInputElement, '2026-08-01T13:16');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+
+    for (let index = 1; index <= 25; index += 1) await addProductById(host, `product-${index}`);
+    expect(host.querySelectorAll('[data-selected-product-id]')).toHaveLength(25);
+
+    // The 26th selection is blocked with a visible, product-area message.
+    await addProductById(host, 'product-26');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('En fazla 25 ürün eklenebilir.');
+    expect(host.querySelectorAll('[data-selected-product-id]')).toHaveLength(25);
+    expect(host.querySelector('[data-selected-product-id="product-26"]')).toBeNull();
+    expect(host.textContent).not.toContain('Ürün 26');
+
+    // The full 25-line batch is still accepted and sent unchanged.
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    const payload = jobs.createFollowUp.mock.calls[0]?.[1] as {
+      items: Array<{ productId: string; quantity: number }>;
+    };
+    expect(payload.items).toHaveLength(25);
+    expect(payload.items.map((item) => item.productId)).not.toContain('product-26');
+  });
+
+  it('requires at least one valid delivery line before creating a Product Delivery follow-up', async () => {
+    await render();
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Yeni teslim');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Ürünü teslim et.');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(host.textContent).toContain('En az bir ürün seçin.');
+    expect(jobs.createFollowUp).not.toHaveBeenCalled();
+
+    await addSelectedProduct(host);
+    change(host.querySelector('#follow-up-delivery-quantity-product-1') as HTMLInputElement, '0');
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(host.textContent).toContain('Greft Seti için 1–999999999 arasında tam sayı adet girin.');
+    expect(jobs.createFollowUp).not.toHaveBeenCalled();
+
+    change(host.querySelector('#follow-up-delivery-quantity-product-1') as HTMLInputElement, '1.5');
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(host.textContent).toContain('Greft Seti için 1–999999999 arasında tam sayı adet girin.');
+    expect(jobs.createFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('submits the initial delivery batch with purpose and note', async () => {
+    await render();
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Yeni teslim');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Numune bırakılacak.');
+    change(host.querySelector('#follow-up-scheduled-at') as HTMLInputElement, '2026-08-01T13:16');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await addSelectedProduct(host);
+    change(host.querySelector('#follow-up-delivery-quantity-product-1') as HTMLInputElement, '3');
+    change(host.querySelector('#follow-up-delivery-purpose') as HTMLSelectElement, 'SAMPLE');
+    change(host.querySelector('#follow-up-delivery-note') as HTMLTextAreaElement, '  Klinik deposuna bırakılacak.  ');
+
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+
+    expect(jobs.createFollowUp).toHaveBeenCalledWith(source.id, {
+      clientActionId: 'action-1',
+      type: 'PRODUCT_DELIVERY',
+      title: 'Yeni teslim',
+      followUpInstructions: 'Numune bırakılacak.',
+      scheduledAt: '2026-08-01T10:16:00.000Z',
+      assignedTo: 'staff-2',
+      priority: 'normal',
+      dueDate: null,
+      contactId: null,
+      deliveryPurpose: 'SAMPLE',
+      deliveryNote: 'Klinik deposuna bırakılacak.',
+      items: [{ productId: 'product-1', quantity: 3 }],
+    });
+    expect(jobs.createFollowUp.mock.calls[0]?.[1]).not.toHaveProperty('engagementKind');
+    expect(jobs.createFollowUp.mock.calls[0]?.[1]).not.toHaveProperty('customerId');
+  });
+
+  it('resets the delivery batch when the source changes', async () => {
+    await render();
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    await addSelectedProduct(host);
+    change(host.querySelector('#follow-up-delivery-note') as HTMLTextAreaElement, 'Eski not');
+
+    const nextSource = { ...source, id: '22222222-2222-4222-8222-222222222222' };
+    jobs.getJobCard.mockResolvedValue(nextSource);
+    await act(async () => root.render(<FollowUpCreatePage sourceId={nextSource.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    expect(host.querySelector('[data-selected-product-id="product-1"]')).toBeNull();
+    expect((host.querySelector('#follow-up-delivery-note') as HTMLTextAreaElement).value).toBe('');
   });
 
   it('counts Unicode code points and rejects instructions above 4000', async () => {

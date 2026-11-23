@@ -281,7 +281,7 @@ async function evaluateWeeklyReport(
   let sourceWorkFailure: AppError | null = null;
   try {
     const timezone = await reader.getOrganizationTimezone(actor.organizationId);
-    const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+    const { weekStart, weekEnd } = weekInstants(report.periodStart, report.periodEnd, timezone);
     await reader.listWeeklySourceWorkSnapshot({
       organizationId: actor.organizationId,
       staffUserId: actor.id,
@@ -321,7 +321,9 @@ async function evaluateSale(
     : !customer || customer.organizationId !== actor.organizationId || customer.status === 'inactive' ? 'invalid' : 'met';
   const sale = await reader.getSubmissionSale(actor.organizationId, job.id);
   const items = sale?.items ?? [];
-  const originValid = Boolean(sale?.sourceVisitId && sale.originValid);
+  // SALE-002 R4: a details row exists (sale !== null) and its origin is either
+  // genuinely standalone (no source) or the recorded source still exists.
+  const originValid = Boolean(sale && (sale.sourceVisitId === null || sale.originValid));
   const timeValid = Boolean(sale && isSaleTimeValid(sale.soldAt, time));
   const itemsValid = items.length > 0 && items.length <= MAX_SALE_ITEMS
     && new Set(items.map((item) => item.productId)).size === items.length
@@ -338,8 +340,19 @@ async function evaluateSale(
     { code: 'SALE_ITEM_PRESENT', state: items.length ? 'met' : 'missing', field: 'saleItems' },
     { code: 'SALE_ITEMS_VALID', state: items.length === 0 ? 'missing' : itemsValid ? 'met' : 'invalid', field: 'saleItems' },
   ];
-  return readiness(time, requirements, requirements.every((item) => item.state === 'met') ? null
-    : new AppError('SALE_NOT_READY', 400, 'Satış kaydı yönetici kontrolüne gönderilmek için hazır değil.'));
+  // SALE-002 §4.3 step 2: the error carries the same readiness items the
+  // submission-readiness read model exposes, so a pair submission names what
+  // the linked sale is still missing.
+  const evaluation = readiness(time, requirements, null);
+  return evaluation.readiness.ready ? evaluation : {
+    ...evaluation,
+    failure: new AppError(
+      'SALE_NOT_READY',
+      400,
+      'Satış kaydı yönetici kontrolüne gönderilmek için hazır değil.',
+      { readiness: evaluation.readiness },
+    ),
+  };
 }
 
 export async function evaluateSubmission(

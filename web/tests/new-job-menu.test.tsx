@@ -68,6 +68,30 @@ describe('NewJobMenu', () => {
     expect(onCreateDelivery).not.toHaveBeenCalled();
   });
 
+  it('lists the standalone Satış kaydı entry and runs only it', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const onCreateSale = vi.fn();
+    const onCreateDelivery = vi.fn();
+    act(() => {
+      root!.render(
+        <NewJobMenu
+          onCreateMeeting={() => {}}
+          onCreateSale={onCreateSale}
+          onCreateDelivery={onCreateDelivery}
+        />,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    expect(host.textContent).toContain('Satış kaydı');
+    const sale = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Satış kaydı')!;
+    act(() => { sale.click(); });
+    expect(onCreateSale).toHaveBeenCalledTimes(1);
+    expect(onCreateDelivery).not.toHaveBeenCalled();
+  });
+
   it('closes on Escape for desktop disclosure without menu role', () => {
     host = document.createElement('div');
     document.body.appendChild(host);

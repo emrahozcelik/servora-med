@@ -19,6 +19,10 @@ import {
   type FollowUpProposalSectionProps,
 } from './FollowUpProposalSection';
 import {
+  SaleApprovalDeliverySection,
+  type SaleApprovalDeliverySectionProps,
+} from './SaleApprovalDeliverySection';
+import {
   RevisionCorrectionDueField,
   type RevisionCorrectionDraft,
 } from './RevisionCorrectionDueField';
@@ -43,6 +47,19 @@ export function JobWorkflowDialog(props: {
   onClose: () => void;
   onConfirm: (reason: string) => void;
   followUp?: FollowUpProposalSectionProps;
+  /**
+   * SALE-002 §8.1: pair summary rendered above the preludes for the visit
+   * submit / approve / revision dialogs, and appended to the withdraw
+   * confirmation details. Presentation only; the server owns coordination.
+   */
+  pairNote?: ReactNode;
+  pairDetails?: readonly string[];
+  /**
+   * SALE-002 §8.2: the "Teslim işi aç" section, offered only on an approve
+   * dialog that completes a sale (visit pair or independent sale). It renders
+   * after the follow-up proposal prelude.
+   */
+  saleDelivery?: SaleApprovalDeliverySectionProps;
   /** JOB-009: present only when cancelling a follow-up visit. */
   cancelContinuity?: FollowUpCancelContinuitySectionProps;
   /** JOB-010 release 2b: present only for decline / release of an assignment. */
@@ -65,13 +82,14 @@ export function JobWorkflowDialog(props: {
   const {
     dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
     assignmentReason, revisionCorrection, returnFocusRef, restoreFocusEnabledRef,
+    pairNote, pairDetails = [], saleDelivery,
   } = props;
   const continuity = dialog.kind === 'cancel' ? cancelContinuity : undefined;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
 
   if (dialog.kind === 'withdraw-edit') {
     const title = dialog.presentation.confirmation?.title ?? dialog.presentation.label;
-    const details = dialog.presentation.confirmation?.details ?? [];
+    const details = [...(dialog.presentation.confirmation?.details ?? []), ...pairDetails];
     const confirmLabel = dialog.presentation.confirmation?.confirmLabel
       ?? 'Kontrolden çıkar ve düzenle';
     return (
@@ -131,7 +149,7 @@ export function JobWorkflowDialog(props: {
                 ? 'İptal et ve döngüyü sonlandır'
                 : 'İşi iptal et';
 
-  const prelude = (dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
+  const preludeContent = (dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
     ? <fieldset disabled={pending || uncertain}><FollowUpProposalSection {...followUp} initialFocusRef={followUpInitialFocusRef} /></fieldset>
     : continuity
       ? <fieldset disabled={pending || uncertain}><FollowUpCancelContinuitySection {...continuity} initialFocusRef={followUpInitialFocusRef} /></fieldset>
@@ -152,6 +170,14 @@ export function JobWorkflowDialog(props: {
               />
             </fieldset>
           : undefined;
+  // The pair summary is informational, so it sits above the (optionally
+  // disabled) prelude and never becomes the initial focus target.
+  const deliveryContent = dialog.kind === 'approve' && saleDelivery
+    ? <SaleApprovalDeliverySection {...saleDelivery} />
+    : undefined;
+  const prelude = pairNote || preludeContent || deliveryContent
+    ? <>{pairNote}{preludeContent}{deliveryContent}</>
+    : undefined;
   const hasPreludeFocus = followUp !== undefined
     || continuity !== undefined
     || assignmentReason !== undefined;

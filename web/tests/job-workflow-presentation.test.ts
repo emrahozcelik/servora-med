@@ -1148,4 +1148,33 @@ describe('JOB-010 release 2b assignment answers', () => {
         entry.command === 'DECLINE_ASSIGNMENT' || entry.command === 'RELEASE_ASSIGNMENT')).toBe(false);
     }
   });
+  describe('pair-managed sale next step (SALE-002 S2)', () => {
+    const saleJob = (status: JobCardStatus) => jobWith({ type: 'SALE', status });
+    const withPair = (job: JobCard, user: CurrentUser, command: LifecycleCommand | null) =>
+      deriveJobWorkflowPresentation({
+        job, user, workflowContext: job.workflowContext, deliveryItems: [], meetingDetails: null,
+        pairManagedCommand: command,
+      }).responsibility;
+
+    it('names the visit card for a withheld submit, approve and resume', () => {
+      expect(withPair(saleJob('IN_PROGRESS'), staff, 'SUBMIT_FOR_APPROVAL').description).toBe(
+        'Bu satış kaydı bağlı ziyaretle birlikte gönderilir. '
+        + 'Ziyaret kartını açıp ziyareti kontrole gönderin.');
+      expect(withPair(saleJob('WAITING_APPROVAL'), manager, 'APPROVE')).toMatchObject({
+        title: 'Yönetici kontrolü',
+        description: 'Bu satış kaydı bağlı ziyaretle birlikte onaylanır. Onayı ziyaret kartından verin.',
+      });
+      expect(withPair(saleJob('REVISION_REQUESTED'), staff, 'RESUME').description)
+        .toContain('Ziyaret kartını açıp düzeltmeye başlayın.');
+    });
+
+    it('keeps the staff waiting-approval copy and the default copy without a pair', () => {
+      expect(withPair(saleJob('WAITING_APPROVAL'), staff, 'APPROVE').description)
+        .toBe('Kayıtlar yönetici kontrolünde. Sizden şu an beklenen bir işlem yok.');
+      expect(withPair(saleJob('IN_PROGRESS'), staff, null).description)
+        .toBe('Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.');
+      expect(withPair(saleJob('WAITING_APPROVAL'), manager, null).description)
+        .toBe('Yönetici kayıtları inceleyerek işi tamamlar veya düzeltme ister.');
+    });
+  });
 });

@@ -11,14 +11,15 @@ import {
 } from '../src/shell/route-identity';
 
 describe('route identity registry', () => {
-  it('contains the actual 43 registered identities', () => {
-    expect(routeIdentityIds()).toHaveLength(43);
+  it('contains the actual 44 registered identities', () => {
+    expect(routeIdentityIds()).toHaveLength(44);
   });
 
   it('resolves every canonical static path to an identity', () => {
     const staticPaths = [
       paths.overview, paths.calendar, paths.messages, paths.jobs,
       paths.newDelivery, paths.newTask, paths.newMeeting, paths.newWeeklyReport,
+      paths.newStandaloneSale,
       paths.customers, paths.newCustomer, paths.duplicateCustomers, paths.duplicateReviewRegister,
       paths.products, paths.newProduct,
       paths.reports, paths.staffPerformanceReports, paths.customerReports,
@@ -143,4 +144,12 @@ it('resolves Sale creation with its source visit as hierarchy parent and safe co
   expect(match?.params).toEqual({ jobCardId: 'visit-1' });
   expect(resolveParentPath(match!.identity, match!.params)).toBe(paths.job('visit-1'));
   expect(routePathForIdentity('saleCreate', {jobCardId:'visit-1'})).toBe('/jobs/visit-1/new-sale');
+});
+
+it('resolves standalone Sale creation under the jobs root without a source visit param', () => {
+  const match = matchRouteIdentity(paths.newStandaloneSale);
+  expect(match?.identity.id).toBe('saleStandaloneCreate');
+  expect(match?.params).toEqual({});
+  expect(resolveParentPath(match!.identity, match!.params)).toBe(paths.jobs);
+  expect(routePathForIdentity('saleStandaloneCreate', {})).toBe('/jobs/new-sale');
 });

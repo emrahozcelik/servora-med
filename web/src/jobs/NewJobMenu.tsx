@@ -13,6 +13,7 @@ import { useInRouterContext, useLocation } from 'react-router-dom';
 export type NewJobMenuProps = {
   onCreateMeeting?: () => void;
   onCreateTask?: () => void;
+  onCreateSale?: () => void;
   onCreateDelivery?: () => void;
   onCreateWeeklyReport?: () => void;
   /** Decorative leading glyph for compact mobile triggers (bottom navigation). */
@@ -45,7 +46,7 @@ function RouteChangeCloser({ onRouteChange }: { onRouteChange: () => void }) {
 }
 
 export function NewJobMenu({
-  onCreateMeeting, onCreateTask, onCreateDelivery, onCreateWeeklyReport, triggerIcon, hidden = false, presentation = 'popover',
+  onCreateMeeting, onCreateTask, onCreateSale, onCreateDelivery, onCreateWeeklyReport, triggerIcon, hidden = false, presentation = 'popover',
 }: NewJobMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -59,6 +60,7 @@ export function NewJobMenu({
     onCreateMeeting ? { key: 'meeting', label: 'Görüşme / ziyaret planla', run: onCreateMeeting } : null,
     onCreateTask ? { key: 'task', label: 'Yeni görev', run: onCreateTask } : null,
     onCreateDelivery ? { key: 'delivery', label: 'Yeni teslim', run: onCreateDelivery } : null,
+    onCreateSale ? { key: 'sale', label: 'Satış kaydı', run: onCreateSale } : null,
     onCreateWeeklyReport ? { key: 'weekly-report', label: 'Haftalık Rapor', run: onCreateWeeklyReport } : null,
   ].filter((item): item is { key: string; label: string; run: () => void } => item !== null);
 

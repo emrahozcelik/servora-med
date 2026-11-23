@@ -11,7 +11,7 @@ import { paths } from '../paths';
  */
 export type RouteId =
   | 'overview' | 'calendar' | 'messages' | 'jobs'
-  | 'saleCreate' | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'jobCreateWeeklyReport' | 'followUpCreate' | 'jobDetail'
+  | 'saleCreate' | 'saleStandaloneCreate' | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'jobCreateWeeklyReport' | 'followUpCreate' | 'jobDetail'
   | 'customers' | 'customerCreate' | 'customerDetail' | 'contactDetail' | 'duplicateCustomers' | 'duplicateReviewRegister' | 'duplicateComparison'
   | 'products' | 'productCreate' | 'productDetail'
   | 'reports' | 'reportStaff' | 'reportCustomers' | 'reportDeliveries' | 'reportApprovals' | 'reportSalesFollowUp'
@@ -56,6 +56,7 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
   followUpCreate: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
   saleCreate: { title: 'Satış kaydı oluştur', parentId: 'jobDetail', section: 'Operasyon',
     parentLocation: (params) => params.jobCardId ? paths.job(params.jobCardId) : null },
+  saleStandaloneCreate: { title: 'Satış kaydı oluştur', parentId: 'jobs', section: 'Operasyon' },
   jobDetail: { title: 'İş detayı', parentId: 'jobs', section: 'Operasyon' },
   customers: { title: 'Müşteriler', parentId: null, section: 'Operasyon' },
   duplicateCustomers: { title: 'Olası mükerrerler', parentId: 'customers', section: 'Operasyon' },
@@ -158,6 +159,7 @@ const PATTERNS: RoutePattern[] = [
   { id: 'jobCreateMeeting', test: matchExact(paths.newMeeting) },
   { id: 'jobCreateWeeklyReport', test: matchExact(paths.newWeeklyReport) },
   { id: 'followUpCreate', test: matchExact('/jobs/new-follow-up') },
+  { id: 'saleStandaloneCreate', test: matchExact(paths.newStandaloneSale) },
   { id: 'saleCreate', test: matchParam(/^\/jobs\/([^/]+)\/new-sale\/?$/, ['jobCardId']) },
   { id: 'jobDetail', test: matchParam(/^\/jobs\/([^/]+)\/?$/, ['jobCardId']) },
   { id: 'jobs', test: matchExact(paths.jobs) },
@@ -209,6 +211,7 @@ export function routePathForIdentity(id: RouteId, params: RouteParams): string |
     case 'jobCreateMeeting': return paths.newMeeting;
     case 'followUpCreate': return params.sourceJobCardId ? paths.followUpCreate(params.sourceJobCardId) : null;
     case 'saleCreate': return params.jobCardId ? paths.newSale(params.jobCardId) : null;
+    case 'saleStandaloneCreate': return paths.newStandaloneSale;
     case 'jobDetail': return params.jobCardId ? paths.job(params.jobCardId) : null;
     case 'customers': return paths.customers;
     case 'duplicateCustomers': return paths.duplicateCustomers;

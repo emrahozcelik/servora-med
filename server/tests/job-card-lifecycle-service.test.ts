@@ -10,6 +10,7 @@ import type {
   JobCardTransaction,
   LifecycleIntentClaim,
   LifecycleIntentReservation,
+  LifecyclePairSnapshot,
   SubmissionDeliveryItem,
   TransitionInput,
 } from '../src/modules/job-cards/repository.js';
@@ -145,6 +146,7 @@ class LifecycleRepository implements JobCardRepository {
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
       getJobForUpdate: async (org, id) =>
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
+      getJobDeliveryScope: async () => ({ dataClass: 'BUSINESS', demoDatasetId: null }),
       getJobDetail: async (org, id) => org === this.job.organizationId && id === this.job.id
         ? this.persistedDetail
         : null,
@@ -369,6 +371,27 @@ class LifecycleRepository implements JobCardRepository {
     return row.response as T;
   }
 
+  // SALE-002 §4.2: these fixtures never model a visit+sale pair.
+  async getActiveSaleForVisit(): Promise<null> {
+    return null;
+  }
+
+  async getSaleSourceVisit(): Promise<null> {
+    return null;
+  }
+
+  async findCompletedPairParticipant(): Promise<null> {
+    return null;
+  }
+
+  async getLifecyclePair(): Promise<LifecyclePairSnapshot | null> {
+    return {
+      cardId: this.job.id, cardType: this.job.type, cardStatus: this.job.status,
+      cardVersion: this.job.version, cardAssignedTo: this.job.assignedTo,
+      visit: null, sale: null,
+    };
+  }
+
   async reserveLifecycleIntent<T>(
     claim: LifecycleIntentClaim,
     _input: { jobCardId: string; ttlMs: number },
@@ -540,6 +563,7 @@ function twoJobRepository() {
           const job = jobs.get(id);
           return job?.organizationId === organizationId ? { ...job } : null;
         },
+        getJobDeliveryScope: async () => ({ dataClass: 'BUSINESS' as const, demoDatasetId: null }),
         getJobDetail: async (organizationId: string, id: string) => detailFor(organizationId, id),
         transitionWithVersion: async (input: TransitionInput) => {
           const job = jobs.get(input.jobCardId);
@@ -591,6 +615,19 @@ function twoJobRepository() {
       const row = intentRows.get(intentKey(claim));
       if (!row || row.state !== 'COMPLETED') return null;
       return row.response as T;
+    },
+    async getActiveSaleForVisit() { return null; },
+    async getSaleSourceVisit() { return null; },
+    async findCompletedPairParticipant() { return null; },
+    async getLifecyclePair(jobCardId: string) {
+      const job = jobs.get(jobCardId);
+      return job
+        ? {
+          cardId: job.id, cardType: job.type, cardStatus: job.status,
+          cardVersion: job.version, cardAssignedTo: job.assignedTo,
+          visit: null, sale: null,
+        }
+        : null;
     },
     async reserveLifecycleIntent<T>(
       claim: LifecycleIntentClaim,

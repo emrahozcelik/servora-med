@@ -3,41 +3,33 @@ import { createRoot } from 'react-dom/client';
 
 import {
   WeeklyReportQuestionEditor,
+  nextCustomQuestionKey,
   type CustomQuestionDraft,
 } from '../src/jobs/WeeklyReportQuestionEditor';
 import { ServoraAntProvider } from '../src/ui/antd';
 
 /**
- * Visual/geometry fixture for the Weekly Report manager question editor. It
- * renders the REAL editor inside the real
- * `.task-create > .task-form > fieldset > .field-group` shell (plus the staff
- * bulk-action row), so the browser measures the actual cascade: the editor root
- * is a `.field-group`, which is exactly the condition that used to stretch the
- * native checkbox.
+ * Visual/geometry fixture for the Weekly Report manager question editor
+ * (WR-WEEK D6: custom questions only, no presets).
  */
 function EditorInstance({ idPrefix }: { idPrefix: string }) {
-  const [presetKeys, setPresetKeys] = useState<ReadonlySet<string>>(new Set());
-  const [customQuestions, setCustomQuestions] = useState<CustomQuestionDraft[]>([]);
+  const [customQuestions, setCustomQuestions] = useState<CustomQuestionDraft[]>([
+    { key: 'custom_1', prompt: 'Klinik ziyaretinde öne çıkan cihaz talepleri nelerdi?' },
+  ]);
   return <WeeklyReportQuestionEditor
     idPrefix={idPrefix}
     locked={false}
-    selectedPresetKeys={presetKeys}
-    onTogglePreset={(key, checked) => setPresetKeys((current) => {
-      const next = new Set(current);
-      if (checked) next.add(key); else next.delete(key);
-      return next;
-    })}
     customQuestions={customQuestions}
     onChangeCustomPrompt={(key, prompt) => setCustomQuestions((current) => current.map(
       (question) => (question.key === key ? { ...question, prompt } : question),
     ))}
     onAddCustom={() => setCustomQuestions((current) => [
-      ...current, { key: `custom_${current.length + 1}`, prompt: '' },
+      ...current, { key: nextCustomQuestionKey(current.map((q) => q.key)), prompt: '' },
     ])}
     onRemoveCustom={(key) => setCustomQuestions((current) => (
       current.filter((question) => question.key !== key)
     ))}
-    helpText="Seçili sorular her personel için ayrı ayrı dondurulur."
+    helpText="Eklenen sorular her personel için ayrı ayrı dondurulur."
   />;
 }
 
@@ -59,11 +51,6 @@ function CreateScreenFixture() {
   </main>;
 }
 
-/**
- * Commit-gated readiness marker: React 19 commits asynchronously, so the
- * marker must be set from an effect (after the editor is in the DOM) rather
- * than right after `createRoot().render()` returns.
- */
 function ReadySignal() {
   useEffect(() => {
     document.documentElement.dataset.weeklyQuestionReady = 'true';

@@ -62,6 +62,49 @@ function dependencies() {
         createdAt: '2025-01-01T00:00:00.000Z',
       };
     }),
+    getStaffLatenessSummary: vi.fn(async () => ({
+      staffResponsibility: {
+        delayedJobCount: 0,
+        incidentCount: 0,
+        byType: [
+          {
+            delayType: 'LATE_START',
+            incidentCount: 0,
+            recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+            extended: { count: 0, medianSeconds: null, maxSeconds: null },
+            open: { count: 0, maxElapsedSeconds: null },
+          },
+          {
+            delayType: 'LATE_SUBMISSION',
+            incidentCount: 0,
+            recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+            extended: { count: 0, medianSeconds: null, maxSeconds: null },
+            open: { count: 0, maxElapsedSeconds: null },
+          },
+        ],
+      },
+      operational: { delayedJobCount: 0, incidentCount: 0, byReason: [] },
+    })),
+    getOrganizationLatenessSummary: vi.fn(async () => ({
+      range: resolvedRange,
+      totalIncidentCount: 0,
+      staffResponsibility: { delayedJobCount: 0, incidentCount: 0 },
+      operational: { delayedJobCount: 0, incidentCount: 0 },
+      unknownAccountability: { delayedJobCount: 0, incidentCount: 0 },
+      managementApprovalWait: {
+        delayedJobCount: 0,
+        incidentCount: 0,
+        recovered: { count: 0, medianSeconds: null, maxSeconds: null },
+        open: { count: 0, maxElapsedSeconds: null },
+      },
+    })),
+    listStaffLatenessIncidents: vi.fn(async (input) => ({
+      range: resolvedRange,
+      items: [],
+      total: 0,
+      limit: input.limit,
+      offset: input.offset,
+    })),
     getStaffPerformanceScope: vi.fn(async ({ includeInactive }) => ({
       range: resolvedRange,
       staff: [{ userId: STAFF_ONE, name: 'Aktif Personel', isActive: true,
@@ -302,16 +345,22 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: '/api/reports/dashboard' }),
       app.inject({ method: 'GET', url: '/api/reports/staff' }),
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
+      app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}/lateness-incidents` }),
+      app.inject({ method: 'GET', url: '/api/reports/lateness' }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
       app.inject({ method: 'GET', url: '/api/reports/customers' }),
       app.inject({ method: 'GET', url: '/api/reports/sales-follow-up' }),
     ]);
     expect(responses.map((response) => response.statusCode))
-      .toEqual([200, 200, 200, 200, 200, 200, 200]);
+      .toEqual([200, 200, 200, 200, 200, 200, 200, 200, 200]);
     expect((await app.inject({
       method: 'GET',
       url: '/api/reports/staff/me',
+    })).statusCode).toBe(403);
+    expect((await app.inject({
+      method: 'GET',
+      url: '/api/reports/staff/me/lateness-incidents',
     })).statusCode).toBe(403);
     expect(reports.getDashboard).toHaveBeenCalledOnce();
     expect(reports.getStaffPerformanceScope).toHaveBeenCalledOnce();
@@ -319,28 +368,37 @@ describe('Reports HTTP routes', () => {
     expect(reports.getApprovalSummary).toHaveBeenCalledOnce();
     expect(reports.getCustomerReport).toHaveBeenCalledOnce();
     expect(reports.getSalesFollowUpReport).toHaveBeenCalledOnce();
+    expect(reports.getOrganizationLatenessSummary).toHaveBeenCalledOnce();
+    expect(reports.listStaffLatenessIncidents).toHaveBeenCalledOnce();
     expect(approvalItems.getApprovalItems).toHaveBeenCalledOnce();
 
     expect((await app.inject({ method: 'POST', url: '/api/reports/dashboard' })).statusCode)
       .toBe(404);
   });
 
-  it('allows Staff only its own report and denies seven management reports', async () => {
-    const { app } = await createApp(actor('STAFF'));
+  it('allows Staff only its own report and denies nine management reports', async () => {
+    const { app, reports } = await createApp(actor('STAFF'));
 
     expect((await app.inject({ method: 'GET', url: '/api/reports/staff/me' })).statusCode)
       .toBe(200);
+    expect((await app.inject({
+      method: 'GET',
+      url: '/api/reports/staff/me/lateness-incidents',
+    })).statusCode).toBe(200);
     const responses = await Promise.all([
       app.inject({ method: 'GET', url: '/api/reports/dashboard' }),
       app.inject({ method: 'GET', url: '/api/reports/staff' }),
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
+      app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}/lateness-incidents` }),
+      app.inject({ method: 'GET', url: '/api/reports/lateness' }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
       app.inject({ method: 'GET', url: '/api/reports/customers' }),
       app.inject({ method: 'GET', url: '/api/reports/sales-follow-up' }),
     ]);
     expect(responses.map((response) => response.statusCode))
-      .toEqual([403, 403, 403, 403, 403, 403, 403]);
+      .toEqual([403, 403, 403, 403, 403, 403, 403, 403, 403]);
+    expect(reports.listStaffLatenessIncidents).toHaveBeenCalledOnce();
   });
 
   it.each(['ADMIN', 'MANAGER'] as const)(
@@ -355,8 +413,18 @@ describe('Reports HTTP routes', () => {
         method: 'GET',
         url: `/api/reports/staff/${INACTIVE_STAFF}`,
       })).statusCode).toBe(200);
+      expect((await app.inject({
+        method: 'GET',
+        url: `/api/reports/staff/${INACTIVE_STAFF}/lateness-incidents`,
+      })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/api/reports/lateness' })).statusCode)
+        .toBe(200);
       expect((await app.inject({ method: 'GET', url: '/api/reports/staff/me' })).statusCode)
         .toBe(403);
+      expect((await app.inject({
+        method: 'GET',
+        url: '/api/reports/staff/me/lateness-incidents',
+      })).statusCode).toBe(403);
       expect((await app.inject({ method: 'GET', url: '/api/reports/customers' })).statusCode)
         .toBe(200);
       expect((await app.inject({
@@ -412,6 +480,10 @@ describe('Reports HTTP routes', () => {
     '/api/reports/staff/me?to=2026-07-31&to=2026-07-30&from=2026-07-01',
     '/api/reports/staff?unknown=value',
     `/api/reports/staff/${STAFF_ONE}?unknown=value`,
+    `/api/reports/staff/${STAFF_ONE}/lateness-incidents?limit=201`,
+    `/api/reports/staff/${STAFF_ONE}/lateness-incidents?offset=-1`,
+    '/api/reports/staff/me/lateness-incidents?limit=0',
+    '/api/reports/lateness?unknown=value',
     '/api/reports/deliveries?groupBy=day&groupBy=staff',
     '/api/reports/deliveries?groupBy=day&limit=10&limit=20',
     '/api/reports/approvals?offset=0&offset=1',
@@ -430,7 +502,62 @@ describe('Reports HTTP routes', () => {
     expect(reports.getDeliveryReport).not.toHaveBeenCalled();
     expect(reports.getApprovalSummary).not.toHaveBeenCalled();
     expect(reports.getSalesFollowUpReport).not.toHaveBeenCalled();
+    expect(reports.getOrganizationLatenessSummary).not.toHaveBeenCalled();
+    expect(reports.listStaffLatenessIncidents).not.toHaveBeenCalled();
     expect(approvalItems.getApprovalItems).not.toHaveBeenCalled();
+  });
+
+  it('passes the parsed lateness range, limit and offset to the service', async () => {
+    const { app, reports } = await createApp(actor('MANAGER'));
+
+    const summary = await app.inject({
+      method: 'GET',
+      url: '/api/reports/lateness?from=2026-10-01&to=2026-10-31&includeSaleCapability=true',
+    });
+    expect(summary.statusCode).toBe(200);
+    expect(reports.getOrganizationLatenessSummary).toHaveBeenCalledWith({
+      organizationId: ORG_ONE,
+      requestedRange: { from: '2026-10-01', to: '2026-10-31' },
+      includeSaleCapability: true,
+      requestTime,
+    });
+
+    const page = await app.inject({
+      method: 'GET',
+      url: `/api/reports/staff/${STAFF_ONE}/lateness-incidents`
+        + '?from=2026-10-01&to=2026-10-31&limit=20&offset=40',
+    });
+    expect(page.statusCode).toBe(200);
+    expect(reports.listStaffLatenessIncidents).toHaveBeenCalledWith({
+      organizationId: ORG_ONE,
+      staffUserId: STAFF_ONE,
+      requestedRange: { from: '2026-10-01', to: '2026-10-31' },
+      includeSaleCapability: false,
+      requestTime,
+      limit: 20,
+      offset: 40,
+      viewer: { role: 'MANAGER', userId: 'manager-1' },
+    });
+    expect(page.json()).toMatchObject({
+      range: resolvedRange,
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 40,
+    });
+  });
+
+  it('returns the existing Staff 404 for lateness incident management reads', async () => {
+    const { app, reports } = await createApp(actor('MANAGER'));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/reports/staff/${MISSING_STAFF}/lateness-incidents`,
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ code: 'STAFF_PROFILE_NOT_FOUND' });
+    expect(reports.listStaffLatenessIncidents).not.toHaveBeenCalled();
   });
 
   it('passes the parsed sales-follow-up range, limits and offsets to the service', async () => {
@@ -471,21 +598,24 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: '/api/reports/dashboard' }),
       app.inject({ method: 'GET', url: '/api/reports/staff' }),
       app.inject({ method: 'GET', url: '/api/reports/staff/me' }),
+      app.inject({ method: 'GET', url: '/api/reports/staff/me/lateness-incidents' }),
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
+      app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}/lateness-incidents` }),
+      app.inject({ method: 'GET', url: '/api/reports/lateness' }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
       app.inject({ method: 'GET', url: '/api/reports/customers' }),
       app.inject({ method: 'GET', url: '/api/reports/sales-follow-up' }),
     ]);
     expect(responses.map((response) => response.statusCode))
-      .toEqual([401, 401, 401, 401, 401, 401, 401, 401]);
+      .toEqual([401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401]);
 
     const source = readFileSync(
       new URL('../src/modules/reports/routes.ts', import.meta.url),
       'utf8',
     );
     expect(source).toContain('const secured = { preHandler: options.authenticate }');
-    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(9);
+    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(12);
     expect(source).not.toMatch(/app\.get\([^\n]+options\.authenticate/);
   });
 });

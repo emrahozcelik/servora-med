@@ -148,7 +148,7 @@ describe('StaffPerformanceReport', () => {
     expect(expand.getAttribute('aria-expanded')).toBe('false');
     await act(async () => expand.click());
     expect(expand.getAttribute('aria-expanded')).toBe('true');
-    expect(container.textContent).toContain('fiilen gerçekleştiren');
+    expect(container.textContent).not.toContain('fiilen gerçekleştiren');
     expect(headers).not.toContain('İş / gün');
     expect(headers).not.toContain('Tamamlama günü');
     expect(headers).not.toContain('Düzeltme isteği');

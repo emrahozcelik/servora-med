@@ -413,6 +413,18 @@ describe('responsive authenticated AppShell', () => {
     expect(container.querySelector('[data-location]')?.textContent).toBe('/jobs/new-delivery');
   });
 
+  it('opens the standalone Satış kaydı form from the mobile create sheet', async () => {
+    await render(staff, false, '/jobs');
+    const trigger = container.querySelector<HTMLButtonElement>('.mobile-bottom-nav-create .new-job-menu-trigger')!;
+    await act(async () => trigger.click());
+    const sheet = document.querySelector<HTMLElement>('.new-job-menu-panel--sheet')!;
+    const sale = Array.from(sheet.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Satış kaydı')!;
+    await act(async () => sale.click());
+    expect(document.querySelector('.new-job-menu-panel--sheet')).toBeNull();
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/jobs/new-sale');
+  });
+
   it('closes the open menu panel on programmatic navigation without focusing the stale trigger', async () => {
     await renderWithNavigateProbe();
     const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;

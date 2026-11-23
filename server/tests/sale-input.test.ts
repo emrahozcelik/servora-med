@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSaleFromVisitCreateInput, parseSaleAddition, parseSaleQuantityPatch, saleQuantity } from '../src/modules/job-cards/sale-input.js';
+import { parseSaleFromVisitCreateInput, parseSaleAddition, parseSaleQuantityPatch, parseSaleStandaloneCreateInput, saleQuantity } from '../src/modules/job-cards/sale-input.js';
 
 const productA = '00000000-0000-4000-8000-000000000001';
 const productB = '00000000-0000-4000-8000-000000000002';
@@ -64,5 +64,75 @@ describe('Sale input contract', () => {
         expect.objectContaining({ code: 'VALIDATION_ERROR' }),
       );
     }
+  });
+});
+
+const standaloneInput = {
+  clientActionId: 'standalone-create-test',
+  title: '  Telefon siparişi  ',
+  description: 'Klinik aradı',
+  customerId: '00000000-0000-4000-8000-0000000000c1',
+  assignedTo: '00000000-0000-4000-8000-0000000000a1',
+  soldAt: '2026-11-23T09:30:00+03:00',
+  saleContactId: null,
+  items: [{ productId: productA, quantity: 3 }],
+};
+
+describe('Standalone sale input contract (SALE-002 §6.1)', () => {
+  it('normalizes the standalone body and keeps the v1 quantity representation', () => {
+    const parsed = parseSaleStandaloneCreateInput(standaloneInput);
+    expect(parsed).toEqual({
+      clientActionId: 'standalone-create-test',
+      title: 'Telefon siparişi',
+      description: 'Klinik aradı',
+      customerId: standaloneInput.customerId,
+      assignedTo: standaloneInput.assignedTo,
+      soldAt: '2026-11-23T06:30:00.000Z',
+      saleContactId: null,
+      items: [{ productId: productA, quantity: '3.000' }],
+    });
+  });
+  it('treats an omitted optional description/contact as null', () => {
+    const { description: _description, saleContactId: _contact, ...minimal } = standaloneInput;
+    expect(parseSaleStandaloneCreateInput(minimal)).toMatchObject({
+      description: null, saleContactId: null,
+    });
+  });
+  it('rejects every server-owned or unknown request key', () => {
+    for (const key of ['type', 'status', 'expectedSourceVersion', 'saleSourceVisitId', 'sourceVisitId',
+      'deliverySourceSaleId', 'price', 'acceptedAt', 'customerNameSnapshot']) {
+      expect(() => parseSaleStandaloneCreateInput({ ...standaloneInput, [key]: 'forged' }))
+        .toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+    }
+  });
+  it('requires a bounded title, a customer, an assignee and 1–25 distinct integer lines', () => {
+    for (const value of [null, [], {},
+      { ...standaloneInput, title: '' },
+      { ...standaloneInput, title: 'x'.repeat(256) },
+      { ...standaloneInput, customerId: undefined },
+      { ...standaloneInput, assignedTo: undefined },
+      { ...standaloneInput, items: [] },
+      { ...standaloneInput, items: [{ productId: productA, quantity: 0 }] },
+      { ...standaloneInput, items: [{ productId: productA, quantity: 1.5 }] },
+      { ...standaloneInput, items: [{ productId: productA, quantity: 1_000_000_000 }] },
+    ]) {
+      expect(() => parseSaleStandaloneCreateInput(value)).toThrowError(
+        expect.objectContaining({ code: 'VALIDATION_ERROR' }),
+      );
+    }
+    expect(() => parseSaleStandaloneCreateInput({ ...standaloneInput,
+      items: [standaloneInput.items[0], standaloneInput.items[0]] }))
+      .toThrowError(expect.objectContaining({ code: 'SALE_PRODUCT_DUPLICATE', statusCode: 409 }));
+    expect(() => parseSaleStandaloneCreateInput({ ...standaloneInput,
+      items: Array.from({ length: 26 }, (_, index) => ({
+        productId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`, quantity: 1,
+      })) }))
+      .toThrowError(expect.objectContaining({ code: 'SALE_ITEM_LIMIT', statusCode: 409 }));
+  });
+  it('rejects a description over the 4000 code-point bound and malformed instants', () => {
+    expect(() => parseSaleStandaloneCreateInput({ ...standaloneInput, description: 'x'.repeat(4001) }))
+      .toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+    expect(() => parseSaleStandaloneCreateInput({ ...standaloneInput, soldAt: '2026-11-23 09:30' }))
+      .toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
   });
 });

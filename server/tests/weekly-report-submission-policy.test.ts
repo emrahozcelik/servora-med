@@ -163,4 +163,26 @@ describe('weekly report submission readiness', () => {
     );
     expect(evaluation.failure).toMatchObject({ code: 'ASSIGNEE_NOT_ELIGIBLE' });
   });
+
+  it('passes stored period_end to weekInstants so working week uses Monday->Sunday and 7-day keeps Monday->Monday', async () => {
+    const seen: { weekStart: string; weekEnd: string }[] = [];
+    const trackingReader = (row: WeeklyReportRow): SubmissionReader => ({
+      ...reader({ report: row }),
+      listWeeklySourceWorkSnapshot: async ({ weekStart, weekEnd }) => {
+        seen.push({ weekStart: weekStart.toISOString(), weekEnd: weekEnd.toISOString() });
+        return [];
+      },
+    });
+    await evaluateSubmission(
+      trackingReader(reportRow({ period_end: new Date('2026-08-08T00:00:00.000Z') })),
+      staff,
+      { ...weeklyJob, title: 'Haftalık Rapor (2026-08-03 – 2026-08-08)', dueDate: '2026-08-10' },
+      now,
+    );
+    await evaluateSubmission(trackingReader(reportRow()), staff, weeklyJob, now);
+    expect(seen).toEqual([
+      { weekStart: '2026-08-02T21:00:00.000Z', weekEnd: '2026-08-08T21:00:00.000Z' },
+      { weekStart: '2026-08-02T21:00:00.000Z', weekEnd: '2026-08-09T21:00:00.000Z' },
+    ]);
+  });
 });

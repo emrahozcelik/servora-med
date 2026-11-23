@@ -5,7 +5,6 @@ import { ConfigProvider } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WeeklyReportCreateScreen } from '../src/WeeklyReportCreate';
-import { WEEKLY_REPORT_PRESET_QUESTIONS } from '../src/jobs/WeeklyReportQuestionEditor';
 import { ApiError, type CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -57,14 +56,15 @@ const MEHMET = staffProfile('staff-2', 'Mehmet Personel');
 const ZEYNEP = staffProfile('staff-3', 'Zeynep Personel');
 
 /**
- * Canonical reference deliberately pinned to a week that is NOT the developer
- * machine's current week (2026-09-24 → device-local Monday 2026-09-21). Any
- * device-local default would therefore be detectable.
+ * Canonical workweek reference deliberately pinned to a week that is NOT the
+ * developer machine's current week. Any device-local default would therefore be
+ * detectable.
  */
 const REFERENCE = {
   timezone: 'Europe/Istanbul',
+  today: '2026-08-07',
   periodStart: '2026-08-03',
-  periodEnd: '2026-08-09',
+  periodEnd: '2026-08-08',
   dueDate: '2026-08-10',
 };
 
@@ -76,12 +76,6 @@ function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
   act(() => {
     element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
   });
-}
-
-/** React wires checkbox onChange to the native click-activated state toggle. */
-async function toggleCheckbox(element: HTMLInputElement, checked = true) {
-  if (element.checked === checked) return;
-  await act(async () => { element.click(); });
 }
 
 async function flush() {
@@ -108,10 +102,10 @@ describe('Weekly report create screen', () => {
     weeklyApi.getWeeklyReportReference.mockResolvedValue(REFERENCE);
     weeklyApi.createWeeklyReport.mockResolvedValue({
       jobCardId: 'job-1', reportId: 'report-1', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-09', status: 'ACCEPTED', dueDate: '2026-08-10',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', status: 'ACCEPTED', dueDate: '2026-08-10',
     });
     weeklyApi.bulkRequestWeeklyReports.mockResolvedValue({
-      periodStart: '2026-08-03', periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [{ staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' }],
     });
     onCreated = vi.fn();
@@ -125,7 +119,7 @@ describe('Weekly report create screen', () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(user: CurrentUser = staffUser, initial: { initialPeriodStart?: string;initialStaffUserId?: string } = {}) {
+  async function render(user: CurrentUser = staffUser, initial: { initialPeriodStart?: string; initialStaffUserId?: string } = {}) {
     await act(async () => root.render(
       <ConfigProvider>
         <WeeklyReportCreateScreen user={user} onCancel={() => {}} onCreated={onCreated} {...initial} />
@@ -140,22 +134,17 @@ describe('Weekly report create screen', () => {
     act(() => { form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
   }
 
-  it('prefills the removed report week and Staff without creating or copying content automatically', async () => {
-    await render(manager,{ initialPeriodStart:'2026-07-27',initialStaffUserId:'staff-1' });
-    expect(weeklyApi.bulkRequestWeeklyReports).not.toHaveBeenCalled();
-    expect(weeklyApi.createWeeklyReport).not.toHaveBeenCalled();
-    await act(async () => { submit();await flush(); });
-    expect(bulkInput()).toMatchObject({ periodStart:'2026-07-27',staffUserIds:['staff-1'] });
-    expect(bulkInput()).not.toHaveProperty('instructions');
-    expect(bulkInput()).not.toHaveProperty('questions');
-  });
+  function weekRadio(mode: 'this_week' | 'last_week' | 'custom'): HTMLInputElement {
+    const radio = host.querySelector<HTMLInputElement>(`input[name="weeklyPeriodChoice"][value="${mode}"]`);
+    expect(radio, `week radio "${mode}"`).not.toBeNull();
+    return radio!;
+  }
 
-  it('ignores another Staff preselection on the self-create path', async () => {
-    await render(staffUser,{ initialPeriodStart:'2026-07-27',initialStaffUserId:'staff-2' });
-    await act(async () => { submit();await flush(); });
-    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).toMatchObject({ periodStart:'2026-07-27' });
-    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).not.toHaveProperty('assignedTo');
-  });
+  async function selectWeekChoice(mode: 'this_week' | 'last_week' | 'custom') {
+    const radio = weekRadio(mode);
+    await act(async () => { radio.click(); });
+    await flush();
+  }
 
   // --- multi-select driving helpers (AntD Select renders its popup on body) ---
 
@@ -211,16 +200,136 @@ describe('Weekly report create screen', () => {
     return weeklyApi.bulkRequestWeeklyReports.mock.calls[call]![0];
   }
 
-  // --- STAFF self-create ---
+  // --- Week choice & D9 preview ---
 
-  it('defaults the report week from the organization calendar, not the device clock', async () => {
+  it('defaults to "Bu hafta" from the server reference and formats Turkish Monday-Saturday ranges', async () => {
+    weeklyApi.getWeeklyReportReference.mockResolvedValueOnce({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-20',
+      periodStart: '2026-11-16',
+      periodEnd: '2026-11-21',
+      dueDate: '2026-11-23',
+    });
     await render(staffUser);
-    const period = host.querySelector('#weekly-period') as HTMLInputElement;
-    expect(period.value).toBe(REFERENCE.periodStart);
-    expect(period.value).not.toBe('2026-09-21');
-    expect(weeklyApi.getWeeklyReportReference).toHaveBeenCalledTimes(1);
+    expect(weekRadio('this_week').checked).toBe(true);
+    expect(host.textContent).toContain('Bu hafta · 16–21 Kasım');
+    expect(host.textContent).toContain('Geçen hafta · 9–14 Kasım');
+    expect(host.textContent).toContain('Başka hafta');
+    // Date input is hidden unless "Başka hafta" is selected.
+    expect(host.querySelector('#weekly-period')).toBeNull();
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 16–21 Kasım 2026 · Son teslim 23 Kasım Pazartesi');
     expect(host.textContent).toContain('organizasyon takvimine göre');
+    expect(host.textContent).toContain('Pazartesi–Cumartesi çalışma haftasını kapsar');
   });
+
+  it('computes D9 preview deadline via max(selectedMonday + 7, reference.today) across Friday, Monday, Tuesday (A18/A18b/A21)', async () => {
+    // Tuesday 2026-11-24: reference week is 23-28 Nov, "Geçen hafta" (16-21 Nov) has Monday deadline 23 Nov < today 24 Nov => 24 Nov Salı (A21).
+    weeklyApi.getWeeklyReportReference.mockResolvedValueOnce({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-24',
+      periodStart: '2026-11-23',
+      periodEnd: '2026-11-28',
+      dueDate: '2026-11-30',
+    });
+    await render(staffUser);
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 23–28 Kasım 2026 · Son teslim 30 Kasım Pazartesi');
+
+    await selectWeekChoice('last_week');
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 16–21 Kasım 2026 · Son teslim 24 Kasım Salı');
+
+    // Future week via "Başka hafta": 2026-11-30 => Monday after period 2026-12-07.
+    await selectWeekChoice('custom');
+    const dateInput = host.querySelector('#weekly-period') as HTMLInputElement;
+    expect(dateInput).not.toBeNull();
+    change(dateInput, '2026-11-30');
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 30 Kasım – 5 Aralık 2026 · Son teslim 7 Aralık Pazartesi');
+  });
+
+  it('keeps Monday after the period when choosing "Geçen hafta" on Monday (A18)', async () => {
+    weeklyApi.getWeeklyReportReference.mockResolvedValueOnce({
+      timezone: 'Europe/Istanbul',
+      today: '2026-11-23',
+      periodStart: '2026-11-23',
+      periodEnd: '2026-11-28',
+      dueDate: '2026-11-30',
+    });
+    await render(staffUser);
+    await selectWeekChoice('last_week');
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 16–21 Kasım 2026 · Son teslim 23 Kasım Pazartesi');
+  });
+
+  it('rejects a non-Monday date entered under "Başka hafta"', async () => {
+    await render(staffUser);
+    await selectWeekChoice('custom');
+    change(host.querySelector('#weekly-period') as HTMLInputElement, '2026-08-04'); // Tuesday
+    await act(async () => { submit(); await flush(); });
+    expect(weeklyApi.createWeeklyReport).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Pazartesi günü başlamalıdır');
+  });
+
+  it('falls back to manual date input without guessing a deadline when the organization calendar fails to load', async () => {
+    weeklyApi.getWeeklyReportReference.mockRejectedValueOnce(new Error('network error'));
+    await render(staffUser);
+    const input = host.querySelector('#weekly-period') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(host.textContent).toContain('Organizasyon takvimi yüklenemedi');
+    change(input, '2026-11-02');
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 2–7 Kasım 2026 · Son teslim tarihi sunucuda belirlenir');
+  });
+
+  it('hides the manual date input while loading reference and disables STAFF empty submit until ready', async () => {
+    let resolveReference!: (value: typeof REFERENCE) => void;
+    weeklyApi.getWeeklyReportReference.mockReturnValueOnce(
+      new Promise((resolve) => { resolveReference = resolve; }),
+    );
+    await render(staffUser);
+    expect(host.querySelector('#weekly-period')).toBeNull();
+    const submitBtn = host.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submitBtn.disabled).toBe(true);
+
+    await act(async () => {
+      resolveReference(REFERENCE);
+      await flush();
+    });
+    expect(submitBtn.disabled).toBe(false);
+    expect(host.querySelector('#weekly-period-preview')?.textContent)
+      .toBe('Dönem 3–8 Ağustos 2026 · Son teslim 10 Ağustos Pazartesi');
+  });
+
+  it('prefills the removed report week and Staff without creating or copying content automatically', async () => {
+    await render(manager, { initialPeriodStart: '2026-07-27', initialStaffUserId: 'staff-1' });
+    // 2026-07-27 is last week relative to REFERENCE (2026-08-03)
+    expect(weekRadio('last_week').checked).toBe(true);
+    expect(weeklyApi.bulkRequestWeeklyReports).not.toHaveBeenCalled();
+    expect(weeklyApi.createWeeklyReport).not.toHaveBeenCalled();
+    await act(async () => { submit(); await flush(); });
+    expect(bulkInput()).toMatchObject({ periodStart: '2026-07-27', staffUserIds: ['staff-1'] });
+    expect(bulkInput()).not.toHaveProperty('instructions');
+    expect(bulkInput()).not.toHaveProperty('questions');
+  });
+
+  it('shows custom date input prefilled when initialPeriodStart is an older week', async () => {
+    await render(manager, { initialPeriodStart: '2026-07-13', initialStaffUserId: 'staff-1' });
+    expect(weekRadio('custom').checked).toBe(true);
+    expect((host.querySelector('#weekly-period') as HTMLInputElement).value).toBe('2026-07-13');
+    await act(async () => { submit(); await flush(); });
+    expect(bulkInput()).toMatchObject({ periodStart: '2026-07-13', staffUserIds: ['staff-1'] });
+  });
+
+  it('ignores another Staff preselection on the self-create path', async () => {
+    await render(staffUser, { initialPeriodStart: '2026-07-27', initialStaffUserId: 'staff-2' });
+    await act(async () => { submit(); await flush(); });
+    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).toMatchObject({ periodStart: '2026-07-27' });
+    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).not.toHaveProperty('assignedTo');
+  });
+
+  // --- STAFF self-create ---
 
   it('creates a self report for STAFF without multi-select, questions or due date', async () => {
     await render(staffUser);
@@ -244,7 +353,7 @@ describe('Weekly report create screen', () => {
     expect(people.listStaff).not.toHaveBeenCalled();
   });
 
-  it('links to the existing report on duplicate conflict', async () => {
+  it('links to the existing report on duplicate conflict with admin removal hint', async () => {
     await render(staffUser);
     weeklyApi.createWeeklyReport.mockRejectedValueOnce(new ApiError(
       409, 'WEEKLY_REPORT_ALREADY_EXISTS', 'Bu personel için bu haftaya ait rapor zaten mevcut.',
@@ -254,6 +363,7 @@ describe('Weekly report create screen', () => {
     expect(onCreated).not.toHaveBeenCalled();
     const link = host.querySelector('a[href="/jobs/job-9"]');
     expect(link?.textContent).toContain('Mevcut rapora git');
+    expect(host.textContent).toContain('Admin');
   });
 
   it('freezes the original attempt for ambiguous STAFF failures and retries it verbatim', async () => {
@@ -264,7 +374,7 @@ describe('Weekly report create screen', () => {
     const firstInput = weeklyApi.createWeeklyReport.mock.calls[0]![0];
     weeklyApi.createWeeklyReport.mockResolvedValueOnce({
       jobCardId: 'job-2', reportId: 'report-2', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-09', status: 'ACCEPTED', dueDate: '2026-08-10',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', status: 'ACCEPTED', dueDate: '2026-08-10',
     });
     const retry = buttonByText('Özgün isteği tekrar dene');
     expect(retry).toBeDefined();
@@ -293,7 +403,6 @@ describe('Weekly report create screen', () => {
   });
 
   it('Tümünü seç selects every active staff member and never duplicates ids', async () => {
-    // Two active staff fit inside this suite's lowered cap (2).
     people.listStaff.mockResolvedValue([AYSE, MEHMET]);
     await render(manager);
     await clickButton('Tümünü seç');
@@ -310,14 +419,13 @@ describe('Weekly report create screen', () => {
     await clickButton('Seçimi temizle');
     expect(selectedCountText()).toBe('0 personel seçildi');
     expect(tagTitles()).toEqual([]);
-    await clickButton('Seçimi temizle'); // no-op when already empty
+    await clickButton('Seçimi temizle');
     await act(async () => { submit(); await flush(); });
     expect(weeklyApi.bulkRequestWeeklyReports).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Aktif bir sorumlu personel seçin.');
   });
 
   it('over-cap staff count fails visibly instead of pretending all were selected', async () => {
-    // MAX_BULK_TARGETS is 2 in this suite; three active staff exist.
     await render(manager);
     await clickButton('Tümünü seç');
     expect(selectedCountText()).toBe('0 personel seçildi');
@@ -332,7 +440,6 @@ describe('Weekly report create screen', () => {
     await render(manager);
     await chooseStaff(['Ayşe Personel', 'Mehmet Personel']);
     await pickOption('Zeynep Personel');
-    // The extra pick is not added, and the user is told so explicitly.
     expect(selectedCountText()).toBe('2 personel seçildi');
     expect(host.textContent).toContain('fazlası eklenmedi');
     await act(async () => { submit(); await flush(); });
@@ -398,9 +505,9 @@ describe('Weekly report create screen', () => {
     expect(host.textContent).toContain('Aktif bir sorumlu personel seçin.');
   });
 
-  // --- success and duplicate UX ---
+  // --- D8: success and duplicate UX ---
 
-  it('navigates directly when exactly one target is requested', async () => {
+  it('navigates directly when exactly one target has outcome "created"', async () => {
     await render(manager);
     await chooseStaff(['Ayşe Personel']);
     await act(async () => { submit(); await flush(); });
@@ -408,10 +515,34 @@ describe('Weekly report create screen', () => {
     expect(host.querySelector('#weekly-bulk-result-title')).toBeNull();
   });
 
-  it('summarises the outcome for multiple targets with per-staff rows', async () => {
+  it('does not navigate for a single "existing" outcome and shows link + admin removal hint (D8 / A12)', async () => {
     await render(manager);
     weeklyApi.bulkRequestWeeklyReports.mockResolvedValueOnce({
-      periodStart: '2026-08-03', periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
+      items: [{ staffUserId: 'staff-1', jobCardId: 'job-9', reportId: 'report-9', outcome: 'existing' }],
+    });
+    await chooseStaff(['Ayşe Personel']);
+    await act(async () => { submit(); await flush(); });
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(host.querySelector('.form-error')).toBeNull();
+    const notice = host.querySelector('#weekly-existing-notice');
+    expect(notice).not.toBeNull();
+    expect(notice!.textContent).toContain('Bu personelin bu hafta için raporu zaten var.');
+    expect(notice!.textContent).toContain('Admin');
+    const link = notice!.querySelector('a.weekly-existing-notice-link[href="/jobs/job-9"]');
+    expect(link?.textContent).toBe('Mevcut rapora git');
+
+    // Clearing staff selection and failing validation clears the prior existing notice.
+    await clickButton('Seçimi temizle');
+    await act(async () => { submit(); await flush(); });
+    expect(host.querySelector('#weekly-existing-notice')).toBeNull();
+    expect(host.querySelector('.form-error')).not.toBeNull();
+  });
+
+  it('summarises mixed created and existing outcomes accurately in Turkish without false claims (D8 / A13)', async () => {
+    await render(manager);
+    weeklyApi.bulkRequestWeeklyReports.mockResolvedValueOnce({
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [
         { staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' },
         { staffUserId: 'staff-2', jobCardId: 'job-9', reportId: 'report-9', outcome: 'existing' },
@@ -424,12 +555,15 @@ describe('Weekly report create screen', () => {
       .toBe('2 haftalık rapor isteği işlendi');
     expect(host.querySelector('#weekly-bulk-created')?.textContent).toBe('1 oluşturuldu');
     expect(host.querySelector('#weekly-bulk-existing')?.textContent).toBe('1 zaten mevcuttu');
-    const rows = Array.from(host.querySelectorAll('#weekly-bulk-result-items li'));
+    expect(host.textContent).toContain('3–8 Ağustos 2026');
+    expect(host.textContent).not.toContain('Her personel için ayrı bir haftalık rapor oluşturuldu');
+    expect(host.textContent).toContain('Admin');
+    const rows = Array.from(host.querySelectorAll('#weekly-bulk-result-items.weekly-bulk-result-list li.weekly-bulk-result-row'));
     expect(rows).toHaveLength(2);
     expect(rows[0]!.textContent).toContain('Ayşe Personel');
-    expect(rows[0]!.querySelector('a')?.getAttribute('href')).toBe('/jobs/job-1');
-    expect(rows[1]!.textContent).toContain('Zaten mevcut');
-    // A duplicate is never presented as a red error state.
+    expect(rows[0]!.querySelector('.bulk-result-outcome--created')?.textContent).toBe('Oluşturuldu');
+    expect(rows[0]!.querySelector('a.weekly-bulk-result-link')?.getAttribute('href')).toBe('/jobs/job-1');
+    expect(rows[1]!.querySelector('.bulk-result-outcome--existing')?.textContent).toBe('Zaten mevcut');
     expect(host.querySelector('.form-error')).toBeNull();
   });
 
@@ -444,7 +578,7 @@ describe('Weekly report create screen', () => {
     expect(host.querySelector('#weekly-bulk-result-title')).toBeNull();
 
     weeklyApi.bulkRequestWeeklyReports.mockResolvedValueOnce({
-      periodStart: '2026-08-03', periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08', dueDate: '2026-08-10',
       items: [
         { staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' },
         { staffUserId: 'staff-2', jobCardId: 'job-2', reportId: 'report-2', outcome: 'created' },
@@ -477,74 +611,14 @@ describe('Weekly report create screen', () => {
   });
 
   // ---------------------------------------------------------------------
-  // Preset + custom manager questions
+  // Custom manager questions only (WR-WEEK D6)
   // ---------------------------------------------------------------------
 
-  it('renders exactly the five canonical presets and none is selected by default', async () => {
+  it('renders no preset checkboxes and exposes only custom question controls (D6 / A14)', async () => {
     await render(manager);
-    const presets = Array.from(
-      host.querySelectorAll('#weekly-preset-questions input[type="checkbox"]'),
-    ) as HTMLInputElement[];
-    expect(presets).toHaveLength(5);
-    expect(presets.every((box) => !box.checked)).toBe(true);
-    expect(host.querySelector('#weekly-preset-preset_week_highlights')).not.toBeNull();
-    expect(host.querySelector('#weekly-preset-preset_management_support')).not.toBeNull();
-    expect(host.textContent).toContain('Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?');
-    expect(host.textContent).toContain('Planlanıp tamamlanamayan işler oldu mu? Neden?');
-    expect(host.textContent).toContain('Müşterilerden veya sahadan önemli bir geri bildirim var mı?');
-    expect(host.textContent).toContain('Gelecek hafta öncelikli çalışmaların neler?');
-    expect(host.textContent).toContain('Yönetimden ihtiyaç duyduğun destek veya karar var mı?');
+    expect(host.querySelector('#weekly-preset-questions')).toBeNull();
+    expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(host.querySelector('#weekly-add-custom-question')).not.toBeNull();
-  });
-
-  it('renders each preset as an owned AntD checkbox row with its prompt as the accessible name', async () => {
-    await render(manager);
-    const rows = Array.from(host.querySelectorAll('#weekly-preset-questions > .weekly-question-preset'));
-    expect(rows).toHaveLength(5);
-    expect(host.querySelectorAll('#weekly-preset-questions > .weekly-question-preset input'))
-      .toHaveLength(5);
-    for (const preset of WEEKLY_REPORT_PRESET_QUESTIONS) {
-      const input = host.querySelector<HTMLInputElement>(`#weekly-preset-${preset.key}`);
-      expect(input, `preset "${preset.key}"`).not.toBeNull();
-      // A bare native input restyled by `.field-group input` was the
-      // regression; the owned AntD checkbox is the contract now. The selector
-      // is prefix-agnostic (production renders `servora-ant-*`).
-      expect(input!.matches('[class*="-checkbox-input"]')).toBe(true);
-      expect(input!.closest('.weekly-question-preset')).not.toBeNull();
-      expect(input!.closest('[class*="-checkbox-wrapper"]')).not.toBeNull();
-      expect(input!.closest('label')?.textContent?.trim()).toBe(preset.prompt);
-    }
-  });
-
-  it('disables the preset checkboxes while a create command is in flight', async () => {
-    await render(manager);
-    await chooseStaff(['Ayşe Personel']);
-    weeklyApi.bulkRequestWeeklyReports.mockReturnValue(new Promise(() => {}));
-    await act(async () => { submit(); await flush(); });
-    const presets = Array.from(
-      host.querySelectorAll<HTMLInputElement>('#weekly-preset-questions input[type="checkbox"]'),
-    );
-    expect(presets).toHaveLength(5);
-    // The locked surface disables the real control, not just its styling.
-    expect(presets.every((box) => box.matches(':disabled'))).toBe(true);
-    expect((host.querySelector('#weekly-add-custom-question') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('sends selected presets with their stable semantic keys and excludes unselected ones', async () => {
-    await render(manager);
-    await chooseStaff(['Ayşe Personel']);
-    const highlights = host.querySelector('#weekly-preset-preset_week_highlights') as HTMLInputElement;
-    const support = host.querySelector('#weekly-preset-preset_management_support') as HTMLInputElement;
-    await toggleCheckbox(highlights);
-    await toggleCheckbox(support);
-    await flush();
-    await flush();
-    await act(async () => { submit(); await flush(); });
-    const input = bulkInput();
-    expect(input.questions).toEqual([
-      { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
-      { key: 'preset_management_support', prompt: 'Yönetimden ihtiyaç duyduğun destek veya karar var mı?' },
-    ]);
   });
 
   it('adds custom questions, keeps their stable ids and removes them independently', async () => {
@@ -559,7 +633,6 @@ describe('Weekly report create screen', () => {
       { key: 'custom_1', prompt: 'Özel birinci soru' },
       { key: 'custom_2', prompt: 'Özel ikinci soru' },
     ]);
-    // Remove the first custom row; the second keeps its id and prompt.
     const removeFirst = Array.from(host.querySelectorAll('#weekly-questions .inline-action'))
       .find((button) => button.textContent === 'Kaldır');
     await act(async () => { removeFirst!.dispatchEvent(new Event('click', { bubbles: true })); });
@@ -568,30 +641,9 @@ describe('Weekly report create screen', () => {
     expect(bulkInput(1).questions).toEqual([{ key: 'custom_2', prompt: 'Özel ikinci soru' }]);
   });
 
-  it('orders the payload as presets in canonical order then custom questions in UI order', async () => {
+  it('keeps custom question keys and prompts identical across an ambiguous retry', async () => {
     await render(manager);
     await chooseStaff(['Ayşe Personel']);
-    await clickButton('+ Özel soru ekle');
-    change(host.querySelector('#weekly-custom-question-custom_1') as HTMLInputElement, 'Özel soru');
-    const priorities = host.querySelector('#weekly-preset-preset_next_week_priorities') as HTMLInputElement;
-    const highlights = host.querySelector('#weekly-preset-preset_week_highlights') as HTMLInputElement;
-    // Toggling priorities first proves canonical preset order wins over click order.
-    await toggleCheckbox(priorities);
-    await toggleCheckbox(highlights);
-    await flush();
-    await act(async () => { submit(); await flush(); });
-    expect(bulkInput().questions.map((question: { key: string }) => question.key)).toEqual([
-      'preset_week_highlights',
-      'preset_next_week_priorities',
-      'custom_1',
-    ]);
-  });
-
-  it('keeps question keys and prompts identical across an ambiguous retry', async () => {
-    await render(manager);
-    await chooseStaff(['Ayşe Personel']);
-    const highlights = host.querySelector('#weekly-preset-preset_week_highlights') as HTMLInputElement;
-    await toggleCheckbox(highlights);
     await clickButton('+ Özel soru ekle');
     change(host.querySelector('#weekly-custom-question-custom_1') as HTMLInputElement, 'Özel soru');
     weeklyApi.bulkRequestWeeklyReports.mockRejectedValueOnce(new Error('transport lost'));
@@ -601,7 +653,6 @@ describe('Weekly report create screen', () => {
     expect(weeklyApi.bulkRequestWeeklyReports).toHaveBeenCalledTimes(2);
     expect(weeklyApi.bulkRequestWeeklyReports.mock.calls[1]![0]).toEqual(firstInput);
     expect(weeklyApi.bulkRequestWeeklyReports.mock.calls[1]![0].questions).toEqual([
-      { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
       { key: 'custom_1', prompt: 'Özel soru' },
     ]);
   });
@@ -625,23 +676,17 @@ describe('Weekly report create screen', () => {
     expect(host.textContent).toContain('en fazla 500 karakter');
   });
 
-  it('accepts far more than five questions (presets plus many customs)', async () => {
+  it('accepts many custom questions', async () => {
     await render(manager);
     await chooseStaff(['Ayşe Personel']);
-    for (const box of Array.from(
-      host.querySelectorAll('#weekly-preset-questions input[type="checkbox"]'),
-    ) as HTMLInputElement[]) {
-      await toggleCheckbox(box);
-    }
-    await flush();
     for (let index = 1; index <= 8; index += 1) {
       await clickButton('+ Özel soru ekle');
       change(host.querySelector(`#weekly-custom-question-custom_${index}`) as HTMLInputElement, `Soru ${index}`);
     }
     await act(async () => { submit(); await flush(); });
     const questions = bulkInput().questions;
-    expect(questions).toHaveLength(13); // 5 presets + 8 custom, all accepted
-    expect(questions[5]).toEqual({ key: 'custom_1', prompt: 'Soru 1' });
+    expect(questions).toHaveLength(8);
+    expect(questions[0]).toEqual({ key: 'custom_1', prompt: 'Soru 1' });
   });
 
   // ---------------------------------------------------------------------
@@ -649,18 +694,15 @@ describe('Weekly report create screen', () => {
   // ---------------------------------------------------------------------
 
   it('manager one-target create navigates and the REAL server detail payload parses and renders', async () => {
-    // Parse the raw server-shaped detail through the REAL parser (the mocked
-    // create response above is only the create receipt).
     const { parseWeeklyReportDetail } = await import('../src/jobs/weekly-report-api');
     const serverDetail = {
       id: 'report-1', organizationId: 'org-1', jobCardId: 'job-1', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-09',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08',
       draft: {
         summary: 'Özet.', blockers: null, nextWeekPlan: 'Plan.',
         highlights: null, fieldObservations: null, supportNeeded: null,
       },
       questions: [
-        { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
         { key: 'custom_1', prompt: 'Özel soru' },
       ],
       answers: [], version: 1,
@@ -671,8 +713,8 @@ describe('Weekly report create screen', () => {
     };
     const parsed = parseWeeklyReportDetail(serverDetail);
     expect(parsed.organizationId).toBe('org-1');
-    expect(parsed.createdAt).toBe('2026-08-03T09:00:00.000Z');
-    expect(parsed.updatedAt).toBe('2026-08-03T09:00:00.000Z');
+    expect(parsed.periodEnd).toBe('2026-08-08');
+    expect(parsed.dueDate).toBe('2026-08-10');
 
     await render(manager);
     await chooseStaff(['Ayşe Personel']);
@@ -684,7 +726,7 @@ describe('Weekly report create screen', () => {
     const { parseWeeklyReportDetail } = await import('../src/jobs/weekly-report-api');
     const serverDetail = {
       id: 'report-2', organizationId: 'org-1', jobCardId: 'job-2', staffUserId: 'staff-1',
-      periodStart: '2026-08-03', periodEnd: '2026-08-09',
+      periodStart: '2026-08-03', periodEnd: '2026-08-08',
       draft: {
         summary: null, blockers: null, nextWeekPlan: null,
         highlights: null, fieldObservations: null, supportNeeded: null,

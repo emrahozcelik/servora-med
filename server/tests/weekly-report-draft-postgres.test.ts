@@ -91,7 +91,7 @@ describe.skipIf(!databaseUrl)('weekly report draft read/write (PostgreSQL)', () 
         id: created.reportId,
         staffUserId: staffId,
         periodStart: WEEK_A,
-        periodEnd: '2026-08-09',
+        periodEnd: '2026-08-08',
         jobStatus: 'ACCEPTED',
         jobVersion: 1,
         dueDate: '2026-08-10',

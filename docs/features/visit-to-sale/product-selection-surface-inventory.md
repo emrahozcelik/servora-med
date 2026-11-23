@@ -25,13 +25,13 @@ Retained `after-mobile.png` (390px) ve `after-desktop.png` (1440px) görselleri 
 | P03 | ProductSelect selected rows alt yüzeyi | Multi: onAdd/onRemove/renderQuantity; single: hidden productId + onChange. Duplicate ürün aynı ID'de tekrar eklenmiyor. | Single mode production mount değil. Sale edit'in historical snapshot identity'si full Product DTO değildir. | Mevcut single API'yi koru; seçili identity shape'ini name/SKU/brand/model/unit/id ile daraltarak snapshot mapping'i destekle. Search/onAdd gerçek catalog Product getirmeye devam eder. |
 | P04 | Teslimat JobDetail `/jobs/:id`, `type=PRODUCT_DELIVERY` | `.delivery-lines`: product name + SKU, purpose, read-only quantity/unit; DeliveryItemActualTimeForm gerçek zamanı değiştirir. | Miktar product identity'nin solunda değil; stored model render edilmiyor. Brand delivery snapshot'ında yok. ProductSelect mount'u, add/remove/quantity edit UI'si yok. | Read-only row parity: quantity/unit solda, stored name/SKU/model/unit aynı identity grubunda; purpose/actual-time ayrı. ProductSelect editor gibi mount edilmez. Missing brand current catalog'dan doldurulmaz. |
 | P05 | Teslimat actual-time edit, IN_PROGRESS/REVISION_REQUESTED | JobDetail `saveDeliveredAt` → patchDeliveryItem `{expectedVersion, deliveredAt}`. Parent mutation ownership/pending, truth refresh ve conflict handling. | Bu quantity mutation değildir; API'nin daha geniş PATCH sözleşmesi UI'nin daha geniş yetkisi değildir. | Time input/edit davranışını koru. UI parity satır düzeni bu formu bozmaz; version/conflict regresyonu test edilir. Yeni quantity/remove butonu ekleme. |
-| P06 | Follow-up create `/jobs/new-follow-up?source=…`, PRODUCT_DELIVERY branch | FollowUpCreatePage: fixed customer, task type, assignee, schedule/instructions. | Product selection veya initial delivery items yok. Boş delivery card oluşturabilir; JobDetail'da da satır ekleme UI'si yok. Bu kaynakta gerçek bir UI capability boşluğu. | Envanterde explicit deferred functional gap. SALE_FROM_VISIT bu formu kullanmaz. Ürün ekleme desteği yalnız ayrı functional slice + atomic follow-up create/idempotency planıyla; parity PR'ında sessizce çözülmez. |
-| P07 | Source approval follow-up proposal/decision | FollowUpProposalSection / JobApprovalReviewPanel teslimat türünü seçenek olarak sunabilir; ürünleri seçmez. | Type selection ürün selection değildir; mevcut management follow-up create'i items taşımaz. | Mevcut proposal/lifecycle kurallarını koru. P06 ile aynı future functional scope; Sale option buraya eklenmez. |
+| P06 | Follow-up create `/jobs/new-follow-up?source=…`, PRODUCT_DELIVERY branch | FollowUpCreatePage: fixed customer, task type, assignee, schedule/instructions; delivery türünde shared `ProductSelect` + purpose/note ve ilk teslim partisi. | Mevcut kart üzerinde satır ekleme/düzenleme UI'si yok (JobDetail yalnız gerçekleşen zamanı düzenler). | Delivery tipi follow-up create ilk partiyi child JobCard ile aynı transaction'da oluşturur. Mevcut kart üzerinde satır CRUD ayrı functional slice olarak deferred kalır. SALE_FROM_VISIT bu formu kullanmaz. |
+| P07 | Source approval follow-up proposal/decision | FollowUpProposalSection / JobApprovalReviewPanel onay önerisi oluşturur; ürünleri seçmez. | Onay yolu child'ı yine itemsız üretir. Ancak bugün teslimat türünde bir onay child'ı oluşamaz: JOB-008 zorunlu takip önerisini yalnız SALES_MEETING akışında üretir ve `validateFollowUpProposal` zorunlu takipte türü SALES_MEETING'e sabitler. | Mevcut proposal/lifecycle kurallarını koru. Onay yolunun ilk teslim partisi taşıması ayrı functional scope'tur; Sale option buraya eklenmez. |
 | P08 | Yeni satış formu `/jobs/:visitId/new-sale` | **Henüz yok.** | Yeni domain/API ve verified source context gerekiyor. | P01'deki ProductSelect multi+quantity yeniden kullan; fixed customer/assignee, independent actual soldAt ve sale contact. |
 | P09 | Sale detail correction `/jobs/:saleId`, SALE | **Henüz yok.** | Historical item metadata ile current catalog selection farklı shape'ler. | Aktif edit'te aynı ProductSelect; existing selection historical snapshots'tan narrow identity, new additions catalog'dan. Add/quantity/remove her biri frozen request + receipt/version taşır. |
 | P10 | Sale waiting approval / terminal detail | **Henüz yok.** | Editing ile immutable read presentation ayrı sözleşme. | Read-only quantity → historical identity; editor ve remove control yok. Same sale lines manager review'da görünür; broad ProductSelect read component'i yaratılmaz. |
 
-P06/P07'ye yeni ürün seçimi eklemek, “mevcut ürün seçme UI'sini standardize etmek” ile aynı iş değildir. Backend endpoints bulunması, kullanıcı akışının tamamlandığı anlamına gelmez. Mevcut boşluk task çıktısında saklanmadı; küçük UI parity PR'ı bu işlevi genişletmez.
+P06 artık delivery tipi follow-up create'te ilk teslim partisini üretir; bu “mevcut ürün seçme UI'sini standardize etmek” işinin sessiz bir uzantısı değil, ayrı kabul edilmiş bir functional slice'tır. P07 (onay önerisi) hâlâ items taşımaz; ancak bugün teslimat türünde onay child'ı oluşamadığı için bu bir canlı boşluk değildir. Backend endpoints bulunması, kullanıcı akışının tamamlandığı anlamına gelmez. Mevcut kart üzerinde satır CRUD boşluğu task çıktısında saklanır; küçük UI parity PR'ı bu işlevi genişletmez.
 
 ## 3. Katalog, rapor ve diğer ekranlar — dışlanan veya read-only yüzeyler
 
@@ -80,7 +80,7 @@ Tüm anchor'lar [reviewed main](https://github.com/emrahozcelik/servora-med/tree
 - Every production product selector, item-add surface and quantity-write call site is identified at the reviewed commit.
 - The single-selection component API and unused delivery client exports are not misreported as live product-selection screens.
 - Catalog/reference-price fields and read-only report quantities are separated from operational selection.
-- Missing delivery follow-up item entry is recorded as a functional gap with an explicit deferral.
+- Delivery follow-up item entry is recorded as a functional gap: creation now captures the initial batch, while item CRUD on an existing card remains the explicit deferral.
 - Sale creation/correction reuse ProductSelect; read-only historical records preserve snapshot truth.
 
 ## SALE-QTY-001 handoff (2026-10-15)
@@ -89,3 +89,11 @@ The fractional examples above remain historical ProductSelect/Delivery evidence.
 Sale quantity now means integer product count (1–999999999); PR3 defaults to 1
 and must adapt selection/add/correction consistently without changing Delivery
 fractional input or ProductForm. No shared selector change is part of SALE-QTY-001.
+
+## Delivery follow-up batch handoff (2026-11-23)
+
+A `PRODUCT_DELIVERY` follow-up create now carries the same initial
+`deliveryPurpose`, `deliveryNote` and `items` batch as the normal delivery
+create and writes those lines in the child JobCard transaction, so P06 mounts
+the shared `ProductSelect`. The rest of the inventory, including item CRUD on an
+existing delivery card and P07's item-less approval child, is unchanged.
