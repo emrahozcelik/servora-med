@@ -235,7 +235,7 @@ function StandaloneSaleCreateScreen({ user, onCancel, onCreated }: {
             {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
           </div>}
         {customer
-          ? <SaleContactSelect customerId={customer.id} selected={contact} onChange={setContact} disabled={locked} />
+          ? <SaleContactSelect key={customer.id} customerId={customer.id} selected={contact} onChange={setContact} disabled={locked} />
           : <p className="form-help">Satışta görüşülen kişiyi seçmek için önce müşteri seçin.</p>}
         <div className="field-group"><label htmlFor="sale-sold-at">Gerçekleşen satış zamanı</label>
           <input id="sale-sold-at" type="datetime-local" value={soldLocal} onChange={(event) => setSoldLocal(event.target.value)} required />
