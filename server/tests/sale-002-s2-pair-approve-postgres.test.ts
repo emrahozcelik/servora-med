@@ -113,10 +113,17 @@ async function demoteSale(fixture: Fixture, saleId: string, status: string): Pro
         SET status = $2::text,
             version = version + 1,
             started_at = CASE WHEN $2::text IN ('IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
-                              THEN COALESCE(started_at, $3::timestamptz) ELSE started_at END
+                              THEN COALESCE(started_at, $3::timestamptz) ELSE started_at END,
+            -- job_cards CHECK: REVISION_REQUESTED needs its revision facts.
+            revision_requested_at = CASE WHEN $2::text = 'REVISION_REQUESTED'
+                                         THEN $3::timestamptz ELSE revision_requested_at END,
+            revision_requested_by = CASE WHEN $2::text = 'REVISION_REQUESTED'
+                                         THEN $4::uuid ELSE revision_requested_by END,
+            revision_reason = CASE WHEN $2::text = 'REVISION_REQUESTED'
+                                   THEN 'Legacy revision' ELSE revision_reason END
       WHERE id = $1
       RETURNING version`,
-    [saleId, status, new Date('2026-10-14T07:55:00.000Z')],
+    [saleId, status, new Date('2026-10-14T07:55:00.000Z'), fixture.manager.id],
   );
   return result.rows[0]!.version;
 }

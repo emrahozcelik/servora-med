@@ -188,13 +188,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S2 pair idempotency', 
           });
           expect(cancelled.statusCode).toBe(200);
         });
+        // The sale is CANCELLED, so no coordinated pair exists: §4.5 rejects expectedSaleVersion.
         const withdrawn = await app.inject({
           method: 'POST',
           url: `/api/job-cards/${f.visitId}/withdraw-from-approval`,
           payload: {
             clientActionId: 's2-pair-other-sale-withdraw',
             expectedVersion: pair.visitVersion + 1,
-            expectedSaleVersion: pair.saleVersion + 1,
           },
         });
         expect(withdrawn.statusCode).toBe(200);
@@ -238,6 +238,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S2 pair idempotency', 
             expectedVersion: pair.visitVersion,
             expectedSaleVersion: pair.saleVersion,
             note: 'Ziyaret ve bağlı satış kaydı onaya hazır.',
+            // A human-chosen slot is persisted verbatim; a SYSTEM-origin proposal would be
+            // re-slotted automatically at approval and never fail (existing JOB-008 rule).
+            followUpProposal: {
+              scheduledAt: '2026-11-30T07:00:00.000Z',
+              type: 'SALES_MEETING',
+              assignedTo: f.staff.id,
+              followUpInstructions: 'Takip: Clinic visit',
+            },
           },
         });
         expect(response.statusCode).toBe(200);
@@ -332,6 +340,117 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S2 pair idempotency', 
       });
       expect(approvedBody).toMatchObject({ status: 'COMPLETED', linkedSaleJobCardId: pair.sale.jobCardId });
       expect(await jobRow(f, pair.sale.jobCardId)).toMatchObject({ status: 'COMPLETED' });
+    });
+  });
+
+  it('rejects the same approve key with a changed approval follow-up override and replays an identical one', async () => {
+    await withSaleFixture(async (f) => {
+      const pair = await readyPair(f);
+      let submitted: Record<string, unknown> = {};
+      await withApp(f, () => f.staff, async (app) => {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/api/job-cards/${f.visitId}/submit-for-approval`,
+          payload: {
+            clientActionId: 's2-override-submit',
+            expectedVersion: pair.visitVersion,
+            expectedSaleVersion: pair.saleVersion,
+            note: 'Ziyaret ve bağlı satış kaydı onaya hazır.',
+            followUpProposal: {
+              scheduledAt: '2026-11-30T07:00:00.000Z',
+              type: 'SALES_MEETING',
+              assignedTo: f.staff.id,
+              followUpInstructions: 'Takip: Clinic visit',
+            },
+          },
+        });
+        expect(response.statusCode).toBe(200);
+        submitted = response.json() as Record<string, unknown>;
+      });
+      const payload = {
+        clientActionId: 's2-override-approve',
+        expectedVersion: submitted.version as number,
+        expectedSaleVersion: (await jobRow(f, pair.sale.jobCardId)).version,
+        followUp: {
+          scheduledAt: '2026-12-02T07:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: f.staff.id,
+          followUpInstructions: 'Takip: yeni tarihte görüşün.',
+        },
+      };
+      await withApp(f, () => f.manager, async (app) => {
+        const first = await app.inject({
+          method: 'POST', url: `/api/job-cards/${f.visitId}/approve`, payload,
+        });
+        expect(first.statusCode).toBe(200);
+        const before = await sideEffectCounts(f);
+
+        const replay = await app.inject({
+          method: 'POST', url: `/api/job-cards/${f.visitId}/approve`, payload,
+        });
+        expect([200, 201]).toContain(replay.statusCode);
+        expect(replay.json()).toEqual(first.json());
+        expect(await sideEffectCounts(f)).toEqual(before);
+
+        for (const followUp of [
+          { ...payload.followUp, scheduledAt: '2026-12-03T07:00:00.000Z' },
+          { ...payload.followUp, priority: 'high' },
+          { ...payload.followUp, followUpInstructions: 'Takip: başka talimat.' },
+        ]) {
+          const reused = await app.inject({
+            method: 'POST',
+            url: `/api/job-cards/${f.visitId}/approve`,
+            payload: { ...payload, followUp },
+          });
+          expect(reused.statusCode).toBe(409);
+          expect(reused.json().code).toBe('CLIENT_ACTION_REUSED');
+        }
+        expect(await sideEffectCounts(f)).toEqual(before);
+      });
+    });
+  });
+
+  it('rejects the same request-revision key with a changed correctionDueAt and replays an identical one', async () => {
+    await withSaleFixture(async (f) => {
+      let submitted: Awaited<ReturnType<typeof submitPair>> | null = null;
+      await withApp(f, () => f.staff, async (app) => {
+        submitted = await submitPair(f, app, 's2-correction-submit');
+      });
+      const pair = submitted!;
+      const payload = {
+        clientActionId: 's2-correction-revision',
+        expectedVersion: (pair.response.json() as { version: number }).version,
+        expectedSaleVersion: (await jobRow(f, pair.sale.jobCardId)).version,
+        revisionReason: 'Ürün miktarını düzeltin.',
+        correctionDueAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+      };
+      await withApp(f, () => f.manager, async (app) => {
+        const first = await app.inject({
+          method: 'POST', url: `/api/job-cards/${f.visitId}/request-revision`, payload,
+        });
+        expect(first.statusCode).toBe(200);
+        const before = await sideEffectCounts(f);
+
+        const replay = await app.inject({
+          method: 'POST', url: `/api/job-cards/${f.visitId}/request-revision`, payload,
+        });
+        expect([200, 201]).toContain(replay.statusCode);
+        expect(replay.json()).toEqual(first.json());
+        expect(await sideEffectCounts(f)).toEqual(before);
+
+        const { correctionDueAt: _omitted, ...withoutDeadline } = payload;
+        for (const changed of [
+          { ...payload, correctionDueAt: new Date(Date.now() + 3 * 86_400_000).toISOString() },
+          withoutDeadline,
+        ]) {
+          const reused = await app.inject({
+            method: 'POST', url: `/api/job-cards/${f.visitId}/request-revision`, payload: changed,
+          });
+          expect(reused.statusCode).toBe(409);
+          expect(reused.json().code).toBe('CLIENT_ACTION_REUSED');
+        }
+        expect(await sideEffectCounts(f)).toEqual(before);
+      });
     });
   });
 
@@ -475,9 +594,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S2 pair idempotency', 
           `SELECT count(*)::int AS n FROM job_card_activity_logs
             WHERE job_card_id = $1 AND event_type = 'JOB_SUBMITTED_FOR_APPROVAL'`, [jobCardId])).toBe(1);
       }
-      expect(await count(f,
-        `SELECT count(*)::int AS n FROM job_card_lifecycle_intents WHERE operation_key LIKE $1`,
-        [`JOB_SUBMIT_FOR_APPROVAL_PAIR:${f.visitId}%`])).toBe(2);
+      // Winner: exactly two COMPLETED intents. The loser either failed the version fence at
+      // reservation (no rows) or reserved first and failed finalization (§4.6: both rows
+      // FAILED together); which one happens is a race, so only "no live row, no half-failed
+      // pair" is asserted for it.
+      const intentCount = (state: string) => count(f,
+        `SELECT count(*)::int AS n FROM job_card_lifecycle_intents
+          WHERE operation_key LIKE $1 AND state = $2`,
+        [`JOB_SUBMIT_FOR_APPROVAL_PAIR:${f.visitId}%`, state]);
+      expect(await intentCount('COMPLETED')).toBe(2);
+      expect(await intentCount('PENDING')).toBe(0);
+      expect([0, 2]).toContain(await intentCount('FAILED'));
     });
   });
 });

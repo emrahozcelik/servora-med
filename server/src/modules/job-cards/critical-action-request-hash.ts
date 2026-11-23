@@ -207,7 +207,14 @@ export type SalePairLifecycleRequestIdentity = {
   note: string | null;
   revisionReason: string | null;
   followUpProposal?: FollowUpProposalInput | null;
+  /** The manager's approval follow-up override; same normalization as single-card. */
+  approveFollowUp?: ApproveFollowUpInput | null;
   locationCapture?: LifecycleLocationCapture | null;
+  /**
+   * OVR-5b: the REQUEST_REVISION correction deadline. Present-only, so every
+   * pair hash recorded without it stays byte-identical.
+   */
+  correctionDueAt?: string | null;
   /**
    * SALE-002 S3 (§5) hashes the normalized delivery payload here. S2 has no
    * delivery input, so the key is absent and an S2 receipt keeps replaying
@@ -227,7 +234,15 @@ export function salePairLifecycleRequestHash(identity: SalePairLifecycleRequestI
     note: identity.note,
     revisionReason: identity.revisionReason,
     followUpProposal: normalizedProposalIntent(identity.followUpProposal),
+    // Present only when sent, so pair hashes recorded before these members
+    // existed stay byte-identical (an absent key is not an explicit null).
+    ...(identity.approveFollowUp !== undefined && identity.approveFollowUp !== null
+      ? { approveFollowUp: normalizedApproveIntent(identity.approveFollowUp) }
+      : {}),
     location: normalizedLocationIntent(identity.locationCapture),
+    ...(identity.correctionDueAt !== undefined && identity.correctionDueAt !== null
+      ? { correctionDueAt: canonicalInstantValue(identity.correctionDueAt) }
+      : {}),
   });
 }
 

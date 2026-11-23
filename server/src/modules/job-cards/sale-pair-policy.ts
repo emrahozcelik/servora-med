@@ -128,7 +128,7 @@ export function salePairStateConflict(input: {
     'SALE_PAIR_STATE_CONFLICT',
     409,
     input.allowedSaleCommand === 'ACCEPT_ASSIGNMENT'
-      ? 'Bağlı satış kaydı önce atanmalıdır.'
+      ? 'Bağlı satış kaydı önce kabul edilmelidir.'
       : 'Bağlı satış kaydı önce düzeltmeden çıkarılmalıdır.',
     {
       visitId: input.visitId,

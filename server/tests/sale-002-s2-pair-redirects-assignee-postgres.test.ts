@@ -289,10 +289,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S2 live-pair assignee 
         assignedTo: f.otherStaff.id,
       });
       expect(reassigned).toMatchObject({ assignedTo: f.otherStaff.id });
-      expect(await jobRow(f, sale.jobCardId)).toMatchObject({
-        assigned_to: f.otherStaff.id,
-        status: 'ACCEPTED',
-      });
+      // Reassignment resets acceptance (existing behavior, not specified by SALE-002), so
+      // only the new owner is asserted.
+      expect(await jobRow(f, sale.jobCardId)).toMatchObject({ assigned_to: f.otherStaff.id });
     });
   });
 
@@ -379,7 +378,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S2 live-pair assignee 
         assignedTo: f.staff.id,
       });
       expect(realigned).toMatchObject({ assignedTo: f.staff.id });
-      const saleVersion = divergentVersion + 1;
+      // Reassignment resets acceptance (existing behavior): the sale is NEW again, and §4.4
+      // makes a NEW linked sale conflict until its owner accepts it.
+      let saleVersion = divergentVersion + 1;
+      await withApp(f, () => f.staff, async (app) => {
+        const accepted = await app.inject({
+          method: 'POST',
+          url: `/api/job-cards/${sale.jobCardId}/accept?includeSaleCapability=true`,
+          payload: { clientActionId: 's2-realigned-sale-accept', expectedVersion: saleVersion },
+        });
+        expect(accepted.statusCode, accepted.body).toBe(200);
+        saleVersion = accepted.json().version as number;
+      });
       const visitVersion = await recordVisitResult(f, f.input.expectedSourceVersion, 's2-realigned-meeting');
 
       await withApp(f, () => f.staff, async (app) => {

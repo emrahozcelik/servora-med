@@ -210,7 +210,10 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 pair locking and intents', () => {
 
   it('approves a pair and a single visit of the same customer concurrently without deadlock', async () => {
     await withSaleFixture(async (f) => {
-      await withApp(f, () => f.manager, async (app) => {
+      // Submission belongs to the assigned staff (a SALE may only be submitted by its
+      // assignee); approval belongs to management. The actor is switched per step.
+      let current: JobCardActor = f.staff;
+      await withApp(f, () => current, async (app) => {
         for (const [index, pairAt] of ['2026-10-14T09:00:00.000Z', '2026-10-14T11:00:00.000Z'].entries()) {
           const pair = await createPair(f, f.customerId, pairAt, `approve-${index}`);
           const pairSubmit = await app.inject({
@@ -233,6 +236,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 pair locking and intents', () => {
           });
           expect.soft(singleSubmit.statusCode, `single submit ${index}`).toBe(200);
 
+          current = f.manager;
           const [pairApproved, singleApproved] = await Promise.all([
             app.inject({
               method: 'POST',
@@ -258,6 +262,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 pair locking and intents', () => {
           expect.soft(singleApproved.statusCode, `single approve ${index}`).toBe(200);
           expect.soft(pairApproved.json().code, `pair approve code ${index}`).not.toBe('ACTION_IN_PROGRESS');
           expect.soft(singleApproved.json().code, `single approve code ${index}`).not.toBe('ACTION_IN_PROGRESS');
+          current = f.staff;
         }
       });
 

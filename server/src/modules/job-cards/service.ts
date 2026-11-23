@@ -2971,6 +2971,63 @@ export class JobCardService {
   }
 
   /**
+   * JOB-008: the approval-created follow-up child, shared by the single-card
+   * approve path and the SALE-002 pair approve path. The 10-level chain cap
+   * applies to manual createFollowUp only. A DEMO parent's child stays in the
+   * same demo dataset (same rule as createFollowUp and the JOB-009
+   * replacement), so a complete demo purge also removes it.
+   */
+  private async createApprovalFollowUpChild(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    input: {
+      approval: {
+        proposal: ValidatedFollowUpProposal;
+        priority: JobCardPriority;
+        dueDate: string | null;
+      };
+      sourceJobCardId: string;
+      sourceTitle: string;
+      customerId: string | null;
+      followUpProposedBy: string | null;
+      clientActionId: string;
+      requestTime: Date;
+    },
+  ) {
+    const { approval } = input;
+    const source = await tx.getFollowUpSource(actor.organizationId, input.sourceJobCardId);
+    if (!source) followUpInvariantViolation();
+    const childIsDemo = source.dataClass === 'DEMO' && source.demoDatasetId !== null;
+    const childTitle = Array.from(`Takip: ${input.sourceTitle.trim()}`).slice(0, 250).join('');
+    return this.createFollowUpChild(tx, actor, {
+      dataClass: childIsDemo ? 'DEMO' : 'BUSINESS',
+      demoDatasetId: childIsDemo ? source.demoDatasetId : null,
+      sourceJobCardId: input.sourceJobCardId,
+      customerId: input.customerId,
+      type: approval.proposal.type,
+      title: childTitle,
+      followUpInstructions: approval.proposal.followUpInstructions,
+      scheduledAt: approval.proposal.scheduledAt.toISOString(),
+      assignedTo: approval.proposal.assignedTo,
+      priority: approval.priority,
+      dueDate: approval.dueDate,
+      contactId: null,
+      engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
+      clientActionId: input.clientActionId,
+      requestTime: input.requestTime,
+      assignee: approval.proposal.assignee,
+      ...(input.followUpProposedBy !== null
+        && input.followUpProposedBy === approval.proposal.assignedTo
+        ? { acceptance: { acceptedAt: input.requestTime, acceptedBy: input.followUpProposedBy } }
+        : {}),
+      activityMetadata: { sourceJobCardId: input.sourceJobCardId },
+      // JOB-010 release 2b: the approval-created child that starts in NEW is a
+      // compound producer — it can never ask for an acknowledgement.
+      assignmentOffer: { openedReason: 'APPROVE_FOLLOW_UP', direct: false },
+    });
+  }
+
+  /**
    * Shared linked-child creation used by both the post-hoc follow-up flow and
    * the unified approval flow. Runs fully inside the caller's transaction and
    * emits exactly one JOB_CREATED activity + realtime event for the child.
@@ -5951,7 +6008,9 @@ export class JobCardService {
         note: definition.note,
         revisionReason: definition.revisionReason,
         followUpProposal: definition.followUpProposal ?? null,
+        approveFollowUp: definition.approveFollowUp ?? null,
         locationCapture: actionLocation?.capture ?? null,
+        correctionDueAt: definition.correctionDueAt ?? null,
       }),
     };
     const legacyCompleted = await this.repository.findCompletedCriticalAction<unknown>({
@@ -6490,34 +6549,14 @@ export class JobCardService {
     let followUpJobCardId: string | null = null;
     let childRealtimeEvents: RealtimeEventRecord[] = [];
     if (approval) {
-      const source = await tx.getFollowUpSource(actor.organizationId, input.visit.id);
-      if (!source) followUpInvariantViolation();
-      const childIsDemo = source.dataClass === 'DEMO' && source.demoDatasetId !== null;
-      const childTitle = Array.from(`Takip: ${visitEffects.updated.title.trim()}`)
-        .slice(0, 250).join('');
-      const child = await this.createFollowUpChild(tx, actor, {
-        dataClass: childIsDemo ? 'DEMO' : 'BUSINESS',
-        demoDatasetId: childIsDemo ? source.demoDatasetId : null,
+      const child = await this.createApprovalFollowUpChild(tx, actor, {
+        approval,
         sourceJobCardId: input.visit.id,
+        sourceTitle: visitEffects.updated.title,
         customerId: visitEffects.updated.customerId,
-        type: approval.proposal.type,
-        title: childTitle,
-        followUpInstructions: approval.proposal.followUpInstructions,
-        scheduledAt: approval.proposal.scheduledAt.toISOString(),
-        assignedTo: approval.proposal.assignedTo,
-        priority: approval.priority,
-        dueDate: approval.dueDate,
-        contactId: null,
-        engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
+        followUpProposedBy: input.visit.followUpProposedBy,
         clientActionId: context.clientActionId,
         requestTime,
-        assignee: approval.proposal.assignee,
-        ...(input.visit.followUpProposedBy !== null
-          && input.visit.followUpProposedBy === approval.proposal.assignedTo
-          ? { acceptance: { acceptedAt: requestTime, acceptedBy: input.visit.followUpProposedBy } }
-          : {}),
-        activityMetadata: { sourceJobCardId: input.visit.id },
-        assignmentOffer: { openedReason: 'APPROVE_FOLLOW_UP', direct: false },
       });
       followUpJobCardId = child.job.id;
       childRealtimeEvents = child.realtimeEvents;
@@ -7065,51 +7104,14 @@ export class JobCardService {
         let childRealtimeEvents: RealtimeEventRecord[] = [];
         let followUpJobCardId: string | null = null;
         if (approval) {
-          const source = await tx.getFollowUpSource(actor.organizationId, jobCardId);
-          if (!source) followUpInvariantViolation();
-          // JOB-008: the approval-created child is never blocked by chain
-          // length; the 10-level cap applies to manual createFollowUp only.
-          // A DEMO parent's child stays in the same demo dataset (same rule as
-          // createFollowUp and the JOB-009 replacement), so a complete demo
-          // purge also removes it.
-          const childIsDemo = source.dataClass === 'DEMO' && source.demoDatasetId !== null;
-          const childTitle = Array.from(`Takip: ${updated.title.trim()}`).slice(0, 250).join('');
-          const child = await this.createFollowUpChild(tx, actor, {
-            dataClass: childIsDemo ? 'DEMO' : 'BUSINESS',
-            demoDatasetId: childIsDemo ? source.demoDatasetId : null,
+          const child = await this.createApprovalFollowUpChild(tx, actor, {
+            approval,
             sourceJobCardId: jobCardId,
+            sourceTitle: updated.title,
             customerId: updated.customerId,
-            type: approval.proposal.type,
-            title: childTitle,
-            followUpInstructions: approval.proposal.followUpInstructions,
-            scheduledAt: approval.proposal.scheduledAt.toISOString(),
-            assignedTo: approval.proposal.assignedTo,
-            priority: approval.priority,
-            dueDate: approval.dueDate,
-            contactId: null,
-            engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
+            followUpProposedBy: job.followUpProposedBy,
             clientActionId: input.clientActionId,
             requestTime,
-            assignee: approval.proposal.assignee,
-            ...(job.followUpProposedBy !== null
-              && job.followUpProposedBy === approval.proposal.assignedTo
-              ? {
-                acceptance: {
-                  acceptedAt: requestTime,
-                  acceptedBy: job.followUpProposedBy,
-                },
-              }
-              : {}),
-            activityMetadata: {
-              sourceJobCardId: jobCardId,
-            },
-            // JOB-010 release 2b: the approval-created child that starts in
-            // NEW is a compound producer — it can never ask for an
-            // acknowledgement.
-            assignmentOffer: {
-              openedReason: 'APPROVE_FOLLOW_UP',
-              direct: false,
-            },
           });
           followUpJobCardId = child.job.id;
           childRealtimeEvents = child.realtimeEvents;

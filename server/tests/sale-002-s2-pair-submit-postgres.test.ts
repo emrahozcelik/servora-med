@@ -231,13 +231,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S2 pair submit', () =>
       // §4.3 step 4: the JOB-008 proposal is still persisted for the visit.
       expect(visit.follow_up_proposed_at).not.toBeNull();
 
-      // §4.7: one bodyless job.updated invalidation per moved card.
+      // §4.7: the existing realtime row for the submission activity exists for each moved
+      // card (the existing mapping emits `job.submitted_for_approval`, not a generic
+      // `job.updated`, for a submission activity).
       const realtime = (await f.pool.query<{ entity_id: string; event_type: string }>(
         `SELECT entity_id, event_type FROM realtime_events
           WHERE entity_id = ANY($1::uuid[])`, [[f.visitId, sale.jobCardId]],
       )).rows;
-      expect(realtime.some((row) => row.entity_id === f.visitId && row.event_type === 'job.updated')).toBe(true);
-      expect(realtime.some((row) => row.entity_id === sale.jobCardId && row.event_type === 'job.updated')).toBe(true);
+      for (const jobCardId of [f.visitId, sale.jobCardId]) {
+        expect(realtime.filter(
+          (row) => row.entity_id === jobCardId && row.event_type === 'job.submitted_for_approval',
+        )).toHaveLength(1);
+      }
 
       // §4.7: one awaiting-approval notification per submitted card.
       const notifications = (await f.pool.query<{ entity_id: string; kind: string }>(

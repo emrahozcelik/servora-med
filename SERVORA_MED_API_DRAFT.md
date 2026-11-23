@@ -882,7 +882,7 @@ the standalone sale create keep rejecting it with `400 VALIDATION_ERROR`.
 
 | Command | Behavior |
 | --- | --- |
-| `SUBMIT_FOR_APPROVAL` (`:id` = visit) | Validates the visit first (`MEETING_NOT_READY`), then the linked sale (`SALE_NOT_READY`, nothing written), then moves both `→ WAITING_APPROVAL` in one transaction with one instant. A sale already `WAITING_APPROVAL` keeps its own submission facts (no second event). A sale in `NEW`/`REVISION_REQUESTED` is `409 SALE_PAIR_STATE_CONFLICT` with `allowedSaleCommand: ACCEPT_ASSIGNMENT` / `RESUME`. |
+| `SUBMIT_FOR_APPROVAL` (`:id` = visit) | Validates the visit first (`MEETING_NOT_READY`), then the linked sale (`400 SALE_NOT_READY` with `details: { readiness }`, nothing written; the same error and payload apply to a single-card sale submit), then moves both `→ WAITING_APPROVAL` in one transaction with one instant. A sale already `WAITING_APPROVAL` keeps its own submission facts (no second event). A sale in `NEW`/`REVISION_REQUESTED` is `409 SALE_PAIR_STATE_CONFLICT` with `allowedSaleCommand: ACCEPT_ASSIGNMENT` / `RESUME`. |
 | `APPROVE` (`:id` = visit) | Completes the visit and completes the sale **only if** it is `WAITING_APPROVAL`. Both completed cards share `manager_approved_at/by/note`. The JOB-008 follow-up child is still created from the visit. A legacy sale in another state is left untouched and becomes independent. |
 | `REQUEST_REVISION` | Moves the visit and, only when it is `WAITING_APPROVAL`, the sale; the same reason/instant/actor, one `JOB_REVISION_REQUESTED` per moved card. The OVR-5b correction deadline stays visit-only. |
 | `WITHDRAW_FROM_APPROVAL` | Returns the visit to `IN_PROGRESS` and, only when it is `WAITING_APPROVAL`, the sale. Prior submission facts stay. |
@@ -900,7 +900,10 @@ card acts alone.
 `<PAIR_OPERATION>:v1` and the hash covers
 `{pairOperation, visitId, visitExpectedVersion, saleId, saleExpectedVersion,
 note, revisionReason, followUpProposal, locationCapture}` (S3 adds normalized
-`delivery`). Replay returns the stored anchor (visit) detail and publishes
+`delivery`). As in the single-card lifecycle identity, the manager's approval follow-up
+override (`approveFollowUp`, normalized the same way) and the OVR-5b `correctionDueAt`
+(`REQUEST_REVISION`) are included **only when the client sent them** (present-only, so a
+receipt recorded without them keeps replaying byte-identically). Replay returns the stored anchor (visit) detail and publishes
 nothing; a changed `saleExpectedVersion`/note/proposal/location, or the same key
 applied to a different linked sale, is `409 CLIENT_ACTION_REUSED`.
 
@@ -923,7 +926,7 @@ hash in both cases.
 | `SALE_REVISION_VIA_VISIT_REQUIRED` | single-card sale revision request while the source is `WAITING_APPROVAL` | idem |
 | `SALE_WITHDRAW_VIA_VISIT_REQUIRED` | single-card sale withdraw while the source is `WAITING_APPROVAL` | idem |
 | `SALE_RESUME_VIA_VISIT_REQUIRED` | single-card sale resume while the source is `REVISION_REQUESTED` | idem |
-| `SALE_PAIR_STATE_CONFLICT` | visit submit blocked by an unsubmittable linked sale; `expectedSaleVersion` missing/extra race | `{ visitId?, saleId?, saleStatus?, allowedSaleCommand? }` or `{ reason: 'NO_COORDINATED_PAIR' }` |
+| `SALE_PAIR_STATE_CONFLICT` | visit submit blocked by an unsubmittable linked sale; `expectedSaleVersion` missing/extra race. For a `NEW` linked sale (`allowedSaleCommand: ACCEPT_ASSIGNMENT`) the message is `Bağlı satış kaydı önce kabul edilmelidir.` | `{ visitId?, saleId?, saleStatus?, allowedSaleCommand? }` or `{ reason: 'NO_COORDINATED_PAIR' }` |
 | `SALE_PAIR_ASSIGNEE_CONFLICT` | reassignment that would make a live pair diverge (either card) | `{ visitAssignee, requestedAssignee }` |
 | `VALIDATION_ERROR` (`400`) | coordinated pair without `expectedSaleVersion` | `{ fieldErrors: { expectedSaleVersion } }` |
 

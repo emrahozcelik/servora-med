@@ -340,8 +340,19 @@ async function evaluateSale(
     { code: 'SALE_ITEM_PRESENT', state: items.length ? 'met' : 'missing', field: 'saleItems' },
     { code: 'SALE_ITEMS_VALID', state: items.length === 0 ? 'missing' : itemsValid ? 'met' : 'invalid', field: 'saleItems' },
   ];
-  return readiness(time, requirements, requirements.every((item) => item.state === 'met') ? null
-    : new AppError('SALE_NOT_READY', 400, 'Satış kaydı yönetici kontrolüne gönderilmek için hazır değil.'));
+  // SALE-002 §4.3 step 2: the error carries the same readiness items the
+  // submission-readiness read model exposes, so a pair submission names what
+  // the linked sale is still missing.
+  const evaluation = readiness(time, requirements, null);
+  return evaluation.readiness.ready ? evaluation : {
+    ...evaluation,
+    failure: new AppError(
+      'SALE_NOT_READY',
+      400,
+      'Satış kaydı yönetici kontrolüne gönderilmek için hazır değil.',
+      { readiness: evaluation.readiness },
+    ),
+  };
 }
 
 export async function evaluateSubmission(
