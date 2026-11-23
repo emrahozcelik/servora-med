@@ -44,6 +44,8 @@ type RecentNoteRow = {
   created_at: Date;
 };
 
+// Weekly Reports are administrative artifacts, not productive work: the
+// recently-completed-work feed must not present one as completed service work.
 const RECENT_COMPLETED_SQL = (includeSaleCapability: boolean) => `
 SELECT j.id, j.title, c.name AS customer_name, assignee.name AS assignee_name,
   j.manager_approved_at AS completed_at
@@ -55,6 +57,7 @@ LEFT JOIN users assignee
   ON assignee.organization_id = j.organization_id AND assignee.id = j.assigned_to
 WHERE j.organization_id = $1
   AND j.status = 'COMPLETED'
+  AND j.type <> 'WEEKLY_REPORT'
   AND j.manager_approved_at >= ($2::date AT TIME ZONE o.timezone)
   AND j.manager_approved_at < (($3::date + 1) AT TIME ZONE o.timezone)
   AND ($4::uuid IS NULL OR j.assigned_to = $4)
