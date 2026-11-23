@@ -277,6 +277,39 @@ vertical when expanded, and the compact summary is the mobile default.
 - Visual evidence follows UI-003; geometry checks must prove that the primary
   command and the first job record are inside the first viewport at 390×844.
 
+## UI-006: Scoped React performance skill
+
+- **Date:** 2026-11-23
+- **Status:** Accepted by the product owner
+- **Scope:** Performance work in `web/` by all contributors and agents
+
+### Decision
+
+Vercel's `react-best-practices` skill is vendored at
+`.claude/skills/react-best-practices/` (upstream `vercel-labs/agent-skills`
+commit `5a37a63`, MIT). It is a selective performance reference, not a
+design framework or a mandate to refactor. The binding Servora-Med scope note
+at the top of its `SKILL.md` owns the details.
+
+- Apply it only to a measured or reported `web/` performance problem, a
+  `bundle:check` failure, an explicit performance review, or new data-fetching
+  and large-list screens.
+- Next.js, RSC, SSR/hydration, `server-*` and SWR rules do not apply to the
+  Vite SPA. The Vite equivalent of `next/dynamic` is `React.lazy` + `Suspense`.
+- The skill does not authorize new dependencies (`better-all`, SWR,
+  `lru-cache`, etc.). AGENTS.md §10 still applies.
+- No codebase-wide `memo` / `useMemo` / import rewrites. Applied rules cite
+  evidence (React Profiler, Playwright timing or `bundle:report`).
+- UI-001 precedence, accessibility, loading/error states, backend-owned truth
+  and UI-003 rendered evidence win over any performance rule.
+
+### Consequences
+
+- Updating the vendored copy is a deliberate change that re-checks this scope
+  against the new upstream rules. The skill must not be auto-updated.
+- The upstream compiled `AGENTS.md` is not vendored, so that agent hosts do not
+  read it as directory instructions.
+
 ## DOM-001: Delivery purpose without financial tracking
 
 - **Date:** 2026-07-10
