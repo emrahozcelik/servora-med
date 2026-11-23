@@ -1,4 +1,5 @@
 import { AppError } from '../../errors/index.js';
+import { isManagementRole } from '../auth/types.js';
 import { isAssignmentOfferJobType } from './assignment-offer-policy.js';
 import {
   DELIVERY_PURPOSES,
@@ -132,9 +133,9 @@ export function getAllowedLifecycleCommands(
     }
     if (job.status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
     if (job.status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
-    return actor.role === 'STAFF'
-      ? ['WITHDRAW_FROM_APPROVAL', 'CANCEL']
-      : ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'];
+    return isManagementRole(actor.role)
+      ? ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL']
+      : ['WITHDRAW_FROM_APPROVAL', 'CANCEL'];
   })() as LifecycleCommand[];
   return commands.filter((command) => timeEligible(command, job, requestTime)
     && !(command === 'CANCEL' && actor.role === 'STAFF'
@@ -151,11 +152,13 @@ export function getAllowedJobActions(
   if (!terminal && job.status !== 'WAITING_APPROVAL') actions.push('EDIT_JOB_FIELDS');
   const addNoteActions = () => {
     actions.push('VIEW_NOTES');
+    // JOB-006 item 6: assignment-stage notes (NEW/ACCEPTED) are open to the
+    // assigned Staff member for every type; execution stages stay unchanged.
     if (
       job.status !== 'INVALIDATED'
       && (
-      actor.role !== 'STAFF'
-      || ['ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
+      isManagementRole(actor.role)
+      || ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
       )
     ) {
       actions.push('ADD_NOTE');
@@ -224,11 +227,11 @@ export function assertCanCreateForAssignee(actor: JobCardActor, assignee: JobCar
 }
 
 export function assertCanCreateFollowUp(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 export function assertCanListFollowUps(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -237,7 +240,7 @@ export function assertCanListFollowUps(actor: JobCardActor) {
  * surface. Cross-org reads stay concealed as 404 by the service lookup.
  */
 export function assertCanReadOverdueIncidentHistory(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -246,7 +249,7 @@ export function assertCanReadOverdueIncidentHistory(actor: JobCardActor) {
  * concealed as 404 by the service lookup, exactly like the history surface.
  */
 export function assertCanSendSubmissionReminder(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -255,7 +258,7 @@ export function assertCanSendSubmissionReminder(actor: JobCardActor) {
  * concealed as 404 by the service lookup.
  */
 export function assertCanGrantEarlyStartAuthorization(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -273,7 +276,7 @@ export function assertCanCreateChangeRequest(actor: JobCardActor) {
  * rejected with 403 before any lookup; cross-org jobs stay concealed as 404.
  */
 export function assertCanResolveChangeRequest(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -282,7 +285,7 @@ export function assertCanResolveChangeRequest(actor: JobCardActor) {
  * requests across the organization.
  */
 export function assertCanListOpenChangeRequests(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -291,11 +294,11 @@ export function assertCanListOpenChangeRequests(actor: JobCardActor) {
  * any lookup, so the route never leaks whether the job exists.
  */
 export function assertCanReofferAssignment(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 export function assertCanListAssignmentOffersNeedingAction(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -304,7 +307,7 @@ export function assertCanListAssignmentOffersNeedingAction(actor: JobCardActor) 
  * lookup, so the route never leaks whether the job exists.
  */
 export function assertCanListUnacceptedPastStart(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 /**
@@ -314,7 +317,7 @@ export function assertCanListUnacceptedPastStart(actor: JobCardActor) {
  * the per-job lateness snapshot.
  */
 export function assertCanListOpenSubmissionLate(actor: JobCardActor) {
-  if (actor.role === 'STAFF') forbidden();
+  if (!isManagementRole(actor.role)) forbidden();
 }
 
 export function assertFollowUpSourceEligible(job: Pick<JobCard, 'status'>) {
@@ -381,7 +384,9 @@ export function assertCanTransition(
   assertSameOrganization(actor, job.organizationId);
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
   if (isTerminalJobStatus(job.status)) invalidTransition();
-  if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION'].includes(command)) forbidden();
+  if (['APPROVE', 'REQUEST_REVISION'].includes(command) && !isManagementRole(actor.role)) {
+    forbidden();
+  }
   if (['ACCEPT_ASSIGNMENT', 'DECLINE_ASSIGNMENT', 'RELEASE_ASSIGNMENT'].includes(command)
     && actor.role !== 'STAFF') forbidden();
   if (!getAllowedLifecycleCommands(actor, job, requestTime, flags).includes(command)) {

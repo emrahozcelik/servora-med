@@ -28,6 +28,9 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
   const [customerId, setCustomerId] = useState(job.customerId ?? '');
   const [customerReady, setCustomerReady] = useState(false);
   const [assignedTo, setAssignedTo] = useState(job.assignedTo);
+  // JOB-009/server guard: a follow-up visit keeps its source customer, so the
+  // form never sends customerId for one and presents the field read-only.
+  const isFollowUp = job.followUpContext !== null;
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<LoadState>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -50,7 +53,7 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
       nextErrors.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
     }
     if (!engagementKind) nextErrors.engagementKind = 'Görüşme veya ziyaret türünü seçin.';
-    if (!customerId) nextErrors.customerId = 'Aktif bir müşteri seçin.';
+    if (!customerId && !isFollowUp) nextErrors.customerId = 'Aktif bir müşteri seçin.';
     if (user.role !== 'STAFF' && !assignedTo) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -59,9 +62,14 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
     setError('');
     // contactId is intentionally omitted: partial-update semantics preserve any
     // historical Contact association instead of silently clearing it.
+    // customerId is omitted unless the user changed it: the server rejects any
+    // customerId on a follow-up (JOB-009 source-customer guard), including an
+    // unchanged echo, so unrelated edits must not send it.
+    const customerChanged = customerId !== (job.customerId ?? '');
     await onSave({
       expectedVersion: job.version, title: normalizedTitle,
-      description: description.trim() || null, customerId,
+      description: description.trim() || null,
+      ...(customerChanged && !isFollowUp ? { customerId } : {}),
       assignedTo: user.role === 'STAFF' ? job.assignedTo : assignedTo,
       priority,
       engagementKind,
@@ -115,9 +123,18 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
           onChange={setCustomerId}
           onReadyChange={setCustomerReady}
           invalid={fieldErrors.customerId ? true : undefined}
-          describedBy={fieldErrors.customerId ? 'meeting-edit-customer-error' : undefined}
+          describedBy={[
+            fieldErrors.customerId ? 'meeting-edit-customer-error' : null,
+            isFollowUp ? 'meeting-edit-customer-help' : null,
+          ].filter(Boolean).join(' ') || undefined}
           allowClear
+          disabled={isFollowUp}
         />
+        {isFollowUp && (
+          <p id="meeting-edit-customer-help" className="form-help">
+            Takip işi kaynak görüşmenin müşterisini korur; müşteri değiştirilemez.
+          </p>
+        )}
         {fieldErrors.customerId && <span id="meeting-edit-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
       {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="meeting-edit-assignee">Sorumlu personel</label>
         <select id="meeting-edit-assignee" value={assignedTo} disabled={staffState !== 'ready'}

@@ -137,9 +137,12 @@ async function insertJob(pool: Pool, fixture: Pick<DemoFixture, 'organizationId'
   type?: string;
 }) {
   const completed = spec.status === 'COMPLETED';
-  const inProgress = spec.status === 'IN_PROGRESS';
-  const startedAt = completed || inProgress ? new Date('2026-07-30T09:00:00.000Z') : null;
-  const staffCompletedAt = completed ? new Date('2026-07-30T10:00:00.000Z') : null;
+  // WAITING_APPROVAL carries the same started/submitted facts as COMPLETED
+  // (job_cards CHECK constraints), so both statuses seed them here.
+  const started = completed || spec.status === 'IN_PROGRESS' || spec.status === 'WAITING_APPROVAL';
+  const submitted = completed || spec.status === 'WAITING_APPROVAL';
+  const startedAt = started ? new Date('2026-07-30T09:00:00.000Z') : null;
+  const staffCompletedAt = submitted ? new Date('2026-07-30T10:00:00.000Z') : null;
   const managerApprovedAt = completed ? new Date('2026-07-30T11:00:00.000Z') : null;
   return (await pool.query<{ id: string }>(
     `INSERT INTO job_cards
@@ -159,7 +162,7 @@ async function insertJob(pool: Pool, fixture: Pick<DemoFixture, 'organizationId'
       spec.createdBy,
       startedAt,
       staffCompletedAt,
-      completed ? spec.assignedTo : null,
+      submitted ? spec.assignedTo : null,
       managerApprovedAt,
       completed ? spec.createdBy : null,
       spec.sourceJobCardId ?? null,
@@ -263,6 +266,67 @@ describe.skipIf(!databaseUrl)('Demo follow-up provenance F1 PostgreSQL contract'
       )).rows[0]!;
       expect(businessChildRow.data_class).toBe('BUSINESS');
       expect(businessChildRow.demo_dataset_id).toBeNull();
+    });
+  });
+
+  it('JOB-008: a DEMO visit approved with a follow-up proposal keeps the child in the dataset', async () => {
+    await withSchema(async (pool) => {
+      const fixture = await createDemoFixture(pool, 'approval');
+      const parentId = await insertJob(pool, fixture, {
+        title: 'Demo müşteri ziyareti',
+        status: 'WAITING_APPROVAL',
+        dataClass: 'DEMO',
+        demoDatasetId: fixture.datasetId,
+        customerId: fixture.demoCustomerId,
+        assignedTo: fixture.demoStaffId,
+        createdBy: fixture.demoManagerId,
+      });
+      await pool.query(
+        `UPDATE job_cards SET type = 'SALES_MEETING', engagement_kind = 'CUSTOMER_VISIT',
+           scheduled_at = '2026-07-30T09:00:00.000Z', scheduled_ends_at = '2026-07-30T10:00:00.000Z',
+           follow_up_proposed_at = '2030-01-08T09:00:00.000Z',
+           follow_up_proposed_type = 'SALES_MEETING',
+           follow_up_proposed_assignee = $2,
+           follow_up_proposal_instructions = 'Karar durumunu teyit edin.',
+           follow_up_proposal_origin = 'SYSTEM',
+           follow_up_proposed_by = $2
+         WHERE id = $1`,
+        [parentId, fixture.demoStaffId],
+      );
+      const jobService = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-08-01T10:00:00.000Z'),
+        { publish: () => undefined },
+        undefined,
+        undefined,
+        { enabled: false, reminderLeadMinutes: 30 },
+      );
+      const version = (await pool.query<{ version: number }>(
+        'SELECT version FROM job_cards WHERE id = $1', [parentId],
+      )).rows[0]!.version;
+
+      await jobService.approve(fixture.manager, parentId, {
+        clientActionId: randomUUID(),
+        expectedVersion: version,
+      });
+
+      const child = (await pool.query<{
+        data_class: 'BUSINESS' | 'DEMO';
+        demo_dataset_id: string | null;
+        engagement_kind: string | null;
+        source_job_card_id: string | null;
+      }>(
+        `SELECT data_class, demo_dataset_id, engagement_kind, source_job_card_id
+           FROM job_cards
+          WHERE organization_id = $1 AND source_job_card_id = $2`,
+        [fixture.organizationId, parentId],
+      )).rows;
+      expect(child).toEqual([{
+        data_class: 'DEMO',
+        demo_dataset_id: fixture.datasetId,
+        engagement_kind: 'FOLLOW_UP',
+        source_job_card_id: parentId,
+      }]);
     });
   });
 

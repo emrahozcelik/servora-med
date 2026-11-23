@@ -1,8 +1,10 @@
 import { uuidString } from './validation.js';
 import { AppError } from '../../errors/index.js';
+import { isManagementRole } from '../auth/types.js';
 import { randomUUID } from 'node:crypto';
 import { presentActivity } from './activity-presenter.js';
 import { JobCardSaleService } from './sale-service.js';
+import { parseDeliveryQuantity } from './delivery-input.js';
 import {
   assertCanCreateForAssignee,
   assertCanCreateFollowUp,
@@ -37,6 +39,7 @@ import type {
   FollowUpSourceReference,
   JobCardRepository,
   JobCardTransaction,
+  JobDeliveryScope,
   JobLifecycleInstants,
   LifecycleIntentClaim,
   LifecycleIntentReservation,
@@ -447,10 +450,30 @@ function parseDeliveredAt(value: string | null): Date | null {
   return deliveredAt;
 }
 
-function deliveryRecord(organizationId: string, jobCardId: string, input: DeliveryInput, product: ProductReference): Omit<DeliveryItemRecord, 'id'> {
+type DeliveryProductSnapshot = Pick<ProductReference, 'id' | 'name' | 'sku' | 'model' | 'unit'>;
+
+/**
+ * Delivery product eligibility protects demo-purge graph integrity: a BUSINESS
+ * JobCard must never reference a DEMO product (the purge would otherwise be
+ * blocked by DEMO_PRODUCT_TO_BUSINESS_JOB), while a DEMO JobCard may keep a
+ * BUSINESS product or use a DEMO product from its own dataset. Ineligible
+ * references share the existing inactive/cross-organization concealment.
+ */
+function assertDeliveryProductEligible(job: JobDeliveryScope, product: ProductReference) {
+  const eligible = job.dataClass === 'BUSINESS'
+    ? product.dataClass === 'BUSINESS'
+    : product.dataClass === 'BUSINESS' || product.demoDatasetId === job.demoDatasetId;
+  if (!eligible) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+}
+
+/**
+ * Maps a delivery item to its persistence record. Callers validate a supplied
+ * quantity with `parseDeliveryQuantity`; the patch path deliberately passes a
+ * legacy current quantity through unchanged when no new quantity was supplied.
+ */
+function deliveryRecord(organizationId: string, jobCardId: string, input: DeliveryInput, product: DeliveryProductSnapshot): Omit<DeliveryItemRecord, 'id'> {
   const deliveredAt = parseDeliveredAt(input.deliveredAt);
-  if (!DELIVERY_PURPOSES.includes(input.deliveryPurpose) || !Number.isFinite(input.quantity) || input.quantity <= 0
-    || !input.productId) {
+  if (!DELIVERY_PURPOSES.includes(input.deliveryPurpose) || !input.productId) {
     throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünü bilgileri geçersiz.');
   }
   return { organizationId, jobCardId, productId: product.id, deliveryPurpose: input.deliveryPurpose,
@@ -470,9 +493,10 @@ function assertInitialProductDeliveryItems(input: ProductDeliveryCreateInput) {
   for (const item of input.items) {
     if (!item || typeof item !== 'object' || Array.isArray(item)
       || typeof item.productId !== 'string' || !item.productId.trim()
-      || seen.has(item.productId) || !Number.isFinite(item.quantity) || item.quantity <= 0) {
+      || seen.has(item.productId)) {
       throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünleri geçersiz.');
     }
+    parseDeliveryQuantity(item.quantity, 'items.quantity');
     seen.add(item.productId);
   }
 }
@@ -2536,16 +2560,21 @@ export class JobCardService {
             });
           }
 
-          const products = [] as Array<{
-            productId: string;
-            quantity: number;
-            product: ProductReference;
-          }>;
-          for (const item of input.items) {
-            const product = await transaction.getProduct(actor.organizationId, item.productId);
+          // A human PRODUCT_DELIVERY create always creates a BUSINESS JobCard
+          // today (no DEMO dataset is ever supplied here), so eligibility is
+          // asserted against the BUSINESS scope without reading the new row.
+          const businessScope: JobDeliveryScope = { dataClass: 'BUSINESS', demoDatasetId: null };
+          // Products are resolved in deterministic ID order so concurrent
+          // multi-line creates cannot acquire product row locks in opposing
+          // orders; the persisted item order stays the request order.
+          const references = new Map<string, ProductReference>();
+          for (const productId of [...new Set(input.items.map((item) => item.productId))].sort()) {
+            const product = await transaction.getProduct(actor.organizationId, productId);
             if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
-            products.push({ ...item, product });
+            assertDeliveryProductEligible(businessScope, product);
+            references.set(productId, product);
           }
+          const products = input.items.map((item) => ({ ...item, product: references.get(item.productId)! }));
 
           const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
           const job = await transaction.createJobCard({
@@ -3525,7 +3554,7 @@ export class JobCardService {
       scheduleChanged = nextScheduledAt !== (job.scheduledAt ?? null)
         || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
       scheduleRevisionChanged = scheduleChanged || dueDateChanged;
-      const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
+      const management = isManagementRole(actor.role);
       // OVR-5b §4.11: only management may resolve the Staff request, and only
       // a patch that really appends a schedule revision. Nothing is written.
       if (changeRequestResolution !== null) {
@@ -3995,12 +4024,16 @@ export class JobCardService {
         assertProductDeliveryJob(job);
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         assertCanEdit(actor, job);
+        parseDeliveryQuantity(input.quantity);
         const plannedDeliveredAt = parseDeliveredAt(input.deliveredAt);
         if (plannedDeliveredAt !== null) {
           assertCanEditDeliveryActualTime(actor, job);
         }
         const product = await tx.getProduct(actor.organizationId, input.productId);
         if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+        const scope = await tx.getJobDeliveryScope(actor.organizationId, jobCardId);
+        if (!scope) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        assertDeliveryProductEligible(scope, product);
         const item = await tx.createDeliveryItem(deliveryRecord(actor.organizationId, jobCardId, input, product));
         const updated = await tx.bumpVersion(actor.organizationId, jobCardId, input.expectedVersion);
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
@@ -4031,6 +4064,10 @@ export class JobCardService {
       assertCanEdit(actor, job);
       const current = await tx.getDeliveryItemForUpdate(actor.organizationId, jobCardId, itemId);
       if (!current) throw new AppError('DELIVERY_ITEM_NOT_FOUND', 404, 'Teslim ürünü bulunamadı.');
+      // Only a supplied replacement quantity is validated. A legacy fractional
+      // row must stay editable for purpose/note/time changes without a
+      // backfill or a new database constraint.
+      if (input.quantity !== undefined && input.quantity !== null) parseDeliveryQuantity(input.quantity);
       if (input.deliveredAt !== undefined) {
         const nextDeliveredAt = parseDeliveredAt(input.deliveredAt);
         const previousIso = current.deliveredAt === null ? null : current.deliveredAt.toISOString();
@@ -4040,11 +4077,19 @@ export class JobCardService {
           assertCanEditDeliveryActualTime(actor, job);
         }
       }
-      const product = input.productId && input.productId !== current.productId
-        ? await tx.getProduct(actor.organizationId, input.productId) : {
-          id: current.productId, organizationId: current.organizationId, name: current.productNameSnapshot,
-          sku: current.productSkuSnapshot, model: current.productModelSnapshot, unit: current.unit, isActive: true };
-      if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+      let product: DeliveryProductSnapshot;
+      if (input.productId && input.productId !== current.productId) {
+        const found = await tx.getProduct(actor.organizationId, input.productId);
+        if (!found?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+        const scope = await tx.getJobDeliveryScope(actor.organizationId, jobCardId);
+        if (!scope) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        assertDeliveryProductEligible(scope, found);
+        product = found;
+      } else {
+        product = {
+          id: current.productId, name: current.productNameSnapshot,
+          sku: current.productSkuSnapshot, model: current.productModelSnapshot, unit: current.unit };
+      }
       const merged: DeliveryInput = { expectedVersion: input.expectedVersion, productId: input.productId ?? current.productId,
         deliveryPurpose: input.deliveryPurpose ?? current.deliveryPurpose,
         deliveredAt: input.deliveredAt !== undefined
@@ -5910,8 +5955,14 @@ export class JobCardService {
           if (!source) followUpInvariantViolation();
           // JOB-008: the approval-created child is never blocked by chain
           // length; the 10-level cap applies to manual createFollowUp only.
+          // A DEMO parent's child stays in the same demo dataset (same rule as
+          // createFollowUp and the JOB-009 replacement), so a complete demo
+          // purge also removes it.
+          const childIsDemo = source.dataClass === 'DEMO' && source.demoDatasetId !== null;
           const childTitle = Array.from(`Takip: ${updated.title.trim()}`).slice(0, 250).join('');
           const child = await this.createFollowUpChild(tx, actor, {
+            dataClass: childIsDemo ? 'DEMO' : 'BUSINESS',
+            demoDatasetId: childIsDemo ? source.demoDatasetId : null,
             sourceJobCardId: jobCardId,
             customerId: updated.customerId,
             type: approval.proposal.type,

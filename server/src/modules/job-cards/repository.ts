@@ -674,7 +674,11 @@ export type AssigneeCalendarInterval = Readonly<{
 }>;
 export type ProductReference = {
   id: string; organizationId: string; name: string; sku: string | null; model: string | null;
-  unit: string | null; isActive: boolean;
+  unit: string | null; isActive: boolean; dataClass: 'BUSINESS' | 'DEMO'; demoDatasetId: string | null;
+};
+export type JobDeliveryScope = {
+  dataClass: 'BUSINESS' | 'DEMO';
+  demoDatasetId: string | null;
 };
 export type DeliveryItemRecord = DeliveryItem & {
   id: string; organizationId: string; jobCardId: string; unit: string | null;
@@ -1391,6 +1395,8 @@ export interface JobCardTransaction extends SubmissionReader {
   assertCalendarAvailability(input: Omit<JobCalendarSchedule, 'version' | 'active' | 'now' | 'reminderLeadMinutes'>): Promise<void>;
   synchronizeCalendarReminder(input: JobCalendarSchedule): Promise<void>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
+  /** Data-class scope of the job's delivery graph; callers already hold the JobCard row lock. */
+  getJobDeliveryScope(organizationId: string, jobCardId: string): Promise<JobDeliveryScope | null>;
   getDeliveryItemForUpdate(organizationId: string, jobCardId: string, itemId: string): Promise<DeliveryItemRecord | null>;
   createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
@@ -4802,12 +4808,25 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<{
       id: string; organization_id: string; name: string; sku: string | null;
       model: string | null; unit: string | null; is_active: boolean;
+      data_class: 'BUSINESS' | 'DEMO'; demo_dataset_id: string | null;
     }>(
-      `SELECT id, organization_id, name, sku, model, unit, is_active FROM products
-       WHERE organization_id = $1 AND id = $2`, [organizationId, productId]);
+      `SELECT id, organization_id, name, sku, model, unit, is_active, data_class, demo_dataset_id
+       FROM products
+       WHERE organization_id = $1 AND id = $2 FOR SHARE`, [organizationId, productId]);
     const row = result.rows[0];
     return row ? { id: row.id, organizationId: row.organization_id, name: row.name, sku: row.sku,
-      model: row.model, unit: row.unit, isActive: row.is_active } : null;
+      model: row.model, unit: row.unit, isActive: row.is_active, dataClass: row.data_class,
+      demoDatasetId: row.demo_dataset_id } : null;
+  }
+
+  async getJobDeliveryScope(organizationId: string, jobCardId: string) {
+    const result = await this.client.query<{
+      data_class: 'BUSINESS' | 'DEMO'; demo_dataset_id: string | null;
+    }>(
+      `SELECT data_class, demo_dataset_id FROM job_cards
+       WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId]);
+    const row = result.rows[0];
+    return row ? { dataClass: row.data_class, demoDatasetId: row.demo_dataset_id } : null;
   }
 
   async getDeliveryItemForUpdate(organizationId: string, jobCardId: string, itemId: string) {
@@ -5910,15 +5929,22 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {
     const client = await this.pool.connect();
+    let rollbackFailed = false;
     try {
       await client.query('BEGIN');
       const result = await work(new PostgresJobCardTransaction(client));
       await client.query('COMMIT');
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      // Keep the original failure authoritative and never return a connection
+      // whose ROLLBACK failed to the pool.
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        rollbackFailed = true;
+      }
       throw error;
-    } finally { client.release(); }
+    } finally { client.release(rollbackFailed); }
   }
 
   async listDeliveryItems(organizationId: string, jobCardId: string) {

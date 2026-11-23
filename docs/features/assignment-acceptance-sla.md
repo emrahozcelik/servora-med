@@ -57,11 +57,12 @@ Staff member at 12:00. Today:
    CHECK forbids `from_user_id = to_user_id`. Management cannot give the same
    Staff member a fresh, recorded chance.
 
-### Related drift found while drafting (not changed by this record)
+### Related drift found while drafting (resolved separately)
 
-- JOB-006 §6 lets assigned Staff `ADD_NOTE` in `NEW`; `policy.ts:84-93`
-  grants Staff `ADD_NOTE` only in `ACCEPTED`, `IN_PROGRESS` and
-  `REVISION_REQUESTED`. Reported for a separate decision.
+- JOB-006 §6 lets assigned Staff `ADD_NOTE` in `NEW`, while `policy.ts`
+  granted Staff `ADD_NOTE` only in `ACCEPTED`, `IN_PROGRESS` and
+  `REVISION_REQUESTED`. Resolved: `getAllowedJobActions` now matches JOB-006 §6
+  (see the JOB-010 consequences note in `DECISIONS.md`).
 
 ## Decision
 

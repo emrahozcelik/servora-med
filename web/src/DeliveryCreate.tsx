@@ -22,7 +22,7 @@ import { assignmentWindowErrorMessage } from './jobs/assignment-window-errors';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
-import type { Product } from './services/products-api';
+import { listProducts, type Product, type ProductFilters } from './services/products-api';
 import type { Customer, CustomerSummary } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { PageHeader } from './ui/PageHeader';
@@ -53,6 +53,13 @@ const defaultDependencies: FlowDependencies = {
 };
 
 export type ProductDeliveryCreateRequest = Parameters<typeof createProductDeliveryRequest>[0];
+
+/**
+ * Delivery items reference BUSINESS products only: a DEMO product is concealed
+ * by the delivery write paths, so the picker must not offer one.
+ */
+const loadDeliveryProducts = (filters: ProductFilters) =>
+  listProducts({ ...filters, dataClass: 'BUSINESS' });
 
 /**
  * Pure request builder; transport-free so the component can freeze the fully
@@ -267,8 +274,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       const selectedAssignee = user.role === 'STAFF' ? user.id : String(data.get('assignedTo') ?? '');
       if (!selectedAssignee) throw new Error('Geçerli bir sorumlu personel seçin.');
       const items = selectedProducts.map((entry) => {
-        if (entry.quantity === '' || !Number.isFinite(entry.quantity) || entry.quantity <= 0) {
-          throw new Error(`${entry.product.name} için geçerli bir miktar girin.`);
+        if (entry.quantity === '' || !Number.isInteger(entry.quantity)
+          || entry.quantity < 1 || entry.quantity > 999_999_999) {
+          throw new Error(`${entry.product.name} için 1–999999999 arasında tam sayı adet girin.`);
         }
         return { productId: entry.product.id, quantity: entry.quantity };
       });
@@ -333,7 +341,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       <button type="button" className="primary-button" data-original-retry disabled={pending}
         onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>
     </div>}
-    <form className="delivery-form job-create-form" onSubmit={submit}>
+    <form className="delivery-form job-create-form" onSubmit={submit} noValidate>
       <fieldset disabled={semanticInputsDisabled} className="delivery-form-fieldset">
       <section className="job-create-section" aria-labelledby="delivery-customer-heading">
         <h2 id="delivery-customer-heading">Müşteri ve sorumlu</h2>
@@ -362,12 +370,12 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       </section>
       <section className="job-create-section" aria-labelledby="delivery-products-heading">
         <h2 id="delivery-products-heading">Ürünler ve miktarlar</h2>
-      <ProductSelect selectedProducts={selectedProducts.map((entry) => entry.product)}
+      <ProductSelect load={loadDeliveryProducts} selectedProducts={selectedProducts.map((entry) => entry.product)}
         onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={semanticInputsDisabled || !customerReady}
         renderQuantity={(product) => <>
           <label htmlFor={`delivery-quantity-${product.id}`}>Miktar<span className="sr-only">: {product.name}</span></label>
-          <input className="form-control" id={`delivery-quantity-${product.id}`} type="number" min="0.001" step="0.001"
-            inputMode="decimal" value={selectedProducts.find((entry) => entry.product.id === product.id)!.quantity}
+          <input className="form-control" id={`delivery-quantity-${product.id}`} type="number" min="1" max="999999999" step="1"
+            inputMode="numeric" value={selectedProducts.find((entry) => entry.product.id === product.id)!.quantity}
             required disabled={semanticInputsDisabled}
             onChange={(event) => updateSelectedQuantity(product.id, event.target.value)} />
         </>} />

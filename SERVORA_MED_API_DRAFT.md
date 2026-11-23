@@ -158,6 +158,7 @@ Rules:
 - atomic processing claim before business side effects
 - completed duplicate returns the original status and response body
 - concurrent duplicate returns `409 ACTION_IN_PROGRESS`
+- a transaction rolled back by PostgreSQL deadlock (`40P01`) or serialization failure (`40001`) also returns `409 ACTION_IN_PROGRESS`; no receipt remains, so the identical request may be retried; a failing `ROLLBACK` never replaces the original error and the broken connection is not returned to the pool
 - a failed command may return its recorded failure according to the processed-action policy
 
 Ordinary profile, customer, contact, product, and field updates do not use full processed-response caching by default. Their validation, authorization, database constraints, and applicable version checks still apply.
@@ -498,7 +499,9 @@ or audit.
 Deactivation prevents new delivery selection and Product replacement only. Existing
 delivery rows and snapshots remain unchanged. Quantity or note may still be edited when
 the existing delivery item's `productId` is not replaced. A supplied replacement Product
-must be active and belong to the authenticated organization.
+must be active, belong to the authenticated organization and be eligible for the
+job's data class: a BUSINESS delivery accepts only BUSINESS products, a DEMO
+delivery also accepts a DEMO product from its own dataset (DELIVERY-QTY-001).
 
 Web clients use this endpoint as the canonical Product catalog source. JobCard backend
 transactions use a transaction-scoped Product read and never call the Product HTTP API.
@@ -844,7 +847,8 @@ Rules:
 - Parent type must be `PRODUCT_DELIVERY`.
 - Parent must be in an editable state.
 - Product belongs to the authenticated organization and is active at creation.
-- Quantity is greater than zero.
+- Quantity is a whole-unit product count in 1–999999999 (DELIVERY-QTY-001);
+  fractions, zero, negatives and overflow are rejected without rounding.
 - Purpose is one canonical delivery purpose.
 - Delivered time (`deliveredAt`) is the actual delivery instant. It may be null while the
   job is still being planned or prepared; submission requires every item to have a valid

@@ -39,6 +39,13 @@ export const PRODUCTIVE_JOB_CARD_TYPES = [
   'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'SALE',
 ] as const;
 /**
+ * Follow-up children can never be `SALE`: migration 057 requires
+ * `source_job_card_id IS NULL` for every SALE, so a SALE child bucket would
+ * always be a fabricated zero. Server parity for the follow-up report buckets.
+ */
+export const FOLLOW_UP_CHILD_JOB_CARD_TYPES = PRODUCTIVE_JOB_CARD_TYPES
+  .filter((type) => type !== 'SALE');
+/**
  * Every JobCard type the API can return, including administrative weekly
  * reports. Job-row parsers, filters and labels use this list so a
  * WEEKLY_REPORT row can never crash exact parsing.

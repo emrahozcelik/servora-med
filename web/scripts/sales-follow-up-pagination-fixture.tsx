@@ -21,7 +21,9 @@ const PAGE_SIZE = 10;
 const range = { from: '2026-11-02', to: '2026-11-15', timezone: 'Europe/Istanbul' };
 
 const STATUSES = ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'] as const;
-const TYPES = ['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALE'] as const;
+// Follow-up children are never SALE (migration 057 keeps SALE parentless), so
+// the follow-up buckets and proposal targets use the productive three types.
+const TYPES = ['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'] as const;
 const OUTCOMES = ['POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED'] as const;
 
 const CUSTOMERS = [
@@ -93,7 +95,7 @@ function buildReport(offset: number, proposalOffset: number): SalesFollowUpRepor
       followUpChildren: {
         total: 18,
         statusDistribution: STATUSES.map((status, index) => ({ status, count: index === 0 ? 5 : 3 })),
-        typeDistribution: TYPES.map((type, index) => ({ type, count: index === 3 ? 1 : 5 })),
+        typeDistribution: TYPES.map((type, index) => ({ type, count: index === 2 ? 2 : 8 })),
         overdueDueDatedFollowUpChildren: 3,
       },
     },
@@ -102,7 +104,7 @@ function buildReport(offset: number, proposalOffset: number): SalesFollowUpRepor
       salesMeetingsManagerApproved: 14,
       meetingOutcomeDistribution: OUTCOMES.map((outcome, index) => ({ outcome, count: index === 0 ? 9 : 4 })),
       followUpChildrenCreated: 11,
-      followUpChildrenCreatedByType: TYPES.map((type, index) => ({ type, count: [4, 3, 3, 1][index]! })),
+      followUpChildrenCreatedByType: TYPES.map((type, index) => ({ type, count: [4, 3, 4][index]! })),
     },
     relationships: { directFollowUpLinks: 16, currentCustomerDivergence: 2 },
   };

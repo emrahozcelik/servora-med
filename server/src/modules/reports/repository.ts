@@ -347,6 +347,15 @@ const workTypeBucketsSql = (includeSaleCapability: boolean) => PRODUCTIVE_WORK_T
   .map((type, index) => `('${type}', ${index + 1})`)
   .join(',\n    ');
 /**
+ * Follow-up children can never be `SALE`: migration 057's
+ * `job_cards_sale_fields_check` requires `source_job_card_id IS NULL` for every
+ * SALE, so a SALE child bucket would always report a fabricated zero.
+ */
+const FOLLOW_UP_CHILD_WORK_TYPES = PRODUCTIVE_WORK_TYPES.filter((type) => type !== 'SALE');
+const followUpChildTypeBucketsSql = () => FOLLOW_UP_CHILD_WORK_TYPES
+  .map((type, index) => `('${type}', ${index + 1})`)
+  .join(',\n    ');
+/**
  * Productive-work aggregate guard. Completion/execution/performance measures
  * must not count weekly reports as performed service work. Status counters
  * (open/waiting/revision) intentionally still include them: an outstanding
@@ -789,6 +798,7 @@ FROM requested
 JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
   AND jc.staff_completed_by = requested.staff_user_id
   AND jc.status <> 'INVALIDATED'
+  AND ${productiveWorkOnly('jc')}
 JOIN job_card_activity_logs activity ON activity.organization_id = jc.organization_id
   AND activity.job_card_id = jc.id
 CROSS JOIN organization_range
@@ -1459,7 +1469,7 @@ WHERE jc.organization_id = $1
 const SALES_FOLLOW_UP_AGGREGATE_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, active_statuses(status, sort_order) AS (
   VALUES ${ACTIVE_STATUS_BUCKETS_SQL}
 ), work_types(type, sort_order) AS (
-  VALUES ${workTypeBucketsSql(includeSaleCapability)}
+  VALUES ${followUpChildTypeBucketsSql()}
 ), outcomes(outcome, sort_order) AS (
   VALUES
     ('POSITIVE', 1),
@@ -2473,6 +2483,8 @@ OFFSET $${offsetParameter}`;
   async getWorkTypeDistribution(
     input: WorkTypeDistributionInput,
   ): Promise<WorkTypeDistributionItem[]> {
+    // Productive type buckets keep the weekly-report exclusion documented in
+    // `PRODUCTIVE_WORK_TYPES`; created status counters remain inclusive elsewhere.
     const staffFilter = input.staffUserId ? 'AND j.assigned_to = $4' : '';
     const values: unknown[] = [input.organizationId, input.from, input.to];
     if (input.staffUserId) values.push(input.staffUserId);
@@ -2482,6 +2494,7 @@ OFFSET $${offsetParameter}`;
          JOIN organizations o ON o.id = j.organization_id
         WHERE j.organization_id = $1
           AND j.status <> 'INVALIDATED'
+          AND ${productiveWorkOnly('j')}
           AND j.created_at >= ($2::date AT TIME ZONE o.timezone)
           AND j.created_at < (($3::date + 1) AT TIME ZONE o.timezone)
           ${staffFilter}
