@@ -5862,15 +5862,22 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {
     const client = await this.pool.connect();
+    let rollbackFailed = false;
     try {
       await client.query('BEGIN');
       const result = await work(new PostgresJobCardTransaction(client));
       await client.query('COMMIT');
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      // Keep the original failure authoritative and never return a connection
+      // whose ROLLBACK failed to the pool.
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        rollbackFailed = true;
+      }
       throw error;
-    } finally { client.release(); }
+    } finally { client.release(rollbackFailed); }
   }
 
   async listDeliveryItems(organizationId: string, jobCardId: string) {
