@@ -1468,7 +1468,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -3525,7 +3525,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(submitDialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(getCurrentPosition).toHaveBeenCalledOnce();
@@ -3789,7 +3789,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(submitDialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(getCurrentPosition).toHaveBeenCalledTimes(2);
@@ -3854,7 +3854,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(submitDialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -4314,7 +4314,7 @@ describe('Staff JobCard detail', () => {
               submittedAt: '2026-07-17T12:00:00.000Z',
             }, { allowedActions: [] }),
           },
-          confirm: 'Tamamla ve yönetici onayına gönder',
+          confirm: 'Kontrole gönder',
           reason: 'Teslim tamamlandı',
           needsDialog: true as const,
         };
@@ -6907,7 +6907,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -7262,7 +7262,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -7334,7 +7334,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(submitBodies).toHaveLength(1);

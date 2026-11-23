@@ -3187,6 +3187,14 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         : detail.saleDetails.linkedDelivery}
     />}
     {detail.kind === 'PRODUCT_DELIVERY' && <DeliveryProvenanceLine sourceSaleId={detail.job.deliverySourceSaleId} />}
+    {detail.kind === 'SALE' && isManagementUser(user) && (
+      <section className="sale-pair-note" aria-label="Satış kaydı kapsam bilgisi">
+        <p>
+          Satış kaydı finansal işlem oluşturmaz. Satış kaydı stok hareketi oluşturmaz.
+          Onay sırasında ürün teslimi için ayrı bir teslim işi açılabilir ve bu iş de stok düşümü yapmaz.
+        </p>
+      </section>
+    )}
     {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} disabled={invalidationLocked} />}
     {editing && detail.kind === 'SALES_MEETING'
       ? <SalesMeetingEditForm job={detail.job} user={user}

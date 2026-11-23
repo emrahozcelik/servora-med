@@ -525,7 +525,7 @@ describe('Manager review', () => {
         dialog={{ kind: 'cancel', presentation: cancelPresentation }}
         pending={false} onClose={() => {}} onConfirm={onConfirm}
       />));
-      expect(host.textContent).toContain('iptal edilen iş yeniden açılamaz');
+      expect(host.textContent).toContain('İptal edilen iş yeniden açılamaz');
       expect(host.querySelector('textarea')?.required).toBe(true);
       const confirm = buttonByName(host, 'İşi iptal et')!;
       expect(confirm.disabled).toBe(false);
@@ -880,7 +880,7 @@ describe('Manager review', () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
           ?.set?.call(textarea, 'Görüşme sonucu kaydedildi');
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')!.click();
+        buttonByName(dialog, 'Kontrole gönder')!.click();
         await flush();
       });
 

@@ -278,7 +278,7 @@ describe('SALE-002 S2 pair UI', () => {
 
     await typeInto(submitDialog.querySelector('textarea')!, 'Görüşme tamamlandı');
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(submitDialog, 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
 
@@ -506,7 +506,7 @@ describe('SALE-002 S2 pair UI', () => {
 
     await typeInto(submitDialog.querySelector('textarea')!, 'Ziyaret tamamlandı');
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(submitDialog, 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
     const submit = mock.posts.find((post) => post.path.endsWith('/submit-for-approval'));
@@ -641,7 +641,7 @@ describe('SALE-002 S2 pair UI', () => {
     await act(async () => { buttonByName(host, 'Kontrole gönder')!.click(); await flush(); });
     await typeInto(dialog().querySelector('textarea')!, 'Ziyaret tamamlandı');
     await act(async () => {
-      buttonByName(dialog(), 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(dialog(), 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
 
@@ -667,7 +667,7 @@ describe('SALE-002 S2 pair UI', () => {
 
     await typeInto(submitDialog.querySelector('textarea')!, 'Ziyaret tamamlandı');
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(submitDialog, 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
     const submit = mock.posts.find((post) => post.path.endsWith('/submit-for-approval'));
