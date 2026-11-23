@@ -5,11 +5,13 @@ import type { SaleSource } from './sale-repository.js';
 import { assertSaleSourceEligible } from './sale-policy.js';
 
 export type SaleContactSnapshot = { id: string; name: string; title: string | null };
-export type SaleSourceProjection = { access: 'RESTRICTED'; kind: 'SALE_FROM_VISIT' } | {
-  access: 'FULL'; kind: 'SALE_FROM_VISIT'; id: string; title: string; status: JobCardStatus;
-  versionAtCreation: number; titleSnapshot: string; customerNameSnapshot: string;
-  plannedContact: SaleContactSnapshot | null; metContact: SaleContactSnapshot | null;
-};
+export type SaleSourceProjection = { kind: 'STANDALONE' }
+  | { access: 'RESTRICTED'; kind: 'SALE_FROM_VISIT' }
+  | {
+    access: 'FULL'; kind: 'SALE_FROM_VISIT'; id: string; title: string; status: JobCardStatus;
+    versionAtCreation: number; titleSnapshot: string; customerNameSnapshot: string;
+    plannedContact: SaleContactSnapshot | null; metContact: SaleContactSnapshot | null;
+  };
 export type SaleLineProjection = {
   id: string; productId: string; quantity: string; name: string; sku: string | null;
   brand: string | null; model: string | null; unit: string | null;
@@ -102,7 +104,9 @@ export class PostgresSaleReader implements SaleReadPort {
         CASE WHEN d.sale_contact_id IS NULL THEN NULL ELSE jsonb_build_object(
           'id',d.sale_contact_id,'name',d.sale_contact_name_snapshot,'title',d.sale_contact_title_snapshot)
         END AS "saleContact",
-        CASE WHEN source.id IS NULL OR ($3::uuid IS NOT NULL AND source.assigned_to<>$3)
+        CASE WHEN j.sale_source_visit_id IS NULL
+          THEN jsonb_build_object('kind','STANDALONE')
+          WHEN source.id IS NULL OR ($3::uuid IS NOT NULL AND source.assigned_to<>$3)
           THEN jsonb_build_object('access','RESTRICTED','kind','SALE_FROM_VISIT')
           ELSE jsonb_build_object('access','FULL','kind','SALE_FROM_VISIT','id',source.id,
             'title',source.title,'status',source.status,'versionAtCreation',d.source_visit_version,

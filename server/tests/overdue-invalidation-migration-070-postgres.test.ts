@@ -40,10 +40,11 @@ const MIGRATION_069 = '069_lateness_alerts_and_quiet_hours';
 const MIGRATION_070 = '070_overdue_incident_invalidation_closure';
 const TIMEZONE = 'Europe/Istanbul';
 
-async function at069(run: (pool: Pool, store: PostgresMigrationStore) => Promise<void>): Promise<void> {
+async function at069(run: (pool: Pool, store: PostgresMigrationStore, exact070Directory: string) => Promise<void>): Promise<void> {
   const admin = new Pool({ connectionString: databaseUrl });
   const schema = `ovr2_070_${randomUUID().replaceAll('-', '')}`.toLowerCase();
   const previous = await mkdtemp(path.join(tmpdir(), 'ovr2-070-head069-'));
+  const exact070 = await mkdtemp(path.join(tmpdir(), 'ovr2-070-exact-'));
   let pool: Pool | null = null;
   try {
     await admin.query(`CREATE SCHEMA ${schema}`);
@@ -52,23 +53,34 @@ async function at069(run: (pool: Pool, store: PostgresMigrationStore) => Promise
       options: `-c search_path=${schema},public`,
     });
     for (const filename of (await readdir(migrationsDirectory)).filter(
-      (name) => /^\d{3}_.+\.sql$/.test(name) && Number(name.slice(0, 3)) <= 69,
+      (name) => /^\d{3}_.+\.sql$/.test(name),
     )) {
-      await copyFile(
-        path.join(migrationsDirectory, filename),
-        path.join(previous, filename),
-      );
+      const number = Number(filename.slice(0, 3));
+      if (number <= 69) {
+        await copyFile(
+          path.join(migrationsDirectory, filename),
+          path.join(previous, filename),
+        );
+      }
+      if (number === 70) {
+        // The test owns exactly migration 070; later heads must not leak in.
+        await copyFile(
+          path.join(migrationsDirectory, filename),
+          path.join(exact070, filename),
+        );
+      }
     }
     const store = new PostgresMigrationStore(pool);
     const applied = await runMigrations({ migrationsDirectory: previous, store });
     expect(applied.appliedVersions.at(-1)).toBe(MIGRATION_069);
     expect(applied.appliedVersions).toHaveLength(69);
-    await run(pool, store);
+    await run(pool, store, exact070);
   } finally {
     await pool?.end();
     await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await admin.end();
     await rm(previous, { recursive: true, force: true });
+    await rm(exact070, { recursive: true, force: true });
   }
 }
 
@@ -253,7 +265,7 @@ async function tableConstraints(pool: Pool) {
 
 describe.skipIf(!databaseUrl)('OVR-2 migration 070 on existing incident history', () => {
   it('upgrades 069 data to 070 without DML, keeps every seeded row identical and enforces both ending shapes', async () => {
-    await at069(async (pool, store) => {
+    await at069(async (pool, store, exact070Directory) => {
       const organizationId = await insertOrganization(pool, 'OVR2 070 Rehearsal');
       const adminId = await insertUser(pool, organizationId, 'ADMIN', 'OVR2 Yönetici');
       const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR2 Müdür');
@@ -337,7 +349,7 @@ describe.skipIf(!databaseUrl)('OVR-2 migration 070 on existing incident history'
       expect(migrationsBefore.at(-1)!.version).toBe(MIGRATION_069);
 
       // 1) Apply exactly 070 over the existing rows.
-      const upgrade = await runMigrations({ migrationsDirectory, store });
+      const upgrade = await runMigrations({ migrationsDirectory: exact070Directory, store });
       expect(upgrade).toEqual({ appliedVersions: [MIGRATION_070] });
 
       // 2) No DML: every seeded row is byte-identical, including its xmin,
@@ -505,7 +517,7 @@ describe.skipIf(!databaseUrl)('OVR-2 migration 070 on existing incident history'
 
       // 8) Runner idempotency: a second pass applies nothing and the applied
       //    history is unchanged.
-      expect(await runMigrations({ migrationsDirectory, store }))
+      expect(await runMigrations({ migrationsDirectory: exact070Directory, store }))
         .toEqual({ appliedVersions: [] });
       expect((await pool.query(
         'SELECT version FROM schema_migrations ORDER BY version',

@@ -1,3 +1,12 @@
+> **SALE-002 S1 checkpoint (2026-11-23):** migration `071_sale_standalone_and_delivery_link`
+> ships the standalone/retro sale schema and creation path: standalone
+> `POST /api/job-cards/sales`, a `COMPLETED` visit source, the `{kind: 'STANDALONE'}`
+> origin projection, and the currently unused `job_cards.delivery_source_sale_id` link
+> column with its one-delivery unique index. Pair submit/approve and sale-approval
+> delivery writes are **not** part of S1; they arrive in S2/S3 per
+> [the accepted contract](sale-002-contract.md). The PR3/PR1 statements below remain
+> historical.
+
 > PR3 checkpoint: dedicated Sale HTTP writes and create/correction UI are implemented
 > in this slice. See [write-ui-integration.md](write-ui-integration.md) for the current
 > exposure, integer selection, frozen retry and authorization contract. PR1 rollout
@@ -23,12 +32,15 @@ Original documents in the ignored discovery worktree must remain unchanged.
   CUSTOMER_VISIT, SALES_MEETING, PRODUCT_DEMO or FOLLOW_UP. Source customer must be
   active; source assignee must be active STAFF. STAFF may create only from their
   own currently assigned source. Management may create for that source's staff.
+  **SALE-002 S1 widens the eligible source status to `IN_PROGRESS` or `COMPLETED`
+  and adds standalone creation; the rest of this V1 paragraph is unchanged.**
 - Server selects customer, assignee and origin. STAFF creates ACCEPTED; management
   creates NEW. Sale has no schedule, due date, engagement kind or root contact.
 - At most one active Sale per source: NEW, ACCEPTED, IN_PROGRESS,
   WAITING_APPROVAL and REVISION_REQUESTED occupy the slot. COMPLETED, CANCELLED
-  and INVALIDATED release it. A second independent agreement still requires an
-  eligible IN_PROGRESS source. Terminal history remains persisted.
+  and INVALIDATED release it. A second independent agreement requires another
+  eligible source visit or standalone creation (SALE-002 S1). Terminal history
+  remains persisted.
 - Source status, version, meeting results and assignment remain unchanged by
   Sale creation/correction. There is no automatic delivery, follow-up, invoice,
   payment, stock transaction or backup. No price/currency/total/discount fields

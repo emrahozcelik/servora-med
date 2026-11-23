@@ -380,6 +380,32 @@ describe('Staff JobCard detail', () => {
     expect([...host.querySelectorAll('button')].some((button) => /düzenle|Satış oluştur|takip işi oluştur/i.test(button.textContent ?? ''))).toBe(false);
   });
 
+  it('offers Sale creation and keeps Bağlı satışlar on a COMPLETED visit through server eligibility', async () => {
+    const completed: JobCard = {
+      ...inProgressMeeting(), status: 'COMPLETED', version: 5,
+      workflowContext: staffContext('COMPLETED', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T12:00:00.000Z',
+        approvedAt: '2026-07-17T13:00:00.000Z',
+      }),
+    };
+    const base = mockDetailFetch(completed);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.includes('/sales?')) return Response.json({ items: [], total: 0, limit: 20, offset: 0 });
+      if (url.includes('/sale-create-context')) return Response.json({
+        sourceVisitId: completed.id, sourceVersion: completed.version, eligible: true, blockedReason: null,
+        customer: { id: 'c1', name: 'ABC Klinik' }, assignee: { id: 's1', name: 'Ayşe Personel' },
+        plannedContact: null, metContact: null, activeSale: null,
+      });
+      return base(input);
+    });
+    await renderScreen(completed, staffUser, fetch);
+    expect(host.textContent).toContain('Bağlı satışlar');
+    expect(host.querySelector(`a[href="/jobs/${completed.id}/new-sale"]`)?.textContent)
+      .toBe('Satış kaydı oluştur');
+  });
+
   it('loads authorized JobCard detail via canonical REST and does not use push payload as job data', async () => {
     const fetch = await renderScreen(job);
     expect(host.textContent).toContain(job.title);

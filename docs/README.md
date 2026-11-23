@@ -17,6 +17,7 @@ defines authority, accepted amendments, and how to report policy/code drift.
 | Data model and API contracts | [Schema baseline](../SERVORA_MED_SCHEMA_DRAFT.md), [API baseline](../SERVORA_MED_API_DRAFT.md), with accepted decision/feature amendments |
 | Delivery order and recorded acceptance | [MVP slice ledger](../SERVORA_MED_MVP_SLICES.md); completed checkpoints are historical |
 | Visit-origin Sale, lifecycle, and quantity amendments | [Visit-to-Sale](features/visit-to-sale/README.md), [integer quantity policy](features/visit-to-sale/integer-quantity-policy.md), and [write/UI contract](features/visit-to-sale/write-ui-integration.md) |
+| Standalone sale, joint visit+sale approval and sale-driven delivery | [SALE-002 accepted contract](features/visit-to-sale/sale-002-contract.md); S1 (schema + standalone/retro sale) shipped 2026-11-23, S2–S4 pending |
 | Staff attribution, visit-to-sale reporting and optional lateness explanations | [Reporting contract](features/reporting/README.md), REPORT-001 as amended by REPORT-002; assignee-at-completion Staff metrics implemented, optional lateness context pending |
 | Duplicate customer detection/review, persistent decisions and the PR3 register workbench | [CRM Slice 4A owning package](features/crm-duplicate-review/README.md) |
 | Admin removal of an incorrect Weekly Report and reuse of its Staff/week | [Feature contract](features/weekly-report-removal.md) and DECISIONS.md 2026-11-07 record |

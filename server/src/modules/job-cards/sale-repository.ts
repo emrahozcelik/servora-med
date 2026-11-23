@@ -16,7 +16,7 @@ export type SaleProductReference = {
 export type SaleDetails = {
   organizationId: string; jobCardId: string; soldAt: string;
   saleContactId: string | null; saleContactNameSnapshot: string | null; saleContactTitleSnapshot: string | null;
-  sourceVisitVersion: number; sourceVisitTitleSnapshot: string; sourceCustomerNameSnapshot: string;
+  sourceVisitVersion: number | null; sourceVisitTitleSnapshot: string | null; sourceCustomerNameSnapshot: string | null;
   sourcePlannedContactId: string | null; sourcePlannedContactNameSnapshot: string | null; sourcePlannedContactTitleSnapshot: string | null;
   sourceMetContactId: string | null; sourceMetContactNameSnapshot: string | null; sourceMetContactTitleSnapshot: string | null;
 };
@@ -26,7 +26,7 @@ export type SaleItem = {
   productModelSnapshot: string | null; unitSnapshot: string | null; sortOrder: number;
 };
 export type SaleSubmissionSnapshot = {
-  sourceVisitId: string;
+  sourceVisitId: string | null;
   originValid: boolean;
   soldAt: string;
   items: SaleItem[];
@@ -35,7 +35,7 @@ export type SaleSubmissionSnapshot = {
 /** One SQL statement keeps readiness inputs in the same MVCC snapshot. */
 export async function selectSaleSubmission(executor: SqlExecutor, organizationId: string, jobCardId: string) {
   const result = await executor.query<{
-    sourceVisitId: string; originValid: boolean; soldAt: Date; items: SaleItem[];
+    sourceVisitId: string | null; originValid: boolean; soldAt: Date; items: SaleItem[];
   }>(
     `SELECT j.sale_source_visit_id AS "sourceVisitId",d.sold_at AS "soldAt",
        EXISTS(SELECT 1 FROM job_cards source

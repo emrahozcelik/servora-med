@@ -47,4 +47,10 @@ describe('canAccessRoute', () => {
     expect(canAccessRoute('jobDetail', base, { jobCardId: 'j1' })).toBe(true);
     expect(canAccessRoute('settings', base)).toBe(true);
   });
+
+  it('lets any authenticated user open the standalone Sale form; the service still authorizes the write', () => {
+    expect(canAccessRoute('saleStandaloneCreate', base)).toBe(true);
+    expect(canAccessRoute('saleStandaloneCreate', manager)).toBe(true);
+    expect(canAccessRoute('saleStandaloneCreate', admin)).toBe(true);
+  });
 });

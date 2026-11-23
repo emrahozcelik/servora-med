@@ -25,7 +25,7 @@ beforeEach(()=>{
  vi.mocked(listProducts).mockResolvedValue({items:[product('p1'),product('p2')],total:2,limit:6,offset:0});
 });
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.clearAllMocks();vi.unstubAllGlobals();});
-async function render(){await act(async()=>root.render(<SaleCreateScreen visitId="visit" user={{id:'staff',organizationId:'org',role:'STAFF'} as never} onCancel={cancelled} onCreated={created} />));}
+async function render(){await act(async()=>root.render(<SaleCreateScreen mode={{kind:'visit',visitId:'visit'}} user={{id:'staff',organizationId:'org',role:'STAFF'} as never} onCancel={cancelled} onCreated={created} />));}
 function button(label:string){return [...host.querySelectorAll('button')].find((b)=>b.textContent===label)!;}
 async function input(selector:string,value:string){await act(async()=>{const node=host.querySelector(selector) as HTMLInputElement;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(node,value);node.dispatchEvent(new Event('input',{bubbles:true}));});}
 async function add(id:string){await input('.product-select input[type="search"]','dental');await act(async()=>button('Ürün ara').click());await act(async()=>{(host.querySelector('[data-product-id="'+id+'"]') as HTMLButtonElement).click();});}

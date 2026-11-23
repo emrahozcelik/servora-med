@@ -6,9 +6,13 @@ export const SALE_SOURCE_ENGAGEMENT_KINDS: readonly JobCardEngagementKind[] = [
   'CUSTOMER_VISIT', 'SALES_MEETING', 'PRODUCT_DEMO', 'FOLLOW_UP',
 ];
 
-/** V1 visit-origin policy, not a global rule for future standalone orders. */
+/**
+ * Visit-origin policy. Standalone creation (no visit) does not pass through
+ * this function; SALE-002 widens the eligible source to a completed visit.
+ */
 export function assertSaleSourceEligible(source: SaleSource) {
-  if (source.type !== 'SALES_MEETING' || source.status !== 'IN_PROGRESS'
+  if (source.type !== 'SALES_MEETING'
+    || (source.status !== 'IN_PROGRESS' && source.status !== 'COMPLETED')
     || source.dataClass !== 'BUSINESS' || source.customerId === null
     || source.engagementKind === null || !SALE_SOURCE_ENGAGEMENT_KINDS.includes(source.engagementKind)) {
     throw new AppError('SALE_FROM_VISIT_SOURCE_NOT_ELIGIBLE', 409, 'Bu ziyaret satış kaydı oluşturmak için uygun değil.');

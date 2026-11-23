@@ -68,6 +68,8 @@ describe('application routes', () => {
     ['/jobs/new-task', 'Yeni genel görev', manager],
     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', staff],
     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', manager],
+    ['/jobs/new-sale', 'Satış kaydı oluştur', staff],
+    ['/jobs/new-sale', 'Satış kaydı oluştur', manager],
     ['/jobs/job-1', 'İş detayları yükleniyor', staff],
     ['/users', 'Kullanıcılar', admin],
     ['/users/new', 'Kullanıcı formu yükleniyor', admin],

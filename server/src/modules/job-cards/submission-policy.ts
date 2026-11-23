@@ -321,7 +321,9 @@ async function evaluateSale(
     : !customer || customer.organizationId !== actor.organizationId || customer.status === 'inactive' ? 'invalid' : 'met';
   const sale = await reader.getSubmissionSale(actor.organizationId, job.id);
   const items = sale?.items ?? [];
-  const originValid = Boolean(sale?.sourceVisitId && sale.originValid);
+  // SALE-002 R4: a details row exists (sale !== null) and its origin is either
+  // genuinely standalone (no source) or the recorded source still exists.
+  const originValid = Boolean(sale && (sale.sourceVisitId === null || sale.originValid));
   const timeValid = Boolean(sale && isSaleTimeValid(sale.soldAt, time));
   const itemsValid = items.length > 0 && items.length <= MAX_SALE_ITEMS
     && new Set(items.map((item) => item.productId)).size === items.length

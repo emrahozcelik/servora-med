@@ -253,6 +253,10 @@ export function createJobCardHandlers(service: JobCardService) {
       requireSaleCapability(request);
       return service.getSaleDetails(actor(request), request.params.id);
     },
+    createStandaloneSale: async (request: FastifyRequest, reply: FastifyReply) =>
+      // SALE-002 §6.1: a dedicated route is already an explicit new-client
+      // surface, so it needs no legacy `includeSaleCapability` opt-in.
+      reply.code(201).send(await service.createStandaloneSale(actor(request), request.body)),
     createSale: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) => {
       requireSaleCapability(request);
       return reply.code(201).send(await service.createSaleFromVisit(actor(request), request.params.id, request.body));

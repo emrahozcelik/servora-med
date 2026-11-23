@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ProductSelect } from './ProductSelect';
 import { type CurrentUser } from './services/api';
+import { type CustomerSummary } from './services/crm-api';
+import { listStaff, type StaffProfile } from './services/people-api';
 import { type Product } from './services/products-api';
-import { createSaleFromVisit, getSaleCreateContext, type SaleCreateContext, type SaleCreateInput, type SaleContact } from './jobs/sale-api';
+import {
+  createSaleFromVisit, createStandaloneSale, getSaleCreateContext,
+  type SaleCreateContext, type SaleCreateInput, type SaleContact, type StandaloneSaleCreateInput,
+} from './jobs/sale-api';
 import { defaultDeliveredAtLocalValue, localDateTimeToIso } from './jobs/scheduling';
 import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
+import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { SaleContactSelect } from './jobs/SaleContactSelect';
 import { PageHeader } from './ui/PageHeader';
 import { RecordDescriptions } from './ui/antd';
@@ -16,7 +22,21 @@ function contactText(contact: SaleContact | null) {
   return contact ? [contact.name, contact.title].filter(Boolean).join(' · ') : 'Belirtilmedi';
 }
 
-export function SaleCreateScreen({ visitId, user, onCancel, onCreated }: {
+/**
+ * SALE-002 §6.3: the same Sale form serves the visit-origin mode
+ * (`/jobs/:visitId/new-sale`) and the standalone mode (`/jobs/new-sale`).
+ */
+export type SaleCreateMode = { kind: 'visit'; visitId: string } | { kind: 'standalone' };
+
+export function SaleCreateScreen({ mode, user, onCancel, onCreated }: {
+  mode: SaleCreateMode; user: CurrentUser; onCancel: () => void; onCreated: (id: string) => void;
+}) {
+  return mode.kind === 'visit'
+    ? <VisitSaleCreateScreen visitId={mode.visitId} user={user} onCancel={onCancel} onCreated={onCreated} />
+    : <StandaloneSaleCreateScreen user={user} onCancel={onCancel} onCreated={onCreated} />;
+}
+
+function VisitSaleCreateScreen({ visitId, user, onCancel, onCreated }: {
   visitId: string; user: CurrentUser; onCancel: () => void; onCreated: (id: string) => void;
 }) {
   const [context, setContext] = useState<SaleCreateContext | null>(null);
@@ -115,6 +135,126 @@ export function SaleCreateScreen({ visitId, user, onCancel, onCreated }: {
       <div className="form-actions"><button className="primary-button" type="submit" disabled={locked}>{pending ? 'Kaydediliyor…' : 'Satış kaydını oluştur'}</button>
         <button type="button" className="secondary-button" disabled={locked} onClick={onCancel}>Vazgeç</button></div>
     </form>}
+    {ambiguous && <div role="status" className="detail-feedback"><p>İşlem sonucu doğrulanamadı. Özgün istek korunuyor; değişiklik yapmadan aynı isteği tekrar deneyin.</p>
+      <button type="button" className="secondary-button" disabled={pending} onClick={() => { if (attempt.current) void send(attempt.current); }}>Özgün isteği tekrar dene</button></div>}
+  </main>;
+}
+
+/** Derived exactly like the delivery form's title: the contract lists no title input. */
+function standaloneSaleTitle(customerName: string) {
+  return Array.from(customerName + ' satış kaydı').slice(0, 255).join('');
+}
+
+function StandaloneSaleCreateScreen({ user, onCancel, onCreated }: {
+  user: CurrentUser; onCancel: () => void; onCreated: (id: string) => void;
+}) {
+  const [customerId, setCustomerId] = useState('');
+  const [customer, setCustomer] = useState<CustomerSummary | null>(null);
+  const [customerReady, setCustomerReady] = useState(false);
+  const [staff, setStaff] = useState<StaffProfile[]>([]);
+  const [staffState, setStaffState] = useState<'loading' | 'ready' | 'error'>(user.role === 'STAFF' ? 'ready' : 'loading');
+  const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
+  const [contact, setContact] = useState<SaleContact | null>(null);
+  const [soldLocal, setSoldLocal] = useState(() => defaultDeliveredAtLocalValue());
+  const [products, setProducts] = useState<Array<{ product: Product; quantity: string }>>([]);
+  const [description, setDescription] = useState('');
+  const [error, setError] = useState('');
+  const [pending, setPending] = useState(false);
+  const [ambiguous, setAmbiguous] = useState(false);
+  const attempt = useRef<StandaloneSaleCreateInput | null>(null);
+  const sending = useRef(false);
+  const lifetime = useRef({ active: true, actorId: user.id, organizationId: user.organizationId });
+  const errorRef = useRef<HTMLDivElement>(null);
+  const locked = pending || ambiguous;
+  useEffect(() => { lifetime.current.active = true; return () => { lifetime.current.active = false; }; }, []);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => {
+    if (user.role === 'STAFF') return;
+    let active = true; setStaffState('loading');
+    listStaff('active').then((profiles) => { if (!active) return; setStaff(profiles); setStaffState('ready'); })
+      .catch(() => { if (active) setStaffState('error'); });
+    return () => { active = false; };
+  }, [user.role]);
+  async function send(input: StandaloneSaleCreateInput) {
+    if (sending.current) return;
+    sending.current = true; setPending(true); setError('');
+    const owner = lifetime.current;
+    try {
+      const result = await createStandaloneSale(input);
+      if (!owner.active || lifetime.current !== owner) return;
+      attempt.current = null; setAmbiguous(false); onCreated(result.jobCardId);
+    } catch (caught) {
+      if (!owner.active || lifetime.current !== owner) return;
+      // A definitive rejection writes nothing, so the user corrects the form and
+      // starts a new intent; an unresolved outcome keeps the frozen request.
+      if (isDefinitiveMutationError(caught)) { attempt.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
+      setError(caught instanceof Error ? caught.message : 'Satış kaydı oluşturulamadı.');
+    } finally { if (owner.active && lifetime.current === owner) { sending.current = false; setPending(false); } }
+  }
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (sending.current || ambiguous) return;
+    if (!customer || customer.status === 'inactive') { setError('Geçerli bir müşteri seçin.'); return; }
+    const assignee = user.role === 'STAFF' ? user.id : assignedTo;
+    if (!assignee) { setError('Geçerli bir sorumlu personel seçin.'); return; }
+    if (products.length < 1 || products.length > 25 || products.some((row) => saleCount(row.quantity) === null)) {
+      setError('En az bir ürün ve 1–999999999 arasında tam sayı adet girin.'); return;
+    }
+    if (Array.from(description.trim()).length > 4000) { setError('Açıklama en fazla 4000 karakter olabilir.'); return; }
+    let soldAt: string;
+    try { soldAt = localDateTimeToIso(soldLocal); } catch { setError('Geçerli satış tarihi ve saati girin.'); return; }
+    const input: StandaloneSaleCreateInput = {
+      clientActionId: crypto.randomUUID(), title: standaloneSaleTitle(customer.name),
+      description: description.trim() || null, customerId: customer.id, assignedTo: assignee,
+      soldAt, saleContactId: contact?.id ?? null,
+      items: products.map((row) => ({ productId: row.product.id, quantity: saleCount(row.quantity)! })),
+    };
+    attempt.current = input; void send(input);
+  }
+  return <main className="workspace sale-create">
+    <PageHeader fallbackTitle="Satış kaydı oluştur" description="Ziyaret kaydı olmadan satış kaydı oluşturun; kayıt yönetici onayına gönderilir." />
+    {error && <div ref={errorRef} role="alert" tabIndex={-1} className="form-error">{error}</div>}
+    <form className="task-form" onSubmit={submit} noValidate>
+      <fieldset disabled={locked}>
+        <div className="field-group"><label htmlFor="sale-customer">Müşteri</label>
+          <CustomerSearchSelect id="sale-customer" value={customerId} disabled={locked}
+            onChange={(value) => { setCustomerId(value); setContact(null); }}
+            onCustomerResolved={setCustomer} onReadyChange={setCustomerReady}
+            clearValueWhenMissing isEligible={(value) => value.status !== 'inactive'} />
+        </div>
+        {user.role === 'STAFF'
+          ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
+          : <div className="field-group"><label htmlFor="sale-assignee">Sorumlu personel</label>
+            <select id="sale-assignee" required disabled={locked || staffState !== 'ready'} value={assignedTo}
+              onChange={(event) => setAssignedTo(event.target.value)}>
+              <option value="">Seçin</option>
+              {staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
+            </select>
+            {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
+            {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
+          </div>}
+        {customer
+          ? <SaleContactSelect key={customer.id} customerId={customer.id} selected={contact} onChange={setContact} disabled={locked} />
+          : <p className="form-help">Satışta görüşülen kişiyi seçmek için önce müşteri seçin.</p>}
+        <div className="field-group"><label htmlFor="sale-sold-at">Gerçekleşen satış zamanı</label>
+          <input id="sale-sold-at" type="datetime-local" value={soldLocal} onChange={(event) => setSoldLocal(event.target.value)} required />
+          <p className="form-help">Cihazınızın yerel saat dilimi: {Intl.DateTimeFormat().resolvedOptions().timeZone}</p></div>
+        <ProductSelect load={loadSaleProducts} disabled={locked || !customer} selectedProducts={products.map((row) => row.product)}
+          onAdd={(product) => { if (products.length >= 25) { setError('En fazla 25 farklı ürün seçebilirsiniz.'); return; }
+            setProducts((rows) => rows.some((row) => row.product.id === product.id) ? rows : [...rows, { product, quantity: '1' }]); }}
+          onRemove={(id) => setProducts((rows) => rows.filter((row) => row.product.id !== id))}
+          renderQuantity={(product) => <label className="field-group sale-quantity-field">Adet<input type="number" aria-label={product.name + ' satış adedi'} min="1" max="999999999" step="1" inputMode="numeric"
+            value={products.find((row) => row.product.id === product.id)?.quantity ?? ''} onChange={(event) => setProducts((rows) => rows.map((row) => row.product.id === product.id ? { ...row, quantity: event.target.value } : row))} /></label>} />
+        <div className="field-group"><label htmlFor="sale-description">Açıklama (isteğe bağlı)</label>
+          <textarea id="sale-description" rows={3} maxLength={4000} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+      </fieldset>
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={locked || !customer || !customerReady || products.length === 0 || (user.role !== 'STAFF' && !assignedTo)}>
+          {pending ? 'Kaydediliyor…' : 'Satış kaydını oluştur'}</button>
+        <button type="button" className="secondary-button" disabled={locked} onClick={onCancel}>Vazgeç</button>
+      </div>
+    </form>
     {ambiguous && <div role="status" className="detail-feedback"><p>İşlem sonucu doğrulanamadı. Özgün istek korunuyor; değişiklik yapmadan aynı isteği tekrar deneyin.</p>
       <button type="button" className="secondary-button" disabled={pending} onClick={() => { if (attempt.current) void send(attempt.current); }}>Özgün isteği tekrar dene</button></div>}
   </main>;
