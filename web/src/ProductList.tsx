@@ -14,6 +14,7 @@ import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { DEFAULT_LIST_PAGE_SIZE, normalizeListOffset } from './ui/pagination';
 import { ServoraListPagination } from './ui/antd/ServoraPagination';
+import { useRegisterPageCreateAction } from './shell/page-create-action';
 
 const PAGE_SIZE = DEFAULT_LIST_PAGE_SIZE;
 
@@ -73,14 +74,19 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   onOpenProduct?: (productId: string) => void;
 }) {
   const canManage = user.role !== 'STAFF';
+  const navigate = useNavigate();
+  const forbidden = state.kind === 'error' && state.code === 'FORBIDDEN';
+  useRegisterPageCreateAction(canManage && !forbidden
+    ? { label: 'Yeni ürün', run: () => navigate(paths.newProduct) }
+    : null);
 
-  if (state.kind === 'error' && state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
+  if (forbidden) return <main className="workspace product-workspace">
     <ResultState status="403" title="Bu alana erişim yetkiniz yok" description={state.message} headingLevel={1} />
   </main>;
 
   return <main className="workspace product-workspace">
     <PageHeader fallbackTitle="Ürünler"
-      actions={canManage ? <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link> : undefined}
+      actions={canManage ? <Link className="primary-button compact-button product-create-link page-create-action" to={paths.newProduct}>Yeni ürün</Link> : undefined}
     />
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
     {state.kind === 'loading' ? <div className="product-results" aria-busy="true" aria-live="polite">

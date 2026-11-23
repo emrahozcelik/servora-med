@@ -37,6 +37,7 @@ import { ResultState } from '../ui/antd/ResultState';
 import { ServoraCalendar } from '../ui/antd/ServoraCalendar';
 import type { ServoraCalendarEventSummary } from '../ui/antd/ServoraCalendar';
 import { useCompact } from '../ui/useResponsive';
+import { useRegisterPageCreateAction } from '../shell/page-create-action';
 
 // ── helpers ──
 
@@ -615,7 +616,9 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
       ? editing.jobCardId
       : '',
   );
-  const newPlanTriggerRef = useRef<HTMLButtonElement>(null);
+  // Whichever control opened the new-plan drawer (page button or desktop
+  // topbar) receives focus back when it closes.
+  const newPlanOpenerRef = useRef<HTMLElement | null>(null);
 
   const range = useMemo(() => visibleMonthRange(month), [month]);
   const compact = useCompact();
@@ -680,7 +683,15 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
     next.set('event', eventId);
     setSearchParams(next);
   }, [searchParams, setSearchParams]);
-  const openNewPlan = useCallback(() => setEditing('new'), []);
+  const openNewPlan = useCallback((opener: HTMLElement | null) => {
+    newPlanOpenerRef.current = opener;
+    setEditing('new');
+  }, []);
+  useRegisterPageCreateAction({
+    label: 'Yeni plan',
+    disabled: user.role !== 'STAFF' && assignees.length === 0,
+    run: openNewPlan,
+  });
 
   return (
     <main className="workspace calendar-workspace">
@@ -689,11 +700,10 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
         description="İşlerinizi ve operasyonel planlarınızı aylık zaman çizelgesinde görün."
         actions={(
           <button
-            ref={newPlanTriggerRef}
             type="button"
-            className="primary-button"
+            className="primary-button page-create-action"
             disabled={user.role !== 'STAFF' && assignees.length === 0}
-            onClick={openNewPlan}
+            onClick={(event) => openNewPlan(event.currentTarget)}
           >
             Manuel plan ekle
           </button>
@@ -784,7 +794,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
         open={editing !== null}
         title={drawerTitle(editing === 'new' ? null : editing)}
         onDismiss={() => setEditing(null)}
-        returnFocusRef={newPlanTriggerRef}
+        returnFocusRef={editing === 'new' ? newPlanOpenerRef : undefined}
       >
         <EventForm
           user={user}
