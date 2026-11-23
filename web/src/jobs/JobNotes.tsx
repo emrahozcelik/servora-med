@@ -25,7 +25,7 @@ const contextLabels = {
   GENERAL: 'Operasyon notu',
   SUBMIT_FOR_APPROVAL: 'Tamamlanma sonucu',
   APPROVE: 'Yönetici onayı',
-  REQUEST_REVISION: 'Revizyon isteği',
+  REQUEST_REVISION: 'Düzeltme notu',
   CANCEL: 'İptal',
   INVALIDATE: 'Geçersiz kılma',
 } as const;
@@ -228,6 +228,7 @@ export function JobNotes({
       {canAdd && <ProgressiveCounter remaining={remaining} dataCounter="job-note">
         {remaining} karakter kaldı
       </ProgressiveCounter>}</div>
+    <p className="timeline-order-note">Kronolojik sıra (en eski not üstte)</p>
     {canAdd && <form onSubmit={submit} noValidate>
       {ambiguous && <div className="detail-feedback" role="status">
         <p>İşlemin sonucu henüz doğrulanamadı. Özgün istek korunuyor; yeni işlemden önce tekrar deneyin.</p>
@@ -251,7 +252,7 @@ export function JobNotes({
       </div>
       {draftError && <p id="job-note-error" className="field-error" role="alert">{draftError}</p>}
       {submitError && <p className="field-error" role="alert">{submitError}</p>}
-      <button className="primary-button compact-button" type="submit" disabled={pending || ambiguous}>
+      <button className="secondary-button compact-button" type="submit" disabled={pending || ambiguous}>
         {pending ? 'Kaydediliyor…' : 'Not ekle'}
       </button>
     </form>}
@@ -271,7 +272,7 @@ export function JobNotes({
             <span>{jobCardStatusLabel(note.workflowStage)}</span>
           </>}
           {note.recordVersion === 0 && <>
-            <span>Legacy kimlik</span>
+            <span>Eski kayıt</span>
             <span>Aşama kaydı mevcut değil</span>
           </>}
           <time dateTime={note.createdAt}>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(note.createdAt))}</time></div>

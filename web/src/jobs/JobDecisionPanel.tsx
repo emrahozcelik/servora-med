@@ -70,16 +70,26 @@ export function JobDecisionPanel({
     aria-label="İş işlemleri"
     data-job-decision-panel="true"
   >
-    {startLocationCaptureEnabled && hasStart && <p className="start-location-notice">
-      İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
-      Konum iş geçmişinde saklanır. Konum alınamazsa iş yine başlar ve yönetici
-      onayına gönderirken tekrar denenir. Konum servislerinin açık olması önemlidir.
-    </p>}
-    {submitLocationCaptureEnabled && hasSubmit && <p className="submit-location-notice">
-      Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
-      Konum, yetkili kullanıcıların görebildiği iş geçmişinde saklanır.
-      Konum alınamazsa gönderim engellenmez.
-    </p>}
+    {startLocationCaptureEnabled && hasStart && <div className="start-location-notice">
+      <p>İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınır.</p>
+      <details className="location-notice-more">
+        <summary>Ayrıntı</summary>
+        <span>
+          Konum iş geçmişinde saklanır. Konum alınamazsa iş yine başlar ve yönetici
+          onayına gönderirken tekrar denenir. Konum servislerinin açık olması önemlidir.
+        </span>
+      </details>
+    </div>}
+    {submitLocationCaptureEnabled && hasSubmit && <div className="submit-location-notice">
+      <p>Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınır.</p>
+      <details className="location-notice-more">
+        <summary>Ayrıntı</summary>
+        <span>
+          Konum, yetkili kullanıcıların görebildiği iş geçmişinde saklanır.
+          Konum alınamazsa gönderim engellenmez.
+        </span>
+      </details>
+    </div>}
     {hasStart && startScheduleBlockedReason && (
       <p
         className="start-schedule-reason"
@@ -121,6 +131,9 @@ export function JobDecisionPanel({
           </>
         )}
       </button>)}
+      {(primary || secondaryTransitions.length > 0) && destructiveTransitions.length > 0 && (
+        <span className="review-buttons-separator" aria-hidden="true" />
+      )}
       {destructiveTransitions.map((transition) => <button
         key={transition.command}
         className="destructive-button compact-button"
