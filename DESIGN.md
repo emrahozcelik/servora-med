@@ -59,7 +59,7 @@ The implemented palette uses warm, lightly tinted neutrals and a low-chroma mine
 
 ## Typography
 
-**Direction:** The implemented stack is `Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`, preserving platform-native fallbacks when Inter is unavailable.
+**Direction:** The implemented stack is `'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`. The variable font is self-hosted through `@fontsource-variable/plus-jakarta-sans` (no CDN; `latin-ext` covers Turkish glyphs), with platform-native fallbacks. `servora-visual-tokens.ts` owns the canonical family string.
 
 **Character:** Clear and contemporary without feeling clinical, technical, or decorative. The family must remain highly legible in Turkish, dense operational lists, form labels, quantities, dates, and status metadata.
 
@@ -281,7 +281,7 @@ This slice keeps a **CSS class contract**; it does not introduce a separate Reac
 
 ### Overlay dismiss control
 
-Modal panel headers (Menü panel, notification center, form drawer) dismiss through one shared icon-only control, `DrawerCloseButton` (`.drawer-close`): a fixed square `var(--control-height)` target (44 × 44 CSS px at default text size) with a 1rem stroke X glyph that is `aria-hidden`. The accessible name names the panel (`Menüyü kapat`, `Bildirimleri kapat`, `Formu kapat`). The control never stretches to fill a grid column or flex track, never shows a visible `Kapat` text label in a modal panel header, and never uses a text glyph such as `✕` in place of the SVG. Backdrop dismiss, Escape and focus return stay owned by the panel. Inline, non-modal notices and dialog footers keep visible text actions (`Kapat`, `Vazgeç`).
+Modal panel headers (Menü panel, notification center, form drawer, desktop command palette) dismiss through one shared icon-only control, `DrawerCloseButton` (`.drawer-close`): a fixed square `var(--control-height)` target (44 × 44 CSS px at default text size) with a 1rem stroke X glyph that is `aria-hidden`. The accessible name names the panel (`Menüyü kapat`, `Bildirimleri kapat`, `Formu kapat`, `Aramayı kapat`). The control never stretches to fill a grid column or flex track, never shows a visible `Kapat` text label in a modal panel header, and never uses a text glyph such as `✕` in place of the SVG. Backdrop dismiss, Escape and focus return stay owned by the panel. Inline, non-modal notices and dialog footers keep visible text actions (`Kapat`, `Vazgeç`).
 
 ### Surfaces
 
@@ -303,7 +303,7 @@ Both are required for operational scanning. Soft fill + visible Turkish label (a
 
 ### New job control
 
-One primary **Yeni iş** control. Desktop: disclosure menu without focus trap; Escape returns focus. Mobile/tablet (`<1024px`): the single create entry is the centered bottom-navigation action, which opens the existing bottom sheet with focus containment while it is modal; it is available on every mobile route for the roles that could already create jobs. The former jobs-list sticky create bar is removed. Routes remain the existing create flows.
+One primary **Yeni iş** control per viewport. Desktop (≥1024px): the global top bar disclosure menu, available on every route, without focus trap; Escape returns focus. Route page headers, including Jobs, do not render a second create control. Create options come from one ordered source (`web/src/jobs/new-job-options.ts`) shared by the create menu and the command palette quick actions. Mobile/tablet (`<1024px`): the single create entry is the centered bottom-navigation action, which opens the existing bottom sheet with focus containment while it is modal; it is available on every mobile route for the roles that could already create jobs. The former jobs-list sticky create bar is removed. Routes remain the existing create flows.
 
 ### Mobile top bar
 
@@ -373,6 +373,7 @@ Role-aware home remains navigation policy: overview when eligible/enabled, other
 - **Route identity registry:** static identity, generic titles, deterministic param-aware hierarchy, breadcrumb semantics. MUST NOT own authorization, home policy, fetching, or domain types.
 - **Resolved-identity layer:** the single combination of static identity, params, and runtime label. MUST NOT fetch or render.
 - **AppShell:** viewport switch, drawer with focus trap/restore, topbar/bottom-nav/content composition, document-title wiring from the resolved identity, home-target resolution passed to Brand. MUST NOT recompute titles or return targets.
+- **Desktop top bar:** global quick search (`⌘K` / `Ctrl K`, lazy-loaded command palette over pages, customers and job cards through existing role-scoped endpoints), the single desktop **Yeni iş**, notifications, and the account menu (a disclosure with profile, security and settings links and `Oturumu kapat`). Search yields width before the account name truncates. MUST NOT render the route title or a brand. The desktop sidebar footer carries only copyright and build identity.
 - **PageHeader:** H1, eyebrow, description, breadcrumb region, return-context region, actions passthrough. MUST NOT own authorization, business actions, tabs, filters, or data fetching.
 - **MobileTopBar:** resolved route title, notification affordance. MUST NOT own a menu trigger, breadcrumb, hierarchy, return logic, or brand.
 - **Brand component:** variant-to-asset mapping, accessible semantics, sizing contract, linked/non-linked rendering from supplied target. MUST NOT own role, home, or authorization policy.

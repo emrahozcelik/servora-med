@@ -18,6 +18,7 @@ import {
   listCustomers,
   type CustomerSummary,
 } from '../services/crm-api';
+import { DrawerCloseButton } from '../ui/DrawerCloseButton';
 import { NavigationIcon } from './navigation-icons';
 import type { NavLinkItem } from './navigation-model';
 import { canAccessRoute } from './route-access';
@@ -331,13 +332,7 @@ export function CommandPalette({ user, destinations, onClose }: CommandPalettePr
             aria-controls="command-palette-results"
             aria-activedescendant={activeEntry ? `command-palette-option-${activeEntry.id}` : undefined}
           />
-          <button
-            type="button"
-            className="command-palette-close"
-            onClick={() => onClose(true)}
-          >
-            Kapat
-          </button>
+          <DrawerCloseButton label="Aramayı kapat" onClick={() => onClose(true)} />
         </div>
 
         <div

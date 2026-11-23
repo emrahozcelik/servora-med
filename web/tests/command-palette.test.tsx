@@ -131,6 +131,12 @@ describe('CommandPalette', () => {
     for (const option of NEW_JOB_OPTIONS) expect(actionLabels).toContain(option.label);
     expect(actionLabels).toContain('Satış kaydı');
 
+    // Same icon-only dismiss control as the other modal panels.
+    const close = container.querySelector<HTMLButtonElement>('.command-palette-dialog .drawer-close')!;
+    expect(close.getAttribute('aria-label')).toBe('Aramayı kapat');
+    expect(Array.from(container.querySelectorAll('.command-palette-dialog button'))
+      .some((button) => button.textContent?.trim() === 'Kapat')).toBe(false);
+
     // Combobox pattern: the input owns focus; options are reached with arrows.
     const options = Array.from(container.querySelectorAll<HTMLButtonElement>('.command-palette-option'));
     expect(options.length).toBeGreaterThan(0);
