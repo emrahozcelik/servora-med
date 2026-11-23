@@ -217,7 +217,7 @@ describe('append-only JobCard notes service', () => {
     },
   );
 
-  it.each(['ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
+  it.each(['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
     'allows Sales Meeting note creation in %s',
     async (status) => {
       const repository = new NotesRepository();
@@ -227,6 +227,22 @@ describe('append-only JobCard notes service', () => {
       })).resolves.toMatchObject({ note: 'Görüşme notu' });
     },
   );
+
+  it('allows an assigned Staff note in NEW for every job type but not for another Staff', async () => {
+    for (const type of ['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'] as const) {
+      const repository = new NotesRepository();
+      repository.jobs.set('job-1', { ...baseJob, type, status: 'NEW' });
+      await expect(new JobCardService(repository as never).addNote(staff, 'job-1', {
+        clientActionId: `new-note-${type}`, note: 'Atama aşaması notu',
+      })).resolves.toMatchObject({ workflowStage: 'NEW', note: 'Atama aşaması notu' });
+    }
+    const repository = new NotesRepository();
+    repository.jobs.set('job-1', { ...baseJob, status: 'NEW' });
+    await expect(new JobCardService(repository as never).addNote({ ...staff, id: 'staff-2' }, 'job-1', {
+      clientActionId: 'new-note-other', note: 'Yetkisiz not',
+    })).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+    expect(repository.notes).toHaveLength(0);
+  });
 
   it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)(
     'keeps %s note creation unchanged in ACCEPTED',
