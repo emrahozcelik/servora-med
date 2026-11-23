@@ -10,6 +10,7 @@ defines authority, accepted amendments, and how to report policy/code drift.
 | --- | --- |
 | Engineering discipline and repository discovery | [AGENTS.md](../AGENTS.md) |
 | Accepted product and architecture decisions | [DECISIONS.md](../DECISIONS.md) |
+| Evidence-backed delivery status and pending acceptance of tracked decisions | [Decision tracking](decision-tracking/README.md) and [register](decision-tracking/REGISTER.md); this is not another product-policy authority |
 | Product scope and workflows | [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md) |
 | UI, UX, and accessibility | [DESIGN.md](../DESIGN.md), [PRODUCT.md](../PRODUCT.md), and DECISIONS.md UI-001 |
 | Default visual inspection method for all agents | [Rendered UI evidence workflow](ui/visual-review-workflow.md), DECISIONS.md UI-003 |
