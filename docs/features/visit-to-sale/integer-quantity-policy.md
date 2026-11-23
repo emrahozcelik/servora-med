@@ -11,8 +11,9 @@ Sale quantity is product count, regardless of catalog unit: JSON numeric safe
 integer, 1–999999999. Fractions (including 0.001, 0.5, 1.5, 2.75), nonnumbers,
 nonfinite numbers, zero, negatives and overflow fail validation before persistence.
 Create, add, correction and submit readiness share `saleQuantity`. No rounding,
-truncation or conversion. Delivery, shared ProductSelect and ProductForm retain
-their existing contracts; Warehouse physical measurement remains a future policy.
+truncation or conversion. Delivery follows the same whole-unit rule under
+DELIVERY-QTY-001; the shared ProductSelect and ProductForm contracts remain
+quantity-agnostic; Warehouse physical measurement remains a future policy.
 
 This explicitly supersedes the decimal Sale input/public presentation in PR1/PR2
 and the initial discovery documents. Their historical baseline observations and
@@ -115,5 +116,6 @@ outside the source checkout. Four opt-in R2/DR skips remain SKIPPED.
 PR3 defaults to 1 and must use integer-only input (`min=1`, `step=1`,
 `inputMode=numeric`) for create/add/correction, with no conversion or silent
 fallback. A Sale-specific adapter may configure ProductSelect there; Delivery
-fractions must remain supported. Public Sale create/correction routes and their
+now uses the same whole-unit input rule under DELIVERY-QTY-001. Public Sale
+create/correction routes and their
 UI remain closed in this task. No financial, stock or delivery effects are added.

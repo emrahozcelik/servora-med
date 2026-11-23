@@ -82,7 +82,7 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
         assignedTo: staffId, priority: 'normal' as const, dueDate: null,
         scheduledAt: '2026-08-18T10:00:00.000Z', scheduledEndsAt: '2026-08-18T10:30:00.000Z',
         overrideReason: null, deliveryPurpose: 'SALE' as const, deliveryNote: 'Ortak not',
-        items: productIds.map((productId, index) => ({ productId, quantity: [2, 1, 0.5][index]! })),
+        items: productIds.map((productId, index) => ({ productId, quantity: [2, 1, 3][index]! })),
       };
 
       const first = await service.createProductDelivery(manager, input);
@@ -106,7 +106,7 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       )).rows).toEqual([
         { purpose: 'SALE', note: 'Ortak not', quantity: '2.000' },
         { purpose: 'SALE', note: 'Ortak not', quantity: '1.000' },
-        { purpose: 'SALE', note: 'Ortak not', quantity: '0.500' },
+        { purpose: 'SALE', note: 'Ortak not', quantity: '3.000' },
       ]);
 
       await expect(service.createProductDelivery(manager, input)).resolves.toEqual(first);
@@ -142,6 +142,120 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
         id: otherOrgStaffId, organizationId: otherOrganizationId, role: 'STAFF',
       }, { ...input, clientActionId: 'other-org-actor', customerId, assignedTo: staffId }))
         .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+
+      // Delivery quantity integrity: the shared whole-unit validator keeps
+      // fractions and range overflow out of PostgreSQL as a 400.
+      for (const [index, quantity] of [0, 0.5, 1.5, -1, 1_000_000_000].entries()) {
+        await expect(service.createProductDelivery(manager, {
+          ...input,
+          clientActionId: `postgres-bad-quantity-${index}`,
+          items: [{ productId: productIds[0]!, quantity }],
+        })).rejects.toMatchObject({
+          code: 'VALIDATION_ERROR', statusCode: 400,
+          details: { fieldErrors: { 'items.quantity': 'items.quantity geçersizdir.' } },
+        });
+      }
+      const minQuantityJob = await service.createProductDelivery(manager, {
+        ...input,
+        clientActionId: 'postgres-min-quantity',
+        items: [{ productId: productIds[0]!, quantity: 1 }],
+      });
+      expect((await pool.query<{ quantity: string }>(
+        `SELECT quantity::text FROM job_card_delivery_items WHERE job_card_id = $1`,
+        [minQuantityJob.jobCardId],
+      )).rows).toEqual([{ quantity: '1.000' }]);
+      const maxQuantityJob = await service.createProductDelivery(manager, {
+        ...input,
+        clientActionId: 'postgres-max-quantity',
+        items: [{ productId: productIds[0]!, quantity: 999_999_999 }],
+      });
+      expect((await pool.query<{ quantity: string }>(
+        `SELECT quantity::text FROM job_card_delivery_items WHERE job_card_id = $1`,
+        [maxQuantityJob.jobCardId],
+      )).rows).toEqual([{ quantity: '999999999.000' }]);
+
+      // Add/patch share the same validator and stop before the DB constraint.
+      await expect(service.addDeliveryItem(manager, minQuantityJob.jobCardId, {
+        clientActionId: 'postgres-add-bad-quantity',
+        expectedVersion: minQuantityJob.version,
+        productId: productIds[1]!,
+        deliveryPurpose: 'SALE',
+        deliveredAt: null,
+        quantity: 0.5,
+      })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR', statusCode: 400,
+        details: { fieldErrors: { quantity: 'quantity geçersizdir.' } },
+      });
+      const added = await service.addDeliveryItem(manager, minQuantityJob.jobCardId, {
+        clientActionId: 'postgres-add-min-quantity',
+        expectedVersion: minQuantityJob.version,
+        productId: productIds[1]!,
+        deliveryPurpose: 'SALE',
+        deliveredAt: null,
+        quantity: 1,
+      });
+      expect(added.item.quantity).toBe(1);
+      await expect(service.patchDeliveryItem(manager, minQuantityJob.jobCardId, added.item.id, {
+        expectedVersion: added.jobCardVersion,
+        quantity: 1.5,
+      })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR', statusCode: 400,
+        details: { fieldErrors: { quantity: 'quantity geçersizdir.' } },
+      });
+      const patched = await service.patchDeliveryItem(manager, minQuantityJob.jobCardId, added.item.id, {
+        expectedVersion: added.jobCardVersion,
+        quantity: 999_999_999,
+      });
+      expect(patched.item.quantity).toBe(999_999_999);
+
+      // Historical fractional rows are preserved and stay editable when the
+      // patch does not supply a quantity: no backfill and no DB constraint yet.
+      const legacyItemId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_delivery_items
+           (organization_id, job_card_id, product_id, delivery_purpose, delivered_at, quantity,
+            unit, product_name_snapshot, delivery_note)
+         VALUES ($1, $2, $3, 'SAMPLE', NULL, 0.5, 'adet', 'Legacy Fraction', NULL)
+         RETURNING id`,
+        [organizationId, minQuantityJob.jobCardId, productIds[2]!],
+      )).rows[0]!.id;
+      const legacyPatched = await service.patchDeliveryItem(manager, minQuantityJob.jobCardId, legacyItemId, {
+        expectedVersion: patched.jobCardVersion,
+        deliveryNote: 'Eski satır notu',
+      });
+      expect(legacyPatched.item).toMatchObject({ quantity: 0.5, deliveryNote: 'Eski satır notu' });
+      expect((await pool.query<{ quantity: string }>(
+        `SELECT quantity::text FROM job_card_delivery_items WHERE id = $1`,
+        [legacyItemId],
+      )).rows).toEqual([{ quantity: '0.500' }]);
+      await expect(service.patchDeliveryItem(manager, minQuantityJob.jobCardId, legacyItemId, {
+        expectedVersion: legacyPatched.jobCardVersion,
+        quantity: 0.5,
+      })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR', statusCode: 400,
+        details: { fieldErrors: { quantity: 'quantity geçersizdir.' } },
+      });
+
+      // A DEMO product cannot be referenced by a BUSINESS delivery; otherwise
+      // the demo purge analyzer reports DEMO_PRODUCT_TO_BUSINESS_JOB.
+      const datasetId = (await pool.query<{ id: string }>(
+        `INSERT INTO demo_datasets (organization_id, dataset_key, seed_version, created_by)
+         VALUES ($1, 'quantity-demo', 'demo-standard-v1', $2) RETURNING id`,
+        [organizationId, managerId],
+      )).rows[0]!.id;
+      const demoProductId = (await pool.query<{ id: string }>(
+        `INSERT INTO products (organization_id, name, unit, is_active, data_class, demo_dataset_id)
+         VALUES ($1, 'Demo Quantity Product', 'adet', TRUE, 'DEMO', $2) RETURNING id`,
+        [organizationId, datasetId],
+      )).rows[0]!.id;
+      await expect(service.createProductDelivery(manager, {
+        ...input,
+        clientActionId: 'postgres-demo-product',
+        items: [{ productId: demoProductId, quantity: 1 }],
+      })).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND', statusCode: 404 });
+      expect((await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_delivery_items WHERE product_id = $1`,
+        [demoProductId],
+      )).rows[0]!.count).toBe('0');
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

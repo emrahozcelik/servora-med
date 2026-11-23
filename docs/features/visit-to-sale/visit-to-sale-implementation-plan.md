@@ -19,8 +19,9 @@ enforces integer counts 1–999999999; 057 remains byte-identical. Public quanti
 are integer strings; private v1 hashes/audits retain three-scale normalization.
 PR3 defaults to 1, uses min=1, step=1, inputMode=numeric and rejects fractions for
 create, add and correction, without conversion or rounding. A Sale-specific
-adapter may configure the existing ProductSelect in PR3; its Delivery fractional
-behavior and catalog forms remain unchanged. This task does not open write routes.
+adapter may configure the existing ProductSelect in PR3; its Delivery behavior
+is superseded by DELIVERY-QTY-001 (whole units) and catalog forms remain
+unchanged. This task does not open write routes.
 
 ## 1. Uygulama öncesi sabitlenecek kararlar
 
@@ -192,7 +193,7 @@ Suggested title: `fix(web): align operational product identity and quantity pres
 
 | Layer | Required cases |
 | --- | --- |
-| Shared UI | Duplicate search result retains full metadata + Eklendi; ID/focus; quantity pairing; Delivery fractions and Sale integer counts; long/null metadata; search error/pagination; single mode unchanged. |
+| Shared UI | Duplicate search result retains full metadata + Eklendi; ID/focus; quantity pairing; Delivery whole units and Sale integer counts; long/null metadata; search error/pagination; single mode unchanged. |
 | Delivery detail | Multiple siblings retain correct snapshot/model/unit/purpose; read-only quantity left of identity; nullable unit/no invented fallback; actual-time editor only allowed statuses; terminal immutable. |
 | Mutation regression | Actual-time expectedVersion conflict + truth refresh; DeliveryCreate exact frozen retries; SaleCreate/edit frozen retries; no new delivery add/remove/quantity calls. |
 | Accessibility/layout | Semantic labels/44px targets; 320/390/768/1024/1440; 200%/400% reflow; no clipping; keyboard/focus. |

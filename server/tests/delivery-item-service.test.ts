@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
-  CriticalActionClaim, DeliveryItemRecord, JobCardRepository, JobCardTransaction, ProductReference,
+  CriticalActionClaim, DeliveryItemRecord, JobCardRepository, JobCardTransaction, JobDeliveryScope, ProductReference,
 } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
@@ -10,8 +10,11 @@ class DeliveryRepository implements JobCardRepository {
   job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'IN_PROGRESS', version: 1,
     title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1', createdBy: 'staff-1',
     priority: 'normal', dueDate: null, scheduledAt: '2026-07-20T10:00:00.000Z' };
-  product: ProductReference = { id: 'product-1', organizationId: 'org-1', name: 'İmplant Seti', sku: 'IMP-1', model: 'M1', unit: 'adet', isActive: true };
-  replacementProduct: ProductReference = { id: 'product-2', organizationId: 'org-1', name: 'Greft Seti', sku: 'GRF-2', model: 'G2', unit: 'kutu', isActive: true };
+  deliveryScope: JobDeliveryScope = { dataClass: 'BUSINESS', demoDatasetId: null };
+  product: ProductReference = { id: 'product-1', organizationId: 'org-1', name: 'İmplant Seti', sku: 'IMP-1', model: 'M1', unit: 'adet', isActive: true, dataClass: 'BUSINESS', demoDatasetId: null };
+  replacementProduct: ProductReference = { id: 'product-2', organizationId: 'org-1', name: 'Greft Seti', sku: 'GRF-2', model: 'G2', unit: 'kutu', isActive: true, dataClass: 'BUSINESS', demoDatasetId: null };
+  demoProduct: ProductReference = { id: 'product-demo-1', organizationId: 'org-1', name: 'Demo Matrix', sku: 'DEMO-1', model: 'D1', unit: 'adet', isActive: true, dataClass: 'DEMO', demoDatasetId: 'dataset-1' };
+  foreignDemoProduct: ProductReference = { id: 'product-demo-2', organizationId: 'org-1', name: 'Yabancı Demo', sku: 'DEMO-2', model: 'D2', unit: 'adet', isActive: true, dataClass: 'DEMO', demoDatasetId: 'dataset-2' };
   items: DeliveryItemRecord[] = []; events: string[] = [];
   activity: Array<{ event: string; oldValue?: unknown; newValue?: unknown }> = [];
   completed = new Map<string, unknown>();
@@ -22,6 +25,9 @@ class DeliveryRepository implements JobCardRepository {
 
   private tx(): JobCardTransaction { return {
     getJobForUpdate: async (org, id) => org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
+    getJobDeliveryScope: async (org, id) => (
+      org === this.job.organizationId && id === this.job.id ? { ...this.deliveryScope } : null
+    ),
     transitionWithVersion: async () => null,
     appendActivity: async (i) => {
       this.events.push(i.event);
@@ -39,7 +45,8 @@ class DeliveryRepository implements JobCardRepository {
     updateFieldsWithVersion: async () => null,
     getProduct: async (org, id) => {
       this.getProductCalls.push(id);
-      const product = [this.product, this.replacementProduct].find((candidate) => candidate.organizationId === org && candidate.id === id);
+      const product = [this.product, this.replacementProduct, this.demoProduct, this.foreignDemoProduct]
+        .find((candidate) => candidate.organizationId === org && candidate.id === id);
       return product ? { ...product } : null;
     },
     getDeliveryItemForUpdate: async (org, job, id) => {
@@ -304,3 +311,142 @@ describe('delivery item mutations', () => {
     expect(updated?.oldValue).toMatchObject({ deliveredAt: null });
     expect(updated?.newValue).toMatchObject({ deliveredAt: '2026-07-21T14:30:00.000Z' });
   });
+
+describe('delivery quantity integrity', () => {
+  const rejected = [
+    ['zero', 0],
+    ['fractional 0.5', 0.5],
+    ['fractional 1.5', 1.5],
+    ['negative', -1],
+    ['above the whole-unit maximum', 1_000_000_000],
+  ] as const;
+  const accepted = [
+    ['minimum', 1],
+    ['maximum', 999_999_999],
+  ] as const;
+  const quantityError = {
+    code: 'VALIDATION_ERROR', statusCode: 400,
+    details: { fieldErrors: { quantity: 'quantity geçersizdir.' } },
+  };
+
+  it.each(rejected)('rejects an add and patch quantity %s', async (_label, quantity) => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+
+    await expect(service.addDeliveryItem(staff, 'job-1', { ...create, quantity }))
+      .rejects.toMatchObject(quantityError);
+    expect(repo.items).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+
+    const added = await service.addDeliveryItem(staff, 'job-1', create);
+    await expect(service.patchDeliveryItem(staff, 'job-1', added.item.id!, { expectedVersion: 2, quantity }))
+      .rejects.toMatchObject(quantityError);
+    expect(repo.items[0]!.quantity).toBe(2);
+    expect(repo.events).toEqual(['DELIVERY_ITEM_ADDED']);
+  });
+
+  it.each(accepted)('accepts the %s whole-unit quantity on add and patch', async (_label, quantity) => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+    const otherBound = quantity === 1 ? 999_999_999 : 1;
+
+    const added = await service.addDeliveryItem(staff, 'job-1', { ...create, quantity });
+    expect(added.item.quantity).toBe(quantity);
+    const patched = await service.patchDeliveryItem(staff, 'job-1', added.item.id!, {
+      expectedVersion: 2, quantity: otherBound,
+    });
+    expect(patched.item.quantity).toBe(otherBound);
+  });
+
+  it('rejects a decimal string quantity even when it names a whole unit', async () => {
+    const repo = new DeliveryRepository();
+
+    await expect(new JobCardService(repo).addDeliveryItem(staff, 'job-1', {
+      ...create, quantity: '2' as unknown as number,
+    })).rejects.toMatchObject(quantityError);
+    expect(repo.items).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+  });
+
+  it('keeps a legacy fractional row editable when the patch does not supply a quantity', async () => {
+    const repo = new DeliveryRepository();
+    repo.items.push({
+      id: 'legacy-item', organizationId: 'org-1', jobCardId: 'job-1', productId: 'product-1',
+      deliveryPurpose: 'SAMPLE', deliveredAt: new Date('2026-07-11T10:00:00.000Z'), quantity: 0.5,
+      unit: 'adet', productNameSnapshot: 'İmplant Seti', productSkuSnapshot: 'IMP-1',
+      productModelSnapshot: 'M1', lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null,
+    });
+    const service = new JobCardService(repo);
+
+    const unchanged = await service.patchDeliveryItem(staff, 'job-1', 'legacy-item', {
+      expectedVersion: 1, deliveryNote: 'Eski satır notu',
+    });
+    expect(unchanged.item).toMatchObject({ quantity: 0.5, deliveryNote: 'Eski satır notu' });
+    expect(unchanged.jobCardVersion).toBe(2);
+
+    await expect(service.patchDeliveryItem(staff, 'job-1', 'legacy-item', {
+      expectedVersion: 2, quantity: 0.5,
+    })).rejects.toMatchObject(quantityError);
+    expect(repo.items[0]!.quantity).toBe(0.5);
+
+    const replaced = await service.patchDeliveryItem(staff, 'job-1', 'legacy-item', {
+      expectedVersion: 2, quantity: 2,
+    });
+    expect(replaced.item.quantity).toBe(2);
+  });
+
+  it('rejects an empty productId patch with a validation error instead of a cast failure', async () => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+    const added = await service.addDeliveryItem(staff, 'job-1', create);
+    repo.getProductCalls = [];
+
+    await expect(service.patchDeliveryItem(staff, 'job-1', added.item.id!, {
+      expectedVersion: 2, productId: '',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(repo.getProductCalls).toEqual([]);
+    expect(repo.items[0]).toMatchObject({ productId: 'product-1', quantity: 2 });
+    expect(repo.events).toEqual(['DELIVERY_ITEM_ADDED']);
+  });
+});
+
+describe('delivery product eligibility', () => {
+  it('conceals a DEMO product from a BUSINESS delivery on add and patch', async () => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+
+    await expect(service.addDeliveryItem(staff, 'job-1', { ...create, productId: repo.demoProduct.id }))
+      .rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND', statusCode: 404 });
+    expect(repo.items).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+
+    const added = await service.addDeliveryItem(staff, 'job-1', create);
+    await expect(service.patchDeliveryItem(staff, 'job-1', added.item.id!, {
+      expectedVersion: 2, productId: repo.demoProduct.id,
+    })).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND', statusCode: 404 });
+    expect(repo.items[0]).toMatchObject({ productId: 'product-1', quantity: 2 });
+    expect(repo.events).toEqual(['DELIVERY_ITEM_ADDED']);
+  });
+
+  it('keeps a BUSINESS product and a same-dataset DEMO product usable on a DEMO delivery', async () => {
+    const repo = new DeliveryRepository();
+    repo.deliveryScope = { dataClass: 'DEMO', demoDatasetId: 'dataset-1' };
+    const service = new JobCardService(repo);
+
+    const business = await service.addDeliveryItem(staff, 'job-1', {
+      ...create, clientActionId: 'demo-job-business', productId: repo.replacementProduct.id,
+    });
+    expect(business.item.productId).toBe(repo.replacementProduct.id);
+
+    const demo = await service.addDeliveryItem(staff, 'job-1', {
+      ...create, clientActionId: 'demo-job-demo', expectedVersion: 2, productId: repo.demoProduct.id,
+    });
+    expect(demo.item.productId).toBe(repo.demoProduct.id);
+  });
+
+  it('rejects a DEMO product from another dataset on a DEMO delivery', async () => {
+    const repo = new DeliveryRepository();
+    repo.deliveryScope = { dataClass: 'DEMO', demoDatasetId: 'dataset-1' };
+
+    await expect(new JobCardService(repo).addDeliveryItem(staff, 'job-1', {
+      ...create, productId: repo.foreignDemoProduct.id,
+    })).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND', statusCode: 404 });
+    expect(repo.items).toHaveLength(0);
+  });
+});

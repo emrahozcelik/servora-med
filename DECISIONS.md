@@ -3305,3 +3305,36 @@ management decision list.
   `GET /api/reports/lateness`, `GET /api/reports/staff/:userId/lateness-incidents`,
   `GET /api/reports/staff/me/lateness-incidents`, and `lateness` on the Staff
   report. Existing on-time and "Gecikmiş" measures are unchanged.
+
+## DELIVERY-QTY-001 — Whole-unit delivery quantities
+
+- **Date:** 2026-11-20
+- **Status:** Accepted by product owner in chat (owner decision, 2026-11-20)
+- **Scope:** Product Delivery item quantity input and persistence writes
+- Product Delivery quantity is the number of countable products delivered: a
+  JSON number that is a whole integer in **1–999999999**. Fractional deliveries
+  (including 0.5 and 1.5), nonnumbers, nonfinite numbers, zero, negatives and
+  overflow are rejected, never rounded or truncated. Catalog units (`adet`,
+  `kutu`, ml, etc.) remain metadata and do not convert or qualify this count.
+- Create, initial-item batch, add-item and a supplied patched quantity share one
+  server-side validator; the browser mirrors `min=1`, `max=999999999`, `step=1`
+  and `inputMode=numeric`.
+- Historical delivery rows are preserved: no backfill, rounding or alteration,
+  and no new database constraint or migration now. A patch that does not supply
+  a new quantity keeps working on a legacy fractional row; only a supplied
+  replacement quantity is validated. A future integer CHECK migration is
+  authorized only after the data owner inspects production rows; it must not
+  silently convert or delete historical values.
+- Delivery product eligibility follows the demo data-class boundary: a BUSINESS
+  delivery references only BUSINESS products, while a DEMO delivery may keep a
+  BUSINESS product or a DEMO product from its own dataset. Ineligible products
+  share the existing inactive/cross-organization concealment.
+- Delivery reports keep their existing three-decimal-scale presentation of
+  persisted quantities (DOM-006); this record changes input acceptance only.
+- **Supersedes:** the "Delivery fractions must remain supported" statement in
+  [`integer-quantity-policy.md`](docs/features/visit-to-sale/integer-quantity-policy.md)
+  (SALE-QTY-001 PR3 handoff) for new delivery quantity input.
+- SALE-QTY-001, DOM-001, DOM-004, DOM-006, MOD-001 and the existing product and
+  physical-measurement policy are unchanged. A future measured-goods sector
+  (ml, mg, litre) needs a new accepted decision; it is not inferred from
+  catalog units.

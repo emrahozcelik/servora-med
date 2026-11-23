@@ -56,6 +56,7 @@ class NotesRepository {
         const job = this.jobs.get(jobCardId);
         return job?.organizationId === organizationId ? { ...job } : null;
       },
+      getJobDeliveryScope: async () => ({ dataClass: 'BUSINESS', demoDatasetId: null }),
       getNoteAuthorSnapshot: async (organizationId, authorId) => (
         organizationId === 'org-1' && authorId === 'staff-1'
           ? { id: authorId, name: 'Ayşe Personel', role: 'STAFF', isActive: true }

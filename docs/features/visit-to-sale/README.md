@@ -75,8 +75,9 @@ refinement supersedes the initial unmerged 058 design, whose NUMERIC(12,3)
 typmod rounded some raw SQL fractions before CHECK. Fractional historical rows
 fail without changes; data owners must decide remediation separately. Exact raw
 SQL fractions now fail as well. Private reads preserve v1 `1.000` identity across
-valid storage scales; public reads emit `"1"`. Delivery's fractional quantity
-policy is unchanged. See [integer quantity policy](integer-quantity-policy.md)
+valid storage scales; public reads emit `"1"`. Delivery now uses whole-unit
+quantities under DELIVERY-QTY-001; reports keep the historical three-decimal
+presentation. See [integer quantity policy](integer-quantity-policy.md)
 for rollout, lock behavior and recovery of local databases on the earlier draft.
 
 Creation requires 1–25 distinct lines. Draft removal may leave zero lines;
