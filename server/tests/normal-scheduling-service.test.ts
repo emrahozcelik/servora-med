@@ -65,6 +65,7 @@ class SchedulingMemoryRepository implements JobCardRepository {
         this.lockOrder.push('job');
         return find(org, id);
       },
+      getJobDeliveryScope: async () => ({ dataClass: 'BUSINESS', demoDatasetId: null }),
       getJobDetail: async (org, id) => {
         const job = find(org, id);
         return job ? this.detail(job) : null;

@@ -19,7 +19,9 @@ Product behavior is defined in `PRODUCT_REQUIREMENTS.md`. Architecture boundarie
 - UUID primary keys generated with `gen_random_uuid()`
 - `TIMESTAMPTZ` for instants; `DATE` only for date-only business values
 - Product-delivery quantity uses `NUMERIC(12,3)` and must be greater than zero;
-  Sale quantity follows the separate accepted SALE-QTY-001 amendment linked above.
+  the API writer accepts whole units only (DELIVERY-QTY-001), while historical
+  fractional rows stay stored and readable. Sale quantity follows the separate
+  accepted SALE-QTY-001 amendment linked above.
 - Money fields do not exist in the MVP delivery model
 - Business history uses status-based deactivation or append-only records instead of hard deletion
 - `organization_id` is an ownership boundary even though V1 runs one organization
@@ -368,7 +370,7 @@ Only `PRODUCT_DELIVERY` JobCards can own delivery items.
 | product_id | UUID NOT NULL | FK to products |
 | delivery_purpose | VARCHAR(20) NOT NULL | `delivery_purpose` check |
 | delivered_at | TIMESTAMPTZ NULL | actual delivery time; nullable before submission |
-| quantity | NUMERIC(12,3) NOT NULL | check greater than zero |
+| quantity | NUMERIC(12,3) NOT NULL | check greater than zero; API input is whole-unit only (DELIVERY-QTY-001) |
 | unit | VARCHAR(30) NULL | optional product snapshot; no invented default |
 | product_name_snapshot | VARCHAR(255) NOT NULL | |
 | product_sku_snapshot | VARCHAR(100) NULL | |
@@ -485,7 +487,7 @@ The API never accepts organization ownership as a trusted client choice. Service
 | Staff cannot approve | service authorization and test |
 | Approval only from `WAITING_APPROVAL` | transition service and test |
 | Product delivery requires customer, assignee, valid items | transaction query and test |
-| Delivery item requires purpose, delivered time, product, positive quantity | DB checks plus service |
+| Delivery item requires purpose, delivered time, product, positive quantity | DB checks plus service (API input: whole units only) |
 | Review-state commercial fields are immutable | service update policy |
 | Completed and cancelled are immutable | service update policy |
 | Revision requires reason | service plus persisted check |

@@ -145,6 +145,7 @@ class LifecycleRepository implements JobCardRepository {
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
       getJobForUpdate: async (org, id) =>
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
+      getJobDeliveryScope: async () => ({ dataClass: 'BUSINESS', demoDatasetId: null }),
       getJobDetail: async (org, id) => org === this.job.organizationId && id === this.job.id
         ? this.persistedDetail
         : null,
@@ -540,6 +541,7 @@ function twoJobRepository() {
           const job = jobs.get(id);
           return job?.organizationId === organizationId ? { ...job } : null;
         },
+        getJobDeliveryScope: async () => ({ dataClass: 'BUSINESS' as const, demoDatasetId: null }),
         getJobDetail: async (organizationId: string, id: string) => detailFor(organizationId, id),
         transitionWithVersion: async (input: TransitionInput) => {
           const job = jobs.get(input.jobCardId);

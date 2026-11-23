@@ -148,7 +148,9 @@ describe('Delivery create CRM defaults', () => {
     await selectProduct(container);
     await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
-    expect(productsApi.listProducts).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 6, offset: 0 });
+    expect(productsApi.listProducts).toHaveBeenCalledWith({
+      status: 'active', q: 'implant', limit: 6, offset: 0, dataClass: 'BUSINESS',
+    });
     expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
       customerId: 'customer-a', assignedTo: 'staff-2',
       scheduledAt: localDateTimeToIso('2026-07-17T14:30'),
@@ -249,12 +251,12 @@ describe('Delivery create CRM defaults', () => {
     await selectProduct(container, 'product-1', 'implant');
     await selectProduct(container, 'product-2', 'vida');
     await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
-    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-2') as HTMLInputElement, '0.5'));
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-2') as HTMLInputElement, '5'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
 
     expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
-      items: [{ productId: 'product-1', quantity: 2 }, { productId: 'product-2', quantity: 0.5 }],
+      items: [{ productId: 'product-1', quantity: 2 }, { productId: 'product-2', quantity: 5 }],
     }));
   });
 
@@ -270,6 +272,10 @@ describe('Delivery create CRM defaults', () => {
       const quantity = row.querySelector(`#delivery-quantity-${selected.id}`) as HTMLInputElement;
       expect(quantity).not.toBeNull();
       expect(quantity.value).toBe('1');
+      expect(quantity.min).toBe('1');
+      expect(quantity.max).toBe('999999999');
+      expect(quantity.step).toBe('1');
+      expect(quantity.inputMode).toBe('numeric');
       expect(quantity.compareDocumentPosition(row.querySelector('strong')!))
         .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
       expect(row.querySelector(`label[for="${quantity.id}"]`)?.textContent).toContain(selected.name);
@@ -277,28 +283,40 @@ describe('Delivery create CRM defaults', () => {
     expect(container.querySelector('.delivery-selected-quantities')).toBeNull();
   });
 
-  it('keeps fractional quantities attached to product IDs after removal and re-addition', async () => {
+  it('keeps whole-unit quantities attached to product IDs after removal and re-addition', async () => {
     await act(async () => root.render(view(staffUser)));
     await settle();
     await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await selectProduct(container, 'product-1', 'implant');
     await selectProduct(container, 'product-2', 'vida');
-    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '0.001'));
-    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-2') as HTMLInputElement, '0.5'));
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '3'));
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-2') as HTMLInputElement, '5'));
     await act(async () => (container.querySelector('[data-selected-product-id="product-1"] button') as HTMLButtonElement).click());
-    expect((container.querySelector('#delivery-quantity-product-2') as HTMLInputElement).value).toBe('0.5');
+    expect((container.querySelector('#delivery-quantity-product-2') as HTMLInputElement).value).toBe('5');
     await selectProduct(container, 'product-1', 'implant');
     expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).value).toBe('1');
-    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '0.001'));
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '3'));
     expect(api.createProductDelivery).not.toHaveBeenCalled();
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(api.createProductDelivery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      items: [{ productId: 'product-2', quantity: 0.5 }, { productId: 'product-1', quantity: 0.001 }],
+      items: [{ productId: 'product-2', quantity: 5 }, { productId: 'product-1', quantity: 3 }],
     }));
   });
 
-  it.each(['0', '-1', '', '1e309'])('refuses invalid quantity %j without sending a request', async (value) => {
+  it('requests only BUSINESS products for the delivery picker', async () => {
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await selectProduct(container);
+
+    expect(productsApi.listProducts).toHaveBeenCalled();
+    for (const [filters] of productsApi.listProducts.mock.calls) {
+      expect(filters).toMatchObject({ dataClass: 'BUSINESS', status: 'active' });
+    }
+  });
+
+  it.each(['0', '-1', '', '1e309', '0.5', '1.5'])('refuses invalid quantity %j without sending a request', async (value) => {
     await act(async () => root.render(view(staffUser)));
     await settle();
     await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
