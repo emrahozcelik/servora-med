@@ -485,7 +485,9 @@ function deliveryRecord(organizationId: string, jobCardId: string, input: Delive
 
 const MAX_INITIAL_DELIVERY_ITEMS = 25;
 
-function assertInitialProductDeliveryItems(input: ProductDeliveryCreateInput) {
+type InitialDeliveryItem = { productId: string; quantity: number };
+
+function assertInitialProductDeliveryItems(input: { items?: ReadonlyArray<InitialDeliveryItem> }) {
   if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > MAX_INITIAL_DELIVERY_ITEMS) {
     throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünleri geçersiz.');
   }
@@ -499,6 +501,30 @@ function assertInitialProductDeliveryItems(input: ProductDeliveryCreateInput) {
     parseDeliveryQuantity(item.quantity, 'items.quantity');
     seen.add(item.productId);
   }
+}
+
+/**
+ * Normalized delivery intent carried by a PRODUCT_DELIVERY follow-up. The
+ * child JobCard and its initial lines are created in one transaction, so the
+ * batch contract is validated exactly like a normal delivery create.
+ */
+function followUpDeliveryIntent(input: FollowUpCreateInput): {
+  deliveryPurpose: DeliveryPurpose;
+  deliveryNote: string | null;
+  items: InitialDeliveryItem[];
+} | null {
+  if (input.type !== 'PRODUCT_DELIVERY') return null;
+  if (input.deliveryPurpose === null || input.deliveryPurpose === undefined
+    || !DELIVERY_PURPOSES.includes(input.deliveryPurpose)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Ürün teslimi oluşturma bilgileri geçersiz.');
+  }
+  const items = input.items ?? [];
+  assertInitialProductDeliveryItems({ items });
+  return {
+    deliveryPurpose: input.deliveryPurpose,
+    deliveryNote: input.deliveryNote ?? null,
+    items,
+  };
 }
 
 function assertKnownFields(input: object, allowed: readonly string[]) {
@@ -2489,6 +2515,56 @@ export class JobCardService {
     });
   }
 
+  /**
+   * Single insertion path for the initial delivery batch. Both the normal
+   * Product Delivery create and a PRODUCT_DELIVERY follow-up child use it so
+   * snapshots, version bumps and DELIVERY_ITEM_ADDED activities stay identical.
+   * Runs inside the caller's transaction, after the JobCard's JOB_CREATED
+   * activity, and returns the final JobCard version.
+   */
+  private async insertInitialDeliveryItems(
+    transaction: JobCardTransaction,
+    actor: JobCardActor,
+    input: {
+      jobCardId: string;
+      jobVersion: number;
+      clientActionId: string;
+      deliveryPurpose: DeliveryPurpose;
+      deliveryNote: string | null;
+      items: ReadonlyArray<InitialDeliveryItem & { product: ProductReference }>;
+    },
+  ): Promise<number> {
+    let version = input.jobVersion;
+    for (const entry of input.items) {
+      const item = await transaction.createDeliveryItem(deliveryRecord(
+        actor.organizationId,
+        input.jobCardId,
+        {
+          expectedVersion: version,
+          productId: entry.productId,
+          deliveryPurpose: input.deliveryPurpose,
+          deliveredAt: null,
+          quantity: entry.quantity,
+          deliveryNote: input.deliveryNote,
+        },
+        entry.product,
+      ));
+      const updated = await transaction.bumpVersion(actor.organizationId, input.jobCardId, version);
+      if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      version = updated.version;
+      await transaction.appendActivity({
+        organizationId: actor.organizationId, jobCardId: input.jobCardId, actorId: actor.id,
+        event: 'DELIVERY_ITEM_ADDED', clientActionId: input.clientActionId,
+        newValue: {
+          itemId: item.id, productId: item.productId,
+          deliveryPurpose: item.deliveryPurpose, quantity: item.quantity,
+          deliveredAt: null,
+        },
+      });
+    }
+    return version;
+  }
+
   async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {    const title = input.title.trim();
     if (input.type !== 'PRODUCT_DELIVERY'
       || !input.clientActionId.trim() || !title || !input.customerId
@@ -2592,34 +2668,14 @@ export class JobCardService {
             customerId: job.customerId,
           });
 
-          let version = job.version;
-          for (const entry of products) {
-            const item = await transaction.createDeliveryItem(deliveryRecord(
-              actor.organizationId,
-              job.id,
-              {
-                expectedVersion: version,
-                productId: entry.productId,
-                deliveryPurpose: input.deliveryPurpose,
-                deliveredAt: null,
-                quantity: entry.quantity,
-                deliveryNote: input.deliveryNote,
-              },
-              entry.product,
-            ));
-            const updated = await transaction.bumpVersion(actor.organizationId, job.id, version);
-            if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-            version = updated.version;
-            await transaction.appendActivity({
-              organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
-              event: 'DELIVERY_ITEM_ADDED', clientActionId: input.clientActionId,
-              newValue: {
-                itemId: item.id, productId: item.productId,
-                deliveryPurpose: item.deliveryPurpose, quantity: item.quantity,
-                deliveredAt: null,
-              },
-            });
-          }
+          const version = await this.insertInitialDeliveryItems(transaction, actor, {
+            jobCardId: job.id,
+            jobVersion: job.version,
+            clientActionId: input.clientActionId,
+            deliveryPurpose: input.deliveryPurpose,
+            deliveryNote: input.deliveryNote,
+            items: products,
+          });
           // JOB-010 release 2b: the delivery create carries the same customer
           // commitment as the generic create; its offer commits here too.
           const assignmentOffer = await this.openAssignmentOffer(transaction, {
@@ -2660,6 +2716,9 @@ export class JobCardService {
         'Ürün teslimi oluştururken ilgili kişi seçilemez.',
       );
     }
+    // A delivery follow-up must be born with the initial lines it needs; no
+    // accepted browser surface adds lines to an existing card yet.
+    const delivery = followUpDeliveryIntent(input);
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction<FollowUpCreateReceipt>(
       {
@@ -2739,6 +2798,29 @@ export class JobCardService {
           source.dataClass === 'DEMO' && source.demoDatasetId ? 'DEMO' : 'BUSINESS';
         const childDemoDatasetId: string | null =
           childDataClass === 'DEMO' ? source.demoDatasetId : null;
+        // Same deterministic ID-ordered FOR SHARE resolution as the normal
+        // delivery create: a BUSINESS child must never reference a DEMO product
+        // (and a DEMO child only its own dataset). It runs before the child row
+        // exists so an ineligible line cannot orphan a card; the persisted item
+        // order stays the request order.
+        const deliveryScope: JobDeliveryScope = {
+          dataClass: childDataClass,
+          demoDatasetId: childDemoDatasetId,
+        };
+        const deliveryProducts: Array<InitialDeliveryItem & { product: ProductReference }> = [];
+        if (delivery !== null) {
+          const references = new Map<string, ProductReference>();
+          for (const productId of [...new Set(delivery.items.map((item) => item.productId))].sort()) {
+            const product = await transaction.getProduct(actor.organizationId, productId);
+            if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+            assertDeliveryProductEligible(deliveryScope, product);
+            references.set(productId, product);
+          }
+          for (const item of delivery.items) {
+            deliveryProducts.push({ ...item, product: references.get(item.productId)! });
+          }
+        }
+
         const { job, realtimeEvents } = await this.createFollowUpChild(transaction, actor, {
           sourceJobCardId,
           customerId: source.customerId,
@@ -2765,6 +2847,16 @@ export class JobCardService {
             acknowledgement: input.pastStartAcknowledgement ?? null,
           },
         });
+        if (delivery !== null) {
+          await this.insertInitialDeliveryItems(transaction, actor, {
+            jobCardId: job.id,
+            jobVersion: job.version,
+            clientActionId: input.clientActionId,
+            deliveryPurpose: delivery.deliveryPurpose,
+            deliveryNote: delivery.deliveryNote,
+            items: deliveryProducts,
+          });
+        }
         return { response: { jobCardId: job.id }, realtimeEvents };
       },
     );

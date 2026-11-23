@@ -5,6 +5,7 @@ import {
   JOB_CARD_PRIORITIES,
   type CustomerSchedulePreviewInput,
   type AvailableSlotsInput,
+  type DeliveryPurpose,
   type FollowUpCreateInput,
   type JobAssignmentOfferAckCode,
   type JobCardCreateInput,
@@ -233,6 +234,17 @@ function parseInitialDeliveryItems(value: unknown) {
   });
 }
 
+function parseDeliveryPurpose(value: unknown): DeliveryPurpose {
+  if (!DELIVERY_PURPOSES.includes(value as DeliveryPurpose)) throw validation('deliveryPurpose');
+  return value as DeliveryPurpose;
+}
+
+function parseDeliveryNote(value: unknown) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.trim().length > 4_000) throw validation('deliveryNote');
+  return value.trim() || null;
+}
+
 export function parseProductDeliveryCreateInput(value: unknown): ProductDeliveryCreateInput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
   const record = value as Record<string, unknown>;
@@ -241,19 +253,15 @@ export function parseProductDeliveryCreateInput(value: unknown): ProductDelivery
     throw validation('body');
   }
   const { deliveryPurpose: rawPurpose, deliveryNote: rawNote, items: rawItems, ...jobCard } = record;
-  if (!DELIVERY_PURPOSES.includes(rawPurpose as typeof DELIVERY_PURPOSES[number])) {
-    throw validation('deliveryPurpose');
-  }
-  let deliveryNote: string | null = null;
-  if (rawNote !== undefined && rawNote !== null) {
-    if (typeof rawNote !== 'string' || rawNote.trim().length > 4_000) throw validation('deliveryNote');
-    deliveryNote = rawNote.trim() || null;
-  }
+  // Delivery-only fields keep their original validation order ahead of the
+  // shared JobCard create contract.
+  const deliveryPurpose = parseDeliveryPurpose(rawPurpose);
+  const deliveryNote = parseDeliveryNote(rawNote);
   const normalized = parseJobCardCreateInput(jobCard);
   if (normalized.type !== 'PRODUCT_DELIVERY') throw validation('type');
   return {
     ...normalized,
-    deliveryPurpose: rawPurpose as typeof DELIVERY_PURPOSES[number],
+    deliveryPurpose,
     deliveryNote,
     items: parseInitialDeliveryItems(rawItems),
   };
@@ -265,8 +273,11 @@ const FOLLOW_UP_COMMON_FIELDS = [
   'pastStartAcknowledgement',
 ] as const;
 
+/** Initial delivery lines are created atomically with the child JobCard. */
+const FOLLOW_UP_DELIVERY_FIELDS = ['deliveryPurpose', 'deliveryNote', 'items'] as const;
+
 const FOLLOW_UP_FIELDS_BY_TYPE = {
-  PRODUCT_DELIVERY: FOLLOW_UP_COMMON_FIELDS,
+  PRODUCT_DELIVERY: [...FOLLOW_UP_COMMON_FIELDS, ...FOLLOW_UP_DELIVERY_FIELDS] as const,
   GENERAL_TASK: FOLLOW_UP_COMMON_FIELDS,
   SALES_MEETING: [...FOLLOW_UP_COMMON_FIELDS, 'engagementKind'] as const,
 } as const;
@@ -325,12 +336,19 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
     ...(pastStartAcknowledgement ? { pastStartAcknowledgement } : {}),
   };
   if (input.type === 'PRODUCT_DELIVERY') {
+    // PRODUCT_REQUIREMENTS.md: a Product Delivery cannot reach approval without
+    // delivery lines, and the browser has no post-create line editor. The
+    // follow-up create path therefore carries the same initial batch contract as
+    // the normal delivery create (shared purpose/note/items parsers).
     return {
       ...common,
       type: input.type,
       contactId: null,
       scheduledAt: requiredScheduledAt(input.scheduledAt),
       engagementKind: null,
+      deliveryPurpose: parseDeliveryPurpose(input.deliveryPurpose),
+      deliveryNote: parseDeliveryNote(input.deliveryNote),
+      items: parseInitialDeliveryItems(input.items),
     };
   }
   if (input.type === 'SALES_MEETING') {

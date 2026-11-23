@@ -1025,6 +1025,15 @@ export type FollowUpCreateInput = {
   overrideReason?: string | null;
   /** JOB-010 release 2b: see NormalizedJobCardCreateInput. */
   pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
+  /**
+   * PRODUCT_DELIVERY only; the parser requires the purpose and at least one
+   * item, with the note optional. A follow-up delivery JobCard is created
+   * together with its initial delivery lines because no accepted browser
+   * surface adds lines to an existing card yet.
+   */
+  deliveryPurpose?: DeliveryPurpose | null;
+  deliveryNote?: string | null;
+  items?: Array<{ productId: string; quantity: number }>;
 };
 
 export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };

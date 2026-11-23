@@ -304,6 +304,14 @@ export function followUpCreateRequestHash(
     engagementKind: input.engagementKind ?? null,
     overrideReason: input.overrideReason ?? null,
     ...pastStartAcknowledgementIntent(input.pastStartAcknowledgement),
+    // A follow-up carries delivery intent only when its initial batch was
+    // supplied, so every other follow-up request hash (including pre-batch
+    // delivery follow-ups in flight) stays byte-identical.
+    ...(input.items !== undefined ? {
+      deliveryPurpose: input.deliveryPurpose ?? null,
+      deliveryNote: input.deliveryNote ?? null,
+      items: input.items ?? null,
+    } : {}),
   });
 }
 
