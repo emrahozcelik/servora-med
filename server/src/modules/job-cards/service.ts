@@ -7015,6 +7015,18 @@ export class JobCardService {
       && job.followUpProposedType !== null
       && job.followUpProposedAssignee !== null
       && job.followUpProposalInstructions !== null;
+    // Owner decision 2026-11-23: every Product Delivery must carry its
+    // products, and approval-time follow-ups have no delivery-item input.
+    // A Product Delivery follow-up is created only from the dedicated
+    // follow-up screen (and future SALE approval), never from this path.
+    const proposedType = input?.type ?? job.followUpProposedType ?? null;
+    if (proposedType === 'PRODUCT_DELIVERY') {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Ürün teslimi takibi onay sırasında açılamaz; ürünleriyle birlikte Takip işi oluştur ekranından açın.',
+      );
+    }
     if (!persisted && !input) {
       if (followUpRequired) {
         throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');

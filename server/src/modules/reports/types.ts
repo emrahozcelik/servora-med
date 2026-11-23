@@ -215,7 +215,11 @@ export type StaffExecutionAggregate = Readonly<{
 }>;
 
 export type StaffExecutionMetrics = Readonly<{
-  /** Legacy current-assignee Staff execution cohort, not actor attribution. */
+  /**
+   * Completed work attributed to the Staff member assigned at completion
+   * (DOM-006 / REPORT-002); `staff_completed_at` remains the time basis, not
+   * the submitter identity.
+   */
   staffCompletedJobs: number;
   staffCompletionDays: number;
   jobsPerStaffCompletionDay: number;
@@ -223,8 +227,9 @@ export type StaffExecutionMetrics = Readonly<{
 }>;
 
 /**
- * A current recorded submission attribution, not an immutable event history.
- * JobCard lifecycle fields may be overwritten on a later submission.
+ * Recorded submission-actor evidence (`staff_completed_by`), not work
+ * ownership or an immutable event history. JobCard lifecycle fields may be
+ * overwritten on a later submission.
  */
 export type StaffSubmissionAttributionMetrics = Readonly<{
   recordedSubmissionCount: number;
@@ -267,7 +272,7 @@ export type StaffPerformanceItem = Readonly<{
   staffExecution: StaffExecutionMetrics;
   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
-  /** Selected-period manager-approved completions by current assignee. */
+  /** Selected-period manager-approved completions by the assignee at completion. */
   completionWorkTypes: WorkTypeDistributionItem[];
   /** Current active snapshot by current assignee; independent of selected range. */
   currentWorkloadByType: WorkTypeDistributionItem[];
@@ -401,7 +406,7 @@ export type StaffReportResponse = {
   staffExecution: StaffExecutionMetrics;
   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
-  /** Selected-period manager-approved completions by current assignee. */
+  /** Selected-period manager-approved completions by the assignee at completion. */
   completionWorkTypes: WorkTypeDistributionItem[];
   /** Current active snapshot by current assignee; independent of selected range. */
   currentWorkloadByType: WorkTypeDistributionItem[];

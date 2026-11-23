@@ -101,11 +101,16 @@ describe('StaffPerformanceTable adapter', () => {
     expect(container.textContent).toContain('Onaya gönderme kaydı');
     const contextNote = container.querySelector('.staff-performance-context-note')!;
     expect(contextNote.textContent).toContain(
-      'Onaya gönderme sayısı seçilen dönemdeki gönderim kayıtlarını gösterir.',
+      'Onaya gönderme kaydı bu atıftan ayrıdır ve işi kimin gönderdiğini gösterir.',
     );
     expect(contextNote.textContent).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
     expect(contextNote.textContent).not.toContain('hâlen bu personele atanmış');
-    expect(contextNote.textContent).toContain('bu personelin gönderim kaydına bağlı');
+    expect(contextNote.textContent).toContain(
+      'Tamamlananlar, seçilen dönemde yönetici tarafından onaylanmış işlerden tamamlandığı anda bu personele',
+    );
+    expect(contextNote.textContent).toContain(
+      'İşi bir yönetici onaya gönderse veya tamamlasa da atıf atanmış personelde kalır.',
+    );
     expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]'))
       .not.toBeNull();
 

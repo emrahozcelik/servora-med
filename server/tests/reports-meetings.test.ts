@@ -44,7 +44,7 @@ describe('PostgresReportsRepository Staff meeting outcomes', () => {
     expect(sql).toContain("('NOT_INTERESTED', 4)");
     expect(sql).toContain("jc.type = 'SALES_MEETING'");
     expect(sql).toContain("jc.status = 'COMPLETED'");
-    expect(sql).toContain('jc.staff_completed_by = $2');
+    expect(sql).toContain('jc.assigned_to = $2');
     // JOB-010 release 2a: a not-held visit is attributed to its completion
     // instant instead of being dropped from the outcome distribution.
     expect(sql).toContain('COALESCE(md.meeting_at, jc.staff_completed_at) >=');
@@ -57,7 +57,7 @@ describe('PostgresReportsRepository Staff meeting outcomes', () => {
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!databaseUrl)('Staff meeting outcome PostgreSQL boundaries', () => {
-  it('uses actual meeting time, completed ownership, organization and the Berlin DST range', async () => {
+  it('uses actual meeting time, assignee-at-completion ownership, organization and the Berlin DST range', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `reports_meetings_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;

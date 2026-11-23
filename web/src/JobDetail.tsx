@@ -2959,6 +2959,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             assigneeName: followUp.assigneeName,
             assignees: followUp.assignees,
             allowTypeEdit: dialog.kind === 'approve',
+            mandatoryVisitFollowUp: dialog.kind === 'approve'
+              && state.kind === 'ready'
+              && state.detail.kind === 'SALES_MEETING'
+              && requiresMandatoryFollowUpProposal(state.detail.job, state.detail.meetingDetails),
             inlineError: followUp.inlineError,
             autoSupported: dialog.kind === 'submit'
               && followUp.draft !== null

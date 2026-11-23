@@ -117,7 +117,8 @@ describe('PostgresReportsRepository Staff report reads', () => {
 
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain('jc.assigned_to = requested.staff_user_id');
-    expect(sql).toContain('completed_job.staff_completed_by = requested.staff_user_id');
+    expect(sql).toContain('completed_job.assigned_to = requested.staff_user_id');
+    expect(sql).not.toContain('staff_completed_by = requested.staff_user_id');
     expect(sql).not.toMatch(/created_by|manager_approved_by/i);
     expect(sql).not.toMatch(/job_card_activities|activity/i);
     expect(sql).toMatch(/AND jc\.assigned_to = requested\.staff_user_id\s+GROUP BY/i);
@@ -191,7 +192,7 @@ describe('PostgresReportsRepository Staff report reads', () => {
       requestTime,
     ]);
     const sql = query.mock.calls[0]?.[0] ?? '';
-    expect(sql).toContain('jc.staff_completed_by = $2');
+    expect(sql).toContain('jc.assigned_to = $2');
     expect(sql).toContain("jc.type = 'PRODUCT_DELIVERY'");
     expect(sql).toContain("jc.status = 'COMPLETED'");
     expect(sql).toContain('jc.manager_approved_at IS NOT NULL');

@@ -3,8 +3,11 @@
 - **Decision:** REPORT-001 in [DECISIONS.md](../../../DECISIONS.md).
 - **Accepted:** 2026-11-04, following the product owner's reporting review and
   simplified visit/sales-meeting scenarios.
-- **Status:** Accepted product contract. Verified-performer attribution and
-  optional lateness context are not implemented. Organization-level trends and
+- **Status:** Accepted product contract. **Amended by REPORT-002 (2026-11-23):**
+  no separate performer declaration/capture is implemented or required; every
+  Staff report metric, including meeting outcomes, attributes completed work to
+  the assignee at completion. Optional lateness context is still not
+  implemented. Organization-level trends and
   the manager Reports UI are a separately authorized implementation slice; see
   [overview UI/read contract](reports-overview-ui.md) for its exact scope and evidence.
 - **Inspected source:** `c8efe8a7999f879683a62454ff74b2b649c4dee3`.
@@ -61,6 +64,14 @@ Customer ownership and source-visit ownership do not create personal sale credit
 The new personal-result rule does not change current workload ownership or the
 existing delivery report's operational grouping/filter contract.
 
+> **Amended 2026-11-23 by REPORT-002.** For every Staff report metric,
+> including the meeting outcome breakdown, the completed result belongs to the
+> Staff member assigned at completion; a manager or admin submission never
+> moves it. `staff_completed_by` is submission-actor evidence only. The
+> explicit verified-performer declaration described below is not implemented
+> and is no longer required for these metrics. The original text is retained as
+> history.
+
 The accepted attribution principle is:
 
 > Personel başarı atfı, işin atanmış sorumlusuna veya onaya gönderme düğmesine
@@ -70,6 +81,13 @@ The accepted attribution principle is:
 > kanıtlanamıyorsa iş akışı devam eder ancak kişisel başarı atfı yapılmaz.
 
 ## 3. Performer capture and existing approval
+
+> **Amended 2026-11-23 by REPORT-002.** This section records REPORT-001's
+> planned explicit performer capture. No performer declaration, capture,
+> unknown-performer state or attribution-correction store is implemented, and
+> REPORT-002 does not require them for Staff report metrics: the verified
+> performer of a completed card is its assignee at completion. The text below
+> is retained as history, not as pending implementation scope.
 
 `performedByStaffUserId` denotes the new, explicit performer declaration; it is
 not a rename or reinterpretation of `staff_completed_by`. An unknown performer
@@ -205,6 +223,14 @@ the last submitter or old free-text notes. Reasoned management corrections may
 establish attribution against an identifiable historical approved record without
 fabricating an old submission or erasing evidence.
 
+**REPORT-002 (2026-11-23) amendment.** "Missing legacy performer declarations"
+is no longer an open gap for Staff report metrics: those metrics use the
+persisted assignee at completion, and existing rows are not backfilled or
+rewritten. Reports recompute from assignment. `staff_completed_by` continues to
+feed only the separately labelled submission record. The future performer
+declaration write contract below is therefore not part of implemented or
+planned Staff metric scope; it remains REPORT-001 history.
+
 The future write contract must carry the performer declaration, immutable
 submission reference, approval binding and append-only correction provenance.
 Reuse existing submission evidence where it can provide the required binding;
@@ -225,10 +251,20 @@ meeting-outcome breakdowns. Existing operational workload, delivery report,
 quantity, timezone and financial exclusions remain intact. The corresponding
 older universal-attribution wording in the architecture/API baseline and Slice
 08 spec is subject to that amendment, not authority to relabel the new metrics.
-Historical acceptance checkboxes remain historical; current runtime drift is not
-resolved by this documentation change.
+Historical acceptance checkboxes remain historical.
+
+**REPORT-002 (2026-11-23) amends that supersession.** For every Staff report
+metric, including meeting outcomes, DOM-006's assignee-at-completion rule is
+confirmed and no separate performer capture is implemented. The drift introduced
+by `6285d72` (Staff completion metrics keyed to `staff_completed_by`) is resolved
+by recomputation from `job_cards.assigned_to`; no historical row is rewritten.
 
 ## 8. Acceptance criteria for future implementation
+
+> **Amended 2026-11-23 by REPORT-002.** The ATR-01..ATR-06 performer-capture
+> cases are retained as REPORT-001 history and are not required for Staff
+> report metrics; those metrics use the assignee at completion. The SALE-REPORT,
+> DATA and LATE cases remain future scope as written.
 
 | ID | Required scenario |
 | --- | --- |
