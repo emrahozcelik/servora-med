@@ -1597,7 +1597,12 @@ export interface JobCardTransaction extends SubmissionReader {
   /** Data-class scope of the job's delivery graph; callers already hold the JobCard row lock. */
   getJobDeliveryScope(organizationId: string, jobCardId: string): Promise<JobDeliveryScope | null>;
   getDeliveryItemForUpdate(organizationId: string, jobCardId: string, itemId: string): Promise<DeliveryItemRecord | null>;
-  createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
+  /**
+   * `sortOrder` is the line's position in the request. When omitted (a later
+   * single addition, made under the JobCard row lock) the line is appended
+   * after the card's current highest `sort_order`.
+   */
+  createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>, sortOrder?: number): Promise<DeliveryItemRecord>;
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   deleteDeliveryItem(itemId: string): Promise<void>;
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
@@ -5126,15 +5131,20 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapDelivery(result.rows[0]) : null;
   }
 
-  async createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>) {
+  async createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>, sortOrder?: number) {
     const result = await this.client.query<DeliveryRow>(
       `INSERT INTO job_card_delivery_items
        (organization_id, job_card_id, product_id, delivery_purpose, delivered_at, quantity, unit,
-        product_name_snapshot, product_sku_snapshot, product_model_snapshot, lot_no, serial_no, expiry_date, delivery_note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING ${DELIVERY_COLUMNS}`,
+        product_name_snapshot, product_sku_snapshot, product_model_snapshot, lot_no, serial_no, expiry_date, delivery_note,
+        sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+        COALESCE($15::int, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM job_card_delivery_items
+                            WHERE organization_id = $1 AND job_card_id = $2)))
+       RETURNING ${DELIVERY_COLUMNS}`,
       [input.organizationId, input.jobCardId, input.productId, input.deliveryPurpose, input.deliveredAt,
         input.quantity, input.unit, input.productNameSnapshot, input.productSkuSnapshot,
-        input.productModelSnapshot, input.lotNo, input.serialNo, input.expiryDate, input.deliveryNote]);
+        input.productModelSnapshot, input.lotNo, input.serialNo, input.expiryDate, input.deliveryNote,
+        sortOrder ?? null]);
     return mapDelivery(result.rows[0]!);
   }
 

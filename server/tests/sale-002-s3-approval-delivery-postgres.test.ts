@@ -144,12 +144,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S3 sale approval deliv
         delivery_purpose: string; delivery_note: string | null;
       }>(
         `SELECT product_id, quantity, delivered_at, delivery_purpose, delivery_note
-           FROM job_card_delivery_items WHERE job_card_id = $1 ORDER BY created_at, id`, [deliveryId],
+           FROM job_card_delivery_items WHERE job_card_id = $1 ORDER BY sort_order, created_at, id`, [deliveryId],
       )).rows;
       expect(items).toHaveLength(2);
-      // Rows of one transaction share created_at; compare as a set of lines.
-      expect(items.map((item) => `${item.product_id}:${Number(item.quantity)}`).sort())
-        .toEqual([`${f.products[0]}:2`, `${f.products[1]}:15`].sort());
+      // Rows of one transaction share created_at; sort_order keeps request order.
+      expect(items.map((item) => `${item.product_id}:${Number(item.quantity)}`))
+        .toEqual([`${f.products[0]}:2`, `${f.products[1]}:15`]);
       expect(items.every((item) => item.delivered_at === null
         && item.delivery_purpose === 'SAMPLE' && item.delivery_note === null)).toBe(true);
 
@@ -203,6 +203,39 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S3 sale approval deliv
         .every((event) => !event.resourceKeys.includes(`job-detail:${saleId}`))).toBe(true);
       expect(published.some((event) => event.entityId === deliveryId && event.type === 'job.updated')).toBe(true);
     });
+  });
+
+  it('reads a multi-line delivery back in request order, repeatedly', async () => {
+    // Lines of one transaction share created_at and the ids are random UUIDs,
+    // so before sort_order was persisted this order was a coin flip per read.
+    for (let round = 0; round < 3; round += 1) {
+      await withSaleFixture(async (f) => {
+        const { service } = windowService(f);
+        const third = (await f.pool.query<{ id: string }>(
+          `INSERT INTO products (organization_id,name,sku,unit)
+           VALUES ($1,'Sterilizasyon poşeti','SKU-C','adet') RETURNING id`, [f.organizationId],
+        )).rows[0]!.id;
+        const requested = [
+          { productId: third, quantity: 7 },
+          { productId: f.products[1]!, quantity: 15 },
+          { productId: f.products[0]!, quantity: 2 },
+        ];
+        const { saleId, version } = await waitingStandalone(f, service, `order-${round}`);
+
+        const approved = await service.approve(f.manager, saleId, {
+          clientActionId: `order-${round}-approve`, expectedVersion: version, note: 'Satış onaylandı.',
+          delivery: deliveryBody(f, { items: requested }),
+        }) as { deliveryJobCardId: string };
+
+        const rows = (await f.pool.query<{ product_id: string; quantity: string; sort_order: number }>(
+          `SELECT product_id, quantity, sort_order FROM job_card_delivery_items
+            WHERE job_card_id = $1 ORDER BY sort_order, created_at, id`, [approved.deliveryJobCardId],
+        )).rows;
+        expect(rows.map((row) => ({ productId: row.product_id, quantity: Number(row.quantity) })))
+          .toEqual(requested);
+        expect(rows.map((row) => row.sort_order)).toEqual([0, 1, 2]);
+      });
+    }
   });
 
   it('defaults the delivery assignee to the sale assignee and applies the default purpose', async () => {

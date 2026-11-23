@@ -238,6 +238,8 @@ describe('SALE-002 S3 approval delivery section', () => {
   }
 
   const dialog = () => host.querySelector<HTMLElement>('[role="dialog"]')!;
+  // The confirm label depends on the delivery switch; the submit button does not.
+  const submitButton = () => dialog().querySelector<HTMLButtonElement>('button[type="submit"]');
   const section = () => dialog().querySelector<HTMLElement>('[data-sale-delivery]')!;
   const checkbox = () => section().querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   const quantity = (productId: string) => section()
@@ -257,7 +259,7 @@ describe('SALE-002 S3 approval delivery section', () => {
 
   async function confirm() {
     await act(async () => {
-      buttonByName(dialog(), 'İşi onayla')!.click();
+      submitButton()!.click();
       await flush(); await flush();
     });
   }
@@ -365,6 +367,59 @@ describe('SALE-002 S3 approval delivery section', () => {
     expect(delivery).not.toHaveProperty('pastStartAcknowledgement');
     expect(host.textContent).toContain('Bağlı satış kaydı da tamamlandı.');
     expect(host.textContent).toContain('Teslim işi oluşturuldu.');
+  });
+
+  it('renders the approve consequences as a list with a description covering both', async () => {
+    await openVisitApproval(pairScenario());
+
+    const description = dialog().getAttribute('aria-describedby')!.split(' ');
+    expect(description).toHaveLength(2);
+    const paragraph = document.getElementById(description[0])!;
+    const list = document.getElementById(description[1])!;
+    expect(paragraph.tagName).toBe('P');
+    expect(paragraph.textContent).toBe(
+      'İş “Tamamlandı” durumuna geçecek ve aktif iş listesinden kaldırılacaktır.',
+    );
+    expect(list.tagName).toBe('UL');
+    expect(list.classList.contains('workflow-dialog-details')).toBe(true);
+    expect(Array.from(list.querySelectorAll('li')).map((item) => item.textContent)).toEqual([
+      'Yönetici kontrolünü tamamlar',
+      'İşi “Tamamlandı” durumuna geçirir',
+      'Aktif iş listesinden kaldırır',
+      'İş geçmişine onay kaydı ekler',
+      'Satıştan planlı bir ürün teslim işi oluşturur',
+    ]);
+  });
+
+  it('names the delivery in the approve copy only while the switch is on', async () => {
+    await openVisitApproval(pairScenario());
+    const items = () => Array.from(dialog().querySelectorAll('ul.workflow-dialog-details li'))
+      .map((item) => item.textContent);
+    const delivery = 'Satıştan planlı bir ürün teslim işi oluşturur';
+
+    expect(submitButton()!.textContent).toBe('İşi onayla ve teslim işini aç');
+    expect(items()).toContain(delivery);
+
+    await act(async () => { checkbox().click(); await flush(); });
+    expect(submitButton()!.textContent).toBe('İşi onayla');
+    expect(items()).not.toContain(delivery);
+
+    await act(async () => { checkbox().click(); await flush(); });
+    expect(submitButton()!.textContent).toBe('İşi onayla ve teslim işini aç');
+    expect(items()).toContain(delivery);
+  });
+
+  it('names the follow-up and the delivery when both are created', async () => {
+    const proposal = {
+      scheduledAt: '2026-12-01T09:00:00.000Z', type: 'SALES_MEETING' as const,
+      assignedTo: 'staff-1', followUpInstructions: 'Ürünleri yerinde kontrol edin.',
+      origin: 'SYSTEM' as const, proposedBy: { id: 'staff-1', name: 'Ayşe Personel' },
+    };
+    await openVisitApproval(pairScenario({ main: visitCard('WAITING_APPROVAL', { followUpProposal: proposal }) }));
+
+    expect(submitButton()!.textContent).toBe('İşi onayla, takip ve teslim işlerini aç');
+    await act(async () => { checkbox().click(); await flush(); });
+    expect(submitButton()!.textContent).toBe('İşi onayla ve takip işini planla');
   });
 
   it('omits delivery entirely when the switch is off', async () => {
@@ -519,7 +574,7 @@ describe('SALE-002 S3 approval delivery section', () => {
       respond: (path) => (path.endsWith('/approve') ? pending : null),
     }));
 
-    await act(async () => { buttonByName(dialog(), 'İşi onayla')!.click(); await flush(); });
+    await act(async () => { submitButton()!.click(); await flush(); });
 
     expect(mock.posts.filter((post) => post.path.endsWith('/approve'))).toHaveLength(1);
     const fieldset = section().querySelector<HTMLFieldSetElement>('fieldset')!;
@@ -556,7 +611,7 @@ describe('SALE-002 S3 approval delivery section', () => {
       // Controls are usable again (definitive answer, nothing was written).
       expect(scheduled().disabled).toBe(false);
       expect(section().querySelector<HTMLFieldSetElement>('fieldset')!.disabled).toBe(false);
-      expect(buttonByName(dialog(), 'İşi onayla')!.disabled).toBe(false);
+      expect(submitButton()!.disabled).toBe(false);
       expect(dialog().textContent).not.toContain('Özgün isteği tekrar dene');
 
       await fill(scheduled(), '2031-01-10T09:00');
@@ -688,6 +743,7 @@ describe('SALE-002 S3 approval delivery section', () => {
     expect(section().querySelector<HTMLFieldSetElement>('fieldset')!.disabled).toBe(true);
     expect(dialog().textContent).toContain('İşlemin sonucu henüz doğrulanamadı');
     expect(section().querySelector('[role="alert"]')).toBeNull();
+    expect(submitButton()!.textContent).toBe('Özgün isteği tekrar dene');
 
     await act(async () => {
       buttonByName(dialog(), 'Özgün isteği tekrar dene')!.click();
