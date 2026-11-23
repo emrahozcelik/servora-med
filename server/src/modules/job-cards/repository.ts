@@ -1597,7 +1597,12 @@ export interface JobCardTransaction extends SubmissionReader {
   /** Data-class scope of the job's delivery graph; callers already hold the JobCard row lock. */
   getJobDeliveryScope(organizationId: string, jobCardId: string): Promise<JobDeliveryScope | null>;
   getDeliveryItemForUpdate(organizationId: string, jobCardId: string, itemId: string): Promise<DeliveryItemRecord | null>;
-  createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
+  /**
+   * `sortOrder` is the line's position in the request. When omitted (a later
+   * single addition, made under the JobCard row lock) the line is appended
+   * after the card's current highest `sort_order`.
+   */
+  createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>, sortOrder?: number): Promise<DeliveryItemRecord>;
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   deleteDeliveryItem(itemId: string): Promise<void>;
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
@@ -5126,15 +5131,20 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapDelivery(result.rows[0]) : null;
   }
 
-  async createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>) {
+  async createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>, sortOrder?: number) {
     const result = await this.client.query<DeliveryRow>(
       `INSERT INTO job_card_delivery_items
        (organization_id, job_card_id, product_id, delivery_purpose, delivered_at, quantity, unit,
-        product_name_snapshot, product_sku_snapshot, product_model_snapshot, lot_no, serial_no, expiry_date, delivery_note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING ${DELIVERY_COLUMNS}`,
+        product_name_snapshot, product_sku_snapshot, product_model_snapshot, lot_no, serial_no, expiry_date, delivery_note,
+        sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+        COALESCE($15::int, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM job_card_delivery_items
+                            WHERE organization_id = $1 AND job_card_id = $2)))
+       RETURNING ${DELIVERY_COLUMNS}`,
       [input.organizationId, input.jobCardId, input.productId, input.deliveryPurpose, input.deliveredAt,
         input.quantity, input.unit, input.productNameSnapshot, input.productSkuSnapshot,
-        input.productModelSnapshot, input.lotNo, input.serialNo, input.expiryDate, input.deliveryNote]);
+        input.productModelSnapshot, input.lotNo, input.serialNo, input.expiryDate, input.deliveryNote,
+        sortOrder ?? null]);
     return mapDelivery(result.rows[0]!);
   }
 
@@ -5557,9 +5567,10 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         if (!row.live) {
           // SALE-002 §4.6: an expired pair has no half-failed half-live
           // intent. The anchor and every participant of this identity expire
-          // together, in one statement.
+          // together, in one statement, with one instant (statement_timestamp
+          // is evaluated once per statement; clock_timestamp once per row).
           await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
-            failed_at=date_trunc('milliseconds',clock_timestamp()), failure_code='LIFECYCLE_INTENT_EXPIRED'
+            failed_at=date_trunc('milliseconds',statement_timestamp()), failure_code='LIFECYCLE_INTENT_EXPIRED'
             WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$3
               AND (operation_key=$4 OR job_card_id = ANY($5::uuid[]))`,
             [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey,
@@ -5736,8 +5747,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       await assertUnexpired();
       const result = await work(tx);
       await assertUnexpired();
+      // SALE-002 §4.6: anchor and participants complete with one instant.
       await client.query(`UPDATE job_card_lifecycle_intents SET state='COMPLETED',
-        completed_at=date_trunc('milliseconds',clock_timestamp()) WHERE id = ANY($1::uuid[])`, [intentIds]);
+        completed_at=date_trunc('milliseconds',statement_timestamp()) WHERE id = ANY($1::uuid[])`, [intentIds]);
       await client.query(`UPDATE processed_actions SET status='completed',status_code=200,
         response_body=$2,completed_at=NOW() WHERE id=$1`,[claimed.rows[0]!.id,result.response]);
       committing = true;
@@ -5767,8 +5779,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
           for (const id of lockJobCardIds) {
             await recovery.getJobForUpdate(claim.organizationId, id);
           }
+          // One instant for the anchor and every participant (§4.6).
           await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
-            failed_at=date_trunc('milliseconds',clock_timestamp()),failure_code=$3
+            failed_at=date_trunc('milliseconds',statement_timestamp()),failure_code=$3
             WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$4 AND reserved_at=$5
               AND state='PENDING'
               AND (job_card_id = ANY($6::uuid[]) OR operation_key=$7)`,

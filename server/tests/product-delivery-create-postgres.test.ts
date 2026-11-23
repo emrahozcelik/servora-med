@@ -99,6 +99,11 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       expect((await pool.query<{ version: number }>(
         `SELECT version FROM job_cards WHERE id = $1`, [first.jobCardId],
       )).rows[0]!.version).toBe(4);
+      expect((await pool.query<{ product_id: string; sort_order: number }>(
+        `SELECT product_id, sort_order FROM job_card_delivery_items
+          WHERE job_card_id = $1 ORDER BY sort_order, created_at, id`,
+        [first.jobCardId],
+      )).rows).toEqual(productIds.map((productId, index) => ({ product_id: productId, sort_order: index })));
       expect((await pool.query<{ purpose: string; note: string | null; quantity: string }>(
         `SELECT delivery_purpose AS purpose, delivery_note AS note, quantity::text
            FROM job_card_delivery_items WHERE job_card_id = $1 ORDER BY sort_order`,
@@ -137,6 +142,30 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
         [organizationId],
       );
       expect(countsAfterInvalid.rows[0]).toEqual(countsAfterCreate.rows[0]);
+
+      // Repeated creates with the products in changing request order: lines of
+      // one transaction share created_at and ids are random, so only the
+      // persisted sort_order can keep the request order stable on read.
+      const orders = [[2, 0, 1], [1, 2, 0], [0, 2, 1]];
+      for (const [round, order] of orders.entries()) {
+        const requested = order.map((index) => ({ productId: productIds[index]!, quantity: index + 1 }));
+        const created = await service.createProductDelivery(manager, {
+          ...input,
+          clientActionId: `postgres-order-${round}`,
+          customerId: invalidBatchCustomerId,
+          scheduledAt: `2026-08-19T0${round + 1}:00:00.000Z`,
+          scheduledEndsAt: `2026-08-19T0${round + 1}:30:00.000Z`,
+          items: requested,
+        });
+        const rows = (await pool.query<{ product_id: string; quantity: string; sort_order: number }>(
+          `SELECT product_id, quantity::text, sort_order FROM job_card_delivery_items
+            WHERE job_card_id = $1 ORDER BY sort_order, created_at, id`,
+          [created.jobCardId],
+        )).rows;
+        expect(rows.map((row) => ({ productId: row.product_id, quantity: Number(row.quantity) })))
+          .toEqual(requested);
+        expect(rows.map((row) => row.sort_order)).toEqual([0, 1, 2]);
+      }
 
       await expect(service.createProductDelivery({
         id: otherOrgStaffId, organizationId: otherOrganizationId, role: 'STAFF',
@@ -195,6 +224,14 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
         quantity: 1,
       });
       expect(added.item.quantity).toBe(1);
+      // A later single addition is appended after the existing line (max + 1).
+      expect((await pool.query<{ product_id: string; sort_order: number }>(
+        `SELECT product_id, sort_order FROM job_card_delivery_items
+          WHERE job_card_id = $1 ORDER BY sort_order, created_at, id`, [minQuantityJob.jobCardId],
+      )).rows).toEqual([
+        { product_id: productIds[0]!, sort_order: 0 },
+        { product_id: productIds[1]!, sort_order: 1 },
+      ]);
       await expect(service.patchDeliveryItem(manager, minQuantityJob.jobCardId, added.item.id, {
         expectedVersion: added.jobCardVersion,
         quantity: 1.5,

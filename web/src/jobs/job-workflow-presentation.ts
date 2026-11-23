@@ -157,6 +157,20 @@ const APPROVE_WITHOUT_FOLLOW_UP_CONFIRMATION = {
   confirmLabel: 'İşi onayla',
 } as const;
 
+/**
+ * SALE-002 §8.2: approve-dialog copy while the "Teslim işi aç" switch is on.
+ * The dialog appends `detail` and replaces the confirm label with the one that
+ * names the delivery (and the follow-up, when one is also created).
+ */
+export function saleDeliveryApproveCopy(hasFollowUp: boolean): { detail: string; confirmLabel: string } {
+  return {
+    detail: 'Satıştan planlı bir ürün teslim işi oluşturur',
+    confirmLabel: hasFollowUp
+      ? 'İşi onayla, takip ve teslim işlerini aç'
+      : 'İşi onayla ve teslim işini aç',
+  };
+}
+
 type CommandCopy = {
   label: string;
   consequence: string;

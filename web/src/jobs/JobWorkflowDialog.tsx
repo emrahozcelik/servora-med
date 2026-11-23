@@ -1,9 +1,10 @@
 import { useRef, type ReactNode, type RefObject } from 'react';
 
 import { ConfirmationAction, ReasonDialog } from '../ui/antd';
-import type {
-  RecordEditPresentation,
-  TransitionPresentation,
+import {
+  saleDeliveryApproveCopy,
+  type RecordEditPresentation,
+  type TransitionPresentation,
 } from './job-workflow-presentation';
 import {
   FollowUpCancelContinuitySection,
@@ -110,13 +111,19 @@ export function JobWorkflowDialog(props: {
   const title = dialog.kind === 'approve'
     ? (dialog.presentation.confirmation?.title ?? dialog.presentation.label)
     : dialog.presentation.label;
+  const deliveryCopy = dialog.kind === 'approve' && saleDelivery?.draft.enabled
+    ? saleDeliveryApproveCopy(followUp !== undefined)
+    : undefined;
+  const approveDetails = dialog.kind === 'approve'
+    ? [
+        ...(dialog.presentation.confirmation?.details ?? []),
+        ...(deliveryCopy ? [deliveryCopy.detail] : []),
+      ]
+    : [];
   const description = dialog.kind === 'submit'
     ? dialog.presentation.consequence
     : dialog.kind === 'approve'
-      ? [
-          dialog.presentation.consequence,
-          ...(dialog.presentation.confirmation?.details ?? []),
-        ].join(' ')
+      ? dialog.presentation.consequence
       : dialog.kind === 'revision'
         ? 'Personelin neyi düzeltmesi gerektiğini açıklayın.'
         : dialog.kind === 'decline' || dialog.kind === 'release'
@@ -136,7 +143,7 @@ export function JobWorkflowDialog(props: {
   const confirmLabel = dialog.kind === 'submit'
     ? (dialog.presentation.confirmation?.confirmLabel ?? dialog.presentation.label)
     : dialog.kind === 'approve'
-      ? (dialog.presentation.confirmation?.confirmLabel ?? 'İşi tamamla')
+      ? (deliveryCopy?.confirmLabel ?? dialog.presentation.confirmation?.confirmLabel ?? 'İşi tamamla')
       : dialog.kind === 'revision'
         ? 'Düzeltme için geri gönder'
         : dialog.kind === 'decline'
@@ -187,6 +194,7 @@ export function JobWorkflowDialog(props: {
       open
       title={title}
       description={uncertain ? 'İşlemin sonucu henüz doğrulanamadı. Alanlar kilitli; tekrar deneme özgün isteği gönderir.' : description}
+      details={approveDetails}
       reasonLabel={reasonLabel}
       helperText={dialog.kind === 'submit'
         ? 'Bu açıklama, yönetici kontrolüne gönderilen iş kaydında saklanır.'

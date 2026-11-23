@@ -2682,7 +2682,9 @@ export class JobCardService {
     },
   ): Promise<number> {
     let version = input.jobVersion;
-    for (const entry of input.items) {
+    // Display order is the request order: lines created in one transaction
+    // share created_at, so sort_order is the only stable tie-breaker.
+    for (const [sortOrder, entry] of input.items.entries()) {
       const item = await transaction.createDeliveryItem(deliveryRecord(
         actor.organizationId,
         input.jobCardId,
@@ -2695,7 +2697,7 @@ export class JobCardService {
           deliveryNote: input.deliveryNote,
         },
         entry.product,
-      ));
+      ), sortOrder);
       const updated = await transaction.bumpVersion(actor.organizationId, input.jobCardId, version);
       if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       version = updated.version;

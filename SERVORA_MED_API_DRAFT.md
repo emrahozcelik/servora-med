@@ -1019,8 +1019,10 @@ and management; no event of the delivery carries the sale's `job-detail` key.
 **Read side.** The job detail of a delivery gains `deliverySourceSaleId`: the
 source sale id when the viewer can read the sale (management, or the sale's own
 assignee), otherwise `null`. The job detail of a sale gains
-`linkedDelivery: { id, status } | null`, null when there is none **or** the
-viewer cannot read it (STAFF: only a delivery assigned to them). Both are keys of
+`linkedDelivery: { id, status } | null`: `null` when no delivery exists;
+`{ id, status }` for management and for the delivery's assignee; `{ id: null, status }`
+for the sale's owner when another staff member carries the delivery (its existence and
+status are visible, its id is not). The web client accepts `id: null`. Both are keys of
 the JobCard detail DTO on every card type (null where not applicable); the
 `GET /:saleId/sale-details` projection is unchanged. The sale
 activity timeline projects `SALE_DELIVERY_CREATED` as

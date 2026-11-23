@@ -22,6 +22,8 @@ export type ReasonDialogProps = {
   open: boolean;
   title: string;
   description: ReactNode;
+  /** Consequence list rendered under the description, like ConfirmationAction. */
+  details?: readonly string[];
   reasonLabel: string;
   helperText?: ReactNode;
   requiredMessage?: string;
@@ -51,6 +53,7 @@ export function ReasonDialog({
   open,
   title,
   description,
+  details = [],
   reasonLabel,
   helperText,
   requiredMessage = 'Neden alanı zorunludur.',
@@ -71,6 +74,8 @@ export function ReasonDialog({
   restoreFocusEnabledRef,
 }: ReasonDialogProps): ReactNode {
   const titleId = useId();
+  const descriptionId = useId();
+  const detailsId = useId();
   const errorId = useId();
   const helpId = useId();
   const counterId = useId();
@@ -175,11 +180,17 @@ export function ReasonDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={details.length > 0 ? `${descriptionId} ${detailsId}` : undefined}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         <h2 id={titleId}>{title}</h2>
-        <p>{description}</p>
+        <p id={descriptionId}>{description}</p>
+        {details.length > 0 && (
+          <ul id={detailsId} className="workflow-dialog-details">
+            {details.map((entry) => <li key={entry}>{entry}</li>)}
+          </ul>
+        )}
         {prelude}
         <form onSubmit={submit} noValidate>
           <div className="field-group">

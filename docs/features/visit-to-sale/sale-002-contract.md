@@ -3,7 +3,7 @@
 - **Date:** 2026-11-23
 - **Status:** Accepted by the product owner in chat (2026-11-23), including the recommended
   defaults for every open question in §11 (Q1, Q2, Q4–Q8). Implementation is authorized as the
-  slices S1–S4 in §10; each slice ships its code, tests and owning-document updates together.
+  slices S1–S4 in §10; each slice ships its code, tests and owning-document updates together. S1–S3 are implemented and merged (#492, #493, #494); S4 is in progress.
 - **Baseline:** `origin/main` @ `9776243` (worktree branch `docs/sale-002-design`), migration
   head `070_overdue_incident_invalidation_closure`.
 - **Owner decisions:** product owner in chat, 2026-11-23 (D1–D7 below).
@@ -1015,7 +1015,7 @@ environment-dependent case as passed.
   `WAITING_APPROVAL`, same instant, same note, sale `ACCEPTED → WAITING` without a
   `STARTED` fact, visit follow-up proposal still persisted.
 - Joint submit blocked: sale not ready (no write, sale readiness errors returned), sale
-  `NEW`, sale `REVISION_REQUESTED`, stale `saleExpectedVersion`.
+  `NEW`, sale `REVISION_REQUESTED`, stale `expectedSaleVersion`.
 - **Reservation and locking (R19/R20):**
   - both intent rows exist with the same `reserved_at`/`request_hash`, anchor on the visit and
     participant on the sale; both become `COMPLETED` together and `FAILED` together;
@@ -1048,7 +1048,7 @@ environment-dependent case as passed.
 - Cancel/invalidate: visit cancel leaves the sale untouched and the sale then acts alone;
   sale invalidate leaves the delivery untouched.
 - Idempotency: replay of every pair command returns the identical receipt with no new rows;
-  same key + changed `saleExpectedVersion`/delivery payload → `CLIENT_ACTION_REUSED`;
+  same key + changed `expectedSaleVersion`/delivery payload → `CLIENT_ACTION_REUSED`;
   two concurrent pair commands → one commit, other `ACTION_IN_PROGRESS`/conflict;
   `expectedSaleVersion` missing/extra → `400`/`409 SALE_PAIR_STATE_CONFLICT`.
 - Deadlock/lock order: concurrent pair approve and single-card patch; concurrent standalone
@@ -1124,8 +1124,9 @@ with the server (`sale-approval-delivery-input.ts`, `createSaleApprovalDelivery`
 Interpretations the implementation fixed where this contract is silent: `delivery.assignedTo`
 may be omitted and then means the sale's assignee (§5.2 default); `delivery: null` is a
 `400`; the delivery priority is `normal`; the conflict code for a second delivery is
-`SALE_DELIVERY_ALREADY_EXISTS` (§4.8); `linkedDelivery` is `null` for a STAFF viewer who is
-not the delivery's assignee. The web section/dialogs and the R10 copy fix are not part of
+`SALE_DELIVERY_ALREADY_EXISTS` (§4.8); `linkedDelivery` is `{ id, status }` for management and the delivery's
+assignee, `{ id: null, status }` for the sale's owner when another staff member carries
+the delivery, and `null` when no delivery exists. The web section/dialogs and the R10 copy fix are not part of
 this backend note.
 
 Verification per slice: the AGENTS.md minimum commands, plus targeted suites, plus
@@ -1270,7 +1271,7 @@ This is a UI default only; the manager may pick any time.
 5. **One transaction, two intents.** A coordinated command reserves and finalizes **both**
    cards in one transaction under the documented lock order (users → customer → contacts →
    products → both JobCards sorted by id → both lifecycle intents). The visit owns the
-   receipt; the sale owns a participant reservation. `saleExpectedVersion` is required on
+   receipt; the sale owns a participant reservation. `expectedSaleVersion` is required on
    every pair command. Any definitive failure marks both intents `FAILED`, so a corrected
    attempt uses a new client action key.
 6. **Sale approval may open one delivery.** The approval offers an optional
