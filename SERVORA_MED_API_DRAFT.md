@@ -784,19 +784,21 @@ The one-way closing facts are reported next to it:
 - `recoveredAt: string | null`, `recoveryActor: { id, name } | null` — the lifecycle action
   that resolved the obligation.
 - `endedAt: string | null`, `endedBy: { id, name } | null`,
-  `endReason: 'DEADLINE_EXTENDED' | null`, `endNote: string | null`,
-  `endedByScheduleRevisionNo: number | null` — OVR-5: an authorized deadline extension
-  ended the obligation. Recovery and ending are mutually exclusive; an ended incident is
+  `endReason: 'DEADLINE_EXTENDED' | 'CARD_INVALIDATED' | null`, `endNote: string | null`,
+  `endedByScheduleRevisionNo: number | null` — `DEADLINE_EXTENDED`: OVR-5, an authorized
+  deadline extension ended the obligation; `CARD_INVALIDATED`: OVR-2 (2026-11-20), an
+  administrative `INVALIDATE` ended it with the card, without a schedule revision or a
+  note. Recovery and ending are mutually exclusive; an ended incident is
   never reported as recovered, on time or successfully completed. These five fields (and
   `endedDurationSeconds` below) are null on a non-ended row.
 - `totalDelaySeconds` — `recoveredAt - breachedAt` in whole seconds; `null` while open and
   `null` for an ended row.
 - `endedDurationSeconds` — `endedAt - breachedAt` in whole seconds (same rounding);
   `null` for a non-ended row.
-- `manualReminderSentAt`, `manualReminderCount` — OVR-4 manual manager reminders of the
-  episode up to the closing instant (`recoveredAt` or `endedAt`); statistics stop at
-  `endedAt`. `postReminderDelaySeconds` = `recoveredAt - manualReminderSentAt`, `null` for
-  ended rows.
+- `manualReminderSentAt`, `manualReminderCount` — OVR-4 manual manager reminders of that
+  incident (LATE_SUBMISSION only) up to the closing instant (`recoveredAt` or `endedAt`);
+  statistics stop at `endedAt`. `postReminderDelaySeconds` = `recoveredAt -
+  manualReminderSentAt`, `null` for ended rows.
 
 `GET /api/job-cards/:jobCardId/submission-lateness` reports the canonical open
 `LATE_SUBMISSION` breach of the job and the automatic/manual reminder state. "Open" means

@@ -352,12 +352,12 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
   it('M1: migration 067 is the schema head and keeps the ending and correction columns', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('069_lateness_alerts_and_quiet_hours');
+      expect(catalog.head?.version).toBe('070_overdue_incident_invalidation_closure');
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.at(-1)?.version)
-        .toBe('069_lateness_alerts_and_quiet_hours');
+        .toBe('070_overdue_incident_invalidation_closure');
 
       const columns = await pool.query<{
         table_name: string; column_name: string; data_type: string; is_nullable: string;
@@ -491,6 +491,69 @@ describe.skipIf(!databaseUrl)('OVR-5a readers (PostgreSQL)', () => {
       });
       expect(row.deadline_at).toEqual(BREACHED_AT);
       expect(row.breached_at).toEqual(BREACHED_AT);
+    });
+  });
+
+  it('M1/OVR-2: a card-invalidated ending needs instant, actor and reason but no schedule revision', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR2 M1');
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'Yönetici');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const jobId = await seedIncidentFixture(pool, organizationId, staffId);
+      let episodeNo = 1;
+      const freshIncident = () => insertIncident(pool, {
+        organizationId, jobId, episodeNo: episodeNo++,
+      });
+
+      // The accepted shape: instant, actor and reason; nothing proves a new
+      // boundary, so the appended revision must be absent and the note is not
+      // required.
+      const accepted = await freshIncident();
+      await setEnding(pool, accepted, {
+        endedAt: ENDED_AT,
+        endedByUserId: adminId,
+        endReason: 'CARD_INVALIDATED',
+        endNote: null,
+        endedByScheduleRevisionNo: null,
+      });
+      const row = (await selectIncidents(pool, organizationId, jobId))
+        .find((candidate) => candidate.id === accepted)!;
+      expect(row).toMatchObject({
+        recovered_at: null,
+        recovery_actor_user_id: null,
+        ended_at: ENDED_AT,
+        ended_by_user_id: adminId,
+        end_reason: 'CARD_INVALIDATED',
+        end_note: null,
+        ended_by_schedule_revision_no: null,
+      });
+
+      // The OVR-5 shape stays strict, and a card invalidation cannot borrow a
+      // revision or drop its actor.
+      const withRevision = await freshIncident();
+      await expect(setEnding(pool, withRevision, {
+        endedAt: ENDED_AT,
+        endedByUserId: adminId,
+        endReason: 'CARD_INVALIDATED',
+        endNote: null,
+        endedByScheduleRevisionNo: 1,
+      })).rejects.toMatchObject({ code: '23514' });
+      const withoutActor = await freshIncident();
+      await expect(setEnding(pool, withoutActor, {
+        endedAt: ENDED_AT,
+        endedByUserId: null,
+        endReason: 'CARD_INVALIDATED',
+        endNote: null,
+        endedByScheduleRevisionNo: null,
+      })).rejects.toMatchObject({ code: '23514' });
+      const extendedWithoutRevision = await freshIncident();
+      await expect(setEnding(pool, extendedWithoutRevision, {
+        endedAt: ENDED_AT,
+        endedByUserId: adminId,
+        endReason: 'DEADLINE_EXTENDED',
+        endNote: 'Tarih güncellendi.',
+        endedByScheduleRevisionNo: null,
+      })).rejects.toMatchObject({ code: '23514' });
     });
   });
 

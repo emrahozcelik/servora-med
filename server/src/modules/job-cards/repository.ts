@@ -520,8 +520,13 @@ export type InsertSubmissionReminderInput = {
   operationKey: string;
 };
 
-/** OVR-4: per-episode manual-reminder rollup for one job (history metrics). */
-export type SubmissionReminderEpisodeStats = {
+/**
+ * OVR-4: manual-reminder rollup of one *incident*. Episode numbers repeat per
+ * delay type and per schedule revision, so the incident is the only identity
+ * that can never leak a previous cycle's reminders into an open obligation.
+ */
+export type SubmissionReminderIncidentStats = {
+  incidentId: string;
   episodeNo: number;
   count: number;
   latestSentAt: Date;
@@ -1214,6 +1219,21 @@ export interface JobCardTransaction extends SubmissionReader {
    */
   endOverdueIncidentEpisode(input: EndOverdueIncidentEpisodeInput): Promise<readonly EndedOverdueIncident[]>;
   /**
+   * OVR-2 invalidation closure (2026-11-20): end every still-open incident of
+   * the JobCard without touching recovery fields. INVALIDATE is administrative
+   * closure, not completion and not recovery, so the recovery pair stays NULL
+   * and the ending is written with the command's request time and actor. No
+   * schedule revision is claimed (none proves a new boundary). Recovered,
+   * already ended and other cards' rows are untouched; nothing is
+   * materialized. Returns the number of closed rows.
+   */
+  invalidateOpenOverdueIncidents(input: {
+    organizationId: string;
+    jobCardId: string;
+    endedAt: Date;
+    endedByUserId: string;
+  }): Promise<number>;
+  /**
    * OVR-5b §5: does the job currently have an open (neither recovered nor
    * ended) LATE_START or LATE_SUBMISSION incident? Read under the JobCard
    * lock for the Staff deadline rule; the same predicate backs the DTO flag.
@@ -1358,17 +1378,17 @@ export interface JobCardTransaction extends SubmissionReader {
   insertSubmissionReminder(
     input: InsertSubmissionReminderInput,
   ): Promise<{ id: string; created: boolean }>;
-  /** OVR-4: manual reminder rows of one episode, latest first. */
-  listSubmissionRemindersForEpisode(
+  /** OVR-4: manual reminder rows of one incident, latest first. */
+  listSubmissionRemindersForIncident(
     organizationId: string,
     jobCardId: string,
-    episodeNo: number,
+    incidentId: string,
   ): Promise<readonly SubmissionReminderRecord[]>;
-  /** OVR-4: per-episode manual-reminder rollup for one job. */
+  /** OVR-4: per-incident manual-reminder rollup for one job. */
   listSubmissionReminderStats(
     organizationId: string,
     jobCardId: string,
-  ): Promise<readonly SubmissionReminderEpisodeStats[]>;
+  ): Promise<readonly SubmissionReminderIncidentStats[]>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
@@ -1600,15 +1620,15 @@ export interface JobCardRepository extends SubmissionReader {
     incidentId: string;
     kind: OverdueReminderKind;
   }): Promise<OverdueNotificationDelivery | null>;
-  listSubmissionRemindersForEpisode(
+  listSubmissionRemindersForIncident(
     organizationId: string,
     jobCardId: string,
-    episodeNo: number,
+    incidentId: string,
   ): Promise<readonly SubmissionReminderRecord[]>;
   listSubmissionReminderStats(
     organizationId: string,
     jobCardId: string,
-  ): Promise<readonly SubmissionReminderEpisodeStats[]>;
+  ): Promise<readonly SubmissionReminderIncidentStats[]>;
   /**
    * OVR-3 bounded candidate discovery per delay type. Prefilter only: the
    * clock-only scanner re-evaluates eligibility transactionally through the
@@ -4150,6 +4170,30 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     }));
   }
 
+  async invalidateOpenOverdueIncidents(input: {
+    organizationId: string;
+    jobCardId: string;
+    endedAt: Date;
+    endedByUserId: string;
+  }): Promise<number> {
+    // Callers hold the JobCard row lock. One statement ends every open delay
+    // type, episode and revision of the card; the recovery pair stays NULL and
+    // a previous ending or recovery is never rewritten.
+    const result = await this.client.query<{ id: string }>(
+      `UPDATE job_card_overdue_incidents
+          SET ended_at = $3,
+              ended_by_user_id = $4,
+              end_reason = 'CARD_INVALIDATED',
+              end_note = NULL,
+              ended_by_schedule_revision_no = NULL
+        WHERE organization_id = $1 AND job_card_id = $2
+          AND recovered_at IS NULL AND ended_at IS NULL
+        RETURNING id`,
+      [input.organizationId, input.jobCardId, input.endedAt, input.endedByUserId],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async hasOpenDeadlineOverdueIncident(input: {
     organizationId: string;
     jobCardId: string;
@@ -4547,10 +4591,10 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return { id: existing.rows[0]!.id, created: false };
   }
 
-  async listSubmissionRemindersForEpisode(
+  async listSubmissionRemindersForIncident(
     organizationId: string,
     jobCardId: string,
-    episodeNo: number,
+    incidentId: string,
   ): Promise<readonly SubmissionReminderRecord[]> {
     const result = await this.client.query<{
       id: string; organization_id: string; job_card_id: string;
@@ -4562,9 +4606,9 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
               schedule_revision_no, manager_user_id, target_staff_user_id,
               sent_at, client_action_id, operation_key
          FROM job_card_submission_reminders
-        WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = $3
+        WHERE organization_id = $1 AND job_card_id = $2 AND incident_id = $3
         ORDER BY sent_at DESC, id DESC`,
-      [organizationId, jobCardId, episodeNo],
+      [organizationId, jobCardId, incidentId],
     );
     return result.rows.map((row) => ({
       id: row.id,
@@ -4584,17 +4628,21 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   async listSubmissionReminderStats(
     organizationId: string,
     jobCardId: string,
-  ): Promise<readonly SubmissionReminderEpisodeStats[]> {
+  ): Promise<readonly SubmissionReminderIncidentStats[]> {
     const result = await this.client.query<{
-      episode_no: number; count: string; latest_sent_at: Date;
+      incident_id: string; episode_no: number; count: string; latest_sent_at: Date;
     }>(
-      `SELECT episode_no, COUNT(*)::text AS count, MAX(sent_at) AS latest_sent_at
+      // NEW-1: group by incident, not episode. OVR-5 lets one episode carry a
+      // second incident after an ending, and a previous cycle's reminders must
+      // never be inherited by the later obligation.
+      `SELECT incident_id, episode_no, COUNT(*)::text AS count, MAX(sent_at) AS latest_sent_at
          FROM job_card_submission_reminders
         WHERE organization_id = $1 AND job_card_id = $2
-        GROUP BY episode_no`,
+        GROUP BY incident_id, episode_no`,
       [organizationId, jobCardId],
     );
     return result.rows.map((row) => ({
+      incidentId: row.incident_id,
       episodeNo: Number(row.episode_no),
       count: Number(row.count),
       latestSentAt: row.latest_sent_at,
@@ -6050,19 +6098,19 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     return this.withTransactionRead((tx) => tx.getOverdueNotificationDelivery(input));
   }
 
-  async listSubmissionRemindersForEpisode(
+  async listSubmissionRemindersForIncident(
     organizationId: string,
     jobCardId: string,
-    episodeNo: number,
+    incidentId: string,
   ): Promise<readonly SubmissionReminderRecord[]> {
     return this.withTransactionRead((tx) =>
-      tx.listSubmissionRemindersForEpisode(organizationId, jobCardId, episodeNo));
+      tx.listSubmissionRemindersForIncident(organizationId, jobCardId, incidentId));
   }
 
   async listSubmissionReminderStats(
     organizationId: string,
     jobCardId: string,
-  ): Promise<readonly SubmissionReminderEpisodeStats[]> {
+  ): Promise<readonly SubmissionReminderIncidentStats[]> {
     return this.withTransactionRead((tx) =>
       tx.listSubmissionReminderStats(organizationId, jobCardId));
   }
@@ -6119,7 +6167,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
               WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
                 AND i.delay_type = 'LATE_START' AND i.episode_no = 1
                 AND i.schedule_revision_no = ${currentRevisionSql}
-                AND i.ended_at IS NULL)
+                AND i.recovered_at IS NULL AND i.ended_at IS NULL)
          ORDER BY j.scheduled_ends_at ASC, j.id ASC
          LIMIT $1`;
         values = [input.limit, input.scanTime];
@@ -6153,14 +6201,20 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
               WHERE r.organization_id = j.organization_id AND r.job_card_id = j.id)
            AND (
              (a.activated_at IS NOT NULL AND a.activated_at <= $2)
-             OR (${nextEpisodeSql} = 1 AND j.started_at IS NOT NULL AND j.started_at <= $2))
+             -- Parity with the scanner's allowStartedAtFallback: the mutable
+             -- started_at proves only a modern initial episode, i.e. while the
+             -- job is still IN_PROGRESS. A REVISION_REQUESTED legacy row has
+             -- no provable activation and is permanently unprovable, so it
+             -- must never occupy a bounded batch and starve later breaches.
+             OR (${nextEpisodeSql} = 1 AND j.status = 'IN_PROGRESS'
+                 AND j.started_at IS NOT NULL AND j.started_at <= $2))
            AND NOT EXISTS (
              SELECT 1 FROM job_card_overdue_incidents i
               WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
                 AND i.delay_type = 'LATE_SUBMISSION'
                 AND i.episode_no = ${nextEpisodeSql}
                 AND i.schedule_revision_no = ${currentRevisionSql}
-                AND i.ended_at IS NULL)
+                AND i.recovered_at IS NULL AND i.ended_at IS NULL)
          ORDER BY ${firstLateSql} ASC, j.id ASC
          LIMIT $1`;
         values = [input.limit, input.scanTime];
@@ -6191,7 +6245,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
                 AND i.delay_type = 'APPROVAL_WAIT'
                 AND i.schedule_revision_no = fact.schedule_revision_no
                 AND i.episode_no = fact.seq_no
-                AND i.ended_at IS NULL)
+                AND i.recovered_at IS NULL AND i.ended_at IS NULL)
          ORDER BY fact.occurred_at ASC, j.id ASC
          LIMIT $1`;
         values = [input.limit, input.scanTime, APPROVAL_WAIT_BREACH_HOURS];

@@ -982,6 +982,10 @@ const latenessCohortSql = (includeSaleCapability: boolean) => `cohort AS (
     AND i.breached_at <
       ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.status <> 'INVALIDATED'
+    -- OVR-2: a card-invalidated incident is not an outcome. INVALIDATED jobs
+    -- are already excluded above; this keeps 'EXTENDED' meaning only the OVR-5
+    -- authorized deadline extension even if that exclusion ever changes.
+    AND (i.end_reason IS NULL OR i.end_reason <> 'CARD_INVALIDATED')
 ), classified AS (
   SELECT cohort.*,
     CASE

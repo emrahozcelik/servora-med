@@ -224,6 +224,7 @@ type IncidentSeed = {
   source?: 'TRANSITION' | 'MUTATION' | 'SCANNER';
   recovery?: { at: Date; actorUserId: string };
   ending?: { at: Date; byUserId: string; note: string; scheduleRevisionNo: number };
+  cardInvalidation?: { at: Date; byUserId: string };
 };
 
 async function addIncident(pool: Pool, seed: IncidentSeed): Promise<string> {
@@ -250,9 +251,11 @@ async function addIncident(pool: Pool, seed: IncidentSeed): Promise<string> {
       seed.source ?? 'TRANSITION',
       seed.recovery?.at ?? null,
       seed.recovery?.actorUserId ?? null,
-      seed.ending?.at ?? null,
-      seed.ending?.byUserId ?? null,
-      seed.ending === undefined ? null : 'DEADLINE_EXTENDED',
+      seed.ending?.at ?? seed.cardInvalidation?.at ?? null,
+      seed.ending?.byUserId ?? seed.cardInvalidation?.byUserId ?? null,
+      seed.ending !== undefined
+        ? 'DEADLINE_EXTENDED'
+        : seed.cardInvalidation === undefined ? null : 'CARD_INVALIDATED',
       seed.ending?.note ?? null,
       seed.ending?.scheduleRevisionNo ?? null,
     ],
@@ -1658,6 +1661,89 @@ describe.skipIf(!databaseUrl)('OVR-7 lateness cohort gate', () => {
       });
       expect(list.items.map(({ job }) => job?.id)).toEqual([readable]);
       expect(list.items.some(({ job }) => job?.id === sale)).toBe(false);
+    });
+  });
+
+  it('LR-08 regression: a card-invalidated incident is never classified as EXTENDED', async () => {
+    await withIntentSchema(databaseUrl, async (pool) => {
+      const organizationId = await insertProofOrg(pool, 'LR-08b');
+      const manager = await seedUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staff = await seedUser(pool, organizationId, 'STAFF', 'Personel A');
+      const invalidated = await seedJob(pool, {
+        organizationId,
+        assignedTo: staff.id,
+        createdBy: manager.id,
+        title: 'Geçersiz kılınan iş',
+        status: 'INVALIDATED',
+        invalidation: {
+          at: local('2026-10-02T09:00:00'),
+          by: manager.id,
+          reasonCode: 'DUPLICATE',
+        },
+      });
+      // Unreachable through the product (an INVALIDATED card cannot come back),
+      // but the classification guard is local: a CARD_INVALIDATED row is not
+      // an outcome even if the job-status exclusion is ever loosened.
+      const stillReadable = await seedJob(pool, {
+        organizationId,
+        assignedTo: staff.id,
+        createdBy: manager.id,
+        title: 'Sınıflandırma koruması',
+      });
+      const extended = await seedJob(pool, {
+        organizationId,
+        assignedTo: staff.id,
+        createdBy: manager.id,
+        title: 'Süresi uzatılan iş',
+      });
+      const closedAt = local('2026-10-06T11:00:00');
+      await addScheduleRevision(pool, organizationId, extended, 2, closedAt, manager.id);
+      await addIncident(pool, {
+        organizationId,
+        jobId: invalidated,
+        delayType: 'LATE_SUBMISSION',
+        deadlineAt: local('2026-10-01T10:00:00'),
+        breachedAt: local('2026-10-05T10:00:00'),
+        accountableUserId: staff.id,
+        cardInvalidation: { at: local('2026-10-05T12:00:00'), byUserId: manager.id },
+      });
+      await addIncident(pool, {
+        organizationId,
+        jobId: stillReadable,
+        delayType: 'LATE_SUBMISSION',
+        deadlineAt: local('2026-10-01T10:00:00'),
+        breachedAt: local('2026-10-06T10:00:00'),
+        accountableUserId: staff.id,
+        cardInvalidation: { at: closedAt, byUserId: manager.id },
+      });
+      const extendedIncidentId = await addIncident(pool, {
+        organizationId,
+        jobId: extended,
+        delayType: 'LATE_SUBMISSION',
+        deadlineAt: local('2026-10-01T10:00:00'),
+        breachedAt: local('2026-10-07T10:00:00'),
+        accountableUserId: staff.id,
+        ending: {
+          at: local('2026-10-07T12:00:00'),
+          byUserId: manager.id,
+          note: 'Plan sürümü 2',
+          scheduleRevisionNo: 2,
+        },
+      });
+
+      const reports = buildReports(pool);
+      const card = await reports.getOrganizationLateness(manager, {
+        requestedRange: OCTOBER,
+      });
+      expect(card.totalIncidentCount).toBe(1);
+      expect(card.staffResponsibility).toEqual({ delayedJobCount: 1, incidentCount: 1 });
+      const list = await reports.listStaffLatenessIncidents(manager, staff.id, {
+        requestedRange: OCTOBER,
+        limit: 20,
+        offset: 0,
+      });
+      expect(list.items.map(({ incidentId }) => incidentId)).toEqual([extendedIncidentId]);
+      expect(list.items[0]!.outcome).toBe('EXTENDED');
     });
   });
 });
