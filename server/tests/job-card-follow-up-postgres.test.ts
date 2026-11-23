@@ -42,7 +42,13 @@ type Fixture = {
   otherCustomerContactId: string;
   productId: string;
   secondProductId: string;
+  thirdProductId: string;
   inactiveProductId: string;
+  demoDatasetId: string;
+  otherDemoDatasetId: string;
+  demoProductId: string;
+  otherDemoProductId: string;
+  demoCustomerId: string;
   createSource(input?: {
     type?: JobCardType;
     status?: JobCardStatus;
@@ -51,6 +57,8 @@ type Fixture = {
     assignedTo?: string;
     sourceJobCardId?: string | null;
     title?: string;
+    dataClass?: 'BUSINESS' | 'DEMO';
+    demoDatasetId?: string | null;
   }): Promise<string>;
 };
 
@@ -133,16 +141,39 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       [organizationId, otherCustomerId],
     )).rows[0]!.id;
 
-    async function insertProduct(name: string, isActive = true) {
+    async function insertProduct(
+      name: string,
+      isActive = true,
+      demoDatasetId: string | null = null,
+    ) {
       return (await pool!.query<{ id: string }>(
-        `INSERT INTO products (organization_id, name, unit, is_active)
-         VALUES ($1, $2, 'adet', $3) RETURNING id`,
-        [organizationId, name, isActive],
+        `INSERT INTO products (organization_id, name, unit, is_active, data_class, demo_dataset_id)
+         VALUES ($1, $2, 'adet', $3, $4, $5) RETURNING id`,
+        [organizationId, name, isActive, demoDatasetId === null ? 'BUSINESS' : 'DEMO', demoDatasetId],
       )).rows[0]!.id;
     }
+    const demoDatasetId = (await pool!.query<{ id: string }>(
+      `INSERT INTO demo_datasets (organization_id, dataset_key, seed_version, created_by)
+       VALUES ($1, $2, 'followup-eligibility', $3) RETURNING id`,
+      [organizationId, `dataset-${randomUUID()}`, managerId],
+    )).rows[0]!.id;
+    const otherDemoDatasetId = (await pool!.query<{ id: string }>(
+      `INSERT INTO demo_datasets (organization_id, dataset_key, seed_version, created_by)
+       VALUES ($1, $2, 'followup-eligibility', $3) RETURNING id`,
+      [organizationId, `dataset-${randomUUID()}`, managerId],
+    )).rows[0]!.id;
+    const demoCustomerId = (await pool!.query<{ id: string }>(
+      `INSERT INTO customers
+         (organization_id, name, customer_type, status, data_class, demo_dataset_id)
+       VALUES ($1, 'Demo Klinik', 'clinic', 'active', 'DEMO', $2) RETURNING id`,
+      [organizationId, demoDatasetId],
+    )).rows[0]!.id;
     const productId = await insertProduct('Greft Seti');
     const secondProductId = await insertProduct('Dental İmplant');
+    const thirdProductId = await insertProduct('Kemik Grefti');
     const inactiveProductId = await insertProduct('Pasif Ürün', false);
+    const demoProductId = await insertProduct('Demo Greft Seti', true, demoDatasetId);
+    const otherDemoProductId = await insertProduct('Diğer Dataset Ürünü', true, otherDemoDatasetId);
 
     const published: RealtimeEventRecord[] = [];
     const publisher: RealtimeEventPublisher = { publish: (event) => published.push(event) };
@@ -165,16 +196,18 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       const assignedTo = input.assignedTo ?? staffAId;
       const completed = status === 'COMPLETED';
       const sourceJobCardId = input.sourceJobCardId ?? null;
+      const dataClass = input.dataClass ?? 'BUSINESS';
+      const sourceDemoDatasetId = dataClass === 'DEMO' ? (input.demoDatasetId ?? null) : null;
       const result = await pool!.query<{ id: string }>(
         `INSERT INTO job_cards (
            organization_id, type, status, title, customer_id, contact_id,
            assigned_to, created_by, engagement_kind,
            started_at, staff_completed_at, staff_completed_by,
            manager_approved_at, manager_approved_by,
-           source_job_card_id, follow_up_instructions
+           source_job_card_id, follow_up_instructions, data_class, demo_dataset_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9,
-           $10, $11, $12, $13, $14, $15, $16
+           $10, $11, $12, $13, $14, $15, $16, $17, $18
          ) RETURNING id`,
         [
           organizationId,
@@ -193,6 +226,8 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
           completed ? managerId : null,
           sourceJobCardId,
           sourceJobCardId === null ? null : `Depth link ${randomUUID()}`,
+          dataClass,
+          sourceDemoDatasetId,
         ],
       );
       if (type === 'SALES_MEETING') {
@@ -226,7 +261,13 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       otherCustomerContactId,
       productId,
       secondProductId,
+      thirdProductId,
       inactiveProductId,
+      demoDatasetId,
+      otherDemoDatasetId,
+      demoProductId,
+      otherDemoProductId,
+      demoCustomerId,
       createSource,
     });
   } finally {
@@ -634,6 +675,7 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         { items: [] },
         { items: undefined },
         { items: [{ productId: fixture.productId, quantity: 0 }] },
+        { items: [{ productId: fixture.productId, quantity: 1.5 }] },
         { items: [
           { productId: fixture.productId, quantity: 1 },
           { productId: fixture.productId, quantity: 2 },
@@ -655,6 +697,121 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         `SELECT COUNT(*)::text AS count FROM job_cards WHERE source_job_card_id = $1`,
         [source],
       )).rows[0]!.count).toBe('0');
+    });
+  });
+
+  it('conceals a DEMO product on a BUSINESS delivery follow-up without creating a child', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({ type: 'PRODUCT_DELIVERY' });
+
+      await expect(fixture.service.createFollowUp(fixture.manager, source, input(fixture.staffA.id, {
+        type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-08-03T09:00:00.000Z',
+        deliveryPurpose: 'SALE',
+        items: [{ productId: fixture.demoProductId, quantity: 1 }],
+      }))).rejects.toMatchObject(appError('PRODUCT_NOT_FOUND', 404));
+
+      // Same concealment as an inactive/unknown product: nothing is written.
+      expect((await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_cards WHERE source_job_card_id = $1`,
+        [source],
+      )).rows[0]!.count).toBe('0');
+      expect((await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_delivery_items WHERE organization_id = $1`,
+        [fixture.organizationId],
+      )).rows[0]!.count).toBe('0');
+    });
+  });
+
+  it('lets a DEMO delivery follow-up use its own dataset and BUSINESS products', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({
+        type: 'PRODUCT_DELIVERY',
+        customerId: fixture.demoCustomerId,
+        contactId: null,
+        dataClass: 'DEMO',
+        demoDatasetId: fixture.demoDatasetId,
+      });
+
+      const created = await fixture.service.createFollowUp(fixture.manager, source, input(fixture.staffA.id, {
+        type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-08-03T09:00:00.000Z',
+        deliveryPurpose: 'SAMPLE',
+        items: [
+          { productId: fixture.demoProductId, quantity: 2 },
+          { productId: fixture.productId, quantity: 3 },
+        ],
+      }));
+
+      expect((await fixture.pool.query<{
+        data_class: 'BUSINESS' | 'DEMO'; demo_dataset_id: string | null;
+      }>(
+        `SELECT data_class, demo_dataset_id FROM job_cards WHERE id = $1`,
+        [created.id],
+      )).rows).toEqual([
+        { data_class: 'DEMO', demo_dataset_id: fixture.demoDatasetId },
+      ]);
+      expect((await fixture.pool.query<{ product_id: string; product_name_snapshot: string }>(
+        `SELECT product_id, product_name_snapshot FROM job_card_delivery_items
+          WHERE job_card_id = $1 ORDER BY sort_order`,
+        [created.id],
+      )).rows).toEqual([
+        { product_id: fixture.demoProductId, product_name_snapshot: 'Demo Greft Seti' },
+        { product_id: fixture.productId, product_name_snapshot: 'Greft Seti' },
+      ]);
+    });
+  });
+
+  it('conceals another dataset product on a DEMO delivery follow-up', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({
+        type: 'PRODUCT_DELIVERY',
+        customerId: fixture.demoCustomerId,
+        contactId: null,
+        dataClass: 'DEMO',
+        demoDatasetId: fixture.demoDatasetId,
+      });
+
+      await expect(fixture.service.createFollowUp(fixture.manager, source, input(fixture.staffA.id, {
+        type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-08-03T09:00:00.000Z',
+        deliveryPurpose: 'SALE',
+        items: [{ productId: fixture.otherDemoProductId, quantity: 1 }],
+      }))).rejects.toMatchObject(appError('PRODUCT_NOT_FOUND', 404));
+
+      expect((await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_cards WHERE source_job_card_id = $1`,
+        [source],
+      )).rows[0]!.count).toBe('0');
+    });
+  });
+
+  it('resolves multi-item delivery products in sorted lock order but keeps the request order', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({ type: 'PRODUCT_DELIVERY' });
+      // Deliberately the reverse of the deterministic resolution order, so a
+      // persisted sorted sequence would fail this assertion.
+      const requestOrder = [fixture.productId, fixture.secondProductId, fixture.thirdProductId]
+        .sort()
+        .reverse();
+      expect(requestOrder).not.toEqual([...requestOrder].sort());
+      const quantities = new Map([[requestOrder[0]!, 1], [requestOrder[1]!, 2], [requestOrder[2]!, 3]]);
+
+      const created = await fixture.service.createFollowUp(fixture.manager, source, input(fixture.staffA.id, {
+        type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-08-03T09:00:00.000Z',
+        deliveryPurpose: 'SALE',
+        items: requestOrder.map((productId) => ({ productId, quantity: quantities.get(productId)! })),
+      }));
+
+      expect((await fixture.pool.query<{ product_id: string; quantity: string }>(
+        `SELECT product_id, quantity::text FROM job_card_delivery_items
+          WHERE job_card_id = $1 ORDER BY sort_order`,
+        [created.id],
+      )).rows).toEqual(requestOrder.map((productId) => ({
+        product_id: productId,
+        quantity: `${quantities.get(productId)!}.000`,
+      })));
     });
   });
 

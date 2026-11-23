@@ -116,5 +116,7 @@ Delivery detail product CRUD on an existing card remains a separate functional
 backlog. Follow-up initial delivery items are no longer part of that backlog: a
 `PRODUCT_DELIVERY` follow-up now carries the same initial `deliveryPurpose`,
 `deliveryNote` and `items` batch as the normal delivery create and creates those
-lines in the same transaction, so `FollowUpCreatePage` uses the shared
-`ProductSelect`. Production deployment and migration remain unauthorized.
+lines in the same transaction, with the same active BUSINESS-product eligibility
+(checking the child's data class), deterministic product resolution order, and
+25-line cap, so `FollowUpCreatePage` uses the shared `ProductSelect` and its
+BUSINESS-scoped loader. Production deployment and migration remain unauthorized.

@@ -109,6 +109,7 @@ describe('linked follow-up create input', () => {
       [{ productId: PRODUCT_ID, quantity: 0 }],
       [{ productId: PRODUCT_ID, quantity: -1 }],
       [{ productId: PRODUCT_ID, quantity: Number.NaN }],
+      [{ productId: PRODUCT_ID, quantity: 1.5 }],
       [{ productId: PRODUCT_ID, quantity: 1, lotNo: 'LOT-1' }],
       [{ productId: PRODUCT_ID, quantity: 1 }, { productId: PRODUCT_ID, quantity: 2 }],
       [{ productId: 'not-a-product', quantity: 1 }],

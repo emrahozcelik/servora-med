@@ -2797,13 +2797,27 @@ export class JobCardService {
           source.dataClass === 'DEMO' && source.demoDatasetId ? 'DEMO' : 'BUSINESS';
         const childDemoDatasetId: string | null =
           childDataClass === 'DEMO' ? source.demoDatasetId : null;
-        // Same active-product gate as the normal delivery create, resolved
-        // before the child row exists so an unknown line cannot orphan a card.
+        // Same deterministic ID-ordered FOR SHARE resolution as the normal
+        // delivery create: a BUSINESS child must never reference a DEMO product
+        // (and a DEMO child only its own dataset). It runs before the child row
+        // exists so an ineligible line cannot orphan a card; the persisted item
+        // order stays the request order.
+        const deliveryScope: JobDeliveryScope = {
+          dataClass: childDataClass,
+          demoDatasetId: childDemoDatasetId,
+        };
         const deliveryProducts: Array<InitialDeliveryItem & { product: ProductReference }> = [];
-        for (const item of delivery?.items ?? []) {
-          const product = await transaction.getProduct(actor.organizationId, item.productId);
-          if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
-          deliveryProducts.push({ ...item, product });
+        if (delivery !== null) {
+          const references = new Map<string, ProductReference>();
+          for (const productId of [...new Set(delivery.items.map((item) => item.productId))].sort()) {
+            const product = await transaction.getProduct(actor.organizationId, productId);
+            if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+            assertDeliveryProductEligible(deliveryScope, product);
+            references.set(productId, product);
+          }
+          for (const item of delivery.items) {
+            deliveryProducts.push({ ...item, product: references.get(item.productId)! });
+          }
         }
 
         const { job, realtimeEvents } = await this.createFollowUpChild(transaction, actor, {

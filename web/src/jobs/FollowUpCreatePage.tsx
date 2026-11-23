@@ -41,7 +41,13 @@ import { assignmentWindowErrorMessage } from './assignment-window-errors';
 import { pastStartAcknowledgementPayload, type PastStartAcknowledgement } from './jobs-api';
 import { PageHeader } from '../ui/PageHeader';
 import { ProductSelect } from '../ProductSelect';
+import { loadDeliveryProducts } from '../DeliveryCreate';
 import type { Product } from '../services/products-api';
+
+/** Server contract: `MAX_INITIAL_DELIVERY_ITEMS` in job-cards create-input. */
+const MAX_INITIAL_DELIVERY_ITEMS = 25;
+/** Cap message associated with the product area, not a colour-only hint. */
+const DELIVERY_ITEMS_LIMIT_MESSAGE = `En fazla ${MAX_INITIAL_DELIVERY_ITEMS} ürün eklenebilir.`;
 
 type LoadState =
   | { kind: 'loading' }
@@ -106,6 +112,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [selectedProducts, setSelectedProducts] = useState<Array<{ product: Product; quantity: number | '' }>>([]);
   const [deliveryPurpose, setDeliveryPurpose] = useState<DeliveryPurpose>('SALE');
   const [deliveryNote, setDeliveryNote] = useState('');
+  const [productLimitError, setProductLimitError] = useState('');
   const [pending, setPending] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -142,6 +149,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setSelectedProducts([]);
     setDeliveryPurpose('SALE');
     setDeliveryNote('');
+    setProductLimitError('');
     setPending(false);
     setSubmitError('');
     setFieldErrors({});
@@ -305,18 +313,26 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   function changeType(nextType: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING') {
     if (customerless && nextType !== 'GENERAL_TASK') return;
     setType(nextType);
+    setProductLimitError('');
     setFieldErrors((current) => ({
       ...current, type: undefined, scheduledAt: undefined, engagementKind: undefined, items: undefined,
     }));
   }
 
   function addSelectedProduct(product: Product) {
-    setSelectedProducts((current) => current.some((entry) => entry.product.id === product.id)
-      ? current
-      : [...current, { product, quantity: 1 }]);
+    if (selectedProducts.some((entry) => entry.product.id === product.id)) return;
+    // The server rejects more than 25 initial lines; stop the selection here so
+    // the extra product is never shown as added.
+    if (selectedProducts.length >= MAX_INITIAL_DELIVERY_ITEMS) {
+      setProductLimitError(DELIVERY_ITEMS_LIMIT_MESSAGE);
+      return;
+    }
+    setProductLimitError('');
+    setSelectedProducts((current) => [...current, { product, quantity: 1 }]);
   }
 
   function removeSelectedProduct(productId: string) {
+    setProductLimitError('');
     setSelectedProducts((current) => current.filter((entry) => entry.product.id !== productId));
   }
 
@@ -352,7 +368,9 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         || !Number.isInteger(entry.quantity) || entry.quantity < 1 || entry.quantity > 999999999)
       : undefined;
     if (type === 'PRODUCT_DELIVERY') {
-      if (selectedProducts.length === 0) nextErrors.items = 'En az bir ürün seçin.';
+      if (selectedProducts.length > MAX_INITIAL_DELIVERY_ITEMS) {
+        nextErrors.items = DELIVERY_ITEMS_LIMIT_MESSAGE;
+      } else if (selectedProducts.length === 0) nextErrors.items = 'En az bir ürün seçin.';
       else if (invalidQuantityProduct) {
         nextErrors.items = `${invalidQuantityProduct.product.name} için 1–999999999 arasında tam sayı adet girin.`;
       }
@@ -534,7 +552,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
           {type === 'PRODUCT_DELIVERY' && <div className="follow-up-delivery-items" data-follow-up-delivery-items="true">
             <h2 id="follow-up-products-heading">Ürünler ve miktarlar</h2>
             <p className="form-help">Teslim edilecek en az bir ürün ve miktar seçin. Ürünler iş oluşturulurken kaydedilir.</p>
-            <ProductSelect
+            <ProductSelect load={loadDeliveryProducts}
               selectedProducts={selectedProducts.map((entry) => entry.product)}
               onAdd={addSelectedProduct}
               onRemove={removeSelectedProduct}
@@ -547,6 +565,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
                   aria-describedby={fieldErrors.items ? 'follow-up-items-error' : undefined}
                   onChange={(event) => updateSelectedQuantity(product.id, event.target.value)} />
               </>} />
+            {productLimitError && <span className="field-error" role="alert">{productLimitError}</span>}
             {fieldErrors.items && <span id="follow-up-items-error" className="field-error">{fieldErrors.items}</span>}
             <div className="task-field-pair">
               <div className="field-group"><label htmlFor="follow-up-delivery-purpose">Teslim amacı</label>

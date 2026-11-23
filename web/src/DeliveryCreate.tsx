@@ -56,9 +56,10 @@ export type ProductDeliveryCreateRequest = Parameters<typeof createProductDelive
 
 /**
  * Delivery items reference BUSINESS products only: a DEMO product is concealed
- * by the delivery write paths, so the picker must not offer one.
+ * by the delivery write paths, so the picker must not offer one. Shared by the
+ * normal delivery create and the delivery follow-up batch.
  */
-const loadDeliveryProducts = (filters: ProductFilters) =>
+export const loadDeliveryProducts = (filters: ProductFilters) =>
   listProducts({ ...filters, dataClass: 'BUSINESS' });
 
 /**
