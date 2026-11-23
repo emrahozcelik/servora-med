@@ -5567,9 +5567,10 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         if (!row.live) {
           // SALE-002 §4.6: an expired pair has no half-failed half-live
           // intent. The anchor and every participant of this identity expire
-          // together, in one statement.
+          // together, in one statement, with one instant (statement_timestamp
+          // is evaluated once per statement; clock_timestamp once per row).
           await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
-            failed_at=date_trunc('milliseconds',clock_timestamp()), failure_code='LIFECYCLE_INTENT_EXPIRED'
+            failed_at=date_trunc('milliseconds',statement_timestamp()), failure_code='LIFECYCLE_INTENT_EXPIRED'
             WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$3
               AND (operation_key=$4 OR job_card_id = ANY($5::uuid[]))`,
             [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey,
@@ -5746,8 +5747,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       await assertUnexpired();
       const result = await work(tx);
       await assertUnexpired();
+      // SALE-002 §4.6: anchor and participants complete with one instant.
       await client.query(`UPDATE job_card_lifecycle_intents SET state='COMPLETED',
-        completed_at=date_trunc('milliseconds',clock_timestamp()) WHERE id = ANY($1::uuid[])`, [intentIds]);
+        completed_at=date_trunc('milliseconds',statement_timestamp()) WHERE id = ANY($1::uuid[])`, [intentIds]);
       await client.query(`UPDATE processed_actions SET status='completed',status_code=200,
         response_body=$2,completed_at=NOW() WHERE id=$1`,[claimed.rows[0]!.id,result.response]);
       committing = true;
@@ -5777,8 +5779,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
           for (const id of lockJobCardIds) {
             await recovery.getJobForUpdate(claim.organizationId, id);
           }
+          // One instant for the anchor and every participant (§4.6).
           await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
-            failed_at=date_trunc('milliseconds',clock_timestamp()),failure_code=$3
+            failed_at=date_trunc('milliseconds',statement_timestamp()),failure_code=$3
             WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$4 AND reserved_at=$5
               AND state='PENDING'
               AND (job_card_id = ANY($6::uuid[]) OR operation_key=$7)`,

@@ -619,6 +619,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S3 pair approval with 
       const intents = await intentsFor(f, 's3-pair-approve');
       expect(intents.map((row) => row.state)).toEqual(['COMPLETED', 'COMPLETED']);
       expect(intents.map((row) => row.operation_key).sort()).toEqual([anchorKey, `${anchorKey}:participant`]);
+      // Completed together: one instant for anchor and participant.
+      const completedAt = (await f.pool.query<{ completed_at: Date }>(
+        'SELECT completed_at FROM job_card_lifecycle_intents WHERE client_action_id = $1',
+        ['s3-pair-approve'],
+      )).rows.map((row) => row.completed_at.getTime());
+      expect(new Set(completedAt).size).toBe(1);
       expect(await count(f,
         'SELECT count(*)::int AS n FROM processed_actions WHERE operation_key = $1', [anchorKey])).toBe(1);
     });
