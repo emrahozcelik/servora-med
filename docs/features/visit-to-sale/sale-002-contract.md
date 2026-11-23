@@ -753,9 +753,10 @@ POST /api/job-cards/:id/approve
   `409 PAST_START_ACKNOWLEDGEMENT_REQUIRED` (supply `pastStartAcknowledgement`).
 - **Retry contract after a definitive failure (049 `FAILED`).** Any 4xx `AppError` inside the
   intent finalization marks **both** intent rows `FAILED` with that `failure_code`
-  (`repository.ts:5318-5327`); a later attempt with the same `clientActionId` throws
-  `lifecycleIntentError` regardless of payload identity (`repository.ts:185-189`, message:
-  "Yeni bir işlem anahtarıyla tekrar deneyin"). Therefore:
+  (`repository.ts:5318-5327`); a later attempt with the same `clientActionId` is always
+  refused: a byte-identical body throws `lifecycleIntentError` (message: "Yeni bir işlem
+  anahtarıyla tekrar deneyin"), and a changed body fails the ARC-001 request-identity check
+  first with `409 CLIENT_ACTION_REUSED`. Therefore:
   - after `ASSIGNMENT_WINDOW_TOO_SHORT`, `PAST_START_ACKNOWLEDGEMENT_REQUIRED`,
     `CUSTOMER_INACTIVE`, `PRODUCT_NOT_FOUND`, `VALIDATION_ERROR` or any other definitive 4xx,
     the corrected approval **must use a new `clientActionId`** with the new time,

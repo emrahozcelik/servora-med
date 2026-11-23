@@ -573,11 +573,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S3 sale approval deliv
       // A card that is not a delivery has no provenance.
       expect((await service.detail(f.manager, saleId)).deliverySourceSaleId).toBeNull();
 
-      // Sale side: management sees the link; the sale owner does not carry the delivery, so null.
+      // Sale side: management sees the link; the sale owner does not carry the
+      // delivery, so it sees the fact and status without the delivery id.
       expect(await service.detail(f.manager, saleId)).toMatchObject({
         linkedDelivery: { id: deliveryId, status: 'NEW' },
       });
-      expect((await service.detail(f.staff, saleId)).linkedDelivery).toBeNull();
+      expect((await service.detail(f.staff, saleId)).linkedDelivery).toEqual({ id: null, status: 'NEW' });
+      expect(JSON.stringify(await service.detail(f.staff, saleId))).not.toContain(deliveryId);
       // A card with no delivery (a delivery itself) reports none.
       expect((await service.detail(f.manager, deliveryId)).linkedDelivery).toBeNull();
 

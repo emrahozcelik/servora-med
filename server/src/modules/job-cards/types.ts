@@ -713,11 +713,13 @@ export type JobCardDetail = Omit<
   | 'deliverySourceSale' | 'linkedDelivery'
 > & {
   /**
-   * SALE-002 §5.5 (sale detail): the delivery opened from this sale, only when
-   * the viewer can read it (management, or the delivery's own assignee);
-   * null when there is none or it is not readable.
+   * SALE-002 §5.5 (sale detail): the delivery opened from this sale; null when
+   * there is none. `id` is present only when the viewer can read the delivery
+   * (management, or the delivery's own assignee). A sale owner whose delivery
+   * another staff member carries sees `{ id: null, status }`: the fact and its
+   * progress, never an id they cannot open.
    */
-  linkedDelivery: { id: string; status: JobCardStatus } | null;
+  linkedDelivery: { id: string | null; status: JobCardStatus } | null;
   /**
    * SALE-002 §5.5: the sale a delivery was opened from, only when the viewer
    * can read that sale (management, or the sale's own assignee); otherwise

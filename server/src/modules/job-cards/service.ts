@@ -9063,10 +9063,16 @@ export class JobCardService {
         && (actor.role !== 'STAFF' || deliverySourceSale.assignedTo === actor.id)
         ? deliverySourceSale.id
         : null,
-      linkedDelivery: linkedDelivery !== null
-        && (actor.role !== 'STAFF' || linkedDelivery.assignedTo === actor.id)
-        ? { id: linkedDelivery.id, status: linkedDelivery.status }
-        : null,
+      // The sale is already readable here; the delivery id only when the
+      // delivery is readable too (STAFF: its own assignee).
+      linkedDelivery: linkedDelivery === null
+        ? null
+        : {
+          id: actor.role !== 'STAFF' || linkedDelivery.assignedTo === actor.id
+            ? linkedDelivery.id
+            : null,
+          status: linkedDelivery.status,
+        },
       // JOB-010 release 2b: latest offer, EXPIRED at read time once its
       // deadline passed.
       assignmentOffer: this.presentAssignmentOffer(persisted.assignmentOffer, evaluatedAt),

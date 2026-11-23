@@ -1265,3 +1265,25 @@ it('parses Sale activity quantities with the integer detail contract', async () 
     }
   }
 });
+
+it('parses the SALE-002 S3 sale-delivery activity and rejects drift', async () => {
+  const activity = {
+    id: 'sale-delivery-audit', jobCardId: 'sale', eventType: 'SALE_DELIVERY_CREATED', actor: null,
+    createdAt: '2026-11-23T08:00:00.000Z',
+    details: { kind: 'SALE_DELIVERY', deliveryJobCardId: 'delivery-1', assignedTo: 'staff-1',
+      scheduledAt: '2026-11-24T07:00:00.000Z', itemCount: 2,
+      items: [{ productId: 'p1', quantity: 2 }, { productId: 'p2', quantity: 4 }] },
+  };
+  const fetch = vi.fn().mockResolvedValue(Response.json({ items: [activity], total: 1, limit: 50, offset: 0 }));
+  vi.stubGlobal('fetch', fetch);
+  expect((await listActivity('sale')).items[0]?.details).toEqual(activity.details);
+  for (const details of [
+    { ...activity.details, raw: 'x' },
+    { ...activity.details, itemCount: 0 },
+    { ...activity.details, items: [{ productId: 'p1', quantity: 0.5 }] },
+    { ...activity.details, scheduledAt: 'yarın' },
+  ]) {
+    fetch.mockResolvedValueOnce(Response.json({ items: [{ ...activity, details }], total: 1, limit: 50, offset: 0 }));
+    await expect(listActivity('sale')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  }
+});

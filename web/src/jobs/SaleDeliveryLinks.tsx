@@ -18,11 +18,15 @@ export function LinkedDeliveryPanel(props: { linkedDelivery: LinkedDelivery | nu
     <h3 id={titleId} className="sale-pair-heading">Bağlı teslimat</h3>
     {delivery === null
       ? <p>Henüz teslim işi açılmadı.</p>
-      : <p>
-          <a href={paths.job(delivery.id)}>Teslim işini aç</a>
-          {' · '}
-          {jobCardStatusLabel(delivery.status)}
-        </p>}
+      : delivery.id === null
+        // The delivery is carried by another staff member: the sale owner sees
+        // that it exists and how it progresses, without a link it cannot open.
+        ? <p>Teslim işi açıldı, başka bir personel teslim ediyor · {jobCardStatusLabel(delivery.status)}</p>
+        : <p>
+            <a href={paths.job(delivery.id)}>Teslim işini aç</a>
+            {' · '}
+            {jobCardStatusLabel(delivery.status)}
+          </p>}
   </section>;
 }
 

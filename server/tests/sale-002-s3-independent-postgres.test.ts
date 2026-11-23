@@ -408,10 +408,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S3 independent sale ap
       expect(delivery.scheduled_ends_at.toISOString()).toBe(plusMinutes(scheduledAt, 30));
 
       // §5.2 planned items: default purpose SALE, no actual time, whole units, note NOT duplicated.
-      expect(await deliveryItems(f, delivery.id)).toEqual([
+      // Lines inserted in one transaction share sort_order/created_at, so compare as a set.
+      const byProduct = (a: { product_id: string }, b: { product_id: string }) => a.product_id.localeCompare(b.product_id);
+      expect((await deliveryItems(f, delivery.id)).sort(byProduct)).toEqual([
         { product_id: f.products[1], delivery_purpose: 'SALE', delivered_at: null, quantity: '4.000', delivery_note: null },
         { product_id: f.products[0], delivery_purpose: 'SALE', delivered_at: null, quantity: '2.000', delivery_note: null },
-      ]);
+      ].sort(byProduct));
 
       // §5.3: one JOB_CREATED and one DELIVERY_ITEM_ADDED per line on the delivery.
       expect(await activities(f, delivery.id, 'JOB_CREATED')).toHaveLength(1);
@@ -1107,13 +1109,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S3 assignment window i
       expect(await world(f)).toEqual(before);
       expect(await cardRow(f, saleId)).toMatchObject({ status: 'WAITING_APPROVAL', version });
 
-      // Same key, corrected time: still terminal (049 FAILED).
+      // Same key, identical body: still terminal (049 FAILED).
       const sameKey = await approveSale(f, saleId, {
         clientActionId: 's3-window-1', expectedVersion: version,
-        delivery: await deliveryBody(f),
+        delivery: await deliveryBody(f, { scheduledAt: tooShortAt }),
       });
       expect(sameKey.statusCode).toBe(409);
       expect(sameKey.json().error).toContain('Yeni bir işlem anahtarıyla');
+      // Same key, corrected time: the request identity check (ARC-001) runs
+      // before the FAILED state check, so a changed body is CLIENT_ACTION_REUSED.
+      // Either way the key is spent and the client must mint a new one (§5.4).
+      const sameKeyCorrected = await approveSale(f, saleId, {
+        clientActionId: 's3-window-1', expectedVersion: version,
+        delivery: await deliveryBody(f),
+      });
+      expect(sameKeyCorrected.statusCode).toBe(409);
+      expect(sameKeyCorrected.json().code).toBe('CLIENT_ACTION_REUSED');
       expect(await deliveriesOf(f, saleId)).toHaveLength(0);
 
       // With the acknowledgement (new key) it succeeds and the offer records it.
@@ -1521,13 +1532,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SALE-002 S3 approval authorizat
     await withSaleFixture(async (f) => {
       const { saleId, version } = await waitingStandalone(f);
       const before = await world(f);
-      for (const actor of [f.staff, f.otherStaff]) {
+      // The owner may read the sale and is refused the management command
+      // (403); another STAFF member cannot read it and gets the existing
+      // concealment 404 — never a hint that the sale exists.
+      for (const [actor, status] of [[f.staff, 403], [f.otherStaff, 404]] as const) {
         const response = await approveSale(f, saleId, {
           clientActionId: `s3-staff-approve-${actor.id}`,
           expectedVersion: version,
           delivery: await deliveryBody(f),
         }, actor);
-        expect(response.statusCode).toBe(403);
+        expect(response.statusCode).toBe(status);
       }
       expect(await cardRow(f, saleId)).toMatchObject({ status: 'WAITING_APPROVAL', version });
       expect(await world(f)).toEqual(before);

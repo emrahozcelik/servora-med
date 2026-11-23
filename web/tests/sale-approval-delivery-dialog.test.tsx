@@ -730,6 +730,18 @@ describe('SALE-002 S3 approval delivery section', () => {
       expect(panel?.textContent).toContain('Hazırlanıyor');
     });
 
+    it('shows the status without a link when another staff member carries the delivery', async () => {
+      const completed = saleCard('COMPLETED', {
+        workflowContext: context([]),
+        linkedDelivery: { id: null, status: 'NEW' },
+      });
+      await renderCard({ main: completed, sale: completed, standalone: true });
+      const panel = host.querySelector('[data-sale-delivery-link]');
+      expect(panel?.textContent).toContain('başka bir personel teslim ediyor');
+      expect(panel?.textContent).not.toContain('Henüz teslim işi açılmadı');
+      expect(panel?.querySelector('a')).toBeNull();
+    });
+
     it('says no delivery was opened when the DTO exposes a null link', async () => {
       const completed = saleCard('COMPLETED', { workflowContext: context([]), linkedDelivery: null });
       await renderCard({ main: completed, sale: completed, standalone: true });
@@ -787,5 +799,7 @@ describe('SALE-002 S3 sale detail DTO', () => {
       .toEqual({ id: 'delivery-9', status: 'NEW' });
     expect(() => parseSaleDetails({ ...base, linkedDelivery: { id: 'delivery-9', status: 'BOGUS' } })).toThrow();
     expect(() => parseSaleDetails({ ...base, linkedDelivery: 'delivery-9' })).toThrow();
+    expect(parseSaleDetails({ ...base, linkedDelivery: { id: null, status: 'COMPLETED' } }).linkedDelivery)
+      .toEqual({ id: null, status: 'COMPLETED' });
   });
 });

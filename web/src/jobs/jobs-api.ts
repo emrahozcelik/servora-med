@@ -286,7 +286,7 @@ export type FollowUpSuggestion = {
   evaluation: CustomerScheduleEvaluation;
 };
 /** SALE-002 §5: the delivery a sale approval opened, as the sale card exposes it. */
-export type LinkedDelivery = { id: string; status: JobCardStatus };
+export type LinkedDelivery = { id: string | null; status: JobCardStatus };
 export type JobCard = {
   id: string; organizationId: string; organizationTimezone?: string;
   type: JobCardType; status: JobCardStatus;
@@ -498,6 +498,7 @@ export type JobCardActivityDetails =
   | { kind: 'SALE_RELATION' }
   | { kind: 'SALE_DETAILS'; changedFields: Array<'soldAt' | 'saleContact'> }
   | { kind: 'SALE_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; productName: string; quantity: string; previousQuantity: string | null }
+  | { kind: 'SALE_DELIVERY'; deliveryJobCardId: string; assignedTo: string; scheduledAt: string; itemCount: number; items: Array<{ productId: string; quantity: number }> }
   | {
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardActivityStatus;
@@ -1085,7 +1086,7 @@ function parseJobCard(value: unknown): JobCard {
 export function parseLinkedDelivery(value: unknown): LinkedDelivery | null {
   if (value === null) return null;
   const v = object(value);
-  return { id: string(v.id, 'linkedDelivery.id'), status: oneOf(v.status, 'linkedDelivery.status', JOB_CARD_STATUSES) };
+  return { id: nullableString(v.id, 'linkedDelivery.id'), status: oneOf(v.status, 'linkedDelivery.status', JOB_CARD_STATUSES) };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
   const v = object(value);
@@ -1270,6 +1271,18 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     itemId: string(v.itemId, 'itemId'),
     purpose: v.purpose === null ? null : oneOf(v.purpose, 'purpose', DELIVERY_PURPOSES),
     quantity: v.quantity === null ? null : positiveFiniteNumber(v.quantity, 'quantity') };
+  if (kind === 'SALE_DELIVERY') {
+    const detail = exactObject(v, 'details', ['kind', 'deliveryJobCardId', 'assignedTo', 'scheduledAt', 'itemCount', 'items']);
+    return { kind,
+      deliveryJobCardId: string(detail.deliveryJobCardId, 'deliveryJobCardId'),
+      assignedTo: string(detail.assignedTo, 'assignedTo'),
+      scheduledAt: canonicalInstant(detail.scheduledAt, 'scheduledAt'),
+      itemCount: positiveCount(detail.itemCount, 'itemCount'),
+      items: array(detail.items, 'items').map((entry) => {
+        const item = exactObject(entry, 'items', ['productId', 'quantity']);
+        return { productId: string(item.productId, 'items.productId'), quantity: positiveCount(item.quantity, 'items.quantity') };
+      }) };
+  }
   if (kind === 'NOTE') return { kind, noteId: string(v.noteId, 'noteId') };
   if (kind === 'MEETING_DETAILS') {
     const detail = exactObject(v, 'details', ['kind', 'changedFields']);
