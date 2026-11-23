@@ -38,7 +38,7 @@ export function JobApprovalReviewPanel(props: {
 
   return (
     <section className="approval-review surface-raised" aria-labelledby="approval-review-title">
-      <div className="detail-section-heading"><h2 id="approval-review-title">Yönetici kontrolü</h2></div>
+      <div className="detail-section-heading"><h2 id="approval-review-title">Yönetici kontrolü özeti</h2></div>
       <p className="approval-review-submitter">
         {submittedBy && submittedAt ? (
           <>

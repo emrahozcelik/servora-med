@@ -161,6 +161,7 @@ import {
   FollowUpCreateAction,
   FollowUpRecommendation,
   FollowUpSourcePanel,
+  StaffFollowUpProposalNotice,
   SystemSelectedFollowUpNotice,
 } from './jobs/FollowUpContinuity';
 import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
@@ -865,7 +866,10 @@ export function JobDetailPanel({
     || presentation.recordEditAction,
   );
   const requirements = showRequirements
-    ? <RequirementsChecklist requirements={presentation.requirements} />
+    ? <RequirementsChecklist
+        requirements={presentation.requirements}
+        submitted={job.status === 'WAITING_APPROVAL'}
+      />
     : null;
   const decision = hasDecision ? (
     <JobDecisionPanel
@@ -920,7 +924,10 @@ export function JobDetailPanel({
       )}
       {presentation.revisionLoop && (
         <div data-job-detail-section="revision">
-          <RevisionLoopPanel loop={presentation.revisionLoop} />
+          <RevisionLoopPanel
+            loop={presentation.revisionLoop}
+            resumed={job.status === 'IN_PROGRESS'}
+          />
         </div>
       )}
       {presentation.terminalDetails && (
@@ -933,7 +940,11 @@ export function JobDetailPanel({
 
   const responsibilitySection = presentation.terminalState === null ? (
     <div data-job-detail-section="responsibility">
-      <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
+      <CurrentResponsibilityPanel
+        presentation={presentation}
+        assigneeName={job.assignee.name}
+        hideSubmission={managementReview}
+      />
     </div>
   ) : null;
 
@@ -986,6 +997,9 @@ export function JobDetailPanel({
       {!narrow && overdueHistory}
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
+      )}
+      {job.followUpProposal?.origin === 'STAFF_ADJUSTED' && job.status === 'WAITING_APPROVAL' && (
+        <StaffFollowUpProposalNotice proposal={job.followUpProposal} />
       )}
       {/* DOM order (mobile, UI-005): heading → feedback → lateness signal →
           responsibility → primary commands → compact lifecycle → details/history.
@@ -1104,7 +1118,6 @@ export function JobDetailPanel({
               </div>
             )}
 
-            {invalidationAction}
             {messagingAction}
 
             {notes && (
@@ -1116,6 +1129,8 @@ export function JobDetailPanel({
                 {notes}
               </div>
             )}
+
+            {invalidationAction}
           </aside>
         )}
       </div>
@@ -1306,9 +1321,6 @@ function nextSessionToken() {
 
 function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
-  // The lateness history is a collapsed disclosure below the workflow for
-  // managers below the 64rem gate (DECISIONS.md UI-005).
-  const narrowDetail = useNarrowDetail();
   const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   useEffect(() => {
     setRouteRuntimeLabel(state.kind === 'ready' ? state.detail.job.title : undefined);
@@ -1391,6 +1403,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
      */
     expandInstructions: boolean;
   } | null>(null);
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [followUpLoadError, setFollowUpLoadError] = useState<string | null>(null);
+  const followUpLoadTokenRef = useRef(0);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const dialogFocusRestoreEnabledRef = useRef(true);
   const mutationInFlight = useRef(false);
@@ -1601,6 +1616,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setMeetingSubmissionError(null);
     setInvalidationMutation({ kind: 'idle' });
     setDialog(null);
+    followUpLoadTokenRef.current += 1;
+    setFollowUp(null);
+    setFollowUpLoading(false);
+    setFollowUpLoadError(null);
     setStartPendingPhase(null);
     setSubmitPendingPhase(null);
   }, [jobId]);
@@ -1631,11 +1650,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     if (feedbackFocusRequest > 0) feedbackRef.current?.focus();
   }, [feedbackFocusRequest]);
 
+  function resetFollowUpState() {
+    followUpLoadTokenRef.current += 1;
+    setFollowUp(null);
+    setFollowUpLoading(false);
+    setFollowUpLoadError(null);
+  }
   function closeDialog() {
     // Focus restoration is owned by ConfirmationAction / ReasonDialog.
     dialogFocusRestoreEnabledRef.current = true;
     setDialog(null);
-    setFollowUp(null);
+    resetFollowUpState();
     setCancelContinuity(null);
     setAssignmentReason(null);
     setRevisionCorrection(null);
@@ -2078,7 +2103,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) {
         setDialog(null);
-        setFollowUp(null);
+        resetFollowUpState();
         setCancelContinuity(null);
         setAssignmentReason(null);
         setRevisionCorrection(null);
@@ -2137,7 +2162,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
         setRevisionCorrection(null);
-        setFollowUp(null);
+        resetFollowUpState();
         setFeedbackFocusRequest((value) => value + 1);
       } else {
         if (isDefinitiveMutationError(caught)) {
@@ -2167,7 +2192,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           if (command === 'SUBMIT_FOR_APPROVAL') submitCapture.current = null;
           setDialog(null);
           setRevisionCorrection(null);
-          setFollowUp(null);
+          resetFollowUpState();
           setPairGuidance(guidance);
           try {
             if (!(await refreshTruth())) return;
@@ -2243,7 +2268,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           setMeetingSubmissionError(caught);
           dialogFocusRestoreEnabledRef.current = false;
           setDialog(null);
-          setFollowUp(null);
+          resetFollowUpState();
         }
         setFeedbackFocusRequest((value) => value + 1);
       }
@@ -2711,12 +2736,19 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }
 
   async function prepareSubmitFollowUp(job: JobCard, meetingDetails: MeetingDetails | null) {
+    const token = ++followUpLoadTokenRef.current;
     if (!requiresMandatoryFollowUpProposal(job, meetingDetails)) {
       setFollowUp(null);
+      setFollowUpLoading(false);
+      setFollowUpLoadError(null);
       return;
     }
+    setFollowUp(null);
+    setFollowUpLoading(true);
+    setFollowUpLoadError(null);
     try {
       const suggestion = await getFollowUpSuggestion(job.id);
+      if (followUpLoadTokenRef.current !== token) return;
       setFollowUp({
         draft: {
           // Staff AUTO: never prefill a server time. An empty value omits
@@ -2737,8 +2769,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         expandInstructions: false,
       });
     } catch (caught) {
+      if (followUpLoadTokenRef.current !== token) return;
       // Suggestion load failure is NOT a no-slot signal. Surface a visible
       // error with retry instead of fabricating a scheduling decision.
+      const loadErrorMessage = caught instanceof ApiError
+        ? caught.message
+        : 'Takip önerisi yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.';
+      setFollowUpLoadError(loadErrorMessage);
       setFollowUp({
         draft: null,
         origin: null,
@@ -2747,11 +2784,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         assignees: [],
         inlineError: null,
         explicitScheduleAllowed: false,
-        loadError: caught instanceof ApiError
-          ? caught.message
-          : 'Takip önerisi yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
+        loadError: loadErrorMessage,
         expandInstructions: false,
       });
+    } finally {
+      if (followUpLoadTokenRef.current === token) {
+        setFollowUpLoading(false);
+      }
     }
   }
 
@@ -2763,55 +2802,93 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }
 
   async function prepareApproveFollowUp(job: JobCard, meetingDetails: MeetingDetails | null) {
+    const token = ++followUpLoadTokenRef.current;
     const persisted = job.followUpProposal;
     if (!requiresMandatoryFollowUpProposal(job, meetingDetails) && !persisted) {
       setFollowUp(null);
+      setFollowUpLoading(false);
+      setFollowUpLoadError(null);
       return;
     }
-    let evaluation: CustomerScheduleEvaluation | null = null;
-    let fallbackDraft: FollowUpDraft | null = null;
+    setFollowUp(null);
+    setFollowUpLoading(true);
+    setFollowUpLoadError(null);
     try {
-      const suggestion = await getFollowUpSuggestion(job.id, persisted?.scheduledAt);
-      evaluation = suggestion.evaluation;
-      if (!persisted && suggestion.scheduledAt !== null) {
-        fallbackDraft = {
-          scheduledAt: suggestion.scheduledAt,
-          type: suggestion.type,
-          assignedTo: suggestion.assignedTo,
-          followUpInstructions: suggestion.followUpInstructions,
-          priority: 'normal',
-          dueDate: null,
-        };
-      }
-    } catch {
-      evaluation = null;
-    }
-    let assignees: RelatedName[] = [];
-    try {
-      assignees = await listCalendarAssignees();
-    } catch {
-      assignees = [];
-    }
-    setFollowUp({
-      draft: persisted
-        ? {
-            scheduledAt: persisted.scheduledAt,
-            type: persisted.type,
-            assignedTo: persisted.assignedTo,
-            followUpInstructions: persisted.followUpInstructions,
+      let evaluation: CustomerScheduleEvaluation | null = null;
+      let fallbackDraft: FollowUpDraft | null = null;
+      let suggestionLoadError: string | null = null;
+      try {
+        const suggestion = await getFollowUpSuggestion(job.id, persisted?.scheduledAt);
+        if (followUpLoadTokenRef.current !== token) return;
+        evaluation = suggestion.evaluation;
+        if (!persisted && suggestion.scheduledAt !== null) {
+          fallbackDraft = {
+            scheduledAt: suggestion.scheduledAt,
+            type: suggestion.type,
+            assignedTo: suggestion.assignedTo,
+            followUpInstructions: suggestion.followUpInstructions,
             priority: 'normal',
             dueDate: null,
-          }
-        : fallbackDraft,
-      origin: persisted?.origin ?? null,
-      evaluation,
-      assigneeName: job.assignee.name,
-      assignees,
-      inlineError: null,
-      explicitScheduleAllowed: false,
-      loadError: null,
-      expandInstructions: false,
-    });
+          };
+        }
+      } catch (caught) {
+        if (followUpLoadTokenRef.current !== token) return;
+        evaluation = null;
+        if (!persisted) {
+          suggestionLoadError = caught instanceof ApiError
+            ? caught.message
+            : 'Takip önerisi yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.';
+        }
+      }
+      let assignees: RelatedName[] = [];
+      try {
+        assignees = await listCalendarAssignees();
+      } catch {
+        assignees = [];
+      }
+      if (followUpLoadTokenRef.current !== token) return;
+      if (suggestionLoadError) {
+        setFollowUpLoadError(suggestionLoadError);
+      }
+      setFollowUp({
+        draft: persisted
+          ? {
+              scheduledAt: persisted.scheduledAt,
+              type: persisted.type,
+              assignedTo: persisted.assignedTo,
+              followUpInstructions: persisted.followUpInstructions,
+              priority: 'normal',
+              dueDate: null,
+            }
+          : fallbackDraft,
+        origin: persisted?.origin ?? null,
+        evaluation,
+        assigneeName: job.assignee.name,
+        assignees,
+        inlineError: null,
+        explicitScheduleAllowed: false,
+        loadError: suggestionLoadError,
+        expandInstructions: false,
+      });
+    } catch (caught) {
+      if (followUpLoadTokenRef.current !== token) return;
+      setFollowUpLoadError(
+        caught instanceof ApiError
+          ? caught.message
+          : 'Takip önerisi yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
+      );
+    } finally {
+      if (followUpLoadTokenRef.current === token) {
+        setFollowUpLoading(false);
+      }
+    }
+  }
+
+  async function retryApproveFollowUp() {
+    if (state.kind !== 'ready') return;
+    const job = state.detail.job;
+    const meetingDetails = state.detail.kind === 'SALES_MEETING' ? state.detail.meetingDetails : null;
+    await prepareApproveFollowUp(job, meetingDetails);
   }
 
   function updateFollowUpDraft(next: Partial<FollowUpDraft>) {
@@ -2834,9 +2911,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     if (attempt) void execute(attempt.command);
     else if (withdrawEditAttempt.current) void confirmWithdrawAndEdit();
   }
-  function confirmDialog(reason: string) {
-    if (uncertain) { retryUncertainAttempt(); return; }
-    if (!dialog) return;
+
+  function validateDialogPrelude(): string | null {
+    if (uncertain || !dialog || dialog.kind === 'withdraw-edit') return null;
+
     if (dialog.kind === 'approve') {
       const job = state.kind === 'ready' ? state.detail.job : null;
       const meetingDetails = state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
@@ -2847,37 +2925,140 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       // The pair is still being discovered: a confirm now would omit the sale
       // version (400) or silently drop the delivery section, so wait for it.
       if (state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
-        && pairState.kind === 'loading') return;
-      /** §8.2/§5.1: the delivery body, only when the switch is on. */
-      const resolveDelivery = (): { ok: true; delivery?: ApproveDeliveryInput } | { ok: false } => {
-        if (!approveDeliverySource || !saleDelivery || !saleDelivery.draft.enabled) return { ok: true };
-        saleDeliveryFailureSeq.current += 1;
-        const built = buildSaleDeliveryRequest(saleDelivery.draft, saleDeliveryFailureSeq.current);
-        if (!built.ok) {
-          setSaleDelivery((current) => current ? { ...current, errors: built.errors } : current);
-          return { ok: false };
-        }
-        setSaleDelivery((current) => current ? { ...current, errors: null } : current);
-        return { ok: true, delivery: built.delivery };
-      };
-      if (!followUp?.draft) {
-        if (!followUpRequired) {
-          const resolved = resolveDelivery();
-          if (!resolved.ok) return;
-          void execute('APPROVE', reason, resolved.delivery ? { delivery: resolved.delivery } : undefined);
-        }
-        return;
+        && pairState.kind === 'loading') {
+        const message = 'Bağlı satış kaydı yükleniyor. Lütfen bekleyin.';
+        setFollowUpLoadError(message);
+        return message;
       }
-      if (!followUp.draft.scheduledAt) {
-        setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
-        return;
+      if (followUpLoading) {
+        return 'Takip önerisi yükleniyor. Lütfen bekleyin.';
+      }
+      if (!followUp?.draft) {
+        if (followUpRequired) {
+          const message = followUpLoadError
+            ?? followUp?.loadError
+            ?? 'Takip önerisi yüklenemedi. Lütfen tekrar deneyin.';
+          setFollowUpLoadError(message);
+          return message;
+        }
+      } else {
+        if (!followUp.draft.scheduledAt) {
+          const message = 'Takip tarihi ve saati zorunludur.';
+          setFollowUp((current) => current ? { ...current, inlineError: message } : current);
+          return message;
+        }
+        if (!followUp.draft.followUpInstructions.trim()) {
+          const message = 'Takip kapsamı zorunludur.';
+          setFollowUp((current) => current ? { ...current, inlineError: message } : current);
+          return message;
+        }
+      }
+      if (approveDeliverySource && saleDelivery && saleDelivery.draft.enabled) {
+        const built = buildSaleDeliveryRequest(saleDelivery.draft, saleDeliveryFailureSeq.current + 1);
+        if (!built.ok) {
+          saleDeliveryFailureSeq.current += 1;
+          setSaleDelivery((current) => current ? { ...current, errors: built.errors } : current);
+          return built.errors.summary
+            ?? Object.values(built.errors.fields)[0]
+            ?? Object.values(built.errors.lines)[0]
+            ?? 'Teslim işi bilgilerini kontrol edin.';
+        }
+      }
+      return null;
+    }
+
+    if (dialog.kind === 'submit') {
+      const job = state.kind === 'ready' ? state.detail.job : null;
+      const meetingDetails = state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
+        ? state.detail.meetingDetails
+        : null;
+      const followUpRequired = job !== null && requiresMandatoryFollowUpProposal(job, meetingDetails);
+      if (followUpLoading) {
+        return 'Takip önerisi yükleniyor. Lütfen bekleyin.';
+      }
+      if (!followUp?.draft) {
+        if (followUpRequired) {
+          const message = followUpLoadError
+            ?? followUp?.loadError
+            ?? 'Takip önerisi yüklenemedi. Lütfen tekrar deneyin.';
+          setFollowUpLoadError(message);
+          return message;
+        }
+        return null;
+      }
+      const staffAuto = isAutoSchedulableFollowUpType(followUp.draft.type);
+      if (!followUp.draft.scheduledAt && !(staffAuto && !followUp.explicitScheduleAllowed)) {
+        const message = 'Takip tarihi ve saati zorunludur.';
+        setFollowUp((current) => current ? { ...current, inlineError: message } : current);
+        return message;
       }
       if (!followUp.draft.followUpInstructions.trim()) {
-        setFollowUp((current) => current ? { ...current, inlineError: 'Takip kapsamı zorunludur.' } : current);
+        const message = 'Takip kapsamı zorunludur. “Takip kapsamını düzenle” alanına yazın.';
+        setFollowUp((current) => current
+          ? { ...current, inlineError: message, expandInstructions: true }
+          : current);
+        return message;
+      }
+      return null;
+    }
+
+    if (dialog.kind === 'revision') {
+      if (revisionCorrection) {
+        const message = 'Geçerli bir düzeltme son tarihi seçin.';
+        if (!revisionCorrection.value.trim()) {
+          setRevisionCorrection({ ...revisionCorrection, fieldError: message });
+          return message;
+        }
+        try {
+          localDateTimeToIso(revisionCorrection.value);
+        } catch {
+          setRevisionCorrection({ ...revisionCorrection, fieldError: message });
+          return message;
+        }
+      }
+      return null;
+    }
+
+    if (dialog.kind === 'decline' || dialog.kind === 'release') {
+      if (!assignmentReason) return 'Atama yanıt nedeni yüklenemedi.';
+      if (assignmentReason.draft.code === '') {
+        const message = dialog.kind === 'release'
+          ? 'Görevi geri bırakma nedenini seçin.'
+          : 'Görevi reddetme nedenini seçin.';
+        setAssignmentReason({ ...assignmentReason, inlineError: message });
+        return message;
+      }
+      return null;
+    }
+
+    if (dialog.kind === 'cancel' && cancelContinuity && !lifecycleAttempt.current) {
+      const resolved = resolveCancelContinuity(cancelContinuity.draft);
+      if ('error' in resolved) {
+        setCancelContinuity({ ...cancelContinuity, inlineError: resolved.error });
+        return resolved.error;
+      }
+    }
+
+    return null;
+  }
+
+  function confirmDialog(reason: string) {
+    if (uncertain) { retryUncertainAttempt(); return; }
+    if (!dialog) return;
+    if (validateDialogPrelude() !== null) return;
+    if (dialog.kind === 'approve') {
+      const resolveDelivery = (): ApproveDeliveryInput | undefined => {
+        if (!approveDeliverySource || !saleDelivery || !saleDelivery.draft.enabled) return undefined;
+        const built = buildSaleDeliveryRequest(saleDelivery.draft, saleDeliveryFailureSeq.current);
+        if (!built.ok) return undefined;
+        setSaleDelivery((current) => current ? { ...current, errors: null } : current);
+        return built.delivery;
+      };
+      const delivery = resolveDelivery();
+      if (!followUp?.draft) {
+        void execute('APPROVE', reason, delivery ? { delivery } : undefined);
         return;
       }
-      const resolved = resolveDelivery();
-      if (!resolved.ok) return;
       void execute('APPROVE', reason, {
         followUp: {
           scheduledAt: followUp.draft.scheduledAt,
@@ -2887,38 +3068,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           priority: followUp.draft.priority ?? 'normal',
           dueDate: followUp.draft.dueDate ?? null,
         },
-        ...(resolved.delivery ? { delivery: resolved.delivery } : {}),
+        ...(delivery ? { delivery } : {}),
       });
       return;
     }
     if (dialog.kind === 'submit') {
-      const job = state.kind === 'ready' ? state.detail.job : null;
-      const meetingDetails = state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
-        ? state.detail.meetingDetails
-        : null;
-      const followUpRequired = job !== null && requiresMandatoryFollowUpProposal(job, meetingDetails);
       if (!followUp?.draft) {
-        if (!followUpRequired) void execute('SUBMIT_FOR_APPROVAL', reason);
-        return;
-      }
-      const staffAuto = isAutoSchedulableFollowUpType(followUp.draft.type);
-      if (!followUp.draft.scheduledAt) {
-        if (staffAuto && !followUp.explicitScheduleAllowed) {
-          // Normal Staff AUTO path: omit scheduledAt so the backend selects
-          // the earliest suitable slot. No empty-date block here.
-        } else {
-          setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
-          return;
-        }
-      }
-      if (!followUp.draft.followUpInstructions.trim()) {
-        setFollowUp((current) => current
-          ? {
-              ...current,
-              inlineError: 'Takip kapsamı zorunludur. “Takip kapsamını düzenle” alanına yazın.',
-              expandInstructions: true,
-            }
-          : current);
+        void execute('SUBMIT_FOR_APPROVAL', reason);
         return;
       }
       void execute('SUBMIT_FOR_APPROVAL', reason, {
@@ -2928,24 +3084,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
     if (dialog.kind === 'revision') {
       if (revisionCorrection) {
-        if (!revisionCorrection.value.trim()) {
-          setRevisionCorrection({
-            ...revisionCorrection,
-            fieldError: 'Geçerli bir düzeltme son tarihi seçin.',
-          });
-          return;
-        }
-        let correctionDueAt: string;
-        try {
-          correctionDueAt = localDateTimeToIso(revisionCorrection.value);
-        } catch {
-          setRevisionCorrection({
-            ...revisionCorrection,
-            fieldError: 'Geçerli bir düzeltme son tarihi seçin.',
-          });
-          return;
-        }
-        void execute('REQUEST_REVISION', reason, { correctionDueAt });
+        void execute('REQUEST_REVISION', reason, {
+          correctionDueAt: localDateTimeToIso(revisionCorrection.value),
+        });
         return;
       }
       void execute('REQUEST_REVISION', reason);
@@ -2954,15 +3095,6 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     if (dialog.kind === 'decline' || dialog.kind === 'release') {
       if (!assignmentReason) return;
       const code = assignmentReason.draft.code;
-      if (code === '') {
-        setAssignmentReason({
-          ...assignmentReason,
-          inlineError: dialog.kind === 'release'
-            ? 'Görevi geri bırakma nedenini seçin.'
-            : 'Görevi reddetme nedenini seçin.',
-        });
-        return;
-      }
       const text = reason.trim();
       if (text.length === 0) {
         setAssignmentReason({
@@ -3055,10 +3187,6 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         : detail.saleDetails.linkedDelivery}
     />}
     {detail.kind === 'PRODUCT_DELIVERY' && <DeliveryProvenanceLine sourceSaleId={detail.job.deliverySourceSaleId} />}
-    {detail.kind === 'SALE' && isManagementUser(user) && <section aria-label="Gelecek modüller">
-      <h2>Ön Muhasebe — Gelecek sürümde</h2><p>Satış kaydı finansal işlem oluşturmaz. Muhasebe işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
-      <h2>Stok/Depo — Gelecek sürümde</h2><p>Satış kaydı stok hareketi oluşturmaz. Onay sırasında ürün teslimi için ayrı bir teslim işi açılabilir; bu iş de stok düşümü yapmaz. Depo işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
-    </section>}
     {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} disabled={invalidationLocked} />}
     {editing && detail.kind === 'SALES_MEETING'
       ? <SalesMeetingEditForm job={detail.job} user={user}
@@ -3153,7 +3281,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       />
     }
     overdueHistory={isManagementUser(user) ? (
-      <OverdueIncidentHistorySection jobId={jobId} collapsible={narrowDetail} />
+      <OverdueIncidentHistorySection jobId={jobId} collapsible />
     ) : undefined}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name, trigger) => command(name, trigger)}
@@ -3228,6 +3356,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       dialog={dialog}
       pending={pending}
       uncertain={uncertain}
+      loadingFollowUp={followUpLoading}
+      followUpLoadError={followUpLoadError}
+      validatePrelude={validateDialogPrelude}
       onClose={() => { if (!uncertain) closeDialog(); }}
       onConfirm={confirmDialog}
       pairNote={dialog.kind === 'submit'
@@ -3287,7 +3418,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
               && isAutoSchedulableFollowUpType(followUp.draft.type),
             allowExplicitSchedule: followUp.explicitScheduleAllowed,
             loadError: followUp.loadError,
-            onRetrySuggestion: () => { void retrySubmitFollowUp(); },
+            onRetrySuggestion: () => {
+              void (dialog.kind === 'approve' ? retryApproveFollowUp() : retrySubmitFollowUp());
+            },
             expandInstructions: followUp.expandInstructions,
             onChange: updateFollowUpDraft,
           }

@@ -4,7 +4,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailPanel, JobDetailScreen } from '../src/JobDetail';
-import { FollowUpBreadcrumb, FollowUpChildrenPanel } from '../src/jobs/FollowUpContinuity';
+import {
+  FollowUpBreadcrumb,
+  FollowUpChildrenPanel,
+  StaffFollowUpProposalNotice,
+} from '../src/jobs/FollowUpContinuity';
 import { RealtimeProvider, type RealtimeEventSource } from '../src/realtime/RealtimeProvider';
 import type { CurrentUser } from '../src/services/api';
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
@@ -172,10 +176,50 @@ describe('JobDetail follow-up continuity', () => {
 
   it('defaults the previous-job source context to a closed native disclosure', async () => {
     await renderPanel(fullFollowUp, staff);
+    const preview = host.querySelector('.follow-up-instructions-preview');
+    expect(preview).not.toBeNull();
+    expect(preview?.textContent).toContain('Takip talimatı:');
+    expect(preview?.textContent).toContain('Uzun takip kapsamı');
     const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure');
     expect(disclosure).not.toBeNull();
     expect(disclosure?.open).toBe(false);
     expect(disclosure?.querySelector('summary')?.textContent).toContain('Önceki iş');
+    expect(Boolean(preview!.compareDocumentPosition(disclosure!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
+  it('renders StaffFollowUpProposalNotice for STAFF_ADJUSTED proposals in WAITING_APPROVAL', async () => {
+    await act(async () => root.render(<StaffFollowUpProposalNotice proposal={{
+      scheduledAt: '2026-08-08T10:00:00.000Z',
+      type: 'SALES_MEETING',
+      assignedTo: 'staff-2',
+      followUpInstructions: 'Demo cihazı götürülecek',
+      origin: 'STAFF_ADJUSTED',
+      proposedBy: { id: 'staff-2', name: 'Bora' },
+    }} />));
+    expect(host.querySelector('.follow-up-staff-notice')).not.toBeNull();
+    expect(host.textContent).toContain('PERSONEL ÖNERİSİ');
+    expect(host.textContent).toContain('Bora');
+    expect(host.textContent).toContain('Demo cihazı götürülecek');
+    expect(host.querySelector('time')?.getAttribute('datetime')).toBe('2026-08-08T10:00:00.000Z');
+
+    const waitingJob: JobCard = {
+      ...rootJob,
+      status: 'WAITING_APPROVAL',
+      followUpProposal: {
+        scheduledAt: '2026-08-08T10:00:00.000Z',
+        type: 'SALES_MEETING',
+        assignedTo: 'staff-2',
+        followUpInstructions: 'Demo cihazı götürülecek',
+        origin: 'STAFF_ADJUSTED',
+        proposedBy: { id: 'staff-2', name: 'Bora' },
+      },
+    };
+    await renderPanel(waitingJob, manager);
+    expect(host.querySelector('.follow-up-staff-notice')).not.toBeNull();
+    expect(host.textContent).toContain('PERSONEL ÖNERİSİ');
+
+    await renderPanel({ ...waitingJob, status: 'IN_PROGRESS' }, staff);
+    expect(host.querySelector('.follow-up-staff-notice')).toBeNull();
   });
 
   it('reveals the existing source context when the summary is activated', async () => {

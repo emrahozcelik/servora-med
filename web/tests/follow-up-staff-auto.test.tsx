@@ -444,7 +444,7 @@ describe('JobDetail Staff AUTO submit integration', () => {
 
   async function confirm(dialog: HTMLElement) {
     const confirmButton = Array.from(dialog.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Tamamla ve yönetici onayına gönder')!;
+      .find((button) => button.textContent === 'Kontrole gönder' || button.textContent === 'Tamamla ve yönetici onayına gönder')!;
     await act(async () => { confirmButton.click(); await flush(); await flush(); });
   }
 
@@ -607,6 +607,60 @@ describe('JobDetail Staff AUTO submit integration', () => {
       const body = submitBody();
       expect(body).not.toBeNull();
       expect(typeof body.followUpProposal.scheduledAt).toBe('string');
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('prevents premature submit while follow-up suggestion is still loading', async () => {
+    let resolveSuggestion!: (value: Response) => void;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/delivery-items')) return Promise.resolve(Response.json({ items: [] }));
+      if (url.includes('/notes?')) return Promise.resolve(Response.json({ items: [], total: 0, limit: 25, nextCursor: null }));
+      if (url.includes('/activity?')) return Promise.resolve(Response.json({ items: [], total: 0, limit: 50, offset: 0 }));
+      if (url.includes('/meeting-details') && method === 'GET') return Promise.resolve(Response.json(meeting));
+      if (url.includes('/follow-up-suggestion')) {
+        return new Promise<Response>((resolve) => { resolveSuggestion = resolve; });
+      }
+      if (url.includes('/submit-for-approval') && method === 'POST') {
+        return Promise.resolve(Response.json({ ...staffCard, status: 'WAITING_APPROVAL', version: 4 }));
+      }
+      if (detailUrlMatches(url, 'job-1')) return Promise.resolve(Response.json(staffCard));
+      return Promise.reject(new Error(`Unexpected request: ${method} ${url}`));
+    }));
+
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={staff as never} onBack={() => {}} onChanged={() => {}} />);
+        await flush(); await flush();
+      });
+      const dialog = await openSubmitDialog(host);
+      await fillReason(dialog);
+      await confirm(dialog);
+      expect(submitBody()).toBeNull();
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+
+      await act(async () => {
+        resolveSuggestion(Response.json({
+          scheduledAt: '2026-08-08T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: 's1',
+          followUpInstructions: 'Takip: Ziyaret',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        }));
+        await flush(); await flush();
+      });
+      await confirm(dialog);
+      expect(submitBody()).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

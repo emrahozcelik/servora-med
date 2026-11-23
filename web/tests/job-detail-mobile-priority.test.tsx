@@ -120,6 +120,8 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
   async function render(job: JobCard, user: CurrentUser, extra: {
     overdueHistory?: ReactNode;
     invalidationAction?: ReactNode;
+    notes?: ReactNode;
+    messagingAction?: ReactNode;
     children?: ReactNode;
   } = {}) {
     await act(async () => {
@@ -133,6 +135,8 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
           onCommand={() => {}}
           overdueHistory={extra.overdueHistory}
           invalidationAction={extra.invalidationAction}
+          notes={extra.notes}
+          messagingAction={extra.messagingAction}
         >
           {extra.children}
         </JobDetailPanel>
@@ -232,11 +236,59 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     await render(revisionRequested, staff);
 
     expect(section('responsibility')!.textContent).toContain('Düzeltme gerekiyor');
+    expect(host.querySelector('#revision-loop-title')?.textContent).toBe('Düzeltme notu ve geçmişi');
+    expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
+      .toBe('Personelin düzeltmeyi başlatması bekleniyor.');
     expect(precedes(section('responsibility')!, section('actions')!)).toBe(true);
     expect(precedes(section('actions')!, section('lifecycle')!)).toBe(true);
     expect(precedes(section('lifecycle')!, section('revision')!)).toBe(true);
     expect(host.querySelector('[data-job-decision-panel="true"]')?.textContent)
       .toContain('Düzeltmeye başla');
+  });
+
+  it('deduplicates manager review headings/submission facts and places invalidation below notes in rail', async () => {
+    setViewport(false);
+    await render(managerWaiting, manager, {
+      messagingAction: <div data-test-messaging="true">Mesaj</div>,
+      notes: <section data-test-notes="true">Notlar</section>,
+      invalidationAction: <section data-invalidation-action="true">Kayıt düzeltme (Admin)</section>,
+    });
+
+    expect(host.querySelector('#workflow-responsibility-title')?.textContent).toBe('Yönetici kontrolü');
+    expect(host.querySelector('#approval-review-title')?.textContent).toBe('Yönetici kontrolü özeti');
+    expect(host.querySelector('.workflow-responsibility-submission')).toBeNull();
+
+    const rail = host.querySelector('.job-detail-work-rail')!;
+    const messaging = rail.querySelector('[data-test-messaging]')!;
+    const notes = rail.querySelector('[data-test-notes]')!;
+    const invalidation = rail.querySelector('[data-invalidation-action]')!;
+    expect(precedes(messaging, notes)).toBe(true);
+    expect(precedes(notes, invalidation)).toBe(true);
+
+    // Staff WAITING_APPROVAL keeps submission facts in CurrentResponsibilityPanel and shows submitted checklist copy.
+    await render(
+      jobCard('WAITING_APPROVAL', ['WITHDRAW_FROM_APPROVAL', 'CANCEL'], {
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        submittedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+      staff,
+    );
+    expect(host.querySelector('.workflow-responsibility-submission')).not.toBeNull();
+    expect(host.querySelector('#workflow-requirements-title')?.textContent).toBe('Gönderilen kayıt özeti');
+
+    // Resumed revision in IN_PROGRESS updates revision loop context copy.
+    await render(
+      jobCard('IN_PROGRESS', ['SUBMIT_FOR_APPROVAL', 'CANCEL'], {
+        revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+        revisionRequestedBy: { id: 'm1', name: 'Murat Yönetici' },
+        revisionReason: 'Teslim miktarını düzeltin',
+      }),
+      staff,
+    );
+    expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
+      .toBe('Düzeltme üzerinde çalışılıyor.');
+    expect(host.querySelector('[data-revision-context="next-action"]')?.textContent)
+      .toBe('Yönetici notunu giderip kayıtları güncelledikten sonra yeniden kontrole gönderin.');
   });
 });
 

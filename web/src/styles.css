@@ -2789,6 +2789,16 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-recommendation h2 { margin: 0; font-size: 1.05rem; }
 .follow-up-instructions { display: grid; gap: 0.35rem; margin: 0 0 1rem; overflow-wrap: anywhere; }
 .follow-up-instructions span { white-space: pre-wrap; }
+.follow-up-instructions-preview {
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  color: var(--ink);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .follow-up-create-action {
   display: flex;
   align-items: center;
@@ -3389,6 +3399,32 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--accent-soft);
   overflow-wrap: anywhere;
 }
+.detail-action .submit-location-notice {
+  padding: 0.75rem 0.875rem;
+  border: 0;
+  background: var(--accent-soft);
+  overflow-wrap: anywhere;
+}
+.location-notice-more {
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.location-notice-more > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+.location-notice-more > span {
+  display: block;
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+}
 .detail-action-consequence {
   margin: 0 0 0.65rem;
   width: 100%;
@@ -3420,6 +3456,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .review-buttons .destructive-button {
   order: 2;
+}
+.review-buttons-separator {
+  order: 2;
+  flex: 0 0 1px;
+  align-self: stretch;
+  margin-inline: 0.15rem;
+  background: var(--rule);
 }
 .inline-form-actions {
   margin-top: 1rem;
@@ -3583,6 +3626,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-size: 0.75rem;
   font-weight: 650;
 }
+.workflow-responsibility-submission,
 .revision-loop-facts,
 .completed-job-facts {
   display: grid;
@@ -3590,10 +3634,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   gap: 1rem;
   margin: 0.9rem 0 0;
 }
+.workflow-responsibility-submission div,
 .revision-loop-facts div,
 .completed-job-facts div { display: grid; gap: 0.25rem; }
+.workflow-responsibility-submission dt,
 .revision-loop-facts dt,
 .completed-job-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
+.workflow-responsibility-submission dd,
 .revision-loop-facts dd,
 .completed-job-facts dd { margin: 0; overflow-wrap: anywhere; }
 .completed-job-banner {
@@ -3789,6 +3836,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-proposal-badge { padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--accent); color: var(--paper); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .follow-up-proposal-summary { margin: 0.5rem 0 0; font-weight: 650; line-height: 1.45; }
 .follow-up-proposal-notice { margin-top: 0.35rem; }
+.follow-up-staff-notice { background: var(--canvas); }
+.follow-up-staff-notice-instructions { margin: 0.5rem 0 0; line-height: 1.5; overflow-wrap: anywhere; }
 .follow-up-edit { margin-top: 0.6rem; border-top: 1px dashed var(--rule); padding-top: 0.5rem; }
 .follow-up-edit .field-group { margin-top: 0.5rem; }
 .follow-up-proposal-fields { display: grid; gap: 0.65rem; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--rule); }
@@ -4173,12 +4222,13 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .follow-up-children-pagination .secondary-button { width: 100%; }
   .follow-up-child-row dl { grid-template-columns: 1fr 1fr; }
   .servora-workflow-steps { padding: 0.9rem; }
-  .revision-loop-facts, .completed-job-facts, .cancelled-job-facts { grid-template-columns: 1fr; }
+  .workflow-responsibility-submission, .revision-loop-facts, .completed-job-facts, .cancelled-job-facts { grid-template-columns: 1fr; }
   .workflow-requirement { grid-template-columns: 1.35rem minmax(0, 1fr); }
   .workflow-requirement-state { grid-column: 2; }
   .job-note-list li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
   .review-buttons { align-items: stretch; flex-direction: column; }
   .review-buttons button { width: 100%; }
+  .review-buttons-separator { width: 100%; height: 1px; margin-inline: 0; margin-block: 0.15rem; }
   .approval-review-summary { grid-template-columns: 1fr; }
   .people-row { align-items: stretch; flex-direction: column; }
   .people-actions { justify-content: space-between; }
