@@ -205,7 +205,6 @@ const MessagingPage = lazy(() =>
 type AppRouterProps = {
   user: CurrentUser;
   notice: string;
-  onClearNotice: () => void;
   onDeliveryCreated: () => void;
   onSessionEnded: () => void;
 };
@@ -387,7 +386,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
     onCreated={(jobCardId) => navigate(paths.job(jobCardId))} />;
 }
 
-export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
+export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
   const navigate = useNavigate();
   const overviewAllowed = canAccessRoute('overview', user);
   const calendarAllowed = canAccessRoute('calendar', user);
@@ -418,11 +417,6 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path={paths.settingsBackupRecovery} element={canAccessRoute('settingsBackupRecovery', user)
           ? <BackupRecoveryPage /> : <ForbiddenView />} />
         <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
-          onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
-          onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}
-          onCreateMeeting={() => { onClearNotice(); navigate(paths.newMeeting); }}
-          onCreateSale={() => { onClearNotice(); navigate(paths.newStandaloneSale); }}
-          onCreateWeeklyReport={() => { onClearNotice(); navigate(paths.newWeeklyReport); }}
           onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
         <Route path={paths.newDelivery} element={<DeliveryCreateRoute user={user}
           navigate={navigate} onDeliveryCreated={onDeliveryCreated} />} />

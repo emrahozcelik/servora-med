@@ -6,6 +6,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppShell } from '../src/AppShell';
+import { NEW_JOB_OPTIONS } from '../src/jobs/new-job-options';
 import type { CurrentUser } from '../src/services/api';
 import {
   InstallOpportunityProvider,
@@ -205,8 +206,10 @@ describe('responsive authenticated AppShell', () => {
     for (const label of visible) expect(navigation.textContent).toContain(label);
     for (const label of hidden) expect(navigation.textContent).not.toContain(label);
     expect(navigation.querySelectorAll('a')).toHaveLength(visible.length);
-    expect(aside.textContent).toContain(user.name);
-    expect(aside.textContent).toContain('Oturumu kapat');
+    for (const link of navigation.querySelectorAll('a')) {
+      expect(link.querySelector('svg.shell-nav-icon')?.getAttribute('aria-hidden')).toBe('true');
+    }
+    expect(aside.querySelector('.shell-account')).toBeNull();
     expect(aside.querySelector('.shell-sidebar nav a[href="/jobs"]')?.getAttribute('aria-current')).toBe('page');
     const sidebarBrand = aside.querySelector<HTMLAnchorElement>('.shell-sidebar-brand .dunya-dental-brand--full');
     expect(sidebarBrand).not.toBeNull();
@@ -221,7 +224,10 @@ describe('responsive authenticated AppShell', () => {
     const topbar = container.querySelector('.desktop-shell-topbar')!;
     expect(topbar.querySelector('.desktop-shell-topbar-brand')).toBeNull();
     expect(topbar.querySelector('.dunya-dental-brand')).toBeNull();
+    expect(topbar.querySelector('.desktop-shell-search-trigger')).not.toBeNull();
+    expect(topbar.querySelector('.desktop-shell-new-job .new-job-menu-trigger')).not.toBeNull();
     expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();
+    expect(topbar.querySelector('.shell-user-menu-trigger')?.textContent).toContain(user.name);
   });
 
   it.each([
@@ -560,15 +566,33 @@ describe('responsive authenticated AppShell', () => {
 
     const aside = container.querySelector('.shell-sidebar')!;
     expect(aside.querySelector('.shell-sidebar-brand .dunya-dental-brand--full')).not.toBeNull();
-    expect(aside.querySelector('.shell-sidebar-footer .shell-account')).not.toBeNull();
+    expect(aside.querySelector('.shell-sidebar-footer .shell-account')).toBeNull();
     expect(aside.querySelector('.shell-sidebar-footer .shell-copyright')).not.toBeNull();
-    expect(aside.querySelector('.shell-identity strong')?.textContent).toBe(manager.name);
-    expect(aside.querySelector('.shell-identity > div > span')?.textContent).toBe('Yönetici');
-    expect(aside.querySelector('.shell-identity .servora-user-avatar')).not.toBeNull();
-    expect(aside.querySelector('.shell-signout')?.textContent).toBe('Oturumu kapat');
+
+    const topbar = container.querySelector('.desktop-shell-topbar')!;
+    expect(topbar.querySelector('.desktop-shell-search-trigger')).not.toBeNull();
+    const newJobTrigger = topbar.querySelector<HTMLButtonElement>('.desktop-shell-new-job .new-job-menu-trigger')!;
+    expect(newJobTrigger).not.toBeNull();
+    // The topbar is the single desktop create entry: it must offer every
+    // create flow, including ones added after the topbar shipped (SALE-002).
+    await act(async () => newJobTrigger.click());
+    expect(Array.from(topbar.querySelectorAll('.desktop-shell-new-job .new-job-menu-item'), (item) => item.textContent))
+      .toEqual(NEW_JOB_OPTIONS.map((option) => option.label));
+    await act(async () => newJobTrigger.click());
+    expect(topbar.querySelector('.notification-center')).not.toBeNull();
+    const userTrigger = topbar.querySelector<HTMLButtonElement>('.shell-user-menu-trigger')!;
+    expect(userTrigger).not.toBeNull();
+    expect(userTrigger.textContent).toContain(manager.name);
+    expect(userTrigger.querySelector('.servora-user-avatar')).not.toBeNull();
+
+    await act(async () => userTrigger.click());
+    const userPanel = topbar.querySelector('.shell-user-menu-panel')!;
+    expect(userPanel).not.toBeNull();
+    expect(userPanel.textContent).toContain('Yönetici');
+    expect(userPanel.querySelector('.shell-signout')?.textContent).toContain('Oturumu kapat');
   });
 
-  it('preserves pending sign-out copy on the desktop account control', async () => {
+  it('preserves pending sign-out copy on the desktop user menu control', async () => {
     setDesktop(true);
     await act(async () => root.render(
       <MemoryRouter initialEntries={['/jobs']}>
@@ -577,9 +601,11 @@ describe('responsive authenticated AppShell', () => {
         </AppShell>
       </MemoryRouter>,
     ));
-    const signOut = container.querySelector<HTMLButtonElement>('.shell-sidebar .shell-signout')!;
+    const userTrigger = container.querySelector<HTMLButtonElement>('.desktop-shell-topbar .shell-user-menu-trigger')!;
+    await act(async () => userTrigger.click());
+    const signOut = container.querySelector<HTMLButtonElement>('.desktop-shell-topbar .shell-signout')!;
     expect(signOut.disabled).toBe(true);
-    expect(signOut.textContent).toBe('Kapatılıyor…');
+    expect(signOut.textContent).toContain('Kapatılıyor…');
   });
 
   it('contracts desktop shell CSS hierarchy, active weight, and workspace frame', () => {
@@ -613,17 +639,18 @@ describe('responsive authenticated AppShell', () => {
     expect(exactRuleBody('.shell-signout')).toMatch(/width:\s*100%/);
     expect(exactRuleBody('.shell-signout')).not.toMatch(/font-weight:\s*680/);
 
-    // T2A polish is scoped to the desktop sidebar only.
+    // T2A + Topbar B polish is scoped to desktop only.
     expect(exactRuleBody('.shell-sidebar .shell-nav')).toMatch(/gap:\s*1\.35rem/);
     expect(exactRuleBody('.shell-sidebar .shell-nav a')).toMatch(/border-radius:\s*0\.55rem/);
     expect(exactRuleBody('.shell-sidebar .shell-nav a')).toMatch(/overflow-wrap:\s*anywhere/);
     expect(exactRuleBody('.shell-sidebar .shell-nav a[aria-current="page"]')).toMatch(/font-weight:\s*760/);
-    expect(exactRuleBody('.shell-sidebar .shell-account')).toMatch(/gap:\s*0\.75rem/);
-    expect(exactRuleBody('.shell-sidebar .shell-identity strong')).toMatch(/font-weight:\s*720/);
-    expect(exactRuleBody('.shell-sidebar .shell-signout')).toMatch(/font-weight:\s*680/);
     expect(css).toMatch(/\.shell-sidebar-brand\s*\{/s);
     expect(css).toMatch(/\.shell-sidebar-footer\s*\{[^}]*margin-top:\s*auto/s);
     expect(exactRuleBody('.desktop-shell-topbar')).toMatch(/justify-content:\s*flex-end/);
+    expect(exactRuleBody('.desktop-shell-topbar')).toMatch(/position:\s*sticky/);
+    expect(exactRuleBody('.desktop-shell-search-trigger')).toMatch(/margin-inline-end:\s*auto/);
+    expect(exactRuleBody('.desktop-shell-search-trigger')).toMatch(/min-height:\s*var\(--control-height\)/);
+    expect(exactRuleBody('.shell-user-menu-trigger')).toMatch(/min-height:\s*var\(--control-height\)/);
     expect(css).not.toMatch(/\.desktop-shell-topbar-brand/);
     // Default operational workspace stays near 68rem; board gates remain separate.
     expect(css).toMatch(/\.workspace\s*\{[^}]*width:\s*min\(100% - 2rem,\s*68rem\)/s);

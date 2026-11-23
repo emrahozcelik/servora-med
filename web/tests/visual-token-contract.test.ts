@@ -111,6 +111,7 @@ describe('Servora visual token contract', () => {
       ['--radius-button', control.radiusButtonCss],
       ['--radius-raised', control.radiusRaisedCss],
       ['--radius-chip', control.radiusChipCss],
+      ['--shadow-card', elevation.card],
       ['--shadow-raised', elevation.raised],
       ['--shadow-overlay', elevation.overlay],
       ['--shadow-drawer', elevation.drawer],

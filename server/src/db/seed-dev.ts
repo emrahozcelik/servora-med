@@ -15,7 +15,7 @@ try {
   await seedDevelopment(
     new PostgresSetupRepository(database.pool),
     {
-      organizationName: process.env.DEV_SEED_ORGANIZATION_NAME?.trim() || 'Servora Med Demo',
+      organizationName: process.env.DEV_SEED_ORGANIZATION_NAME?.trim() || 'Dünya Dental Demo',
       password: requireEnvironment('DEV_SEED_PASSWORD'),
     },
     config.nodeEnv,

@@ -1,18 +1,25 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
 import { BuildIdentity } from './BuildIdentity';
 import { setDocumentTitle } from './document-title';
+import { NewJobMenu } from './jobs/NewJobMenu';
 import { paths } from './paths';
 import type { CurrentUser } from './services/api';
 import { MobileBottomNav } from './shell/MobileBottomNav';
 import { MobileTopBar } from './shell/MobileTopBar';
+import { NavigationIcon } from './shell/navigation-icons';
+import { ShellUserMenu } from './shell/ShellUserMenu';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { NotificationCenter } from './notifications/NotificationCenter';
 import { DrawerCloseButton } from './ui/DrawerCloseButton';
 import { UserAvatar } from './ui/antd/UserAvatar';
 import { AppleInstallGuidance } from './install/AppleInstallGuidance';
 import { useInstallOpportunity } from './install/InstallOpportunity';
+
+const CommandPalette = lazy(() =>
+  import('./shell/CommandPalette').then((module) => ({ default: module.CommandPalette })),
+);
 import {
   buildNavigationModel,
   groupNavigationBySection,
@@ -66,7 +73,8 @@ function DestinationNav({
           <div className="shell-nav-links">
             {group.items.map((destination) => (
               <NavLink key={destination.id} to={destination.to} onClick={onNavigate}>
-                {destination.label}
+                <NavigationIcon id={destination.id} className="shell-nav-icon" />
+                <span>{destination.label}</span>
               </NavLink>
             ))}
           </div>
@@ -122,6 +130,12 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   );
 }
 
+function getSearchShortcutLabel() {
+  if (typeof navigator === 'undefined') return 'Ctrl K';
+  const platform = `${navigator.platform ?? ''} ${navigator.userAgent ?? ''}`;
+  return /Mac|iPhone|iPad|iPod/i.test(platform) ? '⌘K' : 'Ctrl K';
+}
+
 function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps) {
   const desktop = useDesktopLayout();
   const location = useLocation();
@@ -130,36 +144,52 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   const homePath = resolveHomePath(user);
   const install = useInstallOpportunity();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
+  const paletteOpenerRef = useRef<HTMLElement | null>(null);
+  const restorePaletteFocusRef = useRef(false);
   const drawerOpenerRef = useRef<HTMLElement | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
   const resolved = useResolvedIdentity();
   // Single resolved identity feeds MobileTopBar and document.title. Desktop
-  // route identity is owned by PageHeader; the desktop topbar carries only
-  // global shell actions (notifications).
+  // route identity is owned by PageHeader; the desktop topbar carries global
+  // quick search, create action, notifications, and compact user menu.
   const title = resolved?.effectiveTitle ?? 'Dünya Dental';
   const applicationSettingsActive = location.pathname === paths.settingsApplication;
   const showGlobalAppleGuidance = install.shouldOfferAppleGuidance && !applicationSettingsActive;
   const menuGroups = groupNavigationForMenu(model.destinations);
+  const shortcutLabel = getSearchShortcutLabel();
 
   useEffect(() => {
     setDocumentTitle(resolved?.effectiveTitle ?? null);
   }, [resolved?.effectiveTitle]);
 
-  function closeDrawer(restoreFocus: boolean) {
+  const closeDrawer = useCallback((restoreFocus: boolean) => {
     restoreFocusRef.current = restoreFocus;
     setDrawerOpen(false);
-  }
+  }, []);
 
   function openDrawer(opener: HTMLElement) {
     drawerOpenerRef.current = opener;
     setDrawerOpen(true);
   }
 
+  const closePalette = useCallback((restoreFocus = true) => {
+    restorePaletteFocusRef.current = restoreFocus;
+    setPaletteOpen(false);
+  }, []);
+
+  const openPalette = useCallback((opener: HTMLElement | null) => {
+    paletteOpenerRef.current = opener ?? searchTriggerRef.current;
+    setPaletteOpen(true);
+  }, []);
+
   useEffect(() => {
     if (desktop && drawerOpen) closeDrawer(false);
-  }, [desktop, drawerOpen]);
+    if (!desktop && paletteOpen) closePalette(false);
+  }, [desktop, drawerOpen, paletteOpen, closeDrawer, closePalette]);
 
   // Back/Forward or programmatic navigation while the panel is open must close
   // it and release the scroll lock. Focus is not pushed back to the stale
@@ -170,7 +200,36 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
     if (previousRouteKeyRef.current === routeKey) return;
     previousRouteKeyRef.current = routeKey;
     if (drawerOpen) closeDrawer(false);
-  }, [routeKey, drawerOpen]);
+    if (paletteOpen) closePalette(false);
+  }, [routeKey, drawerOpen, paletteOpen, closeDrawer, closePalette]);
+
+  useEffect(() => {
+    if (paletteOpen || !restorePaletteFocusRef.current) return;
+    restorePaletteFocusRef.current = false;
+    paletteOpenerRef.current?.focus();
+  }, [paletteOpen]);
+
+  useEffect(() => {
+    if (!desktop) return;
+
+    function handleGlobalShortcut(event: globalThis.KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== 'k') return;
+      if (!paletteOpen && document.querySelector('[role="dialog"][aria-modal="true"]:not(.command-palette-dialog)')) {
+        return;
+      }
+      event.preventDefault();
+      if (paletteOpen) {
+        closePalette(true);
+      } else {
+        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        openPalette(active);
+      }
+    }
+
+    document.addEventListener('keydown', handleGlobalShortcut);
+    return () => document.removeEventListener('keydown', handleGlobalShortcut);
+  }, [desktop, paletteOpen, openPalette, closePalette]);
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -224,13 +283,41 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
             </div>
             <DestinationNav groups={groupNavigationBySection(model.destinations)} label="Ana navigasyon" />
             <div className="shell-sidebar-footer">
-              <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
               <small className="shell-copyright">© {new Date().getFullYear()} Dünya Dental</small>
               <BuildIdentity />
             </div>
           </aside>
           <header className="desktop-shell-topbar">
+            <button
+              ref={searchTriggerRef}
+              type="button"
+              className="desktop-shell-search-trigger"
+              aria-haspopup="dialog"
+              aria-expanded={paletteOpen}
+              onClick={() => openPalette(searchTriggerRef.current)}
+            >
+              <NavigationIcon id="search" className="desktop-shell-search-icon" />
+              <span className="desktop-shell-search-placeholder">Ara… (müşteri, iş, sayfa)</span>
+              <kbd className="shell-kbd" aria-hidden="true">{shortcutLabel}</kbd>
+            </button>
+            <div className="desktop-shell-new-job">
+              <NewJobMenu
+                presentation="popover"
+                triggerIcon={<NavigationIcon id="new-job" className="desktop-shell-create-icon" />}
+                onCreateMeeting={() => navigate(paths.newMeeting)}
+                onCreateTask={() => navigate(paths.newTask)}
+                onCreateSale={() => navigate(paths.newStandaloneSale)}
+                onCreateDelivery={() => navigate(paths.newDelivery)}
+                onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
+              />
+            </div>
             <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
+            <ShellUserMenu
+              user={user}
+              roleLabel={roleLabels[user.role]}
+              pendingSignOut={pendingSignOut}
+              onSignOut={onSignOut}
+            />
           </header>
         </>
       ) : (
@@ -281,6 +368,15 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
             <BuildIdentity />
           </div>
         </div>
+      )}
+      {desktop && paletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            user={user}
+            destinations={model.destinations}
+            onClose={closePalette}
+          />
+        </Suspense>
       )}
     </div>
   );

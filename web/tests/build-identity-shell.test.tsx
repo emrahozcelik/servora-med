@@ -51,17 +51,21 @@ describe('shell build identity', () => {
     ));
   }
 
-  it('renders build identity in the desktop sidebar footer with logout distinct', async () => {
+  it('renders build identity in the desktop sidebar footer with user sign-out in topbar menu', async () => {
     await render(true);
 
     const footer = container.querySelector('.shell-sidebar-footer');
     expect(footer).not.toBeNull();
     const identity = footer?.querySelector('.build-identity');
     expect(identity).not.toBeNull();
-    expect(identity?.textContent).toContain('Servora Med 0.1.0');
+    expect(identity?.textContent).toContain('Dünya Dental 0.1.0');
+    expect(identity?.textContent).not.toContain('Servora');
     expect(identity?.getAttribute('data-build-sha')?.trim()).not.toBe('');
 
-    const signout = footer?.querySelector('.shell-signout');
+    const userMenuTrigger = container.querySelector<HTMLButtonElement>('.desktop-shell-topbar .shell-user-menu-trigger')!;
+    expect(userMenuTrigger).not.toBeNull();
+    await act(async () => userMenuTrigger.click());
+    const signout = container.querySelector('.desktop-shell-topbar .shell-signout');
     expect(signout?.textContent).toContain('Oturumu kapat');
     expect(signout?.tagName).toBe('BUTTON');
     expect(identity?.tagName).not.toBe('BUTTON');
@@ -81,7 +85,8 @@ describe('shell build identity', () => {
     expect(drawer).not.toBeNull();
     const identity = drawer?.querySelector('.build-identity');
     expect(identity).not.toBeNull();
-    expect(identity?.textContent).toContain('Servora Med 0.1.0');
+    expect(identity?.textContent).toContain('Dünya Dental 0.1.0');
+    expect(identity?.textContent).not.toContain('Servora');
     expect(identity?.getAttribute('data-build-sha')?.trim()).not.toBe('');
 
     expect(container.querySelector('.mobile-bottom-nav .build-identity')).toBeNull();

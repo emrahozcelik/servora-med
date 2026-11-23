@@ -29,7 +29,7 @@ export type BuildIdentity = {
   buildSha: string | null;
   /** 7-character short SHA, `dev` for local development, `unknown` otherwise. */
   buildShortSha: string;
-  /** Visible label, e.g. `Servora Med 0.1.0 · Build 6325e44`. Never empty. */
+  /** Visible label, e.g. `Dünya Dental 0.1.0 · 6325e44`. Never empty. */
   buildLabel: string;
   isDevelopmentBuild: boolean;
   isValidRelease: boolean;
@@ -44,7 +44,7 @@ export function createBuildIdentity(source: BuildIdentitySource): BuildIdentity 
       appVersion,
       buildSha: normalized,
       buildShortSha,
-      buildLabel: `Servora Med ${appVersion} · Build ${buildShortSha}`,
+      buildLabel: `Dünya Dental ${appVersion} · ${buildShortSha}`,
       isDevelopmentBuild: false,
       isValidRelease: true,
     };
@@ -54,7 +54,7 @@ export function createBuildIdentity(source: BuildIdentitySource): BuildIdentity 
       appVersion,
       buildSha: null,
       buildShortSha: DEVELOPMENT_BUILD_SHORT_SHA,
-      buildLabel: `Servora Med ${appVersion} · Build ${DEVELOPMENT_BUILD_SHORT_SHA}`,
+      buildLabel: `Dünya Dental ${appVersion} · ${DEVELOPMENT_BUILD_SHORT_SHA}`,
       isDevelopmentBuild: true,
       isValidRelease: false,
     };
@@ -63,7 +63,7 @@ export function createBuildIdentity(source: BuildIdentitySource): BuildIdentity 
     appVersion,
     buildSha: null,
     buildShortSha: UNKNOWN_BUILD_SHORT_SHA,
-    buildLabel: `Servora Med ${appVersion} · Build ${UNKNOWN_BUILD_SHORT_SHA}`,
+    buildLabel: `Dünya Dental ${appVersion} · ${UNKNOWN_BUILD_SHORT_SHA}`,
     isDevelopmentBuild: false,
     isValidRelease: false,
   };

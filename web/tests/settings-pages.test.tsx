@@ -232,12 +232,13 @@ describe('settings pages', () => {
     expect(html).toContain('Bu tarayıcıda otomatik kurulum yönlendirmesi sunulmuyor.');
   });
 
-  it('shows the bounded application about area with Servora-Med as the only technical reference', async () => {
+  it('shows the bounded application about area without Servora-Med references', async () => {
     const html = await renderApplicationPage({});
     expect(html).toContain('>Uygulama</h1>');
     expect(html).toContain('Uygulama hakkında');
-    expect(html).toContain('Altyapı / Teknik ürün');
-    expect(html).toContain('Servora-Med');
+    expect(html).toContain('Dünya Dental');
+    expect(html).not.toContain('Servora-Med');
+    expect(html).not.toContain('Altyapı / Teknik ürün');
     expect(html).toContain('settings-panel');
   });
 

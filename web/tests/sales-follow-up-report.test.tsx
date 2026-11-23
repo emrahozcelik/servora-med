@@ -602,7 +602,7 @@ describe('Sales follow-up route authorization', () => {
     const staffUser = { id: 'u1', organizationId: 'o1', name: 'Staff', email: 's@test.com', role: 'STAFF' as const, mustChangePassword: false, isActive: true, version: 1, capabilities: {} };
     const html = renderToStaticMarkup(
       <MemoryRouter initialEntries={['/reports/sales-follow-up']}>
-        <AppRouter user={staffUser as never} notice="" onClearNotice={() => {}} onDeliveryCreated={() => {}} onSessionEnded={() => {}} />
+        <AppRouter user={staffUser as never} notice="" onDeliveryCreated={() => {}} onSessionEnded={() => {}} />
       </MemoryRouter>,
     );
     expect(html).toContain('Erişim yetkiniz yok');

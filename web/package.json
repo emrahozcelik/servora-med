@@ -26,6 +26,7 @@
     "audit:high": "node scripts/audit-high-policy.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
     "antd": "6.7.0",
     "dayjs": "1.11.21",
     "react": "19.2.7",

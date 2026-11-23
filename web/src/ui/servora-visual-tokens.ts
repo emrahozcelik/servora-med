@@ -234,6 +234,8 @@ export const servoraVisualTokens = {
   },
 
   elevation: {
+    /** Resting subtle lift for operational cards and KPI tiles. */
+    card: '0 1px 2px rgba(22, 32, 40, 0.05), 0 2px 6px rgba(22, 32, 40, 0.03)',
     /** Shared raised elevation for Ant theme and native `.surface-raised`. */
     raised: '0 8px 24px rgba(30, 37, 43, 0.12)',
     /** Modal/dialog lift; one overlay shadow for every centered layer. */
@@ -244,7 +246,7 @@ export const servoraVisualTokens = {
 
   typography: {
     fontFamily:
-      'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      "'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
     bodySizePx: 16,
   },
 } as const satisfies {
@@ -260,7 +262,7 @@ export const servoraVisualTokens = {
     focusWidthPx: number;
     focusWidthCss: string;
   };
-  elevation: { raised: string; overlay: string; drawer: string };
+  elevation: { card: string; raised: string; overlay: string; drawer: string };
   typography: { fontFamily: string; bodySizePx: number };
 };
 
@@ -330,6 +332,7 @@ export const SERVORA_REQUIRED_CSS_VARIABLES = [
   '--radius-button',
   '--radius-raised',
   '--radius-chip',
+  '--shadow-card',
   '--shadow-raised',
   '--shadow-overlay',
   '--shadow-drawer',

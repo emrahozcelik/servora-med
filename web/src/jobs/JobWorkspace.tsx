@@ -21,7 +21,6 @@ import {
   type JobFilterChanges, type JobMembership, type JobSearchState, type JobViewMode,
 } from './job-search';
 import { readJobViewPreference, writeJobViewPreference } from './job-view-preference';
-import { NewJobMenu } from './NewJobMenu';
 import { activeWorkflowStatusOptions } from './job-status-presentation';
 
 const PAGE_SIZE = 25;
@@ -70,11 +69,6 @@ type BoardState =
 export function JobWorkspace(props: {
   user: CurrentUser;
   notice?: string;
-  onCreateDelivery?: () => void;
-  onCreateTask?: () => void;
-  onCreateMeeting?: () => void;
-  onCreateSale?: () => void;
-  onCreateWeeklyReport?: () => void;
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
   loadBoard?: typeof getJobCardBoard;
@@ -91,14 +85,9 @@ export function JobWorkspace(props: {
   return <JobWorkspaceContent {...props} />;
 }
 
-function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask, onCreateMeeting, onCreateSale, onCreateWeeklyReport, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
+function JobWorkspaceContent({ user, notice = '', onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
   user: CurrentUser;
   notice?: string;
-  onCreateDelivery?: () => void;
-  onCreateTask?: () => void;
-  onCreateMeeting?: () => void;
-  onCreateSale?: () => void;
-  onCreateWeeklyReport?: () => void;
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
   loadBoard?: typeof getJobCardBoard;
@@ -312,17 +301,9 @@ function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask
 
   return <main className="workspace job-workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
-    <PageHeader
-      actions={<div className="workspace-create-actions workspace-create-actions--toolbar">
-        <NewJobMenu
-          onCreateMeeting={onCreateMeeting}
-          onCreateTask={onCreateTask}
-          onCreateSale={onCreateSale}
-          onCreateDelivery={onCreateDelivery}
-          onCreateWeeklyReport={onCreateWeeklyReport}
-        />
-      </div>}
-    />
+    {/* Job creation lives in the shell: the desktop topbar and the mobile
+        bottom-navigation action. The page header carries no second create. */}
+    <PageHeader />
     <div
       className="job-quick-views-shell"
       data-quick-views-overflow={quickViewsOverflow ? 'true' : 'false'}
