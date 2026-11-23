@@ -17,6 +17,9 @@ export type ShellUserMenuProps = {
  * Compact desktop topbar account trigger & popover (Topbar Option B).
  * Owns profile/security/settings links and sign-out on desktop so the
  * sidebar footer stays calm without duplicating user controls.
+ *
+ * Disclosure pattern, not an ARIA menu: the panel holds ordinary links and a
+ * button reached with Tab, so it does not promise arrow-key menu navigation.
  */
 export function ShellUserMenu({
   user,
@@ -81,7 +84,6 @@ export function ShellUserMenu({
         ref={triggerRef}
         type="button"
         className="shell-user-menu-trigger"
-        aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
         onClick={() => setOpen((current) => !current)}
@@ -96,7 +98,7 @@ export function ShellUserMenu({
           ref={panelRef}
           id={menuId}
           className="shell-user-menu-panel surface-raised"
-          role="menu"
+          role="group"
           aria-label="Hesap menüsü"
         >
           <div className="shell-user-menu-header">
@@ -108,7 +110,6 @@ export function ShellUserMenu({
           <div className="shell-user-menu-links">
             {user.role === 'STAFF' && (
               <Link
-                role="menuitem"
                 className="shell-user-menu-link"
                 to={paths.staff}
                 onClick={() => requestClose(false)}
@@ -117,7 +118,6 @@ export function ShellUserMenu({
               </Link>
             )}
             <Link
-              role="menuitem"
               className="shell-user-menu-link"
               to={paths.settingsProfile}
               onClick={() => requestClose(false)}
@@ -125,7 +125,6 @@ export function ShellUserMenu({
               Profil ayarları
             </Link>
             <Link
-              role="menuitem"
               className="shell-user-menu-link"
               to={paths.settingsSecurity}
               onClick={() => requestClose(false)}
@@ -133,7 +132,6 @@ export function ShellUserMenu({
               Güvenlik
             </Link>
             <Link
-              role="menuitem"
               className="shell-user-menu-link"
               to={paths.settings}
               onClick={() => requestClose(false)}
@@ -144,7 +142,6 @@ export function ShellUserMenu({
 
           <div className="shell-user-menu-footer">
             <button
-              role="menuitem"
               className="shell-signout shell-user-menu-signout"
               type="button"
               onClick={onSignOut}

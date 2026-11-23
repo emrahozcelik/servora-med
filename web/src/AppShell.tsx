@@ -306,6 +306,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
                 triggerIcon={<NavigationIcon id="new-job" className="desktop-shell-create-icon" />}
                 onCreateMeeting={() => navigate(paths.newMeeting)}
                 onCreateTask={() => navigate(paths.newTask)}
+                onCreateSale={() => navigate(paths.newStandaloneSale)}
                 onCreateDelivery={() => navigate(paths.newDelivery)}
                 onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
               />

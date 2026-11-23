@@ -1082,11 +1082,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   width: 1.35rem;
   height: 1.35rem;
 }
-/* One primary create on mobile: the bottom-nav action owns it (UI-004). */
 @media (width < 64rem) {
-  .workspace-create-actions.workspace-create-actions--toolbar {
-    display: none;
-  }
   .authenticated-shell--mobile .workspace-heading h1 {
     font-size: 1.05rem;
     letter-spacing: -0.015em;
@@ -4209,10 +4205,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .desktop-shell-search-trigger {
     margin-inline-end: auto;
     display: inline-flex;
+    /* Search gives up width long before the account name truncates. */
+    flex: 0 1000 21rem;
     align-items: center;
     gap: 0.6rem;
-    width: min(100%, 21rem);
-    min-width: 13rem;
+    min-width: var(--control-height);
+    overflow: hidden;
     min-height: var(--control-height);
     padding: 0.45rem 0.75rem;
     border: 1px solid var(--rule);
@@ -5962,14 +5960,15 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
 
 .shell-user-menu {
   position: relative;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .shell-user-menu-trigger {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
   min-width: 0;
-  max-width: 15rem;
+  max-width: min(15rem, 100%);
   min-height: var(--control-height);
   padding: 0.3rem 0.7rem 0.3rem 0.45rem;
   border: 1px solid var(--rule);

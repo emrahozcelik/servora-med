@@ -38,18 +38,18 @@ describe('JobCard workspace ownership', () => {
     expect(app).not.toContain('listLegacyWorkspaceJobs');
   });
 
-  it('exposes distinct accessible create actions with stable routes', () => {
+  it('leaves job creation to the shell and keeps stable create routes', () => {
     const match = matchRouteIdentity(paths.jobs);
     if (!match) throw new Error('expected jobs identity');
     const html = renderToStaticMarkup(<MemoryRouter><ResolvedIdentityProvider match={match} role="MANAGER"><JobWorkspace
       user={{ id: 'manager-1', organizationId: 'org-1', name: 'Manager', email: 'm@test.local',
         role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 }}
-      onCreateDelivery={() => undefined} onCreateTask={() => undefined}
-      onCreateMeeting={() => undefined}
     /></ResolvedIdentityProvider></MemoryRouter>);
 
-    expect(html).toContain('Yeni iş');
-    expect(html).toContain('new-job-menu-trigger');
+    // One primary create: the desktop topbar and mobile bottom-navigation own
+    // it, so the Jobs page header must not render a second Yeni iş.
+    expect(html).not.toContain('new-job-menu-trigger');
+    expect(html).not.toContain('workspace-create-actions');
     expect(html).not.toContain('>Yeni teslim</button>');
     expect(html).not.toContain('>Yeni görev</button>');
     expect(html).not.toContain('>Yeni görüşme</button>');

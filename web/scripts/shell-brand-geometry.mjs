@@ -32,7 +32,10 @@ const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
       <nav class="shell-nav" aria-label="Ana navigasyon"><a href="/jobs" aria-current="page">İşler</a></nav>
     </aside>
     <header id="desktop-topbar" class="desktop-shell-topbar" style="display:none">
+      <button class="desktop-shell-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false"><svg class="desktop-shell-search-icon" viewBox="0 0 24 24" aria-hidden="true"></svg><span class="desktop-shell-search-placeholder">Ara… (müşteri, iş, sayfa)</span><kbd class="shell-kbd" aria-hidden="true">⌘K</kbd></button>
+      <div class="desktop-shell-new-job"><div class="new-job-menu"><button class="primary-button compact-button new-job-menu-trigger" type="button" aria-expanded="false"><span class="new-job-menu-trigger-icon" aria-hidden="true"><svg class="desktop-shell-create-icon" viewBox="0 0 24 24"></svg></span><span class="new-job-menu-trigger-label">Yeni iş</span></button></div></div>
       <div class="notification-center"><button class="shell-notification-trigger" type="button" aria-label="Bildirimler"><span class="shell-notification-icon" aria-hidden="true">◌</span></button></div>
+      <div class="shell-user-menu"><button class="shell-user-menu-trigger" type="button" aria-expanded="false"><span class="servora-user-avatar" aria-hidden="true">MS</span><span id="desktop-user-name" class="shell-user-menu-name">Ahmet Yönetici</span><svg class="shell-user-menu-chevron" viewBox="0 0 24 24" aria-hidden="true"></svg></button></div>
     </header>
     <header id="mobile-topbar" class="compact-shell-header mobile-top-bar">
       <div class="mobile-top-bar-start"><p id="shell-title" class="mobile-shell-title">Genel Bakış</p></div>
@@ -80,6 +83,9 @@ const viewports = [
   { width: 1023, height: 768 },
   { width: 1024, height: 768 },
   { width: 1440, height: 900 },
+  // 1024 CSS px at 200% text: the rem-based 64rem shell breakpoint scales with
+  // text size, so this is the narrowest real desktop shell at 200% text.
+  { width: 2048, height: 1536 },
 ];
 
 function invariant(condition, message) {
@@ -218,6 +224,19 @@ async function measure(page, viewport, mode = 'normal') {
       desktopNotificationRightGap: mobile || !topbarRect || !bellRect
         ? null
         : topbarRect.right - bellRect.right,
+      desktopTopbarPaddingRight: Number.parseFloat(topbarStyle.paddingRight || '0'),
+      desktopActionsRightGap: mobile || !topbarRect
+        ? null
+        : topbarRect.right - (desktopTopbar.lastElementChild?.getBoundingClientRect().right ?? 0),
+      desktopTopbarControls: mobile ? [] : [...desktopTopbar.children].map((child) => {
+        const bounds = child.getBoundingClientRect();
+        return { name: child.className.split(' ')[0], left: bounds.left, right: bounds.right };
+      }),
+      sidebarRight: mobile ? null : sidebar.getBoundingClientRect().right,
+      desktopUserNameTruncated: mobile ? null : (() => {
+        const name = document.getElementById('desktop-user-name');
+        return name.scrollWidth > name.clientWidth + 1;
+      })(),
       fullBrandCount: visibleBrands.length,
       mobileHeaderBrandCount: mobileTopbar.querySelectorAll('.dunya-dental-brand').length,
       desktopTopbarBrandCount: desktopTopbar.querySelectorAll('.dunya-dental-brand').length,
@@ -279,8 +298,20 @@ function verifyShell(row) {
       `${row.width}px: desktop sidebar brand contract failed`);
     invariant(row.desktopTopbarBrandCount === 0,
       `${row.width}px: desktop topbar must not render a brand`);
-    invariant(row.desktopNotificationRightGap !== null && row.desktopNotificationRightGap <= 60,
-      `${row.width}px: desktop notification is not right-aligned (${row.desktopNotificationRightGap}px gap)`);
+    invariant(row.desktopActionsRightGap !== null
+      && row.desktopActionsRightGap <= row.desktopTopbarPaddingRight + 1,
+      `${row.width}px ${row.mode}: desktop topbar actions are not right-aligned (${row.desktopActionsRightGap}px gap)`);
+    // Large text must shrink topbar controls, never spill them over the
+    // sidebar brand or past the viewport (PR #475 audit A4).
+    for (const control of row.desktopTopbarControls) {
+      invariant(control.left >= row.sidebarRight - 1 && control.right <= row.width + 1,
+        `${row.width}px ${row.mode}: topbar ${control.name} escapes its track`
+          + ` (left=${Math.round(control.left)} sidebarRight=${Math.round(row.sidebarRight)} right=${Math.round(control.right)})`);
+    }
+    if (row.mode === 'normal') {
+      invariant(row.desktopUserNameTruncated === false,
+        `${row.width}px: the account name truncates while search still has room to shrink`);
+    }
   }
   if (row.mode === 'long') invariant(row.titleScrollWidth >= row.titleClientWidth, `${row.width}px: long title did not expose ellipsis space`);
 }
@@ -322,7 +353,7 @@ try {
       rows.push(long);
     }
   }
-  for (const width of [320, 390, 430, 768]) {
+  for (const width of [320, 390, 430, 768, 1440, 2048]) {
     const viewport = viewports.find((candidate) => candidate.width === width);
     invariant(viewport, `missing viewport fixture for ${width}px`);
     const large = await measure(page, viewport, 'large-text');

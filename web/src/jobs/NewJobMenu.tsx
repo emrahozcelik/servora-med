@@ -10,6 +10,8 @@ import {
 import { createPortal } from 'react-dom';
 import { useInRouterContext, useLocation } from 'react-router-dom';
 
+import { NEW_JOB_OPTIONS, type NewJobOptionKey } from './new-job-options';
+
 export type NewJobMenuProps = {
   onCreateMeeting?: () => void;
   onCreateTask?: () => void;
@@ -56,13 +58,17 @@ export function NewJobMenu({
   const menuId = useId();
   const isSheet = presentation === 'sheet';
   const inRouter = useInRouterContext();
-  const options = [
-    onCreateMeeting ? { key: 'meeting', label: 'Görüşme / ziyaret planla', run: onCreateMeeting } : null,
-    onCreateTask ? { key: 'task', label: 'Yeni görev', run: onCreateTask } : null,
-    onCreateDelivery ? { key: 'delivery', label: 'Yeni teslim', run: onCreateDelivery } : null,
-    onCreateSale ? { key: 'sale', label: 'Satış kaydı', run: onCreateSale } : null,
-    onCreateWeeklyReport ? { key: 'weekly-report', label: 'Haftalık Rapor', run: onCreateWeeklyReport } : null,
-  ].filter((item): item is { key: string; label: string; run: () => void } => item !== null);
+  const handlers: Record<NewJobOptionKey, (() => void) | undefined> = {
+    meeting: onCreateMeeting,
+    task: onCreateTask,
+    delivery: onCreateDelivery,
+    sale: onCreateSale,
+    'weekly-report': onCreateWeeklyReport,
+  };
+  const options = NEW_JOB_OPTIONS.flatMap(({ key, label }) => {
+    const run = handlers[key];
+    return run ? [{ key, label, run }] : [];
+  });
 
   /**
    * `restoreFocus` is false for dismissals that leave focus where the user put

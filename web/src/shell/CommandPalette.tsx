@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { jobStatusLabels, jobTypeLabel } from '../jobs/job-labels';
 import { listJobCards, type JobCardListItem } from '../jobs/jobs-api';
+import { NEW_JOB_OPTIONS } from '../jobs/new-job-options';
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import {
@@ -52,7 +53,7 @@ function normalizeTr(value: string): string {
 function focusableInside(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(
-      'input:not([disabled]), button:not([disabled]), a[href]',
+      'input:not([disabled]), button:not([disabled]):not([tabindex="-1"]), a[href]',
     ),
   );
 }
@@ -146,12 +147,13 @@ export function CommandPalette({ user, destinations, onClose }: CommandPalettePr
   }, [trimmedQuery]);
 
   const quickActions = useMemo<PaletteEntry[]>(() => {
-    const entries: PaletteEntry[] = [
-      { id: 'action-new-meeting', group: 'actions', label: 'Görüşme / ziyaret planla', subtitle: 'Yeni iş kartı', to: paths.newMeeting },
-      { id: 'action-new-task', group: 'actions', label: 'Yeni görev', subtitle: 'Yeni iş kartı', to: paths.newTask },
-      { id: 'action-new-delivery', group: 'actions', label: 'Yeni teslim', subtitle: 'Yeni iş kartı', to: paths.newDelivery },
-      { id: 'action-new-weekly-report', group: 'actions', label: 'Haftalık Rapor', subtitle: 'Yeni iş kartı', to: paths.newWeeklyReport },
-    ];
+    const entries: PaletteEntry[] = NEW_JOB_OPTIONS.map((option) => ({
+      id: `action-new-${option.key}`,
+      group: 'actions',
+      label: option.label,
+      subtitle: 'Yeni iş kartı',
+      to: option.to,
+    }));
     if (canAccessRoute('customerCreate', user)) {
       entries.push({
         id: 'action-new-customer',
@@ -368,6 +370,7 @@ export function CommandPalette({ user, destinations, onClose }: CommandPalettePr
                           id={`command-palette-option-${entry.id}`}
                           type="button"
                           role="option"
+                          tabIndex={-1}
                           aria-selected={selected}
                           className="command-palette-option"
                           onMouseEnter={() => setActiveIndex(entryIndex)}

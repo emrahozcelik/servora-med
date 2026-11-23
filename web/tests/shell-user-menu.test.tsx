@@ -81,19 +81,24 @@ describe('ShellUserMenu', () => {
     ));
   }
 
-  it('opens an accessible menu popover, shows role-scoped links, and signs out', async () => {
+  it('opens an accessible disclosure panel, shows role-scoped links, and signs out', async () => {
     const onSignOut = vi.fn();
     await renderMenu({ user: staffUser, onSignOut });
 
     const trigger = container.querySelector<HTMLButtonElement>('.shell-user-menu-trigger')!;
-    expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
+    // Disclosure, not an ARIA menu: no arrow-key menu contract is promised.
+    expect(trigger.hasAttribute('aria-haspopup')).toBe(false);
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
 
     await act(async () => trigger.click());
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
 
     const panel = container.querySelector<HTMLElement>('.shell-user-menu-panel')!;
-    expect(panel.getAttribute('role')).toBe('menu');
+    expect(panel.getAttribute('role')).toBe('group');
+    expect(panel.getAttribute('aria-label')).toBe('Hesap menüsü');
+    expect(panel.querySelector('[role="menuitem"]')).toBeNull();
+    // The panel follows the trigger in DOM order, so Tab moves into it.
+    expect(trigger.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(panel.id).toBe(trigger.getAttribute('aria-controls'));
     expect(panel.textContent).toContain('Ayşe Personel');
     expect(panel.textContent).toContain('Personel');

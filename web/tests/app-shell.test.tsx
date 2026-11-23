@@ -6,6 +6,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppShell } from '../src/AppShell';
+import { NEW_JOB_OPTIONS } from '../src/jobs/new-job-options';
 import type { CurrentUser } from '../src/services/api';
 import {
   InstallOpportunityProvider,
@@ -570,7 +571,14 @@ describe('responsive authenticated AppShell', () => {
 
     const topbar = container.querySelector('.desktop-shell-topbar')!;
     expect(topbar.querySelector('.desktop-shell-search-trigger')).not.toBeNull();
-    expect(topbar.querySelector('.desktop-shell-new-job .new-job-menu-trigger')).not.toBeNull();
+    const newJobTrigger = topbar.querySelector<HTMLButtonElement>('.desktop-shell-new-job .new-job-menu-trigger')!;
+    expect(newJobTrigger).not.toBeNull();
+    // The topbar is the single desktop create entry: it must offer every
+    // create flow, including ones added after the topbar shipped (SALE-002).
+    await act(async () => newJobTrigger.click());
+    expect(Array.from(topbar.querySelectorAll('.desktop-shell-new-job .new-job-menu-item'), (item) => item.textContent))
+      .toEqual(NEW_JOB_OPTIONS.map((option) => option.label));
+    await act(async () => newJobTrigger.click());
     expect(topbar.querySelector('.notification-center')).not.toBeNull();
     const userTrigger = topbar.querySelector<HTMLButtonElement>('.shell-user-menu-trigger')!;
     expect(userTrigger).not.toBeNull();

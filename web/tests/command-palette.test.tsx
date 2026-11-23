@@ -29,6 +29,7 @@ import { AppShell } from '../src/AppShell';
 import type { CurrentUser } from '../src/services/api';
 import { buildNavigationModel } from '../src/shell/navigation-model';
 import { CommandPalette } from '../src/shell/CommandPalette';
+import { NEW_JOB_OPTIONS } from '../src/jobs/new-job-options';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -112,6 +113,28 @@ describe('CommandPalette', () => {
     });
     await act(async () => {});
     expect(container.querySelector('.command-palette-dialog')).not.toBeNull();
+  });
+
+  it('offers every create flow as a quick action and keeps options out of the Tab order', async () => {
+    const model = buildNavigationModel(manager);
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/jobs']}>
+        <CommandPalette user={manager} destinations={model.destinations} onClose={vi.fn()} />
+      </MemoryRouter>,
+    ));
+
+    const actionGroup = container.querySelector<HTMLElement>('.command-palette-group[aria-label="Hızlı işlemler"]')!;
+    const actionLabels = Array.from(
+      actionGroup.querySelectorAll('.command-palette-option-label'),
+      (label) => label.textContent,
+    );
+    for (const option of NEW_JOB_OPTIONS) expect(actionLabels).toContain(option.label);
+    expect(actionLabels).toContain('Satış kaydı');
+
+    // Combobox pattern: the input owns focus; options are reached with arrows.
+    const options = Array.from(container.querySelectorAll<HTMLButtonElement>('.command-palette-option'));
+    expect(options.length).toBeGreaterThan(0);
+    for (const option of options) expect(option.tabIndex).toBe(-1);
   });
 
   it('filters pages with Turkish case folding and navigates with keyboard', async () => {
