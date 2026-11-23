@@ -186,6 +186,51 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
   });
 }
 
+/**
+ * SALE-002 §4.5: the coordinated visit+sale request identity. Both cards are
+ * part of it — the same `clientActionId` applied to a *different* linked sale,
+ * a different expected version, note, proposal or location is a different
+ * request (`409 CLIENT_ACTION_REUSED`, never a silent act on the new card).
+ *
+ * The discriminator is the pair operation (`<PAIR_OPERATION>:v1`), so a pair
+ * receipt can never collide with the single-card lifecycle identity of either
+ * member card. Optional members are present only when sent, exactly like the
+ * sale-create contract: an absent key is not an explicit null.
+ */
+export type SalePairLifecycleRequestIdentity = {
+  /** `JOB_SUBMIT_FOR_APPROVAL_PAIR`, `JOB_APPROVE_PAIR`, ... (§4.5). */
+  pairOperation: string;
+  visitId: string;
+  visitExpectedVersion: number;
+  saleId: string;
+  saleExpectedVersion: number;
+  note: string | null;
+  revisionReason: string | null;
+  followUpProposal?: FollowUpProposalInput | null;
+  locationCapture?: LifecycleLocationCapture | null;
+  /**
+   * SALE-002 S3 (§5) hashes the normalized delivery payload here. S2 has no
+   * delivery input, so the key is absent and an S2 receipt keeps replaying
+   * byte-identically once S3 ships.
+   */
+  delivery?: unknown;
+};
+
+export function salePairLifecycleRequestHash(identity: SalePairLifecycleRequestIdentity): string {
+  return hashRequestIdentity({
+    operation: `${identity.pairOperation}:v1`,
+    pairOperation: identity.pairOperation,
+    visitId: identity.visitId,
+    visitExpectedVersion: identity.visitExpectedVersion,
+    saleId: identity.saleId,
+    saleExpectedVersion: identity.saleExpectedVersion,
+    note: identity.note,
+    revisionReason: identity.revisionReason,
+    followUpProposal: normalizedProposalIntent(identity.followUpProposal),
+    location: normalizedLocationIntent(identity.locationCapture),
+  });
+}
+
 export const MEETING_PATCH_FIELDS = [
   'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt', 'metContactId',
 ] as const;

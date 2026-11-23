@@ -226,8 +226,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Standalone sale creation (SALE-
       const started = await f.service.start(f.staff, sale.jobCardId, {
         clientActionId: 'source-gone-start', expectedVersion: 1,
       });
+      // A terminal non-visit source: no live pair, so the sale reaches its own
+      // readiness check, where SALE_ORIGIN_VALID is the failing item (R4).
       await f.pool.query(
-        `UPDATE job_cards SET type='GENERAL_TASK',engagement_kind=NULL WHERE id=$1`, [f.visitId],
+        `UPDATE job_cards SET type='GENERAL_TASK',engagement_kind=NULL,status='COMPLETED',
+           staff_completed_at=$2,staff_completed_by=$3,
+           manager_approved_at=$2,manager_approved_by=$3 WHERE id=$1`,
+        [f.visitId, saleTime, f.manager.id],
       );
       await expect(f.service.submitForApproval(f.staff, sale.jobCardId, {
         clientActionId: 'source-gone-submit', expectedVersion: started.version, note: 'Hazır',

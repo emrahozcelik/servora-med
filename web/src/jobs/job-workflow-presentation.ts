@@ -514,12 +514,18 @@ function responsibilityFor(
   }
 }
 
-function preferredPrimaryCommand(status: JobCardStatus): LifecycleCommand | null {
+function preferredPrimaryCommand(
+  status: JobCardStatus,
+  type: JobCard['type'],
+): LifecycleCommand | null {
   switch (status) {
     case 'NEW':
       return 'ACCEPT_ASSIGNMENT';
     case 'ACCEPTED':
-      return 'START';
+      // SALE-002 Q1: a SALE submits straight from ACCEPTED. START captures a
+      // location for a field interval a sale does not have; the IN_PROGRESS
+      // state stays reachable as a secondary command for sales that do start.
+      return type === 'SALE' ? 'SUBMIT_FOR_APPROVAL' : 'START';
     case 'IN_PROGRESS':
       return 'SUBMIT_FOR_APPROVAL';
     case 'REVISION_REQUESTED':
@@ -673,7 +679,7 @@ function deriveTransitions(
 
   let primary: TransitionPresentation | null = null;
   if (viewerOwnsPrimary(job.status, user, job)) {
-    const preferred = preferredPrimaryCommand(job.status);
+    const preferred = preferredPrimaryCommand(job.status, job.type);
     if (preferred && allowed.includes(preferred)) {
       primary = transitionPresentation(preferred, opts);
     }

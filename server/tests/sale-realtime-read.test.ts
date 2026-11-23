@@ -16,7 +16,16 @@ describe('Sale scoped invalidation', () => {
       const counts = (await f.pool.query("SELECT (SELECT count(*)::int FROM realtime_events) AS events, (SELECT count(*)::int FROM in_app_notifications) AS notifications")).rows[0];
       await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
       expect((await f.pool.query("SELECT (SELECT count(*)::int FROM realtime_events) AS events, (SELECT count(*)::int FROM in_app_notifications) AS notifications")).rows[0]).toEqual(counts);
-      await f.service.patch(f.manager, sale.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      // Legacy decoupled pair (pre-S2 data): SALE-002 §4.2 (R17) now rejects
+      // reassigning a live-pair sale through the API. The same reset a
+      // management reassignment of an accepted card performs is applied here.
+      await f.pool.query(
+        `UPDATE job_cards SET assigned_to=$2, version=version+1,
+           status=CASE WHEN status='ACCEPTED' THEN 'NEW' ELSE status END,
+           accepted_at=NULL, accepted_by=NULL
+         WHERE id=$1`,
+        [sale.jobCardId, f.otherStaff.id],
+      );
       const after = await events.replayVisible(viewer, 0n, 100);
       expect(after.some((event) => event.entityId === sale.jobCardId)).toBe(false);
       const sourceEvents = after.filter((event) => event.entityId === f.visitId);

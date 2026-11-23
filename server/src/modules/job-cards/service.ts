@@ -35,6 +35,7 @@ import {
 } from './policy.js';
 import type {
   CriticalActionResult,
+  CriticalActionWorkResult,
   DeliveryItemRecord,
   FollowUpSourceReference,
   JobCardRepository,
@@ -43,6 +44,7 @@ import type {
   JobLifecycleInstants,
   LifecycleIntentClaim,
   LifecycleIntentReservation,
+  LifecyclePairSide,
   NotePageQuery,
   PageQuery,
   ProductReference,
@@ -61,8 +63,22 @@ import {
   meetingDetailsUpdateRequestHash,
   productDeliveryCreateRequestHash,
   reofferAssignmentRequestHash,
+  salePairLifecycleRequestHash,
   type LifecycleLocationCapture,
 } from './critical-action-request-hash.js';
+import {
+  PAIR_OPERATION_KEYS,
+  expectedSaleVersionRequired,
+  isLivePairSource,
+  isPairOwnedTogether,
+  isSalePairCommand,
+  noCoordinatedPair,
+  redirectsSaleCommand,
+  salePairAssigneeConflict,
+  salePairRedirect,
+  salePairStateConflict,
+  type SalePairCommand,
+} from './sale-pair-policy.js';
 import {
   assignmentOfferRequiredState,
   decideAssignmentOfferOpen,
@@ -367,15 +383,52 @@ type LifecycleInput = {
   clientActionId: string;
   note?: string | null;
 };
-type SubmitInput = LifecycleInput & { followUpProposal?: FollowUpProposalInput; locationCapture?: unknown };
-type ApproveInput = LifecycleInput & { followUp?: ApproveFollowUpInput };
+/**
+ * SALE-002 §4.5: the five pair-capable commands accept `expectedSaleVersion`.
+ * START, accept/decline/release, cancel and invalidate keep their strict
+ * allowlists, so the field is only ever read here.
+ */
+type PairLifecycleInput = LifecycleInput & { expectedSaleVersion?: unknown };
+type SubmitInput = PairLifecycleInput & {
+  followUpProposal?: FollowUpProposalInput; locationCapture?: unknown;
+};
+type ApproveInput = PairLifecycleInput & { followUp?: ApproveFollowUpInput };
 type StartInput = LifecycleInput & { locationCapture?: unknown };
-type RevisionInput = LifecycleInput & {
+type RevisionInput = PairLifecycleInput & {
   revisionReason: string;
   /** OVR-5b §3: optional management correction deadline (ISO instant). */
   correctionDueAt?: string | null;
 };
 type CancelInput = LifecycleInput & { cancelReason: string; followUpContinuity?: unknown };
+
+/** §4.2: the resolved coordination of the command being executed. */
+type PairPlan =
+  | { kind: 'single' }
+  | {
+    kind: 'pair';
+    command: SalePairCommand;
+    visit: LifecyclePairSide;
+    sale: LifecyclePairSide;
+    expectedSaleVersion: number;
+  };
+
+/** SALE-002 §4.6: everything one pair command's work callback reads. */
+type PairLifecycleContext = {
+  actor: JobCardActor;
+  plan: Extract<PairPlan, { kind: 'pair' }>;
+  definition: LifecycleDefinition;
+  requestTime: Date;
+  clientActionId: string;
+  expectedVersion: number;
+  actionLocation?: { action: JobActionLocationAction; capture: JobActionLocationCapture };
+};
+
+type PairWorkInput = {
+  context: PairLifecycleContext;
+  visit: JobCard;
+  sale: JobCard;
+  lockedAssignees: ReadonlyMap<string, JobCardAssignee>;
+};
 
 function assertFollowUpMinimumLead(input: {
   meetingAt: string | null;
@@ -565,6 +618,10 @@ type DecodedLifecycleReceipt = {
   jobCardId: string;
   evaluatedAt: Date | null;
   followUpJobCardId: string | null;
+  /** SALE-002 §5.1: the sale a coordinated command moved (anchor is the visit). */
+  linkedSaleJobCardId: string | null;
+  /** SALE-002 §5.1: reserved for the S3 delivery creation. */
+  deliveryJobCardId: string | null;
   submitLocationComparison: JobActionLocationComparison | null;
 };
 
@@ -584,6 +641,15 @@ function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
   }
   const followUpJobCardId = typeof record.followUpJobCardId === 'string'
     ? record.followUpJobCardId
+    : null;
+  // SALE-002 §5.1 (R22): pair receipts carry the ids of the cards the command
+  // actually created or moved. Decoded tolerantly so every receipt written
+  // before SALE-002 keeps replaying byte-identically.
+  const linkedSaleJobCardId = typeof record.linkedSaleJobCardId === 'string'
+    ? record.linkedSaleJobCardId
+    : null;
+  const deliveryJobCardId = typeof record.deliveryJobCardId === 'string'
+    ? record.deliveryJobCardId
     : null;
   // Slice 2: advisory comparison carried on the receipt. Tolerantly decoded:
   // rows persisted before Slice 2 (or non-SUBMIT commands) simply yield null.
@@ -605,7 +671,7 @@ function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
       };
     }
   }
-  return { jobCardId, evaluatedAt, followUpJobCardId, submitLocationComparison };
+  return { jobCardId, evaluatedAt, followUpJobCardId, linkedSaleJobCardId, deliveryJobCardId, submitLocationComparison };
 }
 
 function assertStaffStartActor(actor: JobCardActor) {
@@ -1005,7 +1071,10 @@ export class JobCardService {
       // A standalone sale has no source visit; never query a null source id.
       if (snapshot?.sourceVisitId) {
         const source = await transaction.getJob(input.organizationId, snapshot.sourceVisitId);
-        if (source) {
+        // SALE-002 §4.7 (R21): the source key and the source assignee join the
+        // audience only for a live pair (one owner) or management. A decoupled
+        // legacy pair therefore never receives the other card's job-detail key.
+        if (source && source.assignedTo === input.afterAssigneeId) {
           resourceKeys.add('job-detail:' + source.id);
           audience = { roles: mapped.audience.roles, userIds: [...new Set([...mapped.audience.userIds, source.assignedTo])].sort() };
         }
@@ -3563,6 +3632,33 @@ export class JobCardService {
       let scheduleRevisionChanged = scheduleChanged || dueDateChanged;
       const assigneeChanged = fields.assignedTo !== undefined
         && fields.assignedTo !== job.assignedTo;
+      // SALE-002 §4.2/§4.3 (R17): one owner per live pair. A reassignment
+      // that would make a live pair diverge is rejected — the supported way to
+      // give the physical work to another person is the delivery assignee at
+      // approval. Symmetric on both cards: a visit reassignment that would
+      // strand its live sale is the same divergence. The partner read is
+      // unlocked on purpose; the pair command re-proves the invariant under
+      // both JobCard locks, and a benign race only decouples the pair (a valid
+      // legacy state), never corrupts it.
+      if (assigneeChanged && (job.type === 'SALE' || job.type === 'SALES_MEETING')) {
+        const pair = await transaction.getLifecyclePair(actor.organizationId, jobCardId);
+        if (job.type === 'SALE' && pair?.visit != null
+          && isLivePairSource(pair.visit.status)
+          && pair.visit.assignedTo !== fields.assignedTo) {
+          throw salePairAssigneeConflict({
+            visitAssignee: pair.visit.assignedTo,
+            requestedAssignee: fields.assignedTo!,
+          });
+        }
+        if (job.type === 'SALES_MEETING' && pair?.sale != null
+          && isLivePairSource(job.status)
+          && pair.sale.assignedTo !== fields.assignedTo) {
+          throw salePairAssigneeConflict({
+            visitAssignee: job.assignedTo,
+            requestedAssignee: fields.assignedTo!,
+          });
+        }
+      }
       const needsCalendarAssigneeLock = this.calendar.enabled
         && isCalendarIntervalJob
         && (scheduleChanged || assigneeChanged);
@@ -5408,7 +5504,9 @@ export class JobCardService {
     const reserved = await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
       claim,
       { jobCardId, ttlMs: this.intentTtlMs(),
-        preflight: async (tx, job, reservedAt) => this.assertLifecycleReservation(tx, actor, job, definition, reservedAt),
+        preflight: async (tx, jobs, reservedAt) => this.assertLifecycleReservation(
+          tx, actor, jobs.get(jobCardId)!, definition, reservedAt,
+        ),
       },
     );
     if (reserved.kind === 'replay') {
@@ -5444,6 +5542,33 @@ export class JobCardService {
       noteContext: 'SUBMIT_FOR_APPROVAL',
       followUpProposal: input.followUpProposal,
     };
+    const plan = await this.resolvePairPlan(
+      actor, jobCardId, definition.command, input.expectedSaleVersion,
+      lifecycleInput.clientActionId,
+    );
+    if (plan.kind === 'pair') {
+      // SALE-002 §4.3: the pair submission is one transaction. The advisory
+      // SUBMIT location is resolved before the reservation (never under the
+      // JobCard lock); it is recorded on the visit only, and the request hash
+      // covers its normalized core, so the resolution itself is not identity.
+      const capture = this.geolocation.enabled && actor.role === 'STAFF'
+        && input.locationCapture !== undefined
+        ? parseActionLocationCapture(input.locationCapture)
+        : null;
+      const actionLocation = capture === null ? undefined : {
+        action: 'JOB_SUBMITTED_FOR_APPROVAL' as const,
+        capture: await this.resolveActionLocation({
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          capture,
+          correlationId: lifecycleInput.clientActionId,
+          softInfrastructureFailure: true,
+        }),
+      };
+      return this.runPairLifecycle(
+        actor, plan, lifecycleInput, definition, presentation, actionLocation,
+      );
+    }
     // Slice 1: the SUBMIT location is advisory/soft. Unlike START, an omitted
     // or unavailable capture never blocks the transition; only a malformed
     // supplied envelope is a validation error. When action-scoped
@@ -5468,7 +5593,9 @@ export class JobCardService {
     const reserved = await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
       claim,
       { jobCardId, ttlMs: this.intentTtlMs(),
-        preflight: async (tx, job, reservedAt) => this.assertLifecycleReservation(tx, actor, job, definition, reservedAt),
+        preflight: async (tx, jobs, reservedAt) => this.assertLifecycleReservation(
+          tx, actor, jobs.get(jobCardId)!, definition, reservedAt,
+        ),
       },
     );
     if (reserved.kind === 'replay') {
@@ -5489,41 +5616,77 @@ export class JobCardService {
   }
 
   async approve(actor: JobCardActor, jobCardId: string, input: ApproveInput) {
-    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+    const lifecycleInput = this.lifecycleInput(input);
+    const definition: LifecycleDefinition = {
       command: 'APPROVE', operationKey: 'JOB_APPROVE', target: 'COMPLETED', event: 'JOB_APPROVED',
       note: optionalLifecycleNote(input.note), revisionReason: null, cancelReason: null,
       noteContext: 'APPROVE',
       approveFollowUp: input.followUp,
-    });
+    };
+    const plan = await this.resolvePairPlan(
+      actor, jobCardId, definition.command, input.expectedSaleVersion,
+      lifecycleInput.clientActionId,
+    );
+    if (plan.kind === 'pair') {
+      return this.runPairLifecycle(actor, plan, lifecycleInput, definition);
+    }
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
   }
 
   async requestRevision(actor: JobCardActor, jobCardId: string, input: RevisionInput) {
     // OVR-5b §3.1: syntax first, before the intent claim and the hash.
     const correctionDueAt = revisionCorrectionDueAt(input);
-    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+    const lifecycleInput = this.lifecycleInput(input);
+    const definition: LifecycleDefinition = {
       command: 'REQUEST_REVISION', operationKey: 'JOB_REQUEST_REVISION', target: 'REVISION_REQUESTED',
       event: 'JOB_REVISION_REQUESTED', note: null,
       revisionReason: lifecycleReason(input.revisionReason, 'revisionReason'), cancelReason: null,
       noteContext: 'REQUEST_REVISION',
       ...(correctionDueAt === undefined ? {} : { correctionDueAt }),
-    });
+    };
+    const plan = await this.resolvePairPlan(
+      actor, jobCardId, definition.command, input.expectedSaleVersion,
+      lifecycleInput.clientActionId,
+    );
+    if (plan.kind === 'pair') {
+      return this.runPairLifecycle(actor, plan, lifecycleInput, definition);
+    }
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
   }
 
-  async withdrawFromApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
-    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+  async withdrawFromApproval(actor: JobCardActor, jobCardId: string, input: PairLifecycleInput) {
+    const lifecycleInput = this.lifecycleInput(input);
+    const definition: LifecycleDefinition = {
       command: 'WITHDRAW_FROM_APPROVAL', operationKey: 'JOB_WITHDRAW_FROM_APPROVAL',
       target: 'IN_PROGRESS', event: 'JOB_APPROVAL_WITHDRAWN',
       note: null, revisionReason: null, cancelReason: null,
       noteContext: null,
-    });
+    };
+    const plan = await this.resolvePairPlan(
+      actor, jobCardId, definition.command, input.expectedSaleVersion,
+      lifecycleInput.clientActionId,
+    );
+    if (plan.kind === 'pair') {
+      return this.runPairLifecycle(actor, plan, lifecycleInput, definition);
+    }
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
   }
 
-  async resume(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
-    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+  async resume(actor: JobCardActor, jobCardId: string, input: PairLifecycleInput) {
+    const lifecycleInput = this.lifecycleInput(input);
+    const definition: LifecycleDefinition = {
       command: 'RESUME', operationKey: 'JOB_RESUME', target: 'IN_PROGRESS', event: 'JOB_RESUMED',
       note: null, revisionReason: null, cancelReason: null,
       noteContext: null,
-    });
+    };
+    const plan = await this.resolvePairPlan(
+      actor, jobCardId, definition.command, input.expectedSaleVersion,
+      lifecycleInput.clientActionId,
+    );
+    if (plan.kind === 'pair') {
+      return this.runPairLifecycle(actor, plan, lifecycleInput, definition);
+    }
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
   }
 
   async cancel(actor: JobCardActor, jobCardId: string, input: CancelInput) {
@@ -5578,6 +5741,856 @@ export class JobCardService {
     }
   }
 
+  /**
+   * SALE-002 §4.2: decide whether this command is a coordinated pair command,
+   * a redirected single-card sale command, or an independent single-card
+   * command. Planning only (unlocked); the reservation and the finalization
+   * re-read every row under the sorted JobCard locks.
+   */
+  private async resolvePairPlan(
+    actor: JobCardActor,
+    jobCardId: string,
+    command: LifecycleCommand,
+    expectedSaleVersionInput: unknown,
+    clientActionId: string,
+  ): Promise<PairPlan> {
+    const expectedSaleVersion = this.expectedSaleVersionValue(expectedSaleVersionInput);
+    if (!isSalePairCommand(command)) return { kind: 'single' };
+    const pair = await this.repository.getLifecyclePair(actor.organizationId, jobCardId);
+    if (!pair) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    const card: LifecyclePairSide = {
+      id: pair.cardId,
+      status: pair.cardStatus,
+      version: pair.cardVersion,
+      assignedTo: pair.cardAssignedTo,
+    };
+    if (pair.cardType === 'SALE') {
+      // §4.2: the sale card is never the pair anchor. A live, coupled source
+      // redirects the command to the visit. The guard only replaces a command
+      // that could otherwise execute: a terminal sale keeps the truthful
+      // INVALID_TRANSITION, and a terminal source, a standalone sale or a
+      // decoupled legacy pair keep the independent lifecycle.
+      const visit = pair.visit;
+      if (visit !== null && isLivePairSource(visit.status)
+        && isPairOwnedTogether(visit, card)
+        && !isTerminalJobStatus(card.status)
+        && redirectsSaleCommand(command, visit.status)) {
+        throw salePairRedirect({
+          command, visitId: visit.id, saleId: card.id, saleStatus: card.status,
+        });
+      }
+      if (expectedSaleVersion !== undefined) throw noCoordinatedPair();
+      return { kind: 'single' };
+    }
+    const sale = pair.sale;
+    const coordinated = pair.cardType === 'SALES_MEETING' && sale !== null
+      && isPairOwnedTogether(card, sale)
+      && this.pairVisitCommandStatus(command) === card.status;
+    if (!coordinated) {
+      if (expectedSaleVersion !== undefined) {
+        // §4.5: a completed pair command must still replay after both cards
+        // left the command's state (a joint approve leaves a terminal source,
+        // a submit leaves a WAITING_APPROVAL visit). The participant intent of
+        // this exact identity names the sale, so the pair request hash stays
+        // verifiable and a changed body stays CLIENT_ACTION_REUSED.
+        const replayed = await this.repository.findCompletedPairParticipant({
+          organizationId: actor.organizationId,
+          userId: actor.id,
+          clientActionId,
+          participantKey: `${PAIR_OPERATION_KEYS[command]}:${jobCardId}:participant`,
+        });
+        if (replayed !== null) {
+          return {
+            kind: 'pair', command, visit: card, sale: replayed, expectedSaleVersion,
+          };
+        }
+        throw noCoordinatedPair();
+      }
+      return { kind: 'single' };
+    }
+    if (expectedSaleVersion === undefined) throw expectedSaleVersionRequired();
+    return {
+      kind: 'pair', command, visit: card, sale, expectedSaleVersion,
+    };
+  }
+
+  /** §4.3: the visit status each pair command owns. */
+  private pairVisitCommandStatus(command: SalePairCommand): JobCardStatus {
+    return command === 'SUBMIT_FOR_APPROVAL' ? 'IN_PROGRESS'
+      : command === 'RESUME' ? 'REVISION_REQUESTED'
+        : 'WAITING_APPROVAL';
+  }
+
+  private expectedSaleVersionValue(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      throw validation('expectedSaleVersion');
+    }
+    return value;
+  }
+
+  /**
+   * SALE-002 §4.6: reservation preflight for a pair. Runs with BOTH rows
+   * locked, so the visit's transition/offer/deadline state and the sale's
+   * transition/offer state are validated in one place without extra locks.
+   */
+  private async assertPairReservation(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    jobs: ReadonlyMap<string, JobCard>,
+    plan: Extract<PairPlan, { kind: 'pair' }>,
+    definition: LifecycleDefinition,
+    reservedAt: Date,
+  ): Promise<void> {
+    const visit = jobs.get(plan.visit.id);
+    const sale = jobs.get(plan.sale.id);
+    if (!visit || !sale) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    await this.assertPairPolicy(tx, actor, visit, sale, definition, reservedAt);
+  }
+
+  /**
+   * The pair policy itself, with both rows already locked. Called by the
+   * reservation preflight and again by the finalize work callback, so a stale
+   * view is always a 409 and writes nothing.
+   */
+  private async assertPairPolicy(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    visit: JobCard,
+    sale: JobCard,
+    definition: LifecycleDefinition,
+    instant: Date,
+  ): Promise<void> {
+    // The ownership invariant cannot be created after S2, so a divergence here
+    // can only mean a concurrent reassignment: fail closed like any stale view.
+    if (!isPairOwnedTogether(visit, sale)) {
+      throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+    }
+    const reason = definition.revisionReason ?? definition.cancelReason ?? undefined;
+    const flags = { assignmentWindowEnabled: this.assignmentWindowEnabled() };
+    const visitOffer = await this.assertAssignmentOfferCommand(
+      tx, actor, visit, definition.command, instant,
+    );
+    assertCanTransition(
+      actor,
+      { ...visit, assignmentOffer: this.assignmentOfferSummary(visitOffer) },
+      definition.command, reason, instant, flags,
+    );
+    if (definition.command === 'SUBMIT_FOR_APPROVAL') {
+      // §4.3 step 3: the sale must be submittable by itself. A sale that still
+      // needs a single-card command gets that exact next action, never a
+      // silent split submission.
+      if (sale.status === 'NEW') {
+        throw salePairStateConflict({
+          visitId: visit.id, saleId: sale.id, saleStatus: sale.status,
+          allowedSaleCommand: 'ACCEPT_ASSIGNMENT',
+        });
+      }
+      if (sale.status === 'REVISION_REQUESTED') {
+        throw salePairStateConflict({
+          visitId: visit.id, saleId: sale.id, saleStatus: sale.status,
+          allowedSaleCommand: 'RESUME',
+        });
+      }
+      if (sale.status === 'ACCEPTED' || sale.status === 'IN_PROGRESS') {
+        const saleOffer = await this.assertAssignmentOfferCommand(
+          tx, actor, sale, definition.command, instant,
+        );
+        assertCanTransition(
+          actor,
+          { ...sale, assignmentOffer: this.assignmentOfferSummary(saleOffer) },
+          definition.command, reason, instant, flags,
+        );
+      }
+    } else if (definition.command === 'RESUME') {
+      if (sale.status === 'REVISION_REQUESTED') {
+        assertCanTransition(actor, sale, definition.command, reason, instant, flags);
+      }
+    } else if (sale.status === 'WAITING_APPROVAL') {
+      // §4.3: approve/revision/withdraw move the sale only while it is
+      // WAITING_APPROVAL; a legacy card in another state is left untouched.
+      assertCanTransition(actor, sale, definition.command, reason, instant, flags);
+    }
+    if (definition.command === 'REQUEST_REVISION' && definition.correctionDueAt !== undefined) {
+      await this.assertCorrectionDeadlineBounds(tx, visit, definition.correctionDueAt, instant);
+    }
+  }
+
+  /**
+   * SALE-002 §4.3/§4.6: one pair command = one transaction, two intents and
+   * two JobCard row locks. The visit is the receipt anchor; the sale is the
+   * participant. A replay returns the stored anchor receipt and publishes
+   * nothing.
+   */
+  private async runPairLifecycle(
+    actor: JobCardActor,
+    plan: Extract<PairPlan, { kind: 'pair' }>,
+    input: { clientActionId: string; expectedVersion: number },
+    definition: LifecycleDefinition,
+    presentation?: { includeSubmitLocationCapability?: boolean },
+    actionLocation?: { action: JobActionLocationAction; capture: JobActionLocationCapture },
+  ) {
+    const visitId = plan.visit.id;
+    const saleId = plan.sale.id;
+    const pairOperation = PAIR_OPERATION_KEYS[plan.command];
+    const claim: LifecycleIntentClaim = {
+      organizationId: actor.organizationId,
+      userId: actor.id,
+      clientActionId: input.clientActionId,
+      // §4.5: the visit is the receipt anchor; the sale owns a participant
+      // reservation derived from this key.
+      operationKey: `${pairOperation}:${visitId}`,
+      command: definition.command,
+      expectedVersion: input.expectedVersion,
+      requestHash: salePairLifecycleRequestHash({
+        pairOperation,
+        visitId,
+        visitExpectedVersion: input.expectedVersion,
+        saleId,
+        saleExpectedVersion: plan.expectedSaleVersion,
+        note: definition.note,
+        revisionReason: definition.revisionReason,
+        followUpProposal: definition.followUpProposal ?? null,
+        locationCapture: actionLocation?.capture ?? null,
+      }),
+    };
+    const legacyCompleted = await this.repository.findCompletedCriticalAction<unknown>({
+      organizationId: claim.organizationId,
+      userId: claim.userId,
+      clientActionId: claim.clientActionId,
+      operationKey: claim.operationKey,
+      requestHash: claim.requestHash,
+    });
+    if (legacyCompleted) {
+      const receipt = decodeJobCardMutationReceipt(legacyCompleted);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
+    }
+    const reserved = await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
+      claim,
+      {
+        jobCardId: visitId,
+        // §4.6: both cards are locked (sorted) and reserved together.
+        additionalJobCardIds: [saleId],
+        expectedVersions: { [saleId]: plan.expectedSaleVersion },
+        ttlMs: this.intentTtlMs(),
+        preflight: async (tx, jobs, reservedAt) =>
+          this.assertPairReservation(tx, actor, jobs, plan, definition, reservedAt),
+      },
+    );
+    if (reserved.kind === 'replay') {
+      const receipt = decodeJobCardMutationReceipt(reserved.response);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
+    }
+    const requestTime = reserved.reservation.reservedAt;
+    let lockedAssignees = new Map<string, JobCardAssignee>();
+    // The visit's unlocked pre-lock snapshot decides the users-first locks; the
+    // finalize transaction re-proves it under the sorted JobCard locks.
+    let lockedVisitSnapshot: JobCard | null = null;
+    const context: PairLifecycleContext = {
+      actor, plan, definition, requestTime,
+      clientActionId: input.clientActionId,
+      expectedVersion: input.expectedVersion,
+      ...(actionLocation ? { actionLocation } : {}),
+    };
+    const result = await this.repository.finalizeLifecycleIntent<JobCardMutationReceipt>(
+      claim,
+      reserved.reservation,
+      async (tx) => this.applyPairLifecycle(tx, context, {
+        lockedAssignees: () => lockedAssignees,
+        lockedVisitSnapshot: () => lockedVisitSnapshot,
+      }),
+      {
+        jobCardId: visitId,
+        jobCardIds: [visitId, saleId],
+        lockUsers: async (tx) => {
+          lockedAssignees = new Map<string, JobCardAssignee>();
+          const jobSnapshot = await tx.getJob(actor.organizationId, visitId);
+          if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+          lockedVisitSnapshot = jobSnapshot;
+          const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
+            || definition.command === 'APPROVE';
+          const mayWriteTransitionNote = definition.noteContext !== null
+            && (definition.note ?? definition.revisionReason ?? definition.cancelReason) !== null;
+          const userIds: Array<string | null | undefined> = [
+            ...(mayWriteTransitionNote ? [actor.id] : []),
+          ];
+          if (mayScheduleFollowUp) {
+            const needsSchedulingUserLocks = jobSnapshot.type === 'SALES_MEETING'
+              || jobSnapshot.followUpProposedAssignee !== null
+              || definition.followUpProposal?.assignedTo !== undefined
+              || definition.approveFollowUp?.assignedTo !== undefined;
+            if (needsSchedulingUserLocks) {
+              userIds.push(
+                jobSnapshot.assignedTo,
+                jobSnapshot.followUpProposedAssignee,
+                definition.followUpProposal?.assignedTo,
+                definition.approveFollowUp?.assignedTo,
+              );
+            }
+          }
+          lockedAssignees = await this.lockUsersInOrder(tx, actor.organizationId, userIds);
+        },
+        // §4.6: the pair's customer lock is taken BEFORE both JobCard rows, so
+        // a pair approval and a single visit approval of the same customer can
+        // never form a `customers -> job_cards` / `job_cards -> customers`
+        // cycle. Products/contacts join this phase in S3.
+        lockReferences: async (tx) => {
+          if (definition.command !== 'APPROVE') return;
+          const customerId = lockedVisitSnapshot?.customerId ?? null;
+          if (customerId === null) return;
+          const customer = await tx.getCustomerForUpdate(actor.organizationId, customerId);
+          if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+        },
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    const receipt = decodeJobCardMutationReceipt(result.response);
+    return this.presentLifecycleReceipt(actor, receipt, presentation);
+  }
+
+  /** §4.6 work-callback re-validation: both rows, every invariant, no writes on doubt. */
+  private async lockPairForWork(
+    tx: JobCardTransaction,
+    context: PairLifecycleContext,
+    snapshots: {
+      lockedAssignees: () => ReadonlyMap<string, JobCardAssignee>;
+      lockedVisitSnapshot: () => JobCard | null;
+    },
+  ): Promise<{ visit: JobCard; sale: JobCard }> {
+    void snapshots.lockedAssignees;
+    const { actor, plan, expectedVersion } = context;
+    const visit = await tx.getJobForUpdate(actor.organizationId, plan.visit.id);
+    const sale = await tx.getJobForUpdate(actor.organizationId, plan.sale.id);
+    if (!visit || !sale) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    if (visit.version !== expectedVersion || sale.version !== plan.expectedSaleVersion) {
+      throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+    }
+    const preLock = snapshots.lockedVisitSnapshot();
+    if (visit.assignedTo !== plan.visit.assignedTo || sale.assignedTo !== plan.sale.assignedTo
+      || (preLock !== null
+        && (visit.assignedTo !== preLock.assignedTo
+          || visit.followUpProposedAssignee !== preLock.followUpProposedAssignee))) {
+      throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+    }
+    // §4.6: the linked sale must still be the one the identity names and must
+    // still be active; §4.2: the pair cannot span customers.
+    const linked = await tx.getActiveSaleForVisit(actor.organizationId, visit.id, true);
+    if (!linked || linked.id !== sale.id
+      || visit.type !== 'SALES_MEETING' || sale.type !== 'SALE') {
+      throw new AppError('INVARIANT_VIOLATION', 500, 'Ziyaret ve satış çifti tutarsız.');
+    }
+    if (!isPairOwnedTogether(visit, sale)) {
+      throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+    }
+    if (visit.customerId === null || sale.customerId !== visit.customerId) {
+      throw new AppError('INVARIANT_VIOLATION', 500, 'Ziyaret ve satış çifti tutarsız.');
+    }
+    return { visit, sale };
+  }
+
+  /** The command-specific half of a pair command, with both rows locked. */
+  private async applyPairLifecycle(
+    tx: JobCardTransaction,
+    context: PairLifecycleContext,
+    snapshots: {
+      lockedAssignees: () => ReadonlyMap<string, JobCardAssignee>;
+      lockedVisitSnapshot: () => JobCard | null;
+    },
+  ): Promise<CriticalActionWorkResult<JobCardMutationReceipt>> {
+    const { plan, definition, requestTime } = context;
+    const { visit, sale } = await this.lockPairForWork(tx, context, snapshots);
+    // Re-prove the pair policy in the finalize transaction under the same
+    // locks; a stale view is a 409 and writes nothing.
+    await this.assertPairPolicy(tx, context.actor, visit, sale, definition, requestTime);
+    const pairOptions = {
+      context,
+      visit,
+      sale,
+      lockedAssignees: snapshots.lockedAssignees(),
+    };
+    switch (plan.command) {
+      case 'SUBMIT_FOR_APPROVAL':
+        return this.applyPairSubmit(tx, pairOptions);
+      case 'APPROVE':
+        return this.applyPairApprove(tx, pairOptions);
+      case 'REQUEST_REVISION':
+      case 'WITHDRAW_FROM_APPROVAL':
+      case 'RESUME':
+        return this.applyPairMove(tx, pairOptions);
+      default:
+        throw new AppError('INVARIANT_VIOLATION', 500, 'Desteklenmeyen çift işlemi.');
+    }
+  }
+
+  /**
+   * SALE-002 §4.7: exactly one lifecycle activity row per card that actually
+   * moved, plus its own accountability/overdue/episode effects and the bodyless
+   * realtime invalidation. Shared by both cards of a pair command so the two
+   * sides can never drift apart.
+   */
+  private async applyPairCardTransition(
+    tx: JobCardTransaction,
+    input: PairWorkInput,
+    transition: {
+      card: JobCard;
+      otherJobCardId: string;
+      target: JobCardStatus;
+      followUpProposal?: {
+        scheduledAt: Date;
+        type: JobCardType;
+        assignedTo: string;
+        instructions: string;
+        origin: FollowUpProposalOrigin;
+        proposedBy: string | null;
+      } | null;
+      metadataExtra?: Record<string, unknown>;
+      storedCorrectionDueAt?: Date | null;
+    },
+  ): Promise<{ updated: JobCard; activityId: string; realtimeEvents: RealtimeEventRecord[] }> {
+    const { context } = input;
+    const { actor, definition, requestTime } = context;
+    const jobCardId = transition.card.id;
+    const command = definition.command;
+    // OVR-2: a breach is materialized BEFORE the transition from this card's
+    // own historical inputs; the semantic obligation the command closes is
+    // resolved separately, so an on-time current episode cannot hide an older
+    // open one.
+    await this.materializeOverdueBreachForCommand(
+      tx, actor, jobCardId, transition.card, command, requestTime,
+    );
+    const overdueRecoveryTarget = await this.resolveOverdueRecoveryTarget(
+      tx, actor, jobCardId, transition.card, command,
+    );
+    const updated = await tx.transitionWithVersion({
+      organizationId: actor.organizationId,
+      jobCardId,
+      expectedVersion: transition.card.version,
+      command,
+      status: transition.target,
+      occurredAt: requestTime,
+      actorId: actor.id,
+      note: definition.note,
+      revisionReason: definition.revisionReason,
+      cancelReason: definition.cancelReason,
+      followUpCycleEndReason: null,
+      followUpProposal: transition.followUpProposal ?? null,
+    });
+    if (!updated) {
+      throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+    }
+    const reason = definition.revisionReason ?? definition.cancelReason;
+    const transitionNoteBody = definition.note ?? reason;
+    let noteId: string | null = null;
+    let authorNameSnapshot: string | null = null;
+    let authorRoleSnapshot: JobCardAssignee['role'] | null = null;
+    if (definition.noteContext && transitionNoteBody) {
+      // The author's users row was already locked users-first in `lockUsers`;
+      // this snapshot only re-reads it.
+      const author = await tx.getNoteAuthorSnapshot(actor.organizationId, actor.id);
+      if (!author?.isActive) {
+        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+      }
+      authorNameSnapshot = author.name;
+      authorRoleSnapshot = author.role;
+      noteId = randomUUID();
+    }
+    const metadata: Record<string, unknown> = {
+      // §4.3 step 6 / §5.5: every pair activity names the other card.
+      pair: true,
+      linkedJobCardId: transition.otherJobCardId,
+      ...(noteId ? { noteId } : {}),
+      ...(command === 'REQUEST_REVISION'
+        ? {
+          // OVR-5b §3.7: the stored correction deadline of the episode. Only
+          // the visit episode carries one; a sale row records null.
+          correctionDueAt: transition.storedCorrectionDueAt
+            ? transition.storedCorrectionDueAt.toISOString()
+            : null,
+        }
+        : {}),
+      ...(transition.metadataExtra ?? {}),
+    };
+    const activity = await tx.appendActivity({
+      organizationId: actor.organizationId,
+      jobCardId,
+      actorId: actor.id,
+      event: definition.event,
+      clientActionId: context.clientActionId,
+      oldValue: { status: transition.card.status, version: transition.card.version },
+      newValue: { status: updated.status, version: updated.version },
+      metadata,
+    });
+    if (noteId && definition.noteContext && transitionNoteBody
+      && authorNameSnapshot && authorRoleSnapshot) {
+      await tx.createNote({
+        id: noteId,
+        organizationId: actor.organizationId,
+        jobCardId,
+        authorId: actor.id,
+        authorNameSnapshot,
+        authorRoleSnapshot,
+        workflowStage: transition.card.status,
+        context: definition.noteContext,
+        relatedActivityId: activity.id,
+        note: transitionNoteBody,
+        invoiceNumber: null,
+      });
+    }
+    if (command === 'SUBMIT_FOR_APPROVAL') {
+      // FOUNDATION-2: the fact freezes with the transition. A sale submitted
+      // from ACCEPTED writes no STARTED fact — nothing is fabricated (R9).
+      await this.appendLifecycleAccountabilityFact(tx, {
+        actor,
+        jobCardId,
+        job: transition.card,
+        occurredAt: requestTime,
+        activityId: activity.id,
+        command: 'SUBMIT_FOR_APPROVAL',
+      });
+    }
+    if (command === 'REQUEST_REVISION' || command === 'WITHDRAW_FROM_APPROVAL') {
+      const armedEpisodeNo = await this.activateNextSubmissionEpisode(
+        tx,
+        actor.organizationId,
+        jobCardId,
+        command,
+        requestTime,
+        command === 'REQUEST_REVISION' ? transition.storedCorrectionDueAt ?? null : null,
+      );
+      if (command === 'WITHDRAW_FROM_APPROVAL') {
+        await this.materializeLateSubmissionIfBreached(tx, {
+          organizationId: actor.organizationId,
+          jobCardId,
+          scheduledEndsAt: transition.card.scheduledEndsAt,
+          scheduledAt: transition.card.scheduledAt,
+          type: transition.card.type,
+          dueDate: transition.card.dueDate,
+          episodeNo: armedEpisodeNo,
+          allowStartedAtFallback: false,
+          scheduleRevisionNo: null,
+          revisionEffectiveAt: null,
+          source: 'TRANSITION',
+          requestTime,
+        });
+      }
+    }
+    if (overdueRecoveryTarget) {
+      await this.recoverOverdueIncident(tx, overdueRecoveryTarget, actor, requestTime);
+    }
+    if (command === 'APPROVE') {
+      // JOB-010 release 2a: the command that ends the job's open question also
+      // closes an OPEN change/termination request, truthfully as SUPERSEDED.
+      const closed = await tx.closeOpenChangeRequest({
+        organizationId: actor.organizationId,
+        jobCardId,
+        resolution: 'SUPERSEDED',
+        resolvedBy: actor.id,
+        resolvedAt: requestTime,
+      });
+      if (closed) {
+        await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_CHANGE_REQUEST_RESOLVED',
+          metadata: { requestId: closed.id, resolution: 'SUPERSEDED', linkedJobCardId: null },
+        });
+      }
+    }
+    const calendarTerminal = transition.target === 'COMPLETED';
+    if (this.calendar.enabled && calendarTerminal) {
+      await tx.synchronizeCalendarReminder({
+        organizationId: actor.organizationId,
+        jobCardId,
+        assignedUserId: updated.assignedTo,
+        startsAt: updated.scheduledAt,
+        endsAt: updated.scheduledEndsAt,
+        version: updated.version,
+        active: false,
+        now: requestTime,
+        reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+      });
+    }
+    const realtimeEvents = await this.appendRealtimeForActivity(tx, {
+      activity,
+      organizationId: actor.organizationId,
+      jobCardId,
+      actorUserId: actor.id,
+      event: definition.event,
+      jobType: transition.card.type,
+      beforeAssigneeId: transition.card.assignedTo,
+      afterAssigneeId: updated.assignedTo,
+      calendarAffected: this.calendar.enabled && calendarTerminal,
+      customerId: updated.customerId,
+    });
+    return { updated, activityId: activity.id, realtimeEvents };
+  }
+
+  /** §4.3: submit the visit and its linked sale as one submission. */
+  private async applyPairSubmit(
+    tx: JobCardTransaction,
+    input: PairWorkInput,
+  ): Promise<CriticalActionWorkResult<JobCardMutationReceipt>> {
+    const { context } = input;
+    const { actor, plan, definition, requestTime } = context;
+    // Step 1: the visit's own validation runs first, so the familiar
+    // MEETING_NOT_READY field errors keep their order.
+    const submission = await validateSubmission(tx, actor, input.visit, requestTime);
+    const submissionMeetingDetails = submission.meetingDetails ?? null;
+    // Step 2: the linked sale is validated with its own readiness contract. A
+    // failure returns the sale's own error and writes nothing (D3: no split
+    // submission, no "skip the sale" option).
+    await validateSubmission(tx, actor, input.sale, requestTime);
+    const saleMoves = input.sale.status === 'ACCEPTED' || input.sale.status === 'IN_PROGRESS';
+    // Step 3 is already enforced by the reservation preflight; re-proved here
+    // against the locked row so a race cannot slip an unsubmittable sale in.
+    if (input.sale.status === 'NEW') {
+      throw salePairStateConflict({
+        visitId: input.visit.id, saleId: input.sale.id, saleStatus: input.sale.status,
+        allowedSaleCommand: 'ACCEPT_ASSIGNMENT',
+      });
+    }
+    if (input.sale.status === 'REVISION_REQUESTED') {
+      throw salePairStateConflict({
+        visitId: input.visit.id, saleId: input.sale.id, saleStatus: input.sale.status,
+        allowedSaleCommand: 'RESUME',
+      });
+    }
+    if (!saleMoves && input.sale.status !== 'WAITING_APPROVAL') {
+      throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');
+    }
+    // Step 4: the visit's JOB-008 follow-up proposal persists exactly as today.
+    const followUpRequired = requiresMandatoryFollowUpProposal({
+      ...input.visit,
+      ...submissionMeetingDetails,
+    });
+    if (!followUpRequired && definition.followUpProposal !== undefined) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Bu iş türü için takip işi planı desteklenmiyor.',
+      );
+    }
+    let persistedProposal: {
+      scheduledAt: Date;
+      type: JobCardType;
+      assignedTo: string;
+      instructions: string;
+      origin: FollowUpProposalOrigin;
+      proposedBy: string | null;
+    } | null = null;
+    if (followUpRequired) {
+      const autoScheduled = definition.followUpProposal?.scheduledAt === undefined;
+      const proposal = autoScheduled
+        ? await this.autoScheduleFollowUpProposal(
+          tx,
+          actor,
+          input.visit,
+          requestTime,
+          submissionMeetingDetails?.meetingAt ?? null,
+          false,
+          definition.followUpProposal,
+          undefined,
+          input.lockedAssignees,
+          {
+            outcome: submissionMeetingDetails?.outcome ?? null,
+            nextFollowUpAt: submissionMeetingDetails?.nextFollowUpAt ?? null,
+          },
+        )
+        : await this.validateFollowUpProposal(
+          actor,
+          input.visit,
+          definition.followUpProposal,
+          requestTime,
+          input.lockedAssignees,
+          {
+            followUpRequired,
+            meetingAt: submissionMeetingDetails?.meetingAt ?? null,
+          },
+        );
+      persistedProposal = {
+        scheduledAt: new Date(proposal.scheduledAt),
+        type: proposal.type,
+        assignedTo: proposal.assignedTo,
+        instructions: proposal.followUpInstructions,
+        origin: autoScheduled ? 'SYSTEM' : 'STAFF_ADJUSTED',
+        proposedBy: actor.id,
+      };
+    }
+    // Step 5: both transitions use the same reservation instant.
+    const visitEffects = await this.applyPairCardTransition(tx, input, {
+      card: input.visit,
+      otherJobCardId: input.sale.id,
+      target: 'WAITING_APPROVAL',
+      followUpProposal: persistedProposal,
+    });
+    const saleEffects = saleMoves
+      ? await this.applyPairCardTransition(tx, input, {
+        card: input.sale,
+        otherJobCardId: input.visit.id,
+        target: 'WAITING_APPROVAL',
+      })
+      : null;
+    let submitLocationComparison: JobActionLocationComparison | null = null;
+    if (context.actionLocation) {
+      submitLocationComparison = await this.resolveSubmitLocationComparison(
+        tx, actor.organizationId, input.visit.id, context.actionLocation.capture,
+      );
+      await tx.appendJobActionLocation({
+        organizationId: actor.organizationId,
+        jobCardId: input.visit.id,
+        activityId: visitEffects.activityId,
+        actorUserId: actor.id,
+        action: context.actionLocation.action,
+        capture: context.actionLocation.capture,
+        ...(submitLocationComparison ? { comparison: submitLocationComparison } : {}),
+      });
+    }
+    return {
+      response: {
+        jobCardId: input.visit.id,
+        evaluatedAt: requestTime.toISOString(),
+        ...(saleEffects ? { linkedSaleJobCardId: input.sale.id } : {}),
+        ...(submitLocationComparison ? { submitLocationComparison } : {}),
+      },
+      realtimeEvents: [...visitEffects.realtimeEvents, ...(saleEffects?.realtimeEvents ?? [])],
+    };
+  }
+
+  /** §4.3: the pair's single approval surface. */
+  private async applyPairApprove(
+    tx: JobCardTransaction,
+    input: PairWorkInput,
+  ): Promise<CriticalActionWorkResult<JobCardMutationReceipt>> {
+    const { context } = input;
+    const { actor, definition, requestTime } = context;
+    const approval = await this.resolveApproveFollowUp(
+      tx, actor, input.visit, definition.approveFollowUp, requestTime, input.lockedAssignees,
+    );
+    const saleCompletes = input.sale.status === 'WAITING_APPROVAL';
+    const visitEffects = await this.applyPairCardTransition(tx, input, {
+      card: input.visit,
+      otherJobCardId: input.sale.id,
+      target: 'COMPLETED',
+      metadataExtra: approval
+        ? {
+          followUpProposal: {
+            scheduledAt: approval.proposal.scheduledAt.toISOString(),
+            type: approval.proposal.type,
+            assignedTo: approval.proposal.assignedTo,
+            followUpInstructions: approval.proposal.followUpInstructions,
+          },
+        }
+        : {},
+    });
+    // JOB-008: the follow-up child is created from the visit exactly as today.
+    let followUpJobCardId: string | null = null;
+    let childRealtimeEvents: RealtimeEventRecord[] = [];
+    if (approval) {
+      const source = await tx.getFollowUpSource(actor.organizationId, input.visit.id);
+      if (!source) followUpInvariantViolation();
+      const childIsDemo = source.dataClass === 'DEMO' && source.demoDatasetId !== null;
+      const childTitle = Array.from(`Takip: ${visitEffects.updated.title.trim()}`)
+        .slice(0, 250).join('');
+      const child = await this.createFollowUpChild(tx, actor, {
+        dataClass: childIsDemo ? 'DEMO' : 'BUSINESS',
+        demoDatasetId: childIsDemo ? source.demoDatasetId : null,
+        sourceJobCardId: input.visit.id,
+        customerId: visitEffects.updated.customerId,
+        type: approval.proposal.type,
+        title: childTitle,
+        followUpInstructions: approval.proposal.followUpInstructions,
+        scheduledAt: approval.proposal.scheduledAt.toISOString(),
+        assignedTo: approval.proposal.assignedTo,
+        priority: approval.priority,
+        dueDate: approval.dueDate,
+        contactId: null,
+        engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
+        clientActionId: context.clientActionId,
+        requestTime,
+        assignee: approval.proposal.assignee,
+        ...(input.visit.followUpProposedBy !== null
+          && input.visit.followUpProposedBy === approval.proposal.assignedTo
+          ? { acceptance: { acceptedAt: requestTime, acceptedBy: input.visit.followUpProposedBy } }
+          : {}),
+        activityMetadata: { sourceJobCardId: input.visit.id },
+        assignmentOffer: { openedReason: 'APPROVE_FOLLOW_UP', direct: false },
+      });
+      followUpJobCardId = child.job.id;
+      childRealtimeEvents = child.realtimeEvents;
+    }
+    const saleEffects = saleCompletes
+      ? await this.applyPairCardTransition(tx, input, {
+        card: input.sale,
+        otherJobCardId: input.visit.id,
+        target: 'COMPLETED',
+      })
+      : null;
+    return {
+      response: {
+        jobCardId: input.visit.id,
+        evaluatedAt: requestTime.toISOString(),
+        ...(followUpJobCardId ? { followUpJobCardId } : {}),
+        ...(saleEffects ? { linkedSaleJobCardId: input.sale.id } : {}),
+      },
+      realtimeEvents: [
+        ...visitEffects.realtimeEvents,
+        ...childRealtimeEvents,
+        ...(saleEffects?.realtimeEvents ?? []),
+      ],
+    };
+  }
+
+  /**
+   * §4.3: revision/withdraw/resume. Every card of the pair that is in the
+   * matching state moves; a legacy card in another state is never forced into
+   * a state it never had.
+   */
+  private async applyPairMove(
+    tx: JobCardTransaction,
+    input: PairWorkInput,
+  ): Promise<CriticalActionWorkResult<JobCardMutationReceipt>> {
+    const { context } = input;
+    const { requestTime } = context;
+    const target = context.plan.command === 'REQUEST_REVISION' ? 'REVISION_REQUESTED'
+      : 'IN_PROGRESS';
+    const saleMoves = context.plan.command === 'RESUME'
+      ? input.sale.status === 'REVISION_REQUESTED'
+      : input.sale.status === 'WAITING_APPROVAL';
+    // OVR-5b §3: the correction deadline belongs to the visit episode only.
+    const storedCorrectionDueAt = context.plan.command === 'REQUEST_REVISION'
+      ? await this.resolveStoredCorrectionDueAt(
+        tx, input.visit, context.definition.correctionDueAt, requestTime,
+      )
+      : null;
+    const visitEffects = await this.applyPairCardTransition(tx, input, {
+      card: input.visit,
+      otherJobCardId: input.sale.id,
+      target,
+      ...(context.plan.command === 'REQUEST_REVISION'
+        ? { storedCorrectionDueAt }
+        : {}),
+    });
+    const saleEffects = saleMoves
+      ? await this.applyPairCardTransition(tx, input, {
+        card: input.sale,
+        otherJobCardId: input.visit.id,
+        target,
+      })
+      : null;
+    return {
+      response: {
+        jobCardId: input.visit.id,
+        evaluatedAt: requestTime.toISOString(),
+        ...(saleEffects ? { linkedSaleJobCardId: input.sale.id } : {}),
+      },
+      realtimeEvents: [...visitEffects.realtimeEvents, ...(saleEffects?.realtimeEvents ?? [])],
+    };
+  }
+
   private async runLifecycle(
     actor: JobCardActor,
     jobCardId: string,
@@ -5608,7 +6621,9 @@ export class JobCardService {
       : await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
         claim,
         { jobCardId, ttlMs: this.intentTtlMs(),
-        preflight: async (tx, job, reservedAt) => this.assertLifecycleReservation(tx, actor, job, definition, reservedAt),
+        preflight: async (tx, jobs, reservedAt) => this.assertLifecycleReservation(
+          tx, actor, jobs.get(jobCardId)!, definition, reservedAt,
+        ),
       },
       );
     if (reserved.kind === 'replay') {
@@ -6208,6 +7223,19 @@ export class JobCardService {
           }
           lockedAssignees = await this.lockUsersInOrder(tx, actor.organizationId, userIds);
         },
+        // SALE-002 §4.6 (R20): the approve path's customer lock moves out of
+        // resolveApproveFollowUp / autoScheduleFollowUpProposal — where it ran
+        // AFTER the JobCard row — into the pre-JobCard phase. A pair approval
+        // and a single visit approval of the same customer can then never form
+        // a `customers -> job_cards` / `job_cards -> customers` cycle. The
+        // later reads stay, but they are no longer the ordering authority.
+        lockReferences: async (tx) => {
+          if (definition.command !== 'APPROVE') return;
+          const customerId = lockedJobSnapshot?.customerId ?? null;
+          if (customerId === null) return;
+          const customer = await tx.getCustomerForUpdate(actor.organizationId, customerId);
+          if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+        },
       },
     );
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
@@ -6225,9 +7253,15 @@ export class JobCardService {
       ...presentation,
       submitLocationComparison: receipt.submitLocationComparison,
     });
-    return receipt.followUpJobCardId
-      ? { ...detail, followUpJobCardId: receipt.followUpJobCardId }
-      : detail;
+    // SALE-002 §5.1: the presented detail of the anchor (visit) carries every
+    // card this command created or moved, so a replay returns exactly the
+    // stored result.
+    return {
+      ...detail,
+      ...(receipt.followUpJobCardId ? { followUpJobCardId: receipt.followUpJobCardId } : {}),
+      ...(receipt.linkedSaleJobCardId ? { linkedSaleJobCardId: receipt.linkedSaleJobCardId } : {}),
+      ...(receipt.deliveryJobCardId ? { deliveryJobCardId: receipt.deliveryJobCardId } : {}),
+    };
   }
 
   /**

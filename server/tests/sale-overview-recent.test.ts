@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { saleTime, withSaleFixture } from './support/sale-harness.js';
+import { saleTime, standaloneSale, withSaleFixture } from './support/sale-harness.js';
 import { PostgresOverviewRepository } from '../src/modules/overview/repository.js';
 import { PostgresReportsRepository } from '../src/modules/reports/repository.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
@@ -40,9 +40,9 @@ describe('Sale overview recent legacy gate', () => {
       await f.service.approve(f.manager, task.id, { clientActionId: 'recent-task-approve', expectedVersion: 3 });
       // Eleven newer completed sales would fill the legacy LIMIT 10 window on their own.
       for (let index = 0; index < 11; index += 1) {
-        const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, {
-          ...f.input, clientActionId: `recent-sale-${index}`,
-        });
+        // Standalone sales keep this suite about the legacy SALE read gate:
+        // SALE-002 §4.2 gives a visit-origin sale no independent submit path.
+        const sale = await standaloneSale(f, { clientActionId: `recent-sale-${index}` });
         await f.service.addNote(f.staff, sale.jobCardId, {
           clientActionId: `recent-sale-note-${index}`, note: `Sale note ${index}`,
         });

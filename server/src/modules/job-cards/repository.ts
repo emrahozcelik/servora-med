@@ -179,8 +179,123 @@ export type LifecycleIntentClaim = {
 export type LifecycleIntentReservationInput = {
   jobCardId: string;
   ttlMs: number;
-  preflight?: (tx: JobCardTransaction, job: JobCard, reservedAt: Date) => Promise<void>;
+  /**
+   * SALE-002 §4.6 (R19): participant cards reserved in the same transaction.
+   * The whole lock set is locked FOR UPDATE in sorted id order before the
+   * receipt recheck and the `reservedAt` sample, so reservation and
+   * finalization take the same rows in the same order. A participant owns its
+   * own PENDING intent row (no `processed_actions` claim); the anchor keeps
+   * the receipt.
+   */
+  additionalJobCardIds?: readonly string[];
+  /**
+   * Version fence per locked card. The anchor falls back to
+   * `claim.expectedVersion`; every participant must name its expected version
+   * explicitly.
+   */
+  expectedVersions?: Readonly<Record<string, number>>;
+  /** Receives every locked card row (anchor and participants) by id. */
+  preflight?: (
+    tx: JobCardTransaction,
+    jobs: ReadonlyMap<string, JobCard>,
+    reservedAt: Date,
+  ) => Promise<void>;
 };
+
+/**
+ * SALE-002 §4.6: the deterministic participant operation key of a pair
+ * reservation. Index 0 is the contract's `<anchor>:participant`; further
+ * participants (none today) get a stable suffix. Both stay under the
+ * 100-character `processed_actions.operation_key` limit because the anchor
+ * key is at most 64 characters (`<PAIR_OPERATION>_PAIR:<uuid>`).
+ */
+export function lifecycleParticipantIntentKey(anchorKey: string, index: number): string {
+  return index === 0 ? `${anchorKey}:participant` : `${anchorKey}:participant:${index}`;
+}
+
+/** One side of a sale pair, as far as the pair state machine reads it. */
+export type LifecyclePairSide = {
+  id: string;
+  status: JobCardStatus;
+  version: number;
+  assignedTo: string;
+};
+
+/**
+ * SALE-002 §4.5 replay support: the participant card of a COMPLETED pair
+ * command, read from the 049 intent table by its deterministic participant
+ * key. A replay must be recognisable after both cards left the command's
+ * state (and even after the source became terminal), so this read deliberately
+ * does not use pair discovery.
+ */
+export type CompletedPairParticipant = LifecyclePairSide;
+
+/**
+ * SALE-002 §4.1: the UNLOCKED pair-discovery snapshot a command uses to choose
+ * its identity (pair vs single) and its operation key. Planning only: the
+ * authoritative read happens again inside the reservation and the
+ * finalization transaction under the sorted JobCard locks.
+ */
+export type LifecyclePairSnapshot = {
+  cardId: string;
+  cardType: JobCardType;
+  cardStatus: JobCardStatus;
+  cardVersion: number;
+  cardAssignedTo: string;
+  /** The source visit of a sale (null for a standalone sale or non-sale card). */
+  visit: LifecyclePairSide | null;
+  /** The one active sale of a visit (null when the card is not a visit or has no active sale). */
+  sale: LifecyclePairSide | null;
+};
+
+/** §4.1 pair discovery: at most one partner row, whichever side the card is. */
+const LIFECYCLE_PAIR_QUERY = `SELECT c.id, c.type, c.status, c.version, c.assigned_to,
+       p.id AS partner_id, p.status AS partner_status, p.version AS partner_version,
+       p.assigned_to AS partner_assigned_to
+  FROM job_cards c
+  LEFT JOIN LATERAL (
+    SELECT x.id, x.status, x.version, x.assigned_to
+      FROM job_cards x
+     WHERE x.organization_id = c.organization_id
+       AND (
+         (c.type = 'SALE' AND x.id = c.sale_source_visit_id)
+         OR (c.type = 'SALES_MEETING' AND x.sale_source_visit_id = c.id
+             AND x.type = 'SALE' AND x.status = ANY($3::varchar[]))
+       )
+     LIMIT 1
+  ) p ON TRUE
+ WHERE c.organization_id = $1 AND c.id = $2`;
+
+async function selectLifecyclePair(
+  executor: SqlExecutor,
+  organizationId: string,
+  jobCardId: string,
+): Promise<LifecyclePairSnapshot | null> {
+  const result = await executor.query<{
+    id: string; type: JobCardType; status: JobCardStatus; version: number; assigned_to: string;
+    partner_id: string | null; partner_status: JobCardStatus | null;
+    partner_version: number | null; partner_assigned_to: string | null;
+  }>(LIFECYCLE_PAIR_QUERY, [organizationId, jobCardId, [...ACTIVE_JOB_CARD_STATUSES]]);
+  const row = result.rows[0];
+  if (!row) return null;
+  const partner: LifecyclePairSide | null = row.partner_id === null
+    ? null
+    : {
+      id: row.partner_id,
+      status: row.partner_status!,
+      version: Number(row.partner_version),
+      assignedTo: row.partner_assigned_to!,
+    };
+  return {
+    cardId: row.id,
+    cardType: row.type,
+    cardStatus: row.status,
+    cardVersion: Number(row.version),
+    cardAssignedTo: row.assigned_to,
+    visit: row.type === 'SALE' ? partner : null,
+    sale: row.type === 'SALES_MEETING' ? partner : null,
+  };
+}
 
 function lifecycleIntentError(code: string): AppError {
   return new AppError(code, 409, code === 'LIFECYCLE_INTENT_EXPIRED'
@@ -957,6 +1072,27 @@ export interface JobCardTransaction extends SubmissionReader {
   readonly sale: SaleTransaction;
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
+  /**
+   * SALE-002 §4.1 pair discovery: the one active `SALE` whose
+   * `sale_source_visit_id` is this visit (the partial unique index guarantees
+   * at most one). Null when the visit has no active linked sale.
+   */
+  getActiveSaleForVisit(
+    organizationId: string,
+    visitId: string,
+    forUpdate?: boolean,
+  ): Promise<JobCard | null>;
+  /**
+   * SALE-002 §4.2: the source visit of a sale, or null for a standalone sale
+   * (and for a card that is not a sale). Read-only; callers that need the
+   * pair lock both rows themselves.
+   */
+  getSaleSourceVisit(organizationId: string, saleId: string): Promise<JobCard | null>;
+  /** SALE-002 §4.1: the card plus its one pair partner, for planning guards. */
+  getLifecyclePair(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<LifecyclePairSnapshot | null>;
   getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   getFollowUpSource(
     organizationId: string,
@@ -1541,9 +1677,35 @@ export interface JobCardRepository extends SubmissionReader {
     ) => Promise<CriticalActionWorkResult<T>>,
     options: {
       jobCardId: string;
+      /** SALE-002 §4.6 participant cards finalized in the same transaction. */
+      jobCardIds?: readonly string[];
       lockUsers?: (transaction: JobCardTransaction) => Promise<void>;
+      /** Pre-JobCard customers -> contacts -> products locks. */
+      lockReferences?: (transaction: JobCardTransaction) => Promise<void>;
     },
   ): Promise<CriticalActionResult<T>>;
+  /** SALE-002 §4.1: unlocked pair-discovery read for command planning. */
+  getActiveSaleForVisit(organizationId: string, visitId: string): Promise<JobCard | null>;
+  /** SALE-002 §4.2: the source visit of a sale (null when standalone/non-sale). */
+  getSaleSourceVisit(organizationId: string, saleId: string): Promise<JobCard | null>;
+  /**
+   * SALE-002 §4.1: the card plus its one pair partner (source visit of a sale,
+   * or the active sale of a visit) for identity/redirect planning.
+   */
+  getLifecyclePair(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<LifecyclePairSnapshot | null>;
+  /**
+   * SALE-002 §4.5: the participant card of a COMPLETED pair command whose
+   * participant intent key is `participantKey`. Replay recognition only.
+   */
+  findCompletedPairParticipant(input: {
+    organizationId: string;
+    userId: string;
+    clientActionId: string;
+    participantKey: string;
+  }): Promise<CompletedPairParticipant | null>;
   listJobCards(
     scope: JobCardReadScope,
     query: JobCardListQuery,
@@ -2188,6 +2350,23 @@ const JOB_CARD_BASE_COLUMNS = `id, organization_id, type, status, version, title
   follow_up_proposed_at, follow_up_proposed_type, follow_up_proposed_assignee,
   follow_up_proposal_instructions, follow_up_proposal_origin, follow_up_proposed_by,
   invalidated_at, invalidated_by, invalidation_reason_code`;
+
+/**
+ * SALE-002 §4.1 pair discovery. The partial unique index
+ * `job_cards_one_active_sale_per_visit_idx` guarantees at most one row, so no
+ * ORDER BY/LIMIT is needed; `$3` is the canonical active status set.
+ */
+const ACTIVE_SALE_FOR_VISIT_QUERY = `SELECT ${JOB_CARD_BASE_COLUMNS}
+  FROM job_cards
+ WHERE organization_id = $1 AND sale_source_visit_id = $2 AND type = 'SALE'
+   AND status = ANY($3::varchar[])`;
+
+/** SALE-002 §4.2: the source visit of a sale, scoped to the same organization. */
+const SALE_SOURCE_VISIT_QUERY = `SELECT ${JOB_CARD_BASE_COLUMNS}
+  FROM job_cards
+ WHERE organization_id = $1
+   AND id = (SELECT sale_source_visit_id FROM job_cards
+              WHERE organization_id = $1 AND id = $2)`;
 
 const FOLLOW_UP_SOURCE_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        j.customer_id, j.contact_id, j.assigned_to, j.source_job_card_id,
@@ -3121,6 +3300,33 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     );
     const row = result.rows[0];
     return row ? { ...mapJobCard(row), earlyStartAuthorized: row.early_start_authorized === true } : null;
+  }
+
+  async getActiveSaleForVisit(
+    organizationId: string,
+    visitId: string,
+    forUpdate = false,
+  ) {
+    const result = await this.client.query<JobCardRow>(
+      `${ACTIVE_SALE_FOR_VISIT_QUERY}${forUpdate ? ' FOR UPDATE' : ''}`,
+      [organizationId, visitId, [...ACTIVE_JOB_CARD_STATUSES]],
+    );
+    return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async getSaleSourceVisit(organizationId: string, saleId: string) {
+    const result = await this.client.query<JobCardRow>(
+      SALE_SOURCE_VISIT_QUERY,
+      [organizationId, saleId],
+    );
+    return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async getLifecyclePair(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<LifecyclePairSnapshot | null> {
+    return selectLifecyclePair(this.client, organizationId, jobCardId);
   }
 
   async getJobDetail(organizationId: string, jobCardId: string) {
@@ -5117,6 +5323,52 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     return selectSaleSubmission(this.pool, organizationId, jobCardId);
   }
 
+  async getActiveSaleForVisit(organizationId: string, visitId: string) {
+    const result = await this.pool.query<JobCardRow>(
+      ACTIVE_SALE_FOR_VISIT_QUERY,
+      [organizationId, visitId, [...ACTIVE_JOB_CARD_STATUSES]],
+    );
+    return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async getSaleSourceVisit(organizationId: string, saleId: string) {
+    const result = await this.pool.query<JobCardRow>(
+      SALE_SOURCE_VISIT_QUERY,
+      [organizationId, saleId],
+    );
+    return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async getLifecyclePair(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<LifecyclePairSnapshot | null> {
+    return selectLifecyclePair(this.pool, organizationId, jobCardId);
+  }
+
+  async findCompletedPairParticipant(input: {
+    organizationId: string;
+    userId: string;
+    clientActionId: string;
+    participantKey: string;
+  }): Promise<CompletedPairParticipant | null> {
+    const result = await this.pool.query<{
+      id: string; status: JobCardStatus; version: number; assigned_to: string;
+    }>(
+      `SELECT j.id, j.status, j.version, j.assigned_to
+         FROM job_card_lifecycle_intents i
+         JOIN job_cards j
+           ON j.organization_id = i.organization_id AND j.id = i.job_card_id
+        WHERE i.organization_id = $1 AND i.user_id = $2 AND i.client_action_id = $3
+          AND i.operation_key = $4 AND i.state = 'COMPLETED'`,
+      [input.organizationId, input.userId, input.clientActionId, input.participantKey],
+    );
+    const row = result.rows[0];
+    return row
+      ? { id: row.id, status: row.status, version: Number(row.version), assignedTo: row.assigned_to }
+      : null;
+  }
+
   async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
     const result = await this.pool.query<{ response_body: T; request_hash: string | null }>(
       `SELECT response_body, request_hash
@@ -5170,7 +5422,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     return { kind: 'replay' as const, response: row.response_body, reservedAt: row.reserved_at };
   }
 
-  /** Short transaction: JobCard -> receipt recheck -> intent -> preflight -> reservation. */
+  /** Short transaction: sorted JobCard lock set -> receipt recheck -> intent -> preflight -> reservation. */
   async reserveLifecycleIntent<T>(
     claim: LifecycleIntentClaim,
     input: LifecycleIntentReservationInput,
@@ -5178,6 +5430,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     if (!Number.isInteger(input.ttlMs) || input.ttlMs <= 0) {
       throw new AppError('LIFECYCLE_INTENT_TTL_INVALID', 500, 'Lifecycle intent TTL geçersiz.');
     }
+    const participantJobCardIds = [...new Set(input.additionalJobCardIds ?? [])].sort();
+    const lockJobCardIds = [...new Set([input.jobCardId, ...participantJobCardIds])].sort();
     const client = await this.pool.connect();
     let active = false;
     let released = false;
@@ -5185,8 +5439,19 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
       active = true;
       const tx = new PostgresJobCardTransaction(client);
-      const job = await tx.getJobForUpdate(claim.organizationId, input.jobCardId);
-      if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      // SALE-002 §4.6 (R19): the whole lock set is taken FOR UPDATE in sorted
+      // id order BEFORE the receipt recheck and the reservedAt sample. Locking
+      // the anchor alone would invert the order finalization uses (and
+      // deadlock two pair commands anchored on opposite members); reading a
+      // participant unlocked would leave a TOCTOU window between reservation
+      // and finalization.
+      const locked = new Map<string, JobCard>();
+      for (const id of lockJobCardIds) {
+        const job = await tx.getJobForUpdate(claim.organizationId, id);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        locked.set(id, job);
+      }
+      const job = locked.get(input.jobCardId)!;
       // Recheck after the lock wait, before the NEW-attempt version fence.
       const replay = await this.lifecycleReceipt<T>(client, claim);
       if (replay) {
@@ -5207,29 +5472,64 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         if (row.state === 'COMPLETED') throw new AppError('INVARIANT_VIOLATION', 500, 'Lifecycle receipt eksik.');
         if (row.state === 'FAILED') throw lifecycleIntentError(row.failure_code ?? 'LIFECYCLE_INTENT_FAILED');
         if (!row.live) {
+          // SALE-002 §4.6: an expired pair has no half-failed half-live
+          // intent. The anchor and every participant of this identity expire
+          // together, in one statement.
           await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
             failed_at=date_trunc('milliseconds',clock_timestamp()), failure_code='LIFECYCLE_INTENT_EXPIRED'
-            WHERE id=$1`, [row.id]);
+            WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$3
+              AND (operation_key=$4 OR job_card_id = ANY($5::uuid[]))`,
+            [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey,
+              participantJobCardIds]);
           await client.query('COMMIT'); active = false;
           throw lifecycleIntentError('LIFECYCLE_INTENT_EXPIRED');
         }
         throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
       }
       if (job.version !== claim.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      for (const participantId of participantJobCardIds) {
+        const expected = input.expectedVersions?.[participantId];
+        if (!Number.isInteger(expected) || (expected as number) < 1) {
+          throw new AppError(
+            'INVARIANT_VIOLATION',
+            500,
+            'Katılımcı lifecycle niyeti sürüm bilgisi eksik.',
+          );
+        }
+        if (locked.get(participantId)!.version !== expected) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+      }
       const sampled = await client.query<{ reserved_at: Date }>(
         "SELECT date_trunc('milliseconds', clock_timestamp()) AS reserved_at",
       );
       const reservedAt = sampled.rows[0]!.reserved_at;
-      if (input.preflight) await input.preflight(tx, job, reservedAt);
+      if (input.preflight) await input.preflight(tx, locked, reservedAt);
+      const expiresAt = new Date(reservedAt.valueOf() + input.ttlMs);
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO job_card_lifecycle_intents
           (organization_id,job_card_id,user_id,client_action_id,operation_key,command,
            request_hash,expected_version,state,reserved_at,expires_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9,$10) RETURNING id`,
         [claim.organizationId,input.jobCardId,claim.userId,claim.clientActionId,claim.operationKey,
-          claim.command,claim.requestHash ?? null,claim.expectedVersion,reservedAt,
-          new Date(reservedAt.valueOf()+input.ttlMs)],
+          claim.command,claim.requestHash ?? null,claim.expectedVersion,reservedAt,expiresAt],
       );
+      // SALE-002 §4.6: participants own their own PENDING row with the same
+      // reserved_at/expires_at/request_hash and their own expected version, so
+      // 049's per-card readers (live-intent lists, expiry workers, demo purge)
+      // see the in-flight command for both cards. Only the anchor owns a
+      // processed_actions row, so only the anchor is a replay surface.
+      for (const [index, participantId] of participantJobCardIds.entries()) {
+        await client.query(
+          `INSERT INTO job_card_lifecycle_intents
+            (organization_id,job_card_id,user_id,client_action_id,operation_key,command,
+             request_hash,expected_version,state,reserved_at,expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9,$10)`,
+          [claim.organizationId,participantId,claim.userId,claim.clientActionId,
+            lifecycleParticipantIntentKey(claim.operationKey, index),claim.command,
+            claim.requestHash ?? null,input.expectedVersions![participantId],reservedAt,expiresAt],
+        );
+      }
       await client.query('COMMIT'); active = false;
       return { kind: 'reserved', reservation: { intentId: inserted.rows[0]!.id, reservedAt } };
     } catch (error) {
@@ -5243,13 +5543,34 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     }
   }
 
-  /** Claim -> User -> JobCard -> intent; business, receipt and completion are atomic. */
+  /**
+   * Claim -> User -> references -> JobCard set -> intents; business, receipt
+   * and completion are atomic. SALE-002 §4.6 adds the sorted participant lock
+   * set (anchored first in the intent read) and the `lockReferences` hook that
+   * runs customers/contacts/products BEFORE the JobCard rows.
+   */
   async finalizeLifecycleIntent<T>(
     claim: LifecycleIntentClaim,
     reservation: LifecycleIntentReservation,
     work: (transaction: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>,
-    options: { jobCardId: string; lockUsers?: (transaction: JobCardTransaction) => Promise<void> },
+    options: {
+      jobCardId: string;
+      /** Participant cards of this command (SALE-002 pair); anchor included by the caller or not. */
+      jobCardIds?: readonly string[];
+      lockUsers?: (transaction: JobCardTransaction) => Promise<void>;
+      /**
+       * Pre-JobCard reference locks (customers -> contacts -> products). Runs
+       * after lockUsers and before the JobCard locks, so no
+       * `job_cards -> customers` inversion can form.
+       */
+      lockReferences?: (transaction: JobCardTransaction) => Promise<void>;
+    },
   ): Promise<CriticalActionResult<T>> {
+    const lockJobCardIds = [...new Set([options.jobCardId, ...(options.jobCardIds ?? [])])].sort();
+    const participantJobCardIds = lockJobCardIds.filter((id) => id !== options.jobCardId);
+    const participantKeys = participantJobCardIds.map(
+      (_id, index) => lifecycleParticipantIntentKey(claim.operationKey, index),
+    );
     const client = await this.pool.connect();
     let active = false;
     let released = false;
@@ -5270,16 +5591,22 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       }
       const tx = new PostgresJobCardTransaction(client);
       if (options.lockUsers) await options.lockUsers(tx);
-      const job = await tx.getJobForUpdate(claim.organizationId, options.jobCardId);
-      if (!job) throw new AppError('JOB_CARD_NOT_FOUND',404,'JobCard bulunamadı.');
-      const locked = await client.query<LifecycleIntentRow>(
+      if (options.lockReferences) await options.lockReferences(tx);
+      const locked = new Map<string, JobCard>();
+      for (const id of lockJobCardIds) {
+        const row = await tx.getJobForUpdate(claim.organizationId, id);
+        if (!row) throw new AppError('JOB_CARD_NOT_FOUND',404,'JobCard bulunamadı.');
+        locked.set(id, row);
+      }
+      const job = locked.get(options.jobCardId)!;
+      const lockedIntent = await client.query<LifecycleIntentRow>(
         `SELECT id,request_hash,expected_version,state,reserved_at,expires_at,failure_code
            FROM job_card_lifecycle_intents
           WHERE id = $1 AND organization_id=$2 AND user_id=$3
             AND client_action_id=$4 AND operation_key=$5 AND job_card_id=$6 FOR UPDATE`,
         [reservation.intentId,claim.organizationId,claim.userId,claim.clientActionId,claim.operationKey,options.jobCardId],
       );
-      const row = locked.rows[0];
+      const row = lockedIntent.rows[0];
       if (!row) throw new AppError('INVARIANT_VIOLATION',500,'Lifecycle intent bulunamadı.');
       assertCriticalActionRequestHash(claim.requestHash,row.request_hash);
       if (row.state === 'FAILED') throw lifecycleIntentError(row.failure_code ?? 'LIFECYCLE_INTENT_FAILED');
@@ -5287,6 +5614,38 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         throw new AppError('ACTION_IN_PROGRESS',409,'Aynı işlem halen devam ediyor.');
       }
       if (job.version !== claim.expectedVersion) throw new AppError('VERSION_CONFLICT',409,'JobCard başka bir işlem tarafından güncellendi.');
+      const intentIds = [reservation.intentId];
+      // SALE-002 §4.6: the participant intents are read FOR UPDATE after the
+      // anchor, hashed, state-checked and reserved_at-checked exactly like the
+      // single-card path. A half-live pair can never finalize.
+      if (participantKeys.length > 0) {
+        const participants = await client.query<LifecycleIntentRow & {
+          job_card_id: string; operation_key: string;
+        }>(
+          `SELECT id,request_hash,expected_version,state,reserved_at,expires_at,failure_code,
+                  job_card_id,operation_key
+             FROM job_card_lifecycle_intents
+            WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$3
+              AND operation_key = ANY($4::varchar[]) AND job_card_id = ANY($5::uuid[])
+            ORDER BY operation_key ASC, id ASC
+            FOR UPDATE`,
+          [claim.organizationId,claim.userId,claim.clientActionId,participantKeys,participantJobCardIds],
+        );
+        for (const participant of participants.rows) {
+          assertCriticalActionRequestHash(claim.requestHash,participant.request_hash);
+          if (participant.state === 'FAILED') {
+            throw lifecycleIntentError(participant.failure_code ?? 'LIFECYCLE_INTENT_FAILED');
+          }
+          if (participant.state !== 'PENDING'
+            || participant.reserved_at.valueOf() !== reservation.reservedAt.valueOf()) {
+            throw new AppError('ACTION_IN_PROGRESS',409,'Aynı işlem halen devam ediyor.');
+          }
+        }
+        if (participants.rows.length !== participantJobCardIds.length) {
+          throw new AppError('INVARIANT_VIOLATION',500,'Katılımcı lifecycle niyeti bulunamadı.');
+        }
+        intentIds.push(...participants.rows.map((participant) => participant.id));
+      }
       const assertUnexpired = async () => {
         const fence = await client.query<{ expired:boolean }>('SELECT clock_timestamp() >= $1::timestamptz AS expired',[row.expires_at]);
         if (fence.rows[0]!.expired) throw lifecycleIntentError('LIFECYCLE_INTENT_EXPIRED');
@@ -5295,7 +5654,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       const result = await work(tx);
       await assertUnexpired();
       await client.query(`UPDATE job_card_lifecycle_intents SET state='COMPLETED',
-        completed_at=date_trunc('milliseconds',clock_timestamp()) WHERE id=$1`,[reservation.intentId]);
+        completed_at=date_trunc('milliseconds',clock_timestamp()) WHERE id = ANY($1::uuid[])`, [intentIds]);
       await client.query(`UPDATE processed_actions SET status='completed',status_code=200,
         response_body=$2,completed_at=NOW() WHERE id=$1`,[claimed.rows[0]!.id,result.response]);
       committing = true;
@@ -5319,11 +5678,19 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
           && !['CLIENT_ACTION_REUSED','ACTION_IN_PROGRESS'].includes(error.code)) {
         try {
           await client.query('BEGIN'); active=true;
-          await new PostgresJobCardTransaction(client).getJobForUpdate(claim.organizationId, options.jobCardId);
+          // SALE-002 §4.6: the recovery re-locks the same sorted card set, so
+          // the FAILED marking never blocks on an unlocked participant.
+          const recovery = new PostgresJobCardTransaction(client);
+          for (const id of lockJobCardIds) {
+            await recovery.getJobForUpdate(claim.organizationId, id);
+          }
           await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
             failed_at=date_trunc('milliseconds',clock_timestamp()),failure_code=$3
-            WHERE id=$1 AND reserved_at=$2 AND state='PENDING'`,
-            [reservation.intentId,reservation.reservedAt,error.code]);
+            WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$4 AND reserved_at=$5
+              AND state='PENDING'
+              AND (job_card_id = ANY($6::uuid[]) OR operation_key=$7)`,
+            [claim.organizationId, claim.userId, error.code, claim.clientActionId,
+              reservation.reservedAt, lockJobCardIds, claim.operationKey]);
           await client.query('COMMIT'); active=false;
         } catch {
           try { await client.query('ROLLBACK'); active=false; }

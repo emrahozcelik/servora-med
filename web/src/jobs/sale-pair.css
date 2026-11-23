@@ -1,0 +1,82 @@
+/* SALE-002 S2 pair notes: token-only grouping used by the visit
+   submit/approve/revision dialogs, the withdraw confirmation and the sale card
+   pair panel. Colour never carries meaning alone. */
+.sale-pair-note {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  overflow-wrap: anywhere;
+}
+.sale-pair-note p {
+  margin: 0;
+}
+.sale-pair-heading {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+.sale-pair-status {
+  color: var(--muted);
+}
+.sale-pair-blocker {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+  background: var(--warning-wash);
+  color: var(--warning);
+}
+.sale-pair-note a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+}
+.sale-pair-requirement-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sale-pair-requirement {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem;
+  color: var(--ink);
+}
+.sale-pair-requirement-state {
+  color: var(--muted);
+}
+.sale-pair-items-title {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.sale-pair-items {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sale-pair-items li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.sale-pair-quantity {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.sale-pair-guidance > p {
+  margin: 0 0 0.5rem;
+}

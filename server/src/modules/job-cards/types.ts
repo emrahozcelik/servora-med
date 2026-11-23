@@ -999,6 +999,17 @@ export type JobCardMutationReceipt = {
   evaluatedAt?: string;
   followUpJobCardId?: string;
   /**
+   * SALE-002 §5.1 (R22): the linked sale that this coordinated pair command
+   * actually moved. Present only when the sale moved; the anchor card remains
+   * the visit.
+   */
+  linkedSaleJobCardId?: string;
+  /**
+   * SALE-002 §5.1: the delivery card created atomically with the approval.
+   * Reserved for S3; never present before the delivery payload ships.
+   */
+  deliveryJobCardId?: string;
+  /**
    * Slice 2 advisory SUBMIT comparison, present only when the finalized
    * SUBMIT classified one. Persisted verbatim on the intent response so
    * replays return the identical durable result. Server-computed; never

@@ -61,7 +61,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Transactional visit-to-sale cre
   it('conceals a replay result after the original staff user loses access to the sale', async () => {
     await withSaleFixture(async (f) => {
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
-      await f.service.patch(f.manager, sale.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      // Legacy decoupled pair (pre-S2 data): SALE-002 §4.2 (R17) now rejects
+      // reassigning a live-pair sale through the API. The same reset a
+      // management reassignment of an accepted card performs is applied here.
+      await f.pool.query(
+        `UPDATE job_cards SET assigned_to=$2, version=version+1,
+           status=CASE WHEN status='ACCEPTED' THEN 'NEW' ELSE status END,
+           accepted_at=NULL, accepted_by=NULL
+         WHERE id=$1`,
+        [sale.jobCardId, f.otherStaff.id],
+      );
       await expect(f.service.createSaleFromVisit(f.staff, f.visitId, f.input))
         .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
       expect((await f.pool.query(`SELECT COUNT(*)::int AS n FROM job_cards WHERE type='SALE'`)).rows[0].n).toBe(1);

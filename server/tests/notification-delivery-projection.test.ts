@@ -48,7 +48,9 @@ const MIGRATIONS = [
   '048_overdue_episode_activation_legacy_first.sql',
   '049_job_card_lifecycle_intents.sql',
   '050_overdue_incident_scanner_source.sql', '053_overdue_submission_reminders.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql',
-
+  // SALE-002: the lifecycle service reads the visit+sale pair columns as part
+  // of every pair-capable command (057 adds them).
+  '057_sale_from_visit.sql',
 ] as const;
 
 type DeliveryFixture = {
