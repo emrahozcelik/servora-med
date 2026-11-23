@@ -6,7 +6,10 @@
   min-width: 0;
   margin: 0 0 1rem;
 }
-.sale-delivery-fieldset {
+/* Scoped under .sale-delivery so it outranks the dialogs' bare-fieldset reset
+   (`.workflow-dialog fieldset`, styles.css), which would strip the padding and
+   border and leave the controls flush against the tinted background. */
+.sale-delivery .sale-delivery-fieldset {
   display: grid;
   gap: 0.6rem;
   min-width: 0;
@@ -72,9 +75,11 @@
   .sale-delivery-body .product-select-quantity { max-width: 6rem; }
   .sale-delivery-body .product-select-remove { justify-self: end; }
 }
+/* Always stacked: the approve dialog is narrow even on desktop, and a
+   side-by-side datetime-local field clips its time segment. */
 .sale-delivery-pair {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 1rem;
   min-width: 0;
@@ -82,7 +87,4 @@
 .sale-delivery-ack {
   display: grid;
   gap: 0.75rem;
-}
-@media (max-width: 40rem) {
-  .sale-delivery-pair { grid-template-columns: minmax(0, 1fr); }
 }

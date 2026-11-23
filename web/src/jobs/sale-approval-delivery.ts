@@ -1,6 +1,5 @@
 import { ApiError } from '../services/api';
 import { apiFieldError } from './api-field-error';
-import { assignmentWindowErrorMessage } from './assignment-window-errors';
 import {
   pastStartAcknowledgementPayload,
   type ApproveDeliveryInput,
@@ -225,7 +224,10 @@ export function mapSaleDeliveryServerError(caught: unknown, seq: number): SaleDe
   switch (caught.code) {
     case 'ASSIGNMENT_WINDOW_TOO_SHORT': {
       const errors = empty();
-      errors.fields.scheduledAt = assignmentWindowErrorMessage(caught, 'Planlanan zaman çok yakın. Daha geç bir zaman seçin.');
+      // The manager reading this chose the time, so the shared JOB-010 sentence
+      // ("Yöneticinin … ileri alması gerekir") would address them in the third
+      // person; the section states the corrective action directly.
+      errors.fields.scheduledAt = 'Planlanan zaman, teslim personelinin kabul etmesi için çok yakın. Daha ileri bir teslim zamanı seçin.';
       return { errors, patch: {} };
     }
     case 'PAST_START_ACKNOWLEDGEMENT_REQUIRED': {

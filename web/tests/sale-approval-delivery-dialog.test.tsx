@@ -549,7 +549,7 @@ describe('SALE-002 S3 approval delivery section', () => {
       await confirm();
       expect(dialog()).not.toBeNull();
       const error = scheduled().parentElement!.querySelector('.field-error');
-      expect(error?.textContent).toContain('Planlanan zaman aralığı atama için çok kısa');
+      expect(error?.textContent).toContain('teslim personelinin kabul etmesi için çok yakın');
       expect(scheduled().getAttribute('aria-invalid')).toBe('true');
       expect(document.activeElement).toBe(scheduled());
       expect(section().querySelector('[role="alert"]')).not.toBeNull();
