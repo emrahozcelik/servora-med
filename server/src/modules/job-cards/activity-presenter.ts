@@ -250,6 +250,36 @@ function meetingDetails(
     : { kind: 'NONE' };
 }
 
+/**
+ * SALE-002 §5.5: the safe projection of the `SALE_DELIVERY_CREATED` fact. Only
+ * the five accepted members are read from the stored metadata; a malformed
+ * row degrades to a plain fact instead of leaking or throwing.
+ */
+function saleDeliveryDetails(metadata: unknown): JobCardActivityDetails {
+  const record = jsonRecord(metadata);
+  if (!record || typeof record.deliveryJobCardId !== 'string'
+    || typeof record.assignedTo !== 'string' || typeof record.scheduledAt !== 'string'
+    || typeof record.itemCount !== 'number' || !Array.isArray(record.items)) {
+    return { kind: 'NONE' };
+  }
+  const items: Array<{ productId: string; quantity: number }> = [];
+  for (const entry of record.items) {
+    const item = jsonRecord(entry);
+    if (!item || typeof item.productId !== 'string' || typeof item.quantity !== 'number') {
+      return { kind: 'NONE' };
+    }
+    items.push({ productId: item.productId, quantity: item.quantity });
+  }
+  return {
+    kind: 'SALE_DELIVERY',
+    deliveryJobCardId: record.deliveryJobCardId,
+    assignedTo: record.assignedTo,
+    scheduledAt: record.scheduledAt,
+    itemCount: record.itemCount,
+    items,
+  };
+}
+
 function details(
   record: ActivityRecord,
   options?: ActivityPresentationOptions,
@@ -258,6 +288,10 @@ function details(
     case 'SALE_FROM_VISIT_CREATED':
       // Related-card identities are independently scoped by the relation reader.
       return options?.includeSaleCapability ? { kind: 'SALE_RELATION' } : { kind: 'NONE' };
+    case 'SALE_DELIVERY_CREATED':
+      return options?.includeSaleCapability
+        ? saleDeliveryDetails(record.metadata)
+        : { kind: 'NONE' };
     case 'SALE_DETAILS_UPDATED':
       if (!options?.includeSaleCapability) return { kind: 'NONE' };
       return { kind: 'SALE_DETAILS', changedFields: [

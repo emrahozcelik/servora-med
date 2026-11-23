@@ -297,6 +297,65 @@ async function selectLifecyclePair(
   };
 }
 
+/**
+ * SALE-002 §5.5: the delivery <-> sale link of one card, read unscoped (the
+ * presenter applies the viewer rule). Only a PRODUCT_DELIVERY or a SALE can have
+ * one, so every other card type costs no query and never touches the 071
+ * column.
+ */
+export type SaleDeliveryLinks = {
+  /** The sale a delivery was opened from. */
+  deliverySourceSale: { id: string; assignedTo: string } | null;
+  /** The one delivery opened from a sale. */
+  linkedDelivery: { id: string; status: JobCardStatus; assignedTo: string } | null;
+};
+
+async function selectSaleDeliveryLinks(
+  executor: SqlExecutor,
+  organizationId: string,
+  jobCardId: string,
+  type: JobCardType,
+): Promise<SaleDeliveryLinks> {
+  const none: SaleDeliveryLinks = { deliverySourceSale: null, linkedDelivery: null };
+  if (type === 'PRODUCT_DELIVERY') {
+    const result = await executor.query<{ id: string; assigned_to: string }>(
+      `SELECT sale.id, sale.assigned_to
+         FROM job_cards delivery
+         JOIN job_cards sale
+           ON sale.organization_id = delivery.organization_id
+          AND sale.id = delivery.delivery_source_sale_id AND sale.type = 'SALE'
+        WHERE delivery.organization_id = $1 AND delivery.id = $2`,
+      [organizationId, jobCardId],
+    );
+    const row = result.rows[0];
+    return row ? { ...none, deliverySourceSale: { id: row.id, assignedTo: row.assigned_to } } : none;
+  }
+  if (type === 'SALE') {
+    const result = await executor.query<{ id: string; status: JobCardStatus; assigned_to: string }>(
+      `SELECT id, status, assigned_to FROM job_cards
+        WHERE organization_id = $1 AND delivery_source_sale_id = $2 AND type = 'PRODUCT_DELIVERY'`,
+      [organizationId, jobCardId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { ...none, linkedDelivery: { id: row.id, status: row.status, assignedTo: row.assigned_to } }
+      : none;
+  }
+  return none;
+}
+
+/** Attaches the link only for the two card types that can carry one. */
+async function withSaleDeliveryLinks(
+  executor: SqlExecutor,
+  detail: PersistedJobCardDetail,
+): Promise<PersistedJobCardDetail> {
+  if (detail.type !== 'PRODUCT_DELIVERY' && detail.type !== 'SALE') return detail;
+  return {
+    ...detail,
+    ...await selectSaleDeliveryLinks(executor, detail.organizationId, detail.id, detail.type),
+  };
+}
+
 function lifecycleIntentError(code: string): AppError {
   return new AppError(code, 409, code === 'LIFECYCLE_INTENT_EXPIRED'
     ? 'İşlem rezervasyon süresi doldu. Yeni bir işlem anahtarıyla tekrar deneyin.'
@@ -424,6 +483,8 @@ export type CreateJobCardRecord = {
   acceptedAt: Date | null; acceptedBy: string | null;
   sourceJobCardId: string | null; followUpInstructions: string | null;
   saleSourceVisitId?: string | null;
+  /** SALE-002 §5.3: the approved sale a PRODUCT_DELIVERY was opened from. */
+  deliverySourceSaleId?: string | null;
   dataClass?: 'BUSINESS' | 'DEMO';
   demoDatasetId?: string | null;
   historySource: JobCardCreationHistorySource;
@@ -1088,6 +1149,8 @@ export interface JobCardTransaction extends SubmissionReader {
    * pair lock both rows themselves.
    */
   getSaleSourceVisit(organizationId: string, saleId: string): Promise<JobCard | null>;
+  /** SALE-002 §5.5: whether any delivery (of any status) already hangs on this sale. */
+  hasDeliveryForSale(organizationId: string, saleId: string): Promise<boolean>;
   /** SALE-002 §4.1: the card plus its one pair partner, for planning guards. */
   getLifecyclePair(
     organizationId: string,
@@ -3314,6 +3377,17 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
+  async hasDeliveryForSale(organizationId: string, saleId: string) {
+    const result = await this.client.query<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM job_cards
+          WHERE organization_id = $1 AND delivery_source_sale_id = $2
+       ) AS present`,
+      [organizationId, saleId],
+    );
+    return result.rows[0]?.present === true;
+  }
+
   async getSaleSourceVisit(organizationId: string, saleId: string) {
     const result = await this.client.query<JobCardRow>(
       SALE_SOURCE_VISIT_QUERY,
@@ -3334,7 +3408,9 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       JOB_CARD_DETAIL_QUERY,
       [organizationId, jobCardId],
     );
-    return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
+    return result.rows[0]
+      ? withSaleDeliveryLinks(this.client, mapJobCardDetail(result.rows[0]))
+      : null;
   }
 
   async getFollowUpSource(
@@ -3877,17 +3953,24 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       );
       return mapJobCard(demoResult.rows[0]!);
     }
+    // SALE-002 §5.3: the delivery link column (migration 071) is named only
+    // when a sale-approval delivery is created, so every other insert keeps its
+    // exact statement and the schema it ran against.
+    const deliverySourceSaleId = input.deliverySourceSaleId ?? null;
     const result = await this.client.query<JobCardRow>(
       `INSERT INTO job_cards
          (organization_id, type, status, title, description, customer_id, contact_id,
           assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at,
-          engagement_kind, accepted_at, accepted_by, source_job_card_id, follow_up_instructions, sale_source_visit_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+          engagement_kind, accepted_at, accepted_by, source_job_card_id, follow_up_instructions, sale_source_visit_id${
+  deliverySourceSaleId === null ? '' : ', delivery_source_sale_id'})
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19${
+  deliverySourceSaleId === null ? '' : ', $20'})
        RETURNING ${JOB_CARD_BASE_COLUMNS}`,
       [input.organizationId, input.type, input.status, input.title, input.description,
         input.customerId, input.contactId, input.assignedTo, input.createdBy, input.priority,
         input.dueDate, input.scheduledAt, input.scheduledEndsAt, input.engagementKind,
-        input.acceptedAt, input.acceptedBy, input.sourceJobCardId, input.followUpInstructions, input.saleSourceVisitId ?? null],
+        input.acceptedAt, input.acceptedBy, input.sourceJobCardId, input.followUpInstructions, input.saleSourceVisitId ?? null,
+        ...(deliverySourceSaleId === null ? [] : [deliverySourceSaleId])],
     );
     return mapJobCard(result.rows[0]!);
   }
@@ -5863,7 +5946,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       JOB_CARD_DETAIL_QUERY,
       [organizationId, jobCardId],
     );
-    return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
+    return result.rows[0]
+      ? withSaleDeliveryLinks(this.pool, mapJobCardDetail(result.rows[0]))
+      : null;
   }
 
   async hasActiveFollowUpChildren(organizationId: string, sourceJobCardId: string) {

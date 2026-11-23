@@ -753,9 +753,10 @@ POST /api/job-cards/:id/approve
   `409 PAST_START_ACKNOWLEDGEMENT_REQUIRED` (supply `pastStartAcknowledgement`).
 - **Retry contract after a definitive failure (049 `FAILED`).** Any 4xx `AppError` inside the
   intent finalization marks **both** intent rows `FAILED` with that `failure_code`
-  (`repository.ts:5318-5327`); a later attempt with the same `clientActionId` throws
-  `lifecycleIntentError` regardless of payload identity (`repository.ts:185-189`, message:
-  "Yeni bir işlem anahtarıyla tekrar deneyin"). Therefore:
+  (`repository.ts:5318-5327`); a later attempt with the same `clientActionId` is always
+  refused: a byte-identical body throws `lifecycleIntentError` (message: "Yeni bir işlem
+  anahtarıyla tekrar deneyin"), and a changed body fails the ARC-001 request-identity check
+  first with `409 CLIENT_ACTION_REUSED`. Therefore:
   - after `ASSIGNMENT_WINDOW_TOO_SHORT`, `PAST_START_ACKNOWLEDGEMENT_REQUIRED`,
     `CUSTOMER_INACTIVE`, `PRODUCT_NOT_FOUND`, `VALIDATION_ERROR` or any other definitive 4xx,
     the corrected approval **must use a new `clientActionId`** with the new time,
@@ -1113,6 +1114,19 @@ Sequencing rules:
   claim that approval opens a delivery before that exists.
 - S2 must land the reservation/finalization changes as one unit. Splitting "pair commands"
   from "two intents + `lockReferences`" would ship the deadlock §4.6 prevents.
+
+Implementation status (S3 backend): the `delivery` payload, validation reuse, the
+atomic delivery card, the `SALE_APPROVAL` offer, `SALE_DELIVERY_CREATED`, the request-hash
+and receipt members, the shared pre-JobCard reference locks and the read-side fields
+(`deliverySourceSaleId` on the delivery's JobCard detail, `linkedDelivery` on the sale's JobCard detail) ship
+with the server (`sale-approval-delivery-input.ts`, `createSaleApprovalDelivery`,
+`lockApprovalReferences` in `service.ts`; tests `sale-002-s3-approval-delivery-postgres`).
+Interpretations the implementation fixed where this contract is silent: `delivery.assignedTo`
+may be omitted and then means the sale's assignee (§5.2 default); `delivery: null` is a
+`400`; the delivery priority is `normal`; the conflict code for a second delivery is
+`SALE_DELIVERY_ALREADY_EXISTS` (§4.8); `linkedDelivery` is `null` for a STAFF viewer who is
+not the delivery's assignee. The web section/dialogs and the R10 copy fix are not part of
+this backend note.
 
 Verification per slice: the AGENTS.md minimum commands, plus targeted suites, plus
 `ops/local-ci/run.sh --sha <sha>` evidence when the release contract requires it. Never

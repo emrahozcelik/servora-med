@@ -181,7 +181,9 @@ const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
 // ASSIGNMENT_DECISION_FIELDS stay untouched and keep rejecting it.
 const PAIR_VERSION_FIELDS = [...LIFECYCLE_FIELDS, 'expectedSaleVersion'] as const;
 const SUBMIT_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUpProposal', 'locationCapture', 'expectedSaleVersion'] as const;
-const APPROVE_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUp', 'expectedSaleVersion'] as const;
+// SALE-002 §5.1: `delivery` is the optional sale-approval delivery object; the
+// service parses it with its own strict allowlist (parseSaleApprovalDelivery).
+const APPROVE_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUp', 'expectedSaleVersion', 'delivery'] as const;
 const REVISION_FIELDS = [
   'clientActionId', 'expectedVersion', 'revisionReason', 'correctionDueAt', 'expectedSaleVersion',
 ] as const;

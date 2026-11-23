@@ -124,7 +124,7 @@ describe('SALE-002 §4.5 expectedSaleVersion handler allowlists', () => {
     }
   });
 
-  it('rejects delivery on approve until S3 ships the payload', async () => {
+  it('passes the S3 delivery object through the approve allowlist untouched', async () => {
     const { service, calls } = stubService();
     const app = await appWith(service);
     try {
@@ -138,10 +138,43 @@ describe('SALE-002 §4.5 expectedSaleVersion handler allowlists', () => {
           delivery: { assignedTo: jobCardId, scheduledAt: '2026-11-24T07:00:00.000Z' },
         },
       });
-      expect(response.statusCode).toBe(400);
-      expect(calls).toHaveLength(0);
+      // SALE-002 §5.1: `delivery` is an approve member; the service parses it.
+      expect(response.statusCode).toBe(200);
+      expect(calls).toEqual([{
+        method: 'approve',
+        id: jobCardId,
+        body: {
+          clientActionId: 'pair-approve-delivery',
+          expectedVersion: 4,
+          expectedSaleVersion: 2,
+          delivery: { assignedTo: jobCardId, scheduledAt: '2026-11-24T07:00:00.000Z' },
+        },
+      }]);
     } finally {
       await app.close();
     }
   });
+
+  it.each(['submitForApproval', 'requestRevision', 'withdrawFromApproval', 'resume', 'start', 'cancel'])(
+    'keeps rejecting delivery outside the approve allowlist (%s)',
+    async (name) => {
+      const { service, calls } = stubService();
+      const app = await appWith(service);
+      const url = {
+        submitForApproval: 'submit-for-approval', requestRevision: 'request-revision',
+        withdrawFromApproval: 'withdraw-from-approval', resume: 'resume', start: 'start', cancel: 'cancel',
+      }[name]!;
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/api/job-cards/${jobCardId}/${url}`,
+          payload: { clientActionId: 'no-delivery', expectedVersion: 4, delivery: { scheduledAt: 'x' } },
+        });
+        expect(response.statusCode).toBe(400);
+        expect(calls).toHaveLength(0);
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });
