@@ -165,7 +165,7 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
-  it('uses assigned Staff for current workload and immutable Staff for historical completion', async () => {
+  it('uses the assignee at completion for both current workload and historical completion', async () => {
     const { pool, query } = recordingPool();
     const repository = new PostgresReportsRepository(pool);
 
@@ -178,7 +178,8 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
 
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain('jc.assigned_to = requested.staff_user_id');
-    expect(sql).toContain('completed_job.staff_completed_by = requested.staff_user_id');
+    expect(sql).toContain('completed_job.assigned_to = requested.staff_user_id');
+    expect(sql).not.toContain('staff_completed_by = requested.staff_user_id');
     expect(sql).toContain('u.organization_id = $1');
     expect(sql).toContain("u.role = 'STAFF'");
     expect(sql).toContain('AT TIME ZONE organization_range.timezone');

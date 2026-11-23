@@ -120,11 +120,12 @@ describe('Staff operational report', () => {
     expect(html).not.toContain('Europe/Istanbul');
     expect(html).not.toMatch(/\b(?:NEW|ACCEPTED|IN_PROGRESS)\b/);
     expect(html).toContain('Pasif personel');
-    expect(html).toContain('Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.');
+    expect(html).toContain('tamamlandığı anda bu personele atanmış');
+    expect(html).toContain('İşi bir yönetici onaya gönderse veya tamamlasa da atıf atanmış personelde kalır.');
+    expect(html).toContain('Onaya gönderme kaydı bu atıftan ayrıdır ve işi kimin gönderdiğini gösterir.');
     expect(html).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
     expect(html).not.toContain('hâlen bu personele atanmış');
-    expect(html).toContain('onaya gönderme kaydı bu personele ait');
-    expect(html).toContain('Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.');
+    expect(html).not.toContain('fiilen yapan');
     for (const label of [
       'Şu an — mevcut operasyon yükü', 'Seçilen dönem — yönetici onaylı sonuçlar',
       'Aksiyon alınabilir', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor',

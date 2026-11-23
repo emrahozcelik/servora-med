@@ -167,12 +167,27 @@ describe('FollowUpProposalSection', () => {
     expect(host.querySelector('#follow-up-proposal-due-date')).toBeNull();
   });
 
-  it('R2-AP-F2: manager mode shows optional due-date for GENERAL_TASK and PRODUCT_DELIVERY', () => {
-    for (const type of ['GENERAL_TASK', 'PRODUCT_DELIVERY'] as const) {
-      const { host } = renderSection({ mode: 'manager', allowTypeEdit: true, draft: { ...draft, type } });
-      expect(host.querySelector('#follow-up-proposal-due-date')).not.toBeNull();
-      expect(host.textContent).toContain('Son tarih');
-    }
+  it('R2-AP-F2: manager mode shows optional due-date for a GENERAL_TASK', () => {
+    const { host } = renderSection({
+      mode: 'manager', allowTypeEdit: true, draft: { ...draft, type: 'GENERAL_TASK' },
+    });
+    expect(host.querySelector('#follow-up-proposal-due-date')).not.toBeNull();
+    expect(host.textContent).toContain('Son tarih');
+  });
+
+  it('offers only the follow-up types the server accepts at approval', () => {
+    const optional = renderSection({ mode: 'manager', allowTypeEdit: true });
+    const optionalOptions = Array.from(
+      optional.host.querySelectorAll<HTMLOptionElement>('#follow-up-proposal-type option'),
+    ).map((option) => option.value);
+    expect(optionalOptions).toEqual(['SALES_MEETING', 'GENERAL_TASK']);
+    expect(optionalOptions).not.toContain('PRODUCT_DELIVERY');
+
+    const mandatory = renderSection({
+      mode: 'manager', allowTypeEdit: true, mandatoryVisitFollowUp: true,
+    });
+    expect(mandatory.host.querySelector('#follow-up-proposal-type')).toBeNull();
+    expect(mandatory.host.querySelector('.follow-up-proposal-type-fixed')?.textContent).toBe('Satış görüşmesi');
   });
 
   it('R2-AP-F3: staff mode shows neither priority nor due-date', () => {
@@ -327,6 +342,70 @@ describe('JobDetail follow-up proposal integration', () => {
         followUpInstructions: 'Takip: Klinik teslimi',
       });
       expect(host.textContent).toContain('İş tamamlandı ve takip işi planlandı.');
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('restricts a mandatory customer-visit approval follow-up to SALES_MEETING', async () => {
+    const visitCard = {
+      ...managerCard,
+      type: 'SALES_MEETING',
+      title: 'Klinik ziyareti',
+      engagementKind: 'CUSTOMER_VISIT',
+      customerId: 'c1',
+      followUpProposal: null,
+      workflowContext: {
+        ...managerCard.workflowContext,
+        allowedActions: ['VIEW_MEETING_RESULT', 'VIEW_NOTES'],
+      },
+    };
+    const meeting = {
+      jobCardId: 'job-1', meetingAt: '2026-08-01T09:30:00.000Z',
+      outcome: 'POSITIVE', unsuccessfulReason: null,
+      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null,
+      metContactId: null, metContact: null, jobCardVersion: 4,
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json({ items: [], total: 0, limit: 25, nextCursor: null });
+      if (url.includes('/activity?')) return Response.json({ items: [], total: 0, limit: 50, offset: 0 });
+      if (url.includes('/meeting-details') && method === 'GET') return Response.json(meeting);
+      if (url.includes('/follow-up-suggestion')) {
+        return Response.json({
+          scheduledAt: '2026-08-15T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: 's1',
+          followUpInstructions: 'Takip: Klinik ziyareti',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
+      if (url.endsWith('/api/calendar/assignees')) {
+        return Response.json({ items: [{ id: 's1', name: 'Ayşe Personel' }] });
+      }
+      if (detailUrlMatches(url, 'job-1')) return Response.json(visitCard);
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    }));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await flush();
+      });
+      const approve = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
+      await act(async () => { approve.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog.querySelector('#follow-up-proposal-type')).toBeNull();
+      expect(dialog.querySelector('.follow-up-proposal-type-fixed')?.textContent).toBe('Satış görüşmesi');
     } finally {
       await act(async () => root.unmount());
       host.remove();

@@ -32,6 +32,13 @@ export type FollowUpProposalSectionProps = {
   assigneeName: string;
   assignees?: RelatedName[];
   allowTypeEdit: boolean;
+  /**
+   * A mandatory customer-visit follow-up must continue the visit cycle as a
+   * SALES_MEETING. Optional approval-time follow-ups may be a SALES_MEETING or
+   * a GENERAL_TASK; PRODUCT_DELIVERY needs products and is opened from the
+   * dedicated follow-up creation screen, never from an approval.
+   */
+  mandatoryVisitFollowUp?: boolean;
   inlineError: string | null;
   onChange: (next: Partial<FollowUpDraft>) => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
@@ -76,8 +83,6 @@ function badgeLabel(origin: FollowUpProposalOrigin | null, mode: 'staff' | 'mana
   return origin === 'STAFF_ADJUSTED' ? 'PERSONEL ÖNERİSİ' : 'ÖNERİLEN';
 }
 
-const TYPE_OPTIONS: JobCardType[] = ['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'];
-
 export function FollowUpProposalSection({
   mode,
   draft,
@@ -86,6 +91,7 @@ export function FollowUpProposalSection({
   assigneeName,
   assignees = [],
   allowTypeEdit,
+  mandatoryVisitFollowUp = false,
   inlineError,
   onChange,
   initialFocusRef,
@@ -99,6 +105,9 @@ export function FollowUpProposalSection({
     ? isoInstantToLocalDateTime(draft.scheduledAt)
     : '';  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const staffAuto = mode === 'staff' && autoSupported;
+  const typeOptions: JobCardType[] = mandatoryVisitFollowUp
+    ? ['SALES_MEETING']
+    : ['SALES_MEETING', 'GENERAL_TASK'];
 
   return (
     <section className="follow-up-proposal-card" aria-label="Takip işi planı">
@@ -266,16 +275,28 @@ export function FollowUpProposalSection({
           )}
           {allowTypeEdit && (
             <div className="field-group">
-              <label htmlFor="follow-up-proposal-type">Takip işi türü</label>
-              <select
-                id="follow-up-proposal-type"
-                value={draft?.type ?? ''}
-                onChange={(event) => onChange({ type: event.target.value as JobCardType })}
-              >
-                {TYPE_OPTIONS.map((type) => (
-                  <option key={type} value={type}>{jobTypeLabels[type]}</option>
-                ))}
-              </select>
+              {typeOptions.length === 1 ? (
+                <>
+                  <span className="field-label" id="follow-up-proposal-type-label">Takip işi türü</span>
+                  <p className="follow-up-proposal-type-fixed" aria-labelledby="follow-up-proposal-type-label">
+                    {jobTypeLabels[typeOptions[0]!]}
+                  </p>
+                  <p className="form-help">Müşteri ziyaretinin takibi satış görüşmesi olarak devam eder.</p>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="follow-up-proposal-type">Takip işi türü</label>
+                  <select
+                    id="follow-up-proposal-type"
+                    value={draft?.type ?? ''}
+                    onChange={(event) => onChange({ type: event.target.value as JobCardType })}
+                  >
+                    {typeOptions.map((type) => (
+                      <option key={type} value={type}>{jobTypeLabels[type]}</option>
+                    ))}
+                  </select>
+                </>
+              )}
             </div>
           )}
           <div className="field-group">

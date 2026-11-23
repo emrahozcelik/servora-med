@@ -927,6 +927,36 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
+  it('rejects a Product Delivery follow-up created during approval', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'GENERAL_TASK', title: 'Ürün kontrolü', assignedTo: staffA.id, customerId: null,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görev tamamlandı.',
+      });
+      await expect(service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        followUp: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'PRODUCT_DELIVERY',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Teslim',
+        },
+      })).rejects.toMatchObject({
+        code: 'FOLLOW_UP_PROPOSAL_INVALID',
+        statusCode: 400,
+        message: 'Ürün teslimi takibi onay sırasında açılamaz; ürünleriyle birlikte Takip işi oluştur ekranından açın.',
+      });
+      const after = await service.detail(manager, job.id);
+      expect(after.status).toBe('WAITING_APPROVAL');
+      expect(after.followUpProposal).toBeNull();
+    });
+  });
+
   it('R1-6: Staff receives no frequency escalation', async () => {
     await withFixture(async ({
       service, pool, manager, staffA, staffB, organizationId, customerId, createInProgressJob,

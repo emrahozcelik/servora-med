@@ -152,9 +152,10 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
           <div><dt>Eklenen operasyon notları</dt><dd>{record.authoredOperationalNotes}</dd></div>
         </dl>
         <p className="staff-performance-context-note">
-          Tamamlananlar, bu personelin gönderim kaydına bağlı ve seçilen dönemde yönetici tarafından onaylanmış
-          işlerdir. Bu kayıt, işi fiilen gerçekleştiren kişinin ayrıca doğrulandığı anlamına gelmez. Onaya gönderme sayısı seçilen dönemdeki gönderim kayıtlarını gösterir.
-          Tekrar gönderimlerin olay geçmişini saymaz.
+          Tamamlananlar, seçilen dönemde yönetici tarafından onaylanmış işlerden tamamlandığı anda bu personele
+          atanmış olanları gösterir. İşi bir yönetici onaya gönderse veya tamamlasa da atıf atanmış personelde kalır.
+          Onaya gönderme kaydı bu atıftan ayrıdır ve işi kimin gönderdiğini gösterir. Tekrar gönderimlerin
+          olay geçmişini saymaz.
         </p>
       </section>
       <section aria-label={`${record.name} tamamlanan işlerin türleri`}>
@@ -170,9 +171,10 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
 
 const definitions: Partial<Record<SortKey, string>> = {
   openJobCards: 'Hazırlanan, atanan ve uygulanan mevcut işler; onay ve düzeltme kuyrukları ayrıdır.',
-  completedJobs: 'Bu personelin gönderim kaydına bağlı, seçilen dönemde yönetici tarafından onaylanan işler.',
+  completedJobs:
+    'Tamamlandığı anda bu personele atanmış ve seçilen dönemde yönetici tarafından onaylanan işler.',
   recordedSubmissionCount:
-    'Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir; tekrar gönderimlerin olay geçmişini saymaz.',
+    'Seçilen dönemde işi onaya bu personelin gönderdiği kayıtları gösterir; tekrar gönderimlerin olay geçmişini saymaz.',
 };
 
 const labels: Record<SortKey, string> = {

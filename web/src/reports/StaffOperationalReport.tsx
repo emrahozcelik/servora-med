@@ -227,14 +227,14 @@ export function StaffOperationalReport({
         <div><dt>Eklenen operasyon notları</dt><dd>{report.performance.authoredOperationalNotes}</dd></div>
       </dl>
       <p className="report-section-hint">
-        Tamamlananlar, seçilen dönemde yönetici tarafından onaylanan ve onaya gönderme kaydı bu personele ait işleri kapsar.
+        Tamamlananlar, seçilen dönemde yönetici tarafından onaylanan işlerden tamamlandığı anda bu personele
+        atanmış olanları kapsar. İşi bir yönetici onaya gönderse veya tamamlasa da atıf atanmış personelde kalır.
       </p>
       <details className="report-data-disclosure staff-report-method">
         <summary>Nasıl hesaplanır?</summary>
         <p className="report-section-hint">
-          Atıf tarihsel onaya gönderme kaydına dayanır; güncel görev atamasına göre değişmez.
-          Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.
-          Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
+          Atıf, işin tamamlandığı andaki atanmış personeline dayanır; işi kimin gönderdiği bu sayıyı değiştirmez.
+          Onaya gönderme kaydı bu atıftan ayrıdır ve işi kimin gönderdiğini gösterir.
           Tekrar gönderimlerin olay geçmişini saymaz. Kaydı bulunan işler{' '}
           {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
         </p>
@@ -242,7 +242,7 @@ export function StaffOperationalReport({
       <WorkTypeDistribution
         headingId="completion-work-types-title"
         title="Tamamlanan işlerin türleri"
-        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, tarihsel onaya gönderme atfı ve iş türüne göre ayrılır."
+        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, tamamlandığı andaki atama ve iş türüne göre ayrılır."
         items={report.completionWorkTypes}
       />
       <section className="staff-detail-section staff-completion-trend" aria-labelledby="daily-completion-title">

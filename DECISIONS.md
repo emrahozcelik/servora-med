@@ -553,12 +553,16 @@ ID behavior were verified in Slice 07. Notes do not increment JobCard version.
 
 - **Date:** 2026-07-14
 - **Status:** Accepted; universal personal-result attribution partially superseded
-  by REPORT-001 (2026-11-04, product contract accepted; implementation pending).
+  by REPORT-001 (2026-11-04, product contract accepted; implementation pending),
+  then confirmed for every Staff report metric by REPORT-002 (2026-11-23).
 - **Scope:** Slice 08 Staff Profile and Operational Reports
 
 The original decision below is retained. REPORT-001 replaces current-assignee
 attribution for the new approved personal-activity/commercial-result metrics.
-Current workload and existing delivery-report contracts remain unchanged.
+REPORT-002 (2026-11-23) amends that replacement for every Staff report metric:
+attribution stays with the assignee at completion and no separate performer
+capture is added. Current workload and existing delivery-report contracts
+remain unchanged.
 
 ### Context
 
@@ -2500,6 +2504,10 @@ backup failure without stranding the protected OLD behind an active owner.
 - **Date:** 2026-11-04
 - **Status:** Accepted product contract; implementation and runtime verification
   pending. Current task is documentation-only.
+- **Amended by REPORT-002 (2026-11-23):** no separate performer declaration or
+  capture is implemented; the verified performer of a completed card is its
+  assignee at completion for every Staff report metric. The remaining REPORT-001
+  boundaries stay as written.
 - **Owner:** [Reporting contract](docs/features/reporting/README.md).
 - **Supersedes:** DOM-006's universal current-assignee ownership rule only for
   new approved personal-activity/commercial-result metrics and their meeting
@@ -3412,3 +3420,51 @@ management decision list.
 - There is no safe rollback to a release that treats `recovered_at IS NULL`
   alone as open: it would resume reminders for closed rows. The OVR-5 §8
   rollback floor applies unchanged.
+
+## REPORT-002 — Staff attribution follows the assignee at completion
+
+- **Date:** 2026-11-23 (product-owner decision in chat).
+- **Status:** Accepted by the product owner; implemented and verified in the
+  same change.
+- **Owner:** [Reporting contract](docs/features/reporting/README.md).
+- **Amends:** REPORT-001 (2026-11-04) by removing the separate performer
+  declaration/capture requirement for Staff report metrics. Confirms DOM-006
+  for every Staff report metric; does not supersede its workload, delivery,
+  timezone, quantity or non-financial rules.
+- **Resolves drift:** commit `6285d72` switched Staff completion metrics to
+  `staff_completed_by`; this record returns them to `assigned_to`.
+
+### Decision
+
+1. Completed work belongs to the Staff member the JobCard is assigned to at
+   completion. A manager or admin submitting or completing another member's
+   job never moves that work to the manager. A job reassigned before completion
+   belongs to the assignee at completion. Assignment cannot change after a job
+   is completed, so the completed row's `assigned_to` is stable.
+2. The rule covers every Staff report metric: completed-in-period count,
+   completion days and work-type distribution, Staff execution, on-time
+   performance, correction-request events, the daily completion trend, delivery
+   purpose quantities, delivery report Staff grouping and Staff filtering, and
+   the meeting outcome breakdown.
+3. `staff_completed_by` remains recorded submission-actor evidence only; it
+   feeds the separately labelled "Onaya gönderme kaydı" metric together with
+   its `staff_completed_at` time basis and never decides work ownership.
+   Authored operational notes remain attributed through `author_id`. Reporting
+   time-basis columns are unchanged.
+4. No separate performer declaration or capture is added. The verified
+   performer of a completed card is its assignee at completion; reports do not
+   claim an independently verified performer beyond that identity. REPORT-001's
+   unknown-performer and attribution-correction machinery is not implemented
+   and is not required for these Staff metrics.
+5. Historical rows are not rewritten, backfilled or reinterpreted. Reports
+   recompute from persisted assignment. OVR-7 lateness accountability cohorts
+   keep their own historical meaning and are not changed by this record.
+
+### Consequences
+
+- A management submission on behalf of the assigned Staff member stays in that
+  member's Staff report, while the submission record still shows who submitted.
+- Staff deliveries and meeting outcomes follow the assignee even when the
+  meeting was submitted by management.
+- The Staff summary and completion-performance aggregate remain paired under
+  the Reports service invariant; both use the same assignment rule.
