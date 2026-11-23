@@ -411,6 +411,8 @@ If tests do not exist yet, create the smallest useful test harness for the touch
 * Update the relevant plan file when a task is completed or intentionally deferred.
 * Do not let docs claim a feature exists if the implementation is still a stub.
 * Document verification commands and results.
+* Keep examples realistic for medical/dental B2B sales and product delivery usage.
+* Do not use unrelated-domain examples in Servora-Med docs.
 
 ### Decision progress handoff
 
@@ -425,8 +427,6 @@ activation, and functional acceptance are separate gates. If a gate is not
 verified, leave it unchecked with a concrete pending-proof note. Do not
 retroactively mark unrelated work complete, turn proposals into accepted
 decisions, or let this ledger authorize merges, migrations, or deployment.
-* Keep examples realistic for medical/dental B2B sales and product delivery usage.
-* Do not use unrelated-domain examples in Servora-Med docs.
 
 ---
 
