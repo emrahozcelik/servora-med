@@ -61,7 +61,7 @@ export function AssignmentReasonSection({
 }) {
   return (
     <fieldset className="assignment-reason-section" aria-describedby={inlineError ? 'assignment-reason-error' : undefined}>
-      <legend>Neden</legend>
+      <legend className="sr-only">Atama yanıt nedeni</legend>
       <div className="field-group">
         <label htmlFor="assignment-reason-code">Neden</label>
         <select
