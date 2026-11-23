@@ -862,7 +862,97 @@ type SaleOrigin =
 A standalone origin is exactly `{ kind: 'STANDALONE' }` and must not render the
 restricted-source message. `job_cards.delivery_source_sale_id` exists from
 migration `071_sale_standalone_and_delivery_link` but no route reads or writes it
-in S1.
+in S1/S2.
+
+### Coordinated visit+sale commands (SALE-002 §4, S2)
+
+A `SALES_MEETING` visit plus its one active linked `SALE`
+(`sale_source_visit_id`, status in `NEW/ACCEPTED/IN_PROGRESS/WAITING_APPROVAL/
+REVISION_REQUESTED`) form a **pair**. Pair discovery is server-side: no route
+accepts a card id of the other side, and the visit is the only submission and
+approval surface.
+
+While the source visit is live (`IN_PROGRESS`, `WAITING_APPROVAL`,
+`REVISION_REQUESTED`) **and** both cards share one assignee, the five lifecycle
+commands act on the pair. The five pair-capable handlers accept
+`expectedSaleVersion` (`SUBMIT_FOR_APPROVAL`, `APPROVE`, `REQUEST_REVISION`,
+`WITHDRAW_FROM_APPROVAL`, `RESUME`). `START`, accept/decline/release,
+`CANCEL`/invalidate, the generic patch allowlists, `POST /:visitId/sales` and
+the standalone sale create keep rejecting it with `400 VALIDATION_ERROR`.
+
+| Command | Behavior |
+| --- | --- |
+| `SUBMIT_FOR_APPROVAL` (`:id` = visit) | Validates the visit first (`MEETING_NOT_READY`), then the linked sale (`400 SALE_NOT_READY` with `details: { readiness }`, nothing written; the same error and payload apply to a single-card sale submit), then moves both `→ WAITING_APPROVAL` in one transaction with one instant. A sale already `WAITING_APPROVAL` keeps its own submission facts (no second event). A sale in `NEW`/`REVISION_REQUESTED` is `409 SALE_PAIR_STATE_CONFLICT` with `allowedSaleCommand: ACCEPT_ASSIGNMENT` / `RESUME`. |
+| `APPROVE` (`:id` = visit) | Completes the visit and completes the sale **only if** it is `WAITING_APPROVAL`. Both completed cards share `manager_approved_at/by/note`. The JOB-008 follow-up child is still created from the visit. A legacy sale in another state is left untouched and becomes independent. |
+| `REQUEST_REVISION` | Moves the visit and, only when it is `WAITING_APPROVAL`, the sale; the same reason/instant/actor, one `JOB_REVISION_REQUESTED` per moved card. The OVR-5b correction deadline stays visit-only. |
+| `WITHDRAW_FROM_APPROVAL` | Returns the visit to `IN_PROGRESS` and, only when it is `WAITING_APPROVAL`, the sale. Prior submission facts stay. |
+| `RESUME` | Returns every pair card currently in `REVISION_REQUESTED` to `IN_PROGRESS`. |
+
+`CANCEL`/`INVALIDATE` on the visit stay single-card and never cascade; after the
+source is terminal the sale runs its own lifecycle. A pair whose assignees
+diverge (pre-S2 data only) is **decoupled**: no redirects, no shared ids, each
+card acts alone.
+
+**Request identity.** `clientActionId` + operation key
+(`JOB_SUBMIT_FOR_APPROVAL_PAIR:<visitId>`, `JOB_APPROVE_PAIR:<visitId>`,
+`JOB_REQUEST_REVISION_PAIR:<visitId>`, `JOB_WITHDRAW_FROM_APPROVAL_PAIR:<visitId>`,
+`JOB_RESUME_PAIR:<visitId>`) is the identity; the discriminator is
+`<PAIR_OPERATION>:v1` and the hash covers
+`{pairOperation, visitId, visitExpectedVersion, saleId, saleExpectedVersion,
+note, revisionReason, followUpProposal, locationCapture}` (S3 adds normalized
+`delivery`). As in the single-card lifecycle identity, the manager's approval follow-up
+override (`approveFollowUp`, normalized the same way) and the OVR-5b `correctionDueAt`
+(`REQUEST_REVISION`) are included **only when the client sent them** (present-only, so a
+receipt recorded without them keeps replaying byte-identically). Replay returns the stored anchor (visit) detail and publishes
+nothing; a changed `saleExpectedVersion`/note/proposal/location, or the same key
+applied to a different linked sale, is `409 CLIENT_ACTION_REUSED`.
+
+**Response.** The anchor detail gains `linkedSaleJobCardId` when the sale moved
+in that command (and `deliveryJobCardId` once S3 ships the delivery payload).
+Both are persisted in the stored receipt, so replays are byte-identical.
+
+**`expectedSaleVersion` rules.** Required iff a coordinated pair exists for the
+command (`400 VALIDATION_ERROR` otherwise); supplied without one is
+`409 SALE_PAIR_STATE_CONFLICT` with `details: { reason: 'NO_COORDINATED_PAIR' }`
+(a race or a stale view, never a validation error). It is part of the request
+hash in both cases.
+
+**New error codes (all `409` unless noted).**
+
+| Code | Raised when | `details` |
+| --- | --- | --- |
+| `SALE_SUBMIT_VIA_VISIT_REQUIRED` | single-card sale submit while the source visit is `IN_PROGRESS`/`REVISION_REQUESTED` | `{ visitId, saleId, saleStatus, allowedSaleCommand }` |
+| `SALE_APPROVE_VIA_VISIT_REQUIRED` | single-card sale approve while the source is `WAITING_APPROVAL` | idem |
+| `SALE_REVISION_VIA_VISIT_REQUIRED` | single-card sale revision request while the source is `WAITING_APPROVAL` | idem |
+| `SALE_WITHDRAW_VIA_VISIT_REQUIRED` | single-card sale withdraw while the source is `WAITING_APPROVAL` | idem |
+| `SALE_RESUME_VIA_VISIT_REQUIRED` | single-card sale resume while the source is `REVISION_REQUESTED` | idem |
+| `SALE_PAIR_STATE_CONFLICT` | visit submit blocked by an unsubmittable linked sale; `expectedSaleVersion` missing/extra race. For a `NEW` linked sale (`allowedSaleCommand: ACCEPT_ASSIGNMENT`) the message is `Bağlı satış kaydı önce kabul edilmelidir.` | `{ visitId?, saleId?, saleStatus?, allowedSaleCommand? }` or `{ reason: 'NO_COORDINATED_PAIR' }` |
+| `SALE_PAIR_ASSIGNEE_CONFLICT` | reassignment that would make a live pair diverge (either card) | `{ visitAssignee, requestedAssignee }` |
+| `VALIDATION_ERROR` (`400`) | coordinated pair without `expectedSaleVersion` | `{ fieldErrors: { expectedSaleVersion } }` |
+
+**Locking and atomicity (SALE-002 §4.6).** One transaction, two 049 intents and
+two `job_cards` row locks, in the documented order:
+`processed_actions claim → users (sorted) → customers → contacts → products →
+job_cards (sorted by id) → intents`. The visit owns the anchor intent and the
+receipt; the sale owns the participant intent `<anchor>:participant` with the
+same `reserved_at`/`request_hash` and `expected_version = expectedSaleVersion`.
+A definitive 4xx marks **both** intents `FAILED` with the same failure code, so
+a corrected attempt needs a new `clientActionId` (049 §5.4). Expiry marks both
+`LIFECYCLE_INTENT_EXPIRED`; there is no half-failed pair. The approve path takes
+the customer lock **before** any `job_cards` row (single and pair), removing the
+former `job_cards -> customers` inversion.
+
+### Database note: SALE without START (SALE-002 R9, migration `072`)
+
+Accepted Q1 allows `SUBMIT_FOR_APPROVAL` from `ACCEPTED` for a `SALE`, so a sale
+may reach `WAITING_APPROVAL`/`IN_PROGRESS`/`COMPLETED` without a START.
+`006_job_cards_started_status_timestamp_check` required `started_at` for those
+statuses; migration `072_sale_submit_without_start` exempts `type = 'SALE'`.
+Nothing is fabricated: no `STARTED` accountability fact is written and
+`started_at` stays NULL. `072` is additive (a weaker predicate; every existing
+row still satisfies it), is deployed schema-first, and moves
+`HEALTH_SCHEMA_VERSION` to `072_sale_submit_without_start`.
+
 
 ## 11. Delivery Items
 

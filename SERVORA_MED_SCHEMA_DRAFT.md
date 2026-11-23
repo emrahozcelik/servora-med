@@ -554,7 +554,8 @@ Applied slice-aligned migrations:
 The rows below preserve this draft's baseline 001–009 records. Additive
 migrations 010–070 are owned by their accepted decision/feature records and the
 exact release catalog; this draft does not restate them. The current head after
-SALE-002 S1 is `071_sale_standalone_and_delivery_link`.
+SALE-002 S1 is `071_sale_standalone_and_delivery_link`; SALE-002 S2 adds
+`072_sale_submit_without_start` as the new head.
 
 | Group | Content |
 | --- | --- |
@@ -568,6 +569,7 @@ SALE-002 S1 is `071_sale_standalone_and_delivery_link`.
 | `008_meeting_approval_withdrawal.sql` | additive `JOB_APPROVAL_WITHDRAWN` activity constraint value |
 | `009_job_acceptance_and_scheduling.sql` | `ACCEPTED` status, `accepted_at`/`accepted_by`/`scheduled_at`, `JOB_ACCEPTED`, nullable delivery `delivered_at`, legacy `PLANNED -> NEW` |
 | `071_sale_standalone_and_delivery_link.sql` | SALE-002 S1: replaces `job_cards_sale_source_present_check` with "only a SALE may carry a source"; adds the nullable, non-self `delivery_source_sale_id` same-organization FK restricted to `PRODUCT_DELIVERY`, excludes a sale-linked follow-up child, and creates the partial unique `job_cards_one_delivery_per_sale_idx`; makes the three required sale-source snapshots nullable and adds the all-or-none `job_card_sale_details_source_shape_check`; adds assignment-offer reason `SALE_APPROVAL` and activity event `SALE_DELIVERY_CREATED`. Additive, no DML/backfill; the one-active-sale-per-visit index is unchanged. |
+| `072_sale_submit_without_start.sql` | SALE-002 S2 / R9 (accepted Q1): relaxes 006's `job_cards_started_status_timestamp_check` so a `SALE` may reach `IN_PROGRESS`/`WAITING_APPROVAL`/`REVISION_REQUESTED`/`COMPLETED` without a `started_at` (the sale may be submitted from `ACCEPTED` without `START`; the accountability facts stay the evidence and nothing is fabricated). Additive and weaker: every existing row still satisfies it; no DML/backfill. `HEALTH_SCHEMA_VERSION` moves to `072_sale_submit_without_start`. |
 
 Applied migrations 001–008 are immutable. Migration 009 is additive for acceptance and
 scheduling. Reports and General Task required no dedicated schema migration beyond the

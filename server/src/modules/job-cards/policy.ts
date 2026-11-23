@@ -124,10 +124,18 @@ export function getAllowedLifecycleCommands(
     }
     if (job.status === 'ACCEPTED') {
       if (actor.role === 'STAFF' && actor.id === job.assignedTo) {
-        if (offer === null) return ['START', 'CANCEL'];
+        // SALE-002 (R9, accepted Q1): a SALE may be submitted straight from
+        // ACCEPTED. START asks for location evidence a recorded agreement has
+        // no meaning for, so it stays optional instead of a mandatory step.
+        const saleSubmit: LifecycleCommand[] = job.type === 'SALE'
+          ? ['SUBMIT_FOR_APPROVAL']
+          : [];
+        if (offer === null) return ['START', ...saleSubmit, 'CANCEL'];
         // JOB-010 §5: release is available while the latest offer is the
         // acceptance itself.
-        return mayReleaseOffer ? ['START', 'RELEASE_ASSIGNMENT'] : ['START'];
+        return mayReleaseOffer
+          ? ['START', ...saleSubmit, 'RELEASE_ASSIGNMENT']
+          : ['START', ...saleSubmit];
       }
       return ['CANCEL'];
     }

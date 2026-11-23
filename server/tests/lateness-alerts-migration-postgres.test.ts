@@ -23,7 +23,7 @@ import {
  * and activity CHECKs, and the schema head. Contract §10 DB.
  */
 
-const SCHEMA_VERSION = '071_sale_standalone_and_delivery_link';
+const SCHEMA_VERSION = '072_sale_submit_without_start';
 
 /**
  * Complete `in_app_notifications_kind_check` vocabulary before 069 (065 is the

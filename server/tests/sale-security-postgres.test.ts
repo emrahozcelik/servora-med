@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { withSaleFixture } from './support/sale-harness.js';
+import { standaloneSale, withSaleFixture } from './support/sale-harness.js';
 import { ProductService } from '../src/modules/products/service.js';
 import { PostgresProductRepository } from '../src/modules/products/repository.js';
 import { CrmService } from '../src/modules/crm/service.js';
@@ -61,10 +61,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Sale write boundaries', () => {
   });
   it('keeps SALE outside manual follow-up source and target creation', async () => {
     await withSaleFixture(async (f) => {
-      const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
-      await f.service.start(f.staff, sale.jobCardId, { clientActionId: 'start-follow-up-source', expectedVersion: 1 });
-      await f.service.submitForApproval(f.staff, sale.jobCardId, { clientActionId: 'submit-follow-up-source', expectedVersion: 2, note: 'Agreement recorded' });
-      await f.service.approve(f.manager, sale.jobCardId, { clientActionId: 'approve-follow-up-source', expectedVersion: 3 });
+      // Standalone: SALE-002 §4.2 gives a visit-origin sale no independent
+      // submit while the source visit is live.
+      const sale = await standaloneSale(f, { clientActionId: 'follow-up-source-create' });
+      await f.service.start(f.staff, sale.jobCardId, { clientActionId: 'start-follow-up-source', expectedVersion: sale.version });
+      await f.service.submitForApproval(f.staff, sale.jobCardId, { clientActionId: 'submit-follow-up-source', expectedVersion: sale.version + 1, note: 'Agreement recorded' });
+      await f.service.approve(f.manager, sale.jobCardId, { clientActionId: 'approve-follow-up-source', expectedVersion: sale.version + 2 });
       const input = { clientActionId: 'sale-follow-up', type: 'GENERAL_TASK' as const, title: 'Follow-up',
         description: null, assignedTo: f.staff.id, contactId: null, priority: 'normal' as const,
         dueDate: null, scheduledAt: null, scheduledEndsAt: null, engagementKind: null, followUpInstructions: 'Instructions' };

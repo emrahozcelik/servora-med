@@ -107,7 +107,7 @@ existing policy, not a gap in this slice.
 | **R6** | Visit and sale are two independent lifecycles with two submissions and two approvals | `policy.ts:134-138`, `service.ts:5426-5491` | Add coordinated pair commands while the source is live (§4). Single-card commands keep working when the pair is not live. |
 | **R7** | SALE-001: "Sale creation/correction never changes the source visit or creates delivery, follow-up, financial, stock or accounting operations" | `DECISIONS.md:1919-1920` | Creation/correction still never create a delivery. **Sale approval** may now create exactly one `PRODUCT_DELIVERY` when the manager explicitly asks (D4). |
 | **R8** | No relationship between a sale and a delivery | — | Add `job_cards.delivery_source_sale_id` with a same-organization FK and a unique index (one delivery per sale) (§3). |
-| **R9** | A `SALE` submission requires `START` first (`ACCEPTED → START → IN_PROGRESS → SUBMIT`) | `policy.ts:125-134` | Allow `SUBMIT_FOR_APPROVAL` from `ACCEPTED` **for `SALE` only** (§4.3, `[Accepted Q1]`). Without this, every joint submit costs an extra location-capturing `START` that carries no meaning for an agreement that already happened. |
+| **R9** | A `SALE` submission requires `START` first (`ACCEPTED → START → IN_PROGRESS → SUBMIT`) | `policy.ts:125-134` | Allow `SUBMIT_FOR_APPROVAL` from `ACCEPTED` **for `SALE` only** (§4.3, `[Accepted Q1]`). Without this, every joint submit costs an extra location-capturing `START` that carries no meaning for an agreement that already happened. Implemented with migration 072 (see §3.4). |
 | **R10** | Sale detail copy says a sale never creates a delivery | `web/src/JobDetail.tsx:2789-2791` | Replace with the MOD-001 wording that stays true: no stock/accounting; a delivery may be opened at approval. **Ships in S3**, together with approval delivery creation — never in S1, where it would promise an unshipped feature. |
 | **R11** | Read projection assumes a source visit; a missing source renders the restricted origin | `server/src/modules/job-cards/sale-reader.ts:105-114`; `read-integration.md:49-50` ("Restricted origin is exactly `{access: RESTRICTED, kind: SALE_FROM_VISIT}`") | Add an explicit `{ kind: 'STANDALONE' }` origin projection (no source to conceal) and extend the read-integration statement; the UI must never show "kaynağa erişiminiz yok" for a standalone sale. |
 | **R12** | `sale-create-context` derives customer/assignee from the visit only | `sale-reader.ts:41-79` | Unchanged for visit-origin creation (including completed visits, which the query already returns). Standalone creation does not use this endpoint. |
@@ -273,6 +273,27 @@ Minimum surface changes (all in `server/src/modules/job-cards/repository.ts` unl
   surface; any wider change is a design error.
 - `appendRealtimeForActivity`'s `SALE` branch is guarded for a null source (§4.7, R21).
 
+### 3.4 Migration 072 (S2): sale submit without START
+
+Dated 2026-11-23. Implemented in `server/src/db/migrations/072_sale_submit_without_start.sql`.
+Accepted Q1 / R9 lets a `SALE` be submitted from `ACCEPTED` without a `START`, which 006's
+`job_cards_started_status_timestamp_check` did not allow. This was not foreseen when §3 was
+written.
+
+- **Change:** the CHECK is dropped and re-added. A row with status `IN_PROGRESS`,
+  `WAITING_APPROVAL`, `REVISION_REQUESTED` or `COMPLETED` must have `started_at` **or**
+  `type = 'SALE'`. Other types keep the original requirement.
+- **Why it is safe:** the predicate is weaker, so every existing row still satisfies it.
+  The migration is additive, has no DML and no backfill, and fabricates no `started_at`.
+  The accountability facts (`STARTED` / `SUBMITTED`), not `started_at`, remain the audit
+  evidence. A sale has no schedule that uses `started_at` as a lateness boundary.
+- **Fail-closed verification:** a `DO` block raises an exception unless the constraint exists
+  with a definition that mentions `SALE`. A partially applied or hand-edited database cannot
+  pass silently.
+- **Deployment:** schema-first. 072 must be deployed before any code path that submits a
+  `SALE` from `ACCEPTED` is reachable. `HEALTH_SCHEMA_VERSION` moves to
+  `072_sale_submit_without_start`.
+
 ---
 
 ## 4. Lifecycle — exact joint semantics
@@ -341,7 +362,8 @@ path.
    the familiar `MEETING_NOT_READY` field errors keep their order.
 2. Resolve and validate the sale (`evaluateSale`, `submission-policy.ts:315-343`) with
    `SALE_ORIGIN_VALID` satisfied per R4. A failure returns the sale's own error
-   (`SALE_NOT_READY` with `readiness` items) and **writes nothing**. D3 forbids a silent
+   (`400 SALE_NOT_READY` with `details: { readiness }`, the sale's readiness items) and
+   **writes nothing**. The same error and payload apply to a single-card sale submit. D3 forbids a silent
    split submission; the contract has no "skip the sale" option (§11 Q2).
 3. Validate the sale state:
    - `ACCEPTED` or `IN_PROGRESS` → it will be submitted with the visit;
@@ -363,7 +385,7 @@ path.
 7. Accountability facts: the visit keeps its existing `SUBMITTED` fact; the sale gets one
    only when this command itself performed its submission (not when it was already
    `WAITING_APPROVAL`). A sale submitted from `ACCEPTED` without `START` writes no
-   `STARTED` fact — nothing is fabricated (R9, pending Q1).
+   `STARTED` fact — nothing is fabricated (R9, Accepted Q1; schema in §3.4).
 8. Overdue machinery (OVR-2/5b) evaluates each card with its own historical inputs; the
    visit's episode logic is unchanged, and an `APPROVAL_WAIT` obligation exists per card.
 
@@ -983,7 +1005,7 @@ environment-dependent case as passed.
   source-linked sale whose source disappeared.
 - Pair policy table: each of the five redirect predicates, both directions, plus the
   "terminal source releases the sale" cases.
-- Submitting a `SALE` from `ACCEPTED` (if Q1 is accepted); every other type unchanged.
+- Submitting a `SALE` from `ACCEPTED` (Accepted Q1, migration 072); every other type unchanged.
 
 ### 9.3 Service and HTTP (`sale-pair-lifecycle-postgres.test.ts`,
 `sale-approval-delivery-postgres.test.ts`, `sale-standalone-postgres.test.ts`)
@@ -1078,7 +1100,7 @@ build + tests) and updates the owning documents in the same commit.
 | Slice | Content | Depends on | Explicitly not included |
 | --- | --- | --- | --- |
 | **S1 — schema + standalone/retro sale** | Migration 071 (constraints only, no link usage yet); `assertSaleSourceEligible` widened; standalone create service/route + input parser; root DTO origin `STANDALONE`; `SaleSubmissionSnapshot` nullability + conditional `SALE_ORIGIN_VALID`; standalone realtime guard (R21); UI entry for standalone + completed-visit create | — | No pair commands, no delivery link, no approval dialog section, **no R10 copy change** |
-| **S2 — pair submit/approve/revision** | Pair discovery, ownership invariant (R17), redirect guards (R15), joint submit/approve/revision/withdraw/resume, `expectedSaleVersion` in all five handlers (R18), pair intent keys + hashes + **two intent rows** and the `reserve`/`finalize` extensions incl. `lockReferences` (R19), approve customer pre-lock (R20), pair activity/realtime, web dialogs | S1 (policy and nullability) | No delivery payload |
+| **S2 — pair submit/approve/revision** | Migration 072 (R9: `SALE` may reach a post-start status without `started_at`, §3.4); pair discovery, ownership invariant (R17), redirect guards (R15), joint submit/approve/revision/withdraw/resume, `expectedSaleVersion` in all five handlers (R18), pair intent keys + hashes + **two intent rows** and the `reserve`/`finalize` extensions incl. `lockReferences` (R19), approve customer pre-lock (R20), pair activity/realtime, web dialogs | S1 (policy and nullability) | No delivery payload |
 | **S3 — sale approval → delivery** | `delivery` payload, validation reuse, `delivery_source_sale_id` write, `SALE_APPROVAL` offer, `SALE_DELIVERY_CREATED`, `SaleApprovalDeliverySection` in the **visit** approve dialog and the independent sale dialog, delivery provenance read/panel, **R10 copy fix**, full PG concurrency tests | S2 (atomic pair approval) and S1 (column) | No replacement/partial delivery |
 | **S4 — UI completion and evidence** | Mobile/keyboard/zoom UI-003 evidence for both dialogs, standalone form polish, docs and `DECISIONS.md` record | S1–S3 | No calendar work (D7) |
 
@@ -1258,7 +1280,9 @@ This is a UI default only; the manager may pick any time.
 
 - Migration 071 is additive (CHECK replaced, columns added/nullable, one unique index,
   two vocabularies widened, one follow-up-exclusion CHECK); existing rows remain valid; no
-  backfill. `HEALTH_SCHEMA_VERSION` moves to 071. 049's intent table needs no migration.
+  backfill. Migration 072 (S2) relaxes the started-timestamp CHECK for `SALE` only so a
+  sale can be submitted from `ACCEPTED` (Q1); it is additive with no backfill.
+  `HEALTH_SCHEMA_VERSION` moves to 072. 049's intent table needs no migration.
 - The sale detail no longer claims that a sale never creates a delivery; the MOD-001
   no-stock/no-accounting boundary is unchanged.
 - Reports keep separate meanings: approved sale agreements, approved delivery quantities.

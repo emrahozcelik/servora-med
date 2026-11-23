@@ -567,6 +567,12 @@ type DeliveryInput = {
   deliveryNote?: string | null;
 };
 type LifecycleInput = { clientActionId: string; expectedVersion: number };
+/**
+ * SALE-002 §4.5/R18: the sale version a coordinated visit+sale pair command
+ * must carry. Only the five pair-capable commands accept it; `start`, `accept`,
+ * `cancel`, `decline` and `release` keep rejecting it.
+ */
+export type PairLifecycleInput = LifecycleInput & { expectedSaleVersion?: number };
 export type JobCardInvalidationInput = {
   clientActionId: string;
   expectedVersion: number;
@@ -574,7 +580,7 @@ export type JobCardInvalidationInput = {
   note?: string | null;
 };
 export type StartJobCardInput = LifecycleInput & { locationCapture?: StartLocationCapture };
-export type SubmitJobCardInput = LifecycleInput & {
+export type SubmitJobCardInput = PairLifecycleInput & {
   note: string;
   followUpProposal?: FollowUpProposalInput;
   locationCapture?: ActionLocationCapture;
@@ -1846,10 +1852,21 @@ export async function removeDeliveryItem(id: string, itemId: string, expectedVer
   return { id: string(v.id, 'id'), jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion') };
 }
 
-const lifecycle = async (id: string, command: string, input: object, options: { includeSubmitLocationCapability?: boolean } = {}) =>
-  parseJobCard(await request(`${jobPath(id)}/${command}${query({
+const lifecycle = async (id: string, command: string, input: object, options: { includeSubmitLocationCapability?: boolean } = {}) => {
+  const raw = await request(`${jobPath(id)}/${command}${query({
     includeSubmitLocationCapability: options.includeSubmitLocationCapability === true ? 'true' : undefined,
-  })}`, json('POST', input)));
+  })}`, json('POST', input));
+  return { ...parseJobCard(raw), ...parseLifecycleReceipt(raw) };
+};
+/**
+ * SALE-002 §5.1/R22: the presented receipt names the linked sale only when the
+ * command actually moved it. Replay returns the same value from the stored
+ * receipt; an absent field means "the sale did not move".
+ */
+function parseLifecycleReceipt(raw: unknown) {
+  const linked = object(raw).linkedSaleJobCardId;
+  return { linkedSaleJobCardId: typeof linked === 'string' && linked ? linked : null };
+}
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 /**
  * JOB-010 release 2b: the assigned Staff member declines (from `NEW`) or
@@ -1903,13 +1920,14 @@ export const startJobCard = (id: string, input: StartJobCardInput) =>
   lifecycle(id, 'start', input, { includeSubmitLocationCapability: true });
 export const submitJobCardForApproval = (id: string, input: SubmitJobCardInput) =>
   lifecycle(id, 'submit-for-approval', input, { includeSubmitLocationCapability: true });
-export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {
+export const approveJobCard = async (id: string, input: PairLifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {
   const raw = await request(`${jobPath(id)}/approve`, json('POST', input));
   const parsed = parseJobCard(raw);
   const v = raw as Record<string, unknown>;
   return {
     ...parsed,
     followUpJobCardId: typeof v.followUpJobCardId === 'string' ? v.followUpJobCardId : null,
+    ...parseLifecycleReceipt(raw),
   };
 };
 export const getFollowUpSuggestion = async (id: string, at?: string) =>
@@ -1932,7 +1950,7 @@ export const findAvailableSlots = async (input: AvailableSlotsInput) =>
   );
 export const requestJobCardRevision = (
   id: string,
-  input: LifecycleInput & {
+  input: PairLifecycleInput & {
     revisionReason: string;
     /**
      * OVR-5 §3: optional correction deadline (ISO instant). Omitted → the
@@ -1942,8 +1960,9 @@ export const requestJobCardRevision = (
     correctionDueAt?: string;
   },
 ) => lifecycle(id, 'request-revision', input);
-export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
-export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);
+export const withdrawJobCardFromApproval = (id: string, input: PairLifecycleInput) =>
+  lifecycle(id, 'withdraw-from-approval', input);
+export const resumeJobCard = (id: string, input: PairLifecycleInput) => lifecycle(id, 'resume', input);
 export const cancelJobCard = async (
   id: string,
   input: LifecycleInput & { cancelReason: string; followUpContinuity?: FollowUpCancelContinuity },

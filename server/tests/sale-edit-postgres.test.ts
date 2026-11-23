@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { withSaleFixture } from './support/sale-harness.js';
+import { standaloneSale, withSaleFixture } from './support/sale-harness.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('Sale corrections', () => {
   it('enforces per-action ownership, item identity, request hash and strict correction fields', async () => {
@@ -68,16 +68,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Sale corrections', () => {
   });
   it('removes all draft lines atomically, replays removal and blocks empty submission', async () => {
     await withSaleFixture(async (f) => {
-      const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
+      // Standalone: SALE-002 §4.2 redirects a visit-origin sale's own submit.
+      const sale = await standaloneSale(f, {
+        clientActionId: 'remove-lines-create',
+        items: [{ productId: f.products[0]!, quantity: 1 }, { productId: f.products[1]!, quantity: 15 }],
+      });
       const items = (await f.pool.query('SELECT id FROM job_card_sale_items WHERE job_card_id=$1 ORDER BY sort_order', [sale.jobCardId])).rows;
-      const input = { clientActionId: 'remove-first', expectedVersion: 1 };
-      expect(await f.service.removeSaleItem(f.staff, sale.jobCardId, items[0].id, input)).toMatchObject({ version: 2 });
-      expect(await f.service.removeSaleItem(f.staff, sale.jobCardId, items[0].id, input)).toMatchObject({ version: 2 });
-      await f.service.removeSaleItem(f.staff, sale.jobCardId, items[1].id, { clientActionId: 'remove-last', expectedVersion: 2 });
-      const started = await f.service.start(f.staff, sale.jobCardId, { clientActionId: 'start-empty', expectedVersion: 3 });
+      const input = { clientActionId: 'remove-first', expectedVersion: sale.version };
+      expect(await f.service.removeSaleItem(f.staff, sale.jobCardId, items[0].id, input)).toMatchObject({ version: sale.version + 1 });
+      expect(await f.service.removeSaleItem(f.staff, sale.jobCardId, items[0].id, input)).toMatchObject({ version: sale.version + 1 });
+      await f.service.removeSaleItem(f.staff, sale.jobCardId, items[1].id, { clientActionId: 'remove-last', expectedVersion: sale.version + 1 });
+      const started = await f.service.start(f.staff, sale.jobCardId, { clientActionId: 'start-empty', expectedVersion: sale.version + 2 });
       expect(started.workflowContext.submissionReadiness!.ready).toBe(false);
       await expect(f.service.submitForApproval(f.staff, sale.jobCardId, {
-        clientActionId: 'submit-empty', expectedVersion: 4, note: 'Empty agreement',
+        clientActionId: 'submit-empty', expectedVersion: sale.version + 3, note: 'Empty agreement',
       })).rejects.toMatchObject({ code: 'SALE_NOT_READY' });
       expect((await f.pool.query("SELECT count(*)::int AS count FROM job_card_activity_logs WHERE job_card_id=$1 AND event_type='SALE_ITEM_REMOVED'", [sale.jobCardId])).rows[0].count).toBe(2);
     });

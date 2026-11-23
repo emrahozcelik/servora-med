@@ -82,7 +82,74 @@ render as "Bağımsız satış kaydı (ziyaret yok)", never as the restricted-so
 message; the restricted `{access: RESTRICTED, kind: SALE_FROM_VISIT}` variant is
 unchanged for a concealed visit-origin source. S1 writes **no**
 `delivery_source_sale_id` and exposes no approval-dialog delivery section; those
-arrive with S2/S3.
+arrive with S3.
+
+## Pair dialogs (SALE-002 S2, web worker contract)
+
+While a `SALES_MEETING` visit has one **active** linked sale (`NEW`, `ACCEPTED`,
+`IN_PROGRESS`, `WAITING_APPROVAL`, `REVISION_REQUESTED`) and both cards share the
+same assignee, the **visit** is the pair's only submit/approve/revision/withdraw/
+resume surface. The five visit endpoints accept one extra optional field,
+`expectedSaleVersion`:
+
+| Endpoint (under `/api/job-cards/:visitId`) | Body |
+| --- | --- |
+| `POST /submit` | clientActionId, expectedVersion, note, optional followUpProposal/locationCapture, **expectedSaleVersion** |
+| `POST /approve` | clientActionId, expectedVersion, optional note/followUp, **expectedSaleVersion** |
+| `POST /request-revision` | clientActionId, expectedVersion, revisionReason, optional correctionDueAt, **expectedSaleVersion** |
+| `POST /withdraw` | clientActionId, expectedVersion, **expectedSaleVersion** |
+| `POST /resume` | clientActionId, expectedVersion, **expectedSaleVersion** |
+
+Rules the UI must implement exactly:
+
+- Send `expectedSaleVersion` **only** when the dialog knows a coordinated pair
+  exists (the linked sale is active and the visit is in the command's state).
+  Sending it without a pair is `409 SALE_PAIR_STATE_CONFLICT` with
+  `details.reason = 'NO_COORDINATED_PAIR'`; omitting it for a coordinated pair is
+  `400 VALIDATION_ERROR` with `fieldErrors.expectedSaleVersion`. Never "retry
+  without it" after that 400 — reload the pair state instead.
+- `expectedSaleVersion` is part of the request hash under the same
+  `clientActionId`, so it is frozen with the rest of the body.
+- `START`, accept/decline/release, cancel, invalidate, the generic patch and the
+  sale-specific sale-details/item routes must **not** send it (strict allowlist).
+- A single-card sale command while the source is live returns one of
+  `SALE_SUBMIT_VIA_VISIT_REQUIRED`, `SALE_APPROVE_VIA_VISIT_REQUIRED`,
+  `SALE_REVISION_VIA_VISIT_REQUIRED`, `SALE_WITHDRAW_VIA_VISIT_REQUIRED` or
+  `SALE_RESUME_VIA_VISIT_REQUIRED` with
+  `details: { visitId, saleId, saleStatus, allowedSaleCommand }`. Navigate to the
+  visit dialog named by `allowedSaleCommand` — never render the ids to a viewer
+  who cannot read both cards (the server only emits this for the pair owner or
+  management). A terminal sale card is never redirected (it keeps the ordinary
+  terminal rejection). A `NEW` pair sale is redirected too; the visit submit then
+  returns `409 SALE_PAIR_STATE_CONFLICT` with `allowedSaleCommand:
+  'ACCEPT_ASSIGNMENT'`, so render that exact next step.
+- A visit submit blocked by its linked sale returns the sale's own readiness
+  error (`SALE_NOT_READY` with `readiness`, or
+  `409 SALE_PAIR_STATE_CONFLICT` with `allowedSaleCommand: 'ACCEPT_ASSIGNMENT'`
+  for a `NEW` sale and `'RESUME'` for a `REVISION_REQUESTED` sale). Render the
+  blocking panel and the direct link; there is no "submit without the sale".
+- The response is the **visit** `JobCardDetail`. `linkedSaleJobCardId` appears
+  only when the sale actually moved in that command; render it as the second
+  affected card (and keep the replay byte-identical).
+- A definitive 4xx marks **both** 049 intents `FAILED`: reset the
+  `clientActionId` and the field that must change, exactly like the existing
+  sale-create "definitive rejection → new intent" rule. Reuse the key only for
+  an uncertain outcome (network/timeout/5xx/`ACTION_IN_PROGRESS`) and only with
+  the byte-identical body.
+- Legacy data: a visit approval whose linked sale is not `WAITING_APPROVAL`
+  completes the visit and leaves the sale open. Warn before confirming
+  ("bağlı satış kaydı onaylanmadan kalacak"); the sale then runs its own
+  lifecycle and its own dialog. Revision/withdraw/resume likewise move only the
+  cards in the matching state.
+- `SALE_PAIR_ASSIGNEE_CONFLICT` (`details: { visitAssignee, requestedAssignee }`)
+  means management tried to reassign one side of a live pair; the supported
+  alternative is the delivery assignee at approval (S3).
+- R9/Q1: a `SALE` may be submitted from `ACCEPTED` without a START, so the sale
+  detail's command set now offers `SUBMIT_FOR_APPROVAL` next to `START`. Do not
+  require or invent a location capture for it.
+
+The approval dialog's **"Teslim işi aç"** section, the `delivery` field and
+`deliveryJobCardId` are S3; S2 adds neither.
 
 ## Selection and correction
 

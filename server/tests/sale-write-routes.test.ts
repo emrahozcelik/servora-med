@@ -90,7 +90,16 @@ describe('Sale HTTP boundaries and concurrency', () => {
         expect((await counts()).rows).toEqual(before.rows);
         actor = f.otherStaff;
         expect((await app.inject({method:'POST',url:'/api/job-cards/'+f.visitId+'/sales?includeSaleCapability=true',payload:f.input})).statusCode).toBe(404);
-        await f.service.patch(f.manager,sale.jobCardId,{expectedVersion:1,assignedTo:f.otherStaff.id});
+        // Legacy decoupled pair: SALE-002 §4.2 (R17) forbids creating it through
+        // the API, so the pre-S2 assignment is written directly.
+        // Same reset a management reassignment of an accepted card performs.
+        await f.pool.query(
+          `UPDATE job_cards SET assigned_to=$2, version=version+1,
+             status=CASE WHEN status='ACCEPTED' THEN 'NEW' ELSE status END,
+             accepted_at=NULL, accepted_by=NULL
+           WHERE id=$1`,
+          [sale.jobCardId, f.otherStaff.id],
+        );
         actor = f.staff;
         expect((await app.inject({method:'PATCH',url:'/api/job-cards/'+sale.jobCardId+'/sale-items/'+item.id+'?includeSaleCapability=true',payload:{clientActionId:'former',expectedVersion:2,quantity:2}})).statusCode).toBe(404);
       } finally { await app.close(); }

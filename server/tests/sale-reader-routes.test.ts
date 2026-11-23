@@ -36,7 +36,15 @@ describe('Sale capability on public readers', () => {
   it('preserves opted-in Sale permissions and conceals inaccessible subresources after reassignment', async () => {
     await withSaleFixture(async (f) => {
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
-      await f.service.patch(f.manager, sale.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      // Legacy decoupled pair: SALE-002 §4.2 (R17) now rejects reassigning a
+      // live-pair sale through the API, so the pre-S2 shape is written directly.
+      await f.pool.query(
+        `UPDATE job_cards SET assigned_to=$2, version=version+1,
+           status=CASE WHEN status='ACCEPTED' THEN 'NEW' ELSE status END,
+           accepted_at=NULL, accepted_by=NULL
+         WHERE id=$1`,
+        [sale.jobCardId, f.otherStaff.id],
+      );
       const foreignOrg = (await f.pool.query<{ id: string }>("INSERT INTO organizations(name) VALUES ('Foreign review org') RETURNING id")).rows[0]!.id;
       const foreignManager = await f.user('MANAGER', foreignOrg);
       const foreignStaff = await f.user('STAFF', foreignOrg);

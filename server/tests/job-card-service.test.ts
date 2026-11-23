@@ -10,6 +10,7 @@ import type {
   LifecycleIntentClaim,
   LifecycleIntentReservation,
   LifecycleIntentReservationInput,
+  LifecyclePairSnapshot,
 } from '../src/modules/job-cards/repository.js';
 import type { NotificationAppendInput } from '../src/modules/notifications/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
@@ -269,6 +270,32 @@ class MemoryJobCardRepository implements JobCardRepository {
     throw new AppError(kind, statusCode, message);
   }
 
+  // SALE-002 §4.2: the fake card has no visit/sale partner, so every pair read
+  // reports "no pair" and the command stays on its single-card path.
+  async getActiveSaleForVisit(): Promise<null> {
+    return null;
+  }
+
+  async getSaleSourceVisit(): Promise<null> {
+    return null;
+  }
+
+  async findCompletedPairParticipant(): Promise<null> {
+    return null;
+  }
+
+  async getLifecyclePair(): Promise<LifecyclePairSnapshot | null> {
+    return {
+      cardId: this.job.id,
+      cardType: this.job.type,
+      cardStatus: this.job.status,
+      cardVersion: this.job.version,
+      cardAssignedTo: this.job.assignedTo,
+      visit: null,
+      sale: null,
+    };
+  }
+
   async findCompletedLifecycleIntent<T>(claim: LifecycleIntentClaim): Promise<T | null> {
     const row = this.intentRows.get(this.intentKey(claim));
     if (!row || row.state !== 'COMPLETED') return null;
@@ -308,7 +335,12 @@ class MemoryJobCardRepository implements JobCardRepository {
     }
     if (claim.expectedVersion !== this.job.version) this.intentConflict('VERSION_CONFLICT');
     const reservedAt = new Date(this.intentClock);
-    if (input.preflight) await input.preflight(this.transaction(), this.job, reservedAt);
+    // SALE-002 §4.6: preflight receives every locked card by id.
+    if (input.preflight) {
+      await input.preflight(
+        this.transaction(), new Map([[this.job.id, this.job]]), reservedAt,
+      );
+    }
     this.intentRows.set(key, {
       state: 'PENDING', reservedAt, response: null, requestHash: claim.requestHash,
     });

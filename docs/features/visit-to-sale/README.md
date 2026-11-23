@@ -1,3 +1,15 @@
+> **SALE-002 S2 checkpoint (2026-11-23):** coordinated visit+sale commands ship:
+> pair discovery, the one-owner invariant, the five redirect guards with their
+> coded errors, joint submit/approve/revision/withdraw/resume in one transaction
+> with two 049 intents and sorted JobCard locks, the approve-path customer
+> pre-lock, `expectedSaleVersion` on the five handlers, and the pair receipt ids
+> (`linkedSaleJobCardId`). Migration `072_sale_submit_without_start` relaxes the
+> 006 started-timestamp CHECK for `SALE` so accepted Q1 (submit from `ACCEPTED`)
+> is representable. The sale-approval **delivery payload** is **not** part of S2;
+> it arrives in S3 per [the accepted contract](sale-002-contract.md). Statements
+> below that a visit and its sale are two independent lifecycles describe S1 and
+> stay true only when the source visit is **not** live.
+
 > **SALE-002 S1 checkpoint (2026-11-23):** migration `071_sale_standalone_and_delivery_link`
 > ships the standalone/retro sale schema and creation path: standalone
 > `POST /api/job-cards/sales`, a `COMPLETED` visit source, the `{kind: 'STANDALONE'}`
@@ -142,6 +154,15 @@ origin/details, valid sold time and valid nonempty snapshot lines are required.
 Current source status and current catalog activity do not invalidate a previously
 created agreement at submission time. Staff cannot approve; review edits require
 withdraw or revision. Normal terminal immutability applies to all Sale writers.
+
+SALE-002 S2 makes that paragraph conditional: while the source visit is **live**
+(`IN_PROGRESS`, `WAITING_APPROVAL`, `REVISION_REQUESTED`) and both cards share one
+assignee, the visit is the only submission/approval surface and a single-card sale
+submit/approve/revision/withdraw/resume is redirected with a coded `409`
+(`SALE_*_VIA_VISIT_REQUIRED`). A `SALE` may now also be submitted straight from
+`ACCEPTED` (R9/Q1; migration `072`), and a live pair keeps one owner
+(`SALE_PAIR_ASSIGNEE_CONFLICT`). Terminal sources, standalone sales and decoupled
+legacy pairs keep the independent lifecycle described above.
 
 Generic creation and manual follow-up creation have runtime type allowlists that
 exclude SALE. SALE is also excluded from V1 follow-up source/suggestion/proposal
