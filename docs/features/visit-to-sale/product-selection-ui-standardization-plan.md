@@ -88,7 +88,7 @@ Existing Delivery attempt ref'i component-memory'dir; bu plan bütün legacy cre
 | Sale review/terminal | Read-only quantity solda + historical metadata; remove input'u yok. Canonical approval controls ayrı bölgede. |
 | Delivery JobDetail | Read-only quantity/unit identity'nin solunda; available name/SKU/model/unit bir grupta. Purpose ve actual deliveredAt/time form korunur. |
 | ProductForm create/edit | Katalog alanları; operasyonel quantity yok. Reference price hâlâ informational. |
-| Follow-up delivery/proposal | Product selection UI'si mevcut değil. Functional gap ayrı deferred; Sale form reuse için follow-up ilişkisinden yararlanılmaz. |
+| Follow-up delivery/proposal | Delivery tipi follow-up create artık aynı shared `ProductSelect`'i ilk teslim partisi için kullanır (ürün adedi + purpose/note, child JobCard ile tek transaction). Proposal akışı değişmedi; mevcut kart üzerinde satır CRUD hâlâ ayrı backlog. Sale form reuse için follow-up ilişkisinden yararlanılmaz. |
 | Report/profile/Timeline | Read-only semantic data; operational cart görünümüne çevrilmez. Sale label/parser scope ayrı integration PR'ı. |
 
 Delivery historical brand field yoktur. “Bütün historical satırlarda brand var” kabul kriteri konmaz; live catalog ile geriye dönük yanlış bilgi üretilmez. Mevcut delivery model snapshot'ı render edilebilir. Gerçek brand history standardı gerekirse yeni producer/schema kararı ayrı PR'dır.

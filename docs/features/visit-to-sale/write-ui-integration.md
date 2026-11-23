@@ -110,5 +110,9 @@ and SHA/tree/log/manifest hashes belong to the external PR review evidence bundl
 unexecuted or environment-dependent checks must not be counted as PASS.
 
 PR4 remains limited to the separately planned existing-surface parity work.
-Delivery detail product CRUD/follow-up initial items remain a separate functional
-backlog. Production deployment and migration remain unauthorized.
+Delivery detail product CRUD on an existing card remains a separate functional
+backlog. Follow-up initial delivery items are no longer part of that backlog: a
+`PRODUCT_DELIVERY` follow-up now carries the same initial `deliveryPurpose`,
+`deliveryNote` and `items` batch as the normal delivery create and creates those
+lines in the same transaction, so `FollowUpCreatePage` uses the shared
+`ProductSelect`. Production deployment and migration remain unauthorized.

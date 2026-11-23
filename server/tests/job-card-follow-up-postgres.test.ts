@@ -40,6 +40,9 @@ type Fixture = {
   contactId: string;
   inactiveContactId: string;
   otherCustomerContactId: string;
+  productId: string;
+  secondProductId: string;
+  inactiveProductId: string;
   createSource(input?: {
     type?: JobCardType;
     status?: JobCardStatus;
@@ -130,6 +133,17 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       [organizationId, otherCustomerId],
     )).rows[0]!.id;
 
+    async function insertProduct(name: string, isActive = true) {
+      return (await pool!.query<{ id: string }>(
+        `INSERT INTO products (organization_id, name, unit, is_active)
+         VALUES ($1, $2, 'adet', $3) RETURNING id`,
+        [organizationId, name, isActive],
+      )).rows[0]!.id;
+    }
+    const productId = await insertProduct('Greft Seti');
+    const secondProductId = await insertProduct('Dental İmplant');
+    const inactiveProductId = await insertProduct('Pasif Ürün', false);
+
     const published: RealtimeEventRecord[] = [];
     const publisher: RealtimeEventPublisher = { publish: (event) => published.push(event) };
     const service = new JobCardService(
@@ -210,6 +224,9 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       contactId,
       inactiveContactId,
       otherCustomerContactId,
+      productId,
+      secondProductId,
+      inactiveProductId,
       createSource,
     });
   } finally {
@@ -432,6 +449,9 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
             type,
             scheduledAt: '2026-08-03T09:00:00.000Z',
             engagementKind: type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
+            ...(type === 'PRODUCT_DELIVERY'
+              ? { deliveryPurpose: 'SALE' as const, items: [{ productId: fixture.productId, quantity: 1 }] }
+              : {}),
           }),
         )).rejects.toMatchObject(appError('FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED', 409));
       }
@@ -443,6 +463,8 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         input(fixture.staffB.id, {
           type: 'PRODUCT_DELIVERY',
           scheduledAt: '2026-08-03T09:00:00.000Z',
+          deliveryPurpose: 'SAMPLE',
+          items: [{ productId: fixture.productId, quantity: 1 }],
         }),
       );
       const meeting = await fixture.service.createFollowUp(
@@ -466,6 +488,173 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         `SELECT 1 FROM job_card_meeting_details WHERE job_card_id = $1`,
         [meeting.id],
       )).rows).toHaveLength(1);
+    });
+  });
+
+  it('creates a Product Delivery follow-up with its initial batch and submits it', async () => {
+    await withFixture(async (fixture) => {
+      let now = Date.parse('2026-08-01T10:00:00.000Z');
+      const service = new JobCardService(
+        new PostgresJobCardRepository(fixture.pool),
+        () => new Date(now),
+        { publish: (event) => fixture.published.push(event) },
+        undefined,
+        undefined,
+        { enabled: true, reminderLeadMinutes: 30 },
+      );
+      const source = await fixture.createSource({ type: 'PRODUCT_DELIVERY' });
+      const followUpInput = input(fixture.staffA.id, {
+        type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-08-01T12:00:00.000Z',
+        deliveryPurpose: 'SALE',
+        deliveryNote: '  Klinik deposuna bırakılacak.  ',
+        items: [
+          { productId: fixture.productId, quantity: 2 },
+          { productId: fixture.secondProductId, quantity: 3 },
+        ],
+      });
+
+      const created = await service.createFollowUp(fixture.manager, source, followUpInput);
+      expect(created).toMatchObject({
+        type: 'PRODUCT_DELIVERY',
+        status: 'NEW',
+        customerId: fixture.customerId,
+        scheduledAt: '2026-08-01T12:00:00.000Z',
+        scheduledEndsAt: '2026-08-01T12:30:00.000Z',
+        // JOB_CREATED + two DELIVERY_ITEM_ADDED version bumps.
+        version: 3,
+      });
+
+      const lines = await fixture.pool.query<{
+        product_id: string; product_name_snapshot: string; product_unit: string | null;
+        delivery_purpose: string; quantity: string; delivery_note: string | null; delivered_at: Date | null;
+      }>(
+        `SELECT product_id, product_name_snapshot, unit AS product_unit, delivery_purpose,
+                quantity::text, delivery_note, delivered_at
+           FROM job_card_delivery_items WHERE job_card_id = $1 ORDER BY sort_order`,
+        [created.id],
+      );
+      expect(lines.rows).toEqual([
+        {
+          product_id: fixture.productId, product_name_snapshot: 'Greft Seti', product_unit: 'adet',
+          delivery_purpose: 'SALE', quantity: '2.000',
+          delivery_note: 'Klinik deposuna bırakılacak.', delivered_at: null,
+        },
+        {
+          product_id: fixture.secondProductId, product_name_snapshot: 'Dental İmplant', product_unit: 'adet',
+          delivery_purpose: 'SALE', quantity: '3.000',
+          delivery_note: 'Klinik deposuna bırakılacak.', delivered_at: null,
+        },
+      ]);
+      const activities = await fixture.pool.query<{ event_type: string; new_value: Record<string, unknown> }>(
+        `SELECT event_type, new_value FROM job_card_activity_logs WHERE job_card_id = $1`,
+        [created.id],
+      );
+      expect(activities.rows.map((row) => row.event_type).sort()).toEqual([
+        'DELIVERY_ITEM_ADDED', 'DELIVERY_ITEM_ADDED', 'JOB_CREATED',
+      ]);
+      expect(activities.rows
+        .filter((row) => row.event_type === 'DELIVERY_ITEM_ADDED')
+        .map((row) => ({ quantity: row.new_value.quantity, deliveredAt: row.new_value.deliveredAt }))
+        .sort((left, right) => Number(left.quantity) - Number(right.quantity)))
+        .toEqual([
+          { quantity: 2, deliveredAt: null },
+          { quantity: 3, deliveredAt: null },
+        ]);
+
+      // Same key + same intent replays the receipt without a second card/batch.
+      await expect(service.createFollowUp(fixture.manager, source, followUpInput))
+        .resolves.toMatchObject({ id: created.id });
+      expect((await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_cards WHERE source_job_card_id = $1`,
+        [source],
+      )).rows[0]!.count).toBe('1');
+      expect((await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_delivery_items WHERE job_card_id = $1`,
+        [created.id],
+      )).rows[0]!.count).toBe('2');
+
+      // A changed batch under the same client action identity is rejected.
+      await expect(service.createFollowUp(fixture.manager, source, {
+        ...followUpInput,
+        items: [{ productId: fixture.productId, quantity: 3 }],
+      })).rejects.toMatchObject(appError('CLIENT_ACTION_REUSED', 409));
+
+      // The dead-end fix: the manager-created card can be completed and
+      // submitted from the existing lifecycle without any line editor.
+      now = Date.parse('2026-08-01T12:05:00.000Z');
+      let job = await service.acceptAssignment(fixture.staffA, created.id, {
+        clientActionId: randomUUID(), expectedVersion: created.version,
+      });
+      job = await service.start(fixture.staffA, created.id, {
+        clientActionId: randomUUID(), expectedVersion: job.version,
+      });
+      const itemRows = await fixture.pool.query<{ id: string }>(
+        `SELECT id FROM job_card_delivery_items WHERE job_card_id = $1 ORDER BY sort_order`,
+        [created.id],
+      );
+      for (const item of itemRows.rows) {
+        const patched = await service.patchDeliveryItem(
+          fixture.staffA,
+          created.id,
+          item.id,
+          { expectedVersion: job.version, deliveredAt: '2026-08-01T12:05:00.000Z' },
+        );
+        job = { ...job, version: patched.jobCardVersion };
+      }
+      const submitted = await service.submitForApproval(fixture.staffA, created.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Teslimat tamamlandı, kontrole gönderildi.',
+      });
+      expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL' });
+      expect(submitted.workflowContext.submissionReadiness).toMatchObject({
+        ready: true,
+        items: expect.arrayContaining([
+          expect.objectContaining({ code: 'DELIVERY_ITEM_PRESENT', state: 'met' }),
+          expect.objectContaining({ code: 'DELIVERY_ITEMS_VALID', state: 'met' }),
+        ]),
+      });
+    });
+  });
+
+  it('rejects a Product Delivery follow-up without a complete initial batch', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({ type: 'PRODUCT_DELIVERY' });
+      const base = input(fixture.staffA.id, {
+        type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-08-03T09:00:00.000Z',
+        deliveryPurpose: 'SALE',
+        items: [{ productId: fixture.productId, quantity: 1 }],
+      });
+
+      for (const overrides of [
+        { deliveryPurpose: null },
+        { deliveryPurpose: 'GIFT' as never },
+        { items: [] },
+        { items: undefined },
+        { items: [{ productId: fixture.productId, quantity: 0 }] },
+        { items: [
+          { productId: fixture.productId, quantity: 1 },
+          { productId: fixture.productId, quantity: 2 },
+        ] },
+      ]) {
+        await expect(fixture.service.createFollowUp(fixture.manager, source, {
+          ...base, clientActionId: randomUUID(), ...overrides,
+        })).rejects.toMatchObject(appError('VALIDATION_ERROR', 400));
+      }
+
+      await expect(fixture.service.createFollowUp(fixture.manager, source, {
+        ...base,
+        clientActionId: randomUUID(),
+        items: [{ productId: fixture.inactiveProductId, quantity: 1 }],
+      })).rejects.toMatchObject(appError('PRODUCT_NOT_FOUND', 404));
+
+      // A failed batch never leaves an orphan delivery child behind.
+      expect((await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_cards WHERE source_job_card_id = $1`,
+        [source],
+      )).rows[0]!.count).toBe('0');
     });
   });
 

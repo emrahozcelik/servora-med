@@ -4,6 +4,7 @@ import type {
   AssignmentOfferUrgentReason,
   AssignmentReasonCode,
   ChangeRequestReasonCode,
+  DeliveryPurpose,
   JobCardActivityStatus,
   JobCardEngagementKind,
   JobCardInvalidationReasonCode,
@@ -54,6 +55,15 @@ export function jobEngagementLabel(kind: JobCardEngagementKind | null | undefine
   if (!kind) return jobTypeLabels.SALES_MEETING;
   return JOB_CARD_ENGAGEMENT_LABELS[kind];
 }
+
+/** Canonical delivery purpose labels (DOM-001 vocabulary). */
+export const DELIVERY_PURPOSE_LABELS: Record<DeliveryPurpose, string> = {
+  SALE: 'Satış',
+  SAMPLE: 'Numune',
+  CONSIGNMENT: 'Konsinye',
+  RETURN: 'İade',
+  OTHER: 'Diğer',
+};
 
 /** Current JobCard presentation labels; PLANNED remains readable for legacy data only. */
 export const jobStatusLabels: Record<JobCardActivityStatus, string> = {

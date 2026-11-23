@@ -356,6 +356,8 @@ describe('create and patch payloads carry the acknowledgement only when filled',
       priority: 'normal',
       dueDate: null,
       contactId: null,
+      deliveryPurpose: 'SALE',
+      items: [{ productId: 'product-1', quantity: 1 }],
       ...pastStartAcknowledgementPayload(acknowledgement),
     });
     expect(bodyOf(fetchMock.mock.calls[1]!)).toMatchObject({ pastStartAcknowledgement: acknowledgement });

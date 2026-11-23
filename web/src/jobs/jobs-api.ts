@@ -374,7 +374,14 @@ type FollowUpCreateCommon = {
   pastStartAcknowledgement?: PastStartAcknowledgement;
 };
 export type FollowUpCreateInput = FollowUpCreateCommon & (
-  | { type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' }
+  | { type: 'GENERAL_TASK' }
+  | {
+    type: 'PRODUCT_DELIVERY';
+    /** Initial delivery batch: no accepted browser surface adds lines later. */
+    deliveryPurpose: DeliveryPurpose;
+    deliveryNote?: string | null;
+    items: Array<{ productId: string; quantity: number }>;
+  }
   | { type: 'SALES_MEETING'; engagementKind: JobCardEngagementKind }
 );
 export type JobCardCreateInput =
