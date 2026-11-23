@@ -3304,3 +3304,77 @@ management decision list.
   `GET /api/reports/lateness`, `GET /api/reports/staff/:userId/lateness-incidents`,
   `GET /api/reports/staff/me/lateness-incidents`, and `lateness` on the Staff
   report. Existing on-time and "Gecikmiş" measures are unchanged.
+
+## OVR-2 — Invalidation ends open overdue obligations — 2026-11-20
+
+- **Date:** 2026-11-20 (owner decision).
+- **Status:** Accepted product-owner decision. This addendum amends the OVR-2
+  rule that only a lifecycle recovery closes an incident and extends the OVR-5
+  ending family with one administrative reason. It supersedes the earlier
+  `invalidated_at`/`invalidated_by_user_id` proposal, which was never accepted
+  or migrated. Contract:
+  [overdue-correction-deadline-and-extension.md](./docs/features/overdue-correction-deadline-and-extension.md)
+  §10.
+- **Scope:** `INVALIDATE` (and a Weekly Report removal that invalidates its
+  root) and `job_card_overdue_incidents`. Earlier OVR-2/OVR-5 records stay as
+  history; this record adds the missing administrative closure and rewrites
+  none of them.
+
+### Decision
+
+1. **All open obligations end with the card.** An authorized `INVALIDATE` ends
+   every still-open overdue incident of that JobCard, across all delay types
+   (`LATE_START`, `LATE_SUBMISSION`, `APPROVAL_WAIT`), episodes and schedule
+   revisions. No open obligation may outlive the card.
+2. **History is immutable.** `deadline_at`, `breached_at`, accountable
+   user/role/source, episode number, schedule revision, producer source and
+   evidence are never changed or deleted by invalidation.
+3. **Same transaction and canonical command identity.** Closure commits in the
+   same transaction as `invalidate()`, under the same JobCard lock, using that
+   command's canonical request time and actor. A rolled-back invalidation closes
+   nothing; a replayed `clientActionId` returns the stored receipt without
+   double-ending or moving timestamps.
+4. **Invalidation is neither completion nor recovery.** It never populates
+   `recovered_at` / `recovery_actor_user_id`: those mean the delay was made good
+   and feed `totalDelaySeconds` and recovery metrics. The model reuses the
+   OVR-5 ending (`ended_at`, `ended_by_user_id`, `end_reason`, `end_note`,
+   `ended_by_schedule_revision_no`) with the new reason `CARD_INVALIDATED`.
+   Migration `070_overdue_incident_invalidation_closure` widens the
+   `end_reason` CHECK and redefines the all-or-none ending shape: a
+   `DEADLINE_EXTENDED` row keeps note and appended revision, a
+   `CARD_INVALIDATED` row requires the instant, actor and reason and must leave
+   `ended_by_schedule_revision_no` NULL (no revision proves a new boundary).
+   No DML, no backfill.
+5. **Operational reads already exclude closed incidents.** An incident is open
+   only when `recovered_at IS NULL AND ended_at IS NULL`; every list, reminder,
+   snapshot and duration read uses that pair today, so no reader query changes.
+   The history DTO keeps `endedAt` / `endReason` / `endedBy` /
+   `endedDurationSeconds` and now also carries `endReason = 'CARD_INVALIDATED'`;
+   `recoveredAt`/`recoveryActor` and `totalDelaySeconds` stay NULL. The web
+   history label is "Geçersiz kılındı" and shows the actual ended duration.
+6. **No new incident and no backfill.** Invalidation never materializes an
+   incident. Already recovered or already ended incidents are untouched.
+   Cards invalidated before this rule keep their existing open rows exactly as
+   they are: the owner explicitly rejects evidence-less historical backfill.
+7. **Other lifecycle commands are unchanged.** `CANCEL`, `START`,
+   `SUBMIT_FOR_APPROVAL`, `APPROVE`, revision/withdraw and their recovery or
+   materialization behavior stay as accepted; invalidation is a separate
+   administrative closure, not a lifecycle recovery substitute. A Weekly
+   Report removal closes rows only when that removal itself invalidates the
+   root; an already invalidated root is unchanged history.
+8. **Verification.** PostgreSQL regressions prove per-delay-type closure from
+   every applicable source status, immutable history, idempotent replay,
+   recovered/ended-row preservation, stale scanner and reminder candidates,
+   exclusion from active lists and the snapshot, the `INVALIDATED` history
+   state, the Weekly Report removal path, and OVR-7 reports never classifying
+   `CARD_INVALIDATED` as `EXTENDED` (`EXTENDED` stays the OVR-5 extension).
+   The existing `JOB_INVALIDATED` / `WEEKLY_REPORT_REMOVED` activity metadata
+   carries `closedOverdueIncidents`; no new activity event type is added.
+
+### Consequences
+
+- Migration 070 is additive (two CHECKs redefined, no DML). `HEALTH_SCHEMA_VERSION`
+  moves to `070_overdue_incident_invalidation_closure`.
+- There is no safe rollback to a release that treats `recovered_at IS NULL`
+  alone as open: it would resume reminders for closed rows. The OVR-5 §8
+  rollback floor applies unchanged.

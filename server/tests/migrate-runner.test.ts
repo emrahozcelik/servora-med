@@ -117,10 +117,10 @@ describe('runMigrations', () => {
       '055_job_submit_location_comparison.sql',
       '056_meeting_met_contact.sql',
       '057_sale_from_visit.sql',
-      '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '061_weekly_report_removal.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql', '067_overdue_delivery_identity_per_incident.sql', '068_weekly_report_workweek.sql', '069_lateness_alerts_and_quiet_hours.sql',
+      '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '061_weekly_report_removal.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql', '067_overdue_delivery_identity_per_incident.sql', '068_weekly_report_workweek.sql', '069_lateness_alerts_and_quiet_hours.sql', '070_overdue_incident_invalidation_closure.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('069_lateness_alerts_and_quiet_hours.sql');
-    expect(expectedSchemaVersion).toBe(69);
+    expect(migrations.at(-1)?.name).toBe('070_overdue_incident_invalidation_closure.sql');
+    expect(expectedSchemaVersion).toBe(70);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

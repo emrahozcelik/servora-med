@@ -29,6 +29,9 @@ function makeRepository() {
   const reminders: unknown[] = [];
   const realtime: unknown[] = [];
   const claims: CriticalActionClaim[] = [];
+  const incidentClosures: Array<{
+    organizationId: string; jobCardId: string; endedAt: Date; endedByUserId: string;
+  }> = [];
   const detail = () => ({
     ...job,
     organizationTimezone: 'Europe/Istanbul',
@@ -68,6 +71,13 @@ function makeRepository() {
       activities.push(input);
       return { id: 'activity-1', createdAt: new Date('2026-08-24T10:00:00.000Z') };
     },
+    // OVR-2 invalidation closure: one statement ends every open incident.
+    invalidateOpenOverdueIncidents: async (input: {
+      organizationId: string; jobCardId: string; endedAt: Date; endedByUserId: string;
+    }) => {
+      incidentClosures.push(input);
+      return 2;
+    },
     getCurrentScheduleRevisionNo: async () => 1,
     getNextSubmittedSeqNo: async () => 1,
     appendAccountabilityFact: async () => ({ id: 'fact-1' }),
@@ -101,7 +111,7 @@ function makeRepository() {
     },
     findJobCardDetail: async () => detail(),
   } as unknown as JobCardRepository;
-  return { repository, job: () => job, activities, audits, reminders, realtime, claims };
+  return { repository, job: () => job, activities, audits, reminders, realtime, claims, incidentClosures };
 }
 
 describe('JobCardService invalidation', () => {
@@ -112,9 +122,19 @@ describe('JobCardService invalidation', () => {
     });
 
     expect(result).toMatchObject({ status: 'INVALIDATED', version: 5, invalidationReasonCode: 'DUPLICATE' });
+    // The couple ends in the SAME critical transaction, under the same lock,
+    // with the command's request time and actor — closure, not recovery.
+    expect(state.incidentClosures).toHaveLength(1);
+    expect(state.incidentClosures[0]).toMatchObject({
+      organizationId: 'org-1',
+      jobCardId: 'job-1',
+      endedByUserId: 'admin-1',
+    });
+    expect(state.incidentClosures[0]!.endedAt.toISOString()).toBe(state.job().invalidatedAt);
     expect(state.activities[0]).toMatchObject({
       event: 'JOB_INVALIDATED', oldValue: { status: 'COMPLETED', version: 4 },
       newValue: { status: 'INVALIDATED', version: 5 },
+      metadata: { closedOverdueIncidents: 2 },
     });
     expect(state.audits[0]).toMatchObject({
       subjectId: 'job-1', oldValue: { status: 'COMPLETED', version: 4 },

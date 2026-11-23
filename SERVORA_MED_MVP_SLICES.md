@@ -827,3 +827,30 @@ See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-
   Local acceptance and hosted CI for `bfe72c5` are recorded in the contract.
   The 2026-11-05 responsive correction adds content-width layout and a dedicated
   report browser CI gate; later revisions require their own CI. Merge is pending.
+
+## OVR-2 — Invalidation ends open overdue obligations (2026-11-20)
+
+- [x] Accepted product-owner rule: `INVALIDATE` ends every open
+  `LATE_START` / `LATE_SUBMISSION` / `APPROVAL_WAIT` incident of the JobCard in
+  the same transaction, with the command's canonical request time and actor.
+  A Weekly Report removal does the same only when it invalidates the root.
+- [x] Invalidation is administrative closure, not completion and not recovery:
+  `recovered_at` / `recovery_actor_user_id` stay NULL, so recovery durations
+  and metrics never treat invalidation as a made-good delay.
+- [x] Model: the OVR-5 ending family with `end_reason = 'CARD_INVALIDATED'`.
+  Migration `070_overdue_incident_invalidation_closure` widens the `end_reason`
+  CHECK and redefines the all-or-none ending shape (`DEADLINE_EXTENDED`
+  unchanged; `CARD_INVALIDATED` carries instant, actor and reason and no
+  schedule revision). Additive only, no DML.
+- [x] Historical incident facts stay immutable and no reader query changes: the
+  existing `recovered_at IS NULL AND ended_at IS NULL` pair already hides
+  closed rows from active lists, reminders, the snapshot and running delays.
+  History keeps them with `endReason = 'CARD_INVALIDATED'`, `endedAt` set,
+  `recoveryActor` NULL, `totalDelaySeconds` NULL and the label
+  "Geçersiz kılındı" plus the actual ended duration.
+- [x] No new incident and no evidence-less backfill: cards invalidated before
+  this rule keep their existing open rows as-is.
+- [x] `CANCEL`, `START`, `SUBMIT_FOR_APPROVAL` and `APPROVE` behavior is
+  unchanged. OVR-7 reports never classify `CARD_INVALIDATED` as `EXTENDED`.
+- Decision record: `DECISIONS.md` OVR-2 — 2026-11-20; contract:
+  [overdue-correction-deadline-and-extension.md](docs/features/overdue-correction-deadline-and-extension.md) §10.

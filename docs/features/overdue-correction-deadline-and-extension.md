@@ -480,3 +480,65 @@ Rollback rules:
   extension reason field appearing with open lateness or after the server
   error, the change-request resolution checkbox, Staff disabled date fields
   with the change-request hint, history "sonlandırıldı" row.
+
+## 10. Invalidation closure (OVR-2 addendum, 2026-11-20)
+
+Accepted by the owner on 2026-11-20 (`DECISIONS.md` OVR-2 addendum). It is an
+administrative sibling of §4, not a third closure kind: the same ending columns,
+a second reason.
+
+1. **Trigger.** An authorized `INVALIDATE` ends every incident of that JobCard
+   that is still open (`recovered_at IS NULL AND ended_at IS NULL`), across all
+   delay types, episodes and schedule revisions. A Weekly Report removal uses
+   the same closure **only** when that removal transitions the root to
+   `INVALIDATED` (the existing `job.status !== 'INVALIDATED'` gate); an already
+   invalidated root keeps its historical open rows.
+2. **One statement, no new event type.** `invalidateOpenOverdueIncidents` runs
+   inside the command transaction, after the JobCard row lock and versioned
+   update, with the command's request time and actor:
+   `ended_at = requestTime`, `ended_by_user_id = actor`,
+   `end_reason = 'CARD_INVALIDATED'`, `end_note = NULL`,
+   `ended_by_schedule_revision_no = NULL`, `RETURNING` count. The existing
+   `JOB_INVALIDATED` (or `WEEKLY_REPORT_REMOVED` for the removal path) activity
+   metadata records `closedOverdueIncidents`; the numbering/order of the
+   command's other activities, audits, notes, notifications and realtime events
+   is unchanged.
+3. **Never recovery.** `recovered_at` / `recovery_actor_user_id` stay NULL.
+   Already recovered rows and rows ended by §4 are never rewritten: the update
+   predicate is the same open pair. Invalidation materializes nothing, so a
+   card without incidents gains none.
+4. **No reader change.** Every current-state read already uses the pair (§6),
+   so closed rows disappear from the per-job snapshot, the management open-late
+   list, OVR-4 discovery and recheck, the manual reminder guard,
+   `hasOpenOverdueIncident`, the extension decision and recovery. Verified, not
+   modified: `repository.ts` `has_open_overdue_incident`, the recover/end
+   writers, `listOpenDeadlineIncidents`, `hasOpenDeadlineOverdueIncident`,
+   `listOpenLateSubmissionIncidents`, `getOpenApprovalWaitIncident`,
+   `hasOpenIncidentDeliveryForEpisode`, `listDueOpenSubmissionLateEpisodes`,
+   `listOpenApprovalWaitAlertCandidates`, `listOpenSubmissionLate`.
+5. **History and UI.** `OverdueIncidentHistoryItem.endReason` includes
+   `CARD_INVALIDATED`; `endedAt`, `endedBy` and `endedDurationSeconds`
+   (`endedAt − breachedAt`) are shown, `totalDelaySeconds` stays NULL, and the
+   web label is "Geçersiz kılındı" instead of "Tarih uzatılmasıyla
+   sonlandırıldı". The strict web parser accepts the new reason.
+6. **OVR-7 reports.** `EXTENDED` means the OVR-5 authorized extension only.
+   `INVALIDATED` cards are excluded from the lateness cohort today; the cohort
+   additionally excludes `end_reason = 'CARD_INVALIDATED'` explicitly, so
+   loosening that exclusion can never turn an invalidation into an extension.
+7. **Migration `070_overdue_incident_invalidation_closure`.** Redefines
+   `job_card_overdue_incidents_end_reason_check` to
+   `IN ('DEADLINE_EXTENDED', 'CARD_INVALIDATED')` and
+   `job_card_overdue_incidents_ending_set_check` so the `DEADLINE_EXTENDED`
+   shape of 066 is unchanged while `CARD_INVALIDATED` requires the instant,
+   actor and reason and forbids `ended_by_schedule_revision_no` (the 066
+   columns, exclusive/instant/note CHECKs and FKs are untouched). A fail-closed
+   `DO $$` block verifies both definitions and that no row is pre-populated
+   with the new reason. No DML, no backfill. 066 is not edited.
+   `HEALTH_SCHEMA_VERSION` moves to `070_overdue_incident_invalidation_closure`.
+8. **Unchanged commands and no backfill.** `CANCEL`, `START`,
+   `SUBMIT_FOR_APPROVAL`, `APPROVE`, revision/withdraw keep their accepted
+   recovery and materialization behavior. Cards invalidated before this rule
+   keep their open rows; no command backfills them (the owner explicitly
+   rejects evidence-less historical backfill). Rollback floor: see §8 — a
+   release that reads only `recovered_at` must not receive a database with
+   closed rows.

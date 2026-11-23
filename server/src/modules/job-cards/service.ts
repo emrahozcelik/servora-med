@@ -1479,6 +1479,18 @@ export class JobCardService {
         if (!updated) {
           throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         }
+        // OVR-2 invalidation closure (owner decision 2026-11-20): INVALIDATE
+        // ends every still-open overdue obligation of this card in the same
+        // transaction, under the same lock, with the command's canonical
+        // request time and actor. It is administrative closure, not recovery
+        // (the recovery pair stays NULL) and it materializes nothing.
+        // Recovered and already ended rows are never rewritten.
+        const closedOverdueIncidents = await tx.invalidateOpenOverdueIncidents({
+          organizationId: actor.organizationId,
+          jobCardId,
+          endedAt: requestTime,
+          endedByUserId: actor.id,
+        });
 
         // JOB-010 release 2a (D1): invalidation supersedes an OPEN
         // change/termination request in this same transaction; the decision
@@ -1519,6 +1531,7 @@ export class JobCardService {
           newValue: { status: updated.status, version: updated.version },
           metadata: {
             reasonCode: normalizedInput.reasonCode,
+            closedOverdueIncidents,
             ...(noteId ? { noteId } : {}),
           },
         });
@@ -2260,6 +2273,20 @@ export class JobCardService {
         : await tx.invalidateWithVersion({ organizationId: actor.organizationId, jobCardId,
           expectedVersion: job.version, invalidatedAt: at, invalidatedBy: actor.id, reasonCode: 'CREATED_BY_MISTAKE' });
       if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+      // OVR-2 invalidation closure: a removal that invalidates the root uses
+      // the same correction semantics as INVALIDATE, so every still-open
+      // overdue obligation of the card ends here too, in this transaction and
+      // with this command's request time/actor. A root that was ALREADY
+      // INVALIDATED is historical data under the no-backfill rule: its open
+      // rows stay untouched.
+      const closedOverdueIncidents = job.status === 'INVALIDATED'
+        ? 0
+        : await tx.invalidateOpenOverdueIncidents({
+          organizationId: actor.organizationId,
+          jobCardId,
+          endedAt: at,
+          endedByUserId: actor.id,
+        });
       const removed = await tx.removeWeeklyReportRow({ organizationId: actor.organizationId,
         reportId: row.id, expectedVersion: row.version, removedAt: at, removedBy: actor.id, reason: input.reason });
       if (!removed) throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
@@ -2269,7 +2296,7 @@ export class JobCardService {
           actorId: actor.id, event: 'JOB_INVALIDATED', clientActionId: input.clientActionId,
           oldValue: { status: job.status, version: job.version },
           newValue: { status: updated.status, version: updated.version },
-          metadata: { reasonCode: 'CREATED_BY_MISTAKE', reportId: row.id } });
+          metadata: { reasonCode: 'CREATED_BY_MISTAKE', reportId: row.id, closedOverdueIncidents } });
         await tx.appendAudit({ organizationId: actor.organizationId, actorUserId: actor.id, subjectId: jobCardId,
           oldValue: { status: job.status }, newValue: { status: updated.status },
           metadata: { reasonCode: 'CREATED_BY_MISTAKE', clientActionId: input.clientActionId } });
@@ -2282,7 +2309,7 @@ export class JobCardService {
       const activity = await tx.appendActivity({ organizationId: actor.organizationId, jobCardId,
         actorId: actor.id, event: 'WEEKLY_REPORT_REMOVED', clientActionId: input.clientActionId,
         oldValue: { reportVersion: row.version }, newValue: { reportVersion: removed.version },
-        metadata: { reportId: row.id, reason: input.reason } });
+        metadata: { reportId: row.id, reason: input.reason, closedOverdueIncidents } });
       await tx.appendAudit({ organizationId: actor.organizationId, actorUserId: actor.id, subjectId: jobCardId,
         eventType: 'WEEKLY_REPORT_REMOVED', oldValue: { reportId: row.id, removedAt: null },
         newValue: { reportId: row.id, removedAt: at.toISOString() },
@@ -4110,12 +4137,19 @@ export class JobCardService {
     const stats = await this.repository.listSubmissionReminderStats(
       actor.organizationId, jobCardId,
     );
-    const statsByEpisode = new Map(stats.map((entry) => [entry.episodeNo, entry]));
-    // One reminder read per ended episode, shared by its rows (Promise.all).
-    const remindersByEpisode = new Map<number, ReturnType<
-      JobCardRepository['listSubmissionRemindersForEpisode']
+    // NEW-1: the rollup is keyed by incident. Episode numbers repeat per delay
+    // type and per schedule revision, so episode-only keys leak a previous
+    // cycle's reminders into the obligation that replaced it.
+    const statsByIncident = new Map(stats.map((entry) => [entry.incidentId, entry]));
+    // One reminder read per ended incident, shared by its rows (Promise.all).
+    const remindersByIncident = new Map<string, ReturnType<
+      JobCardRepository['listSubmissionRemindersForIncident']
     >>();
     const items = await Promise.all(result.items.map(async (item) => {
+      // Manual submission reminders belong to LATE_SUBMISSION incidents only
+      // (migration 053). An APPROVAL_WAIT or LATE_START row never inherits the
+      // submission episode's statistics.
+      const isSubmissionDelay = item.delayType === 'LATE_SUBMISSION';
       // Only reminders sent at or before the closing instant measure the
       // nudge effect; a reminder sent afterwards belongs to a later cycle.
       // OVR-5 (§6): an ended row stops its statistics at `endedAt`, a
@@ -4126,13 +4160,13 @@ export class JobCardService {
       const recoveredAtMs = item.recoveredAt === null ? null : item.recoveredAt.getTime();
       let manualReminderCount = 0;
       let latestManualReminderAt: Date | null = null;
-      if (endedAtMs !== null) {
-        let pending = remindersByEpisode.get(item.episodeNo);
+      if (isSubmissionDelay && endedAtMs !== null) {
+        let pending = remindersByIncident.get(item.id);
         if (pending === undefined) {
-          pending = this.repository.listSubmissionRemindersForEpisode(
-            actor.organizationId, jobCardId, item.episodeNo,
+          pending = this.repository.listSubmissionRemindersForIncident(
+            actor.organizationId, jobCardId, item.id,
           );
-          remindersByEpisode.set(item.episodeNo, pending);
+          remindersByIncident.set(item.id, pending);
         }
         const reminders = await pending;
         const beforeEnding = reminders.filter(
@@ -4141,12 +4175,14 @@ export class JobCardService {
         manualReminderCount = beforeEnding.length;
         latestManualReminderAt = beforeEnding[0]?.sentAt ?? null;
       } else {
-        const episodeStats = statsByEpisode.get(item.episodeNo) ?? null;
-        const reminderBeforeRecovery = episodeStats !== null
-          && (recoveredAtMs === null || episodeStats.latestSentAt.getTime() <= recoveredAtMs)
-          ? episodeStats
+        const incidentStats = isSubmissionDelay
+          ? statsByIncident.get(item.id) ?? null
           : null;
-        manualReminderCount = episodeStats?.count ?? 0;
+        const reminderBeforeRecovery = incidentStats !== null
+          && (recoveredAtMs === null || incidentStats.latestSentAt.getTime() <= recoveredAtMs)
+          ? incidentStats
+          : null;
+        manualReminderCount = incidentStats?.count ?? 0;
         latestManualReminderAt = reminderBeforeRecovery?.latestSentAt ?? null;
       }
       const manualReminderSentAt = latestManualReminderAt === null
@@ -4250,8 +4286,8 @@ export class JobCardService {
       incidentId: current.id,
       kind: 'MANAGEMENT_ESCALATION',
     });
-    const reminders = await this.repository.listSubmissionRemindersForEpisode(
-      actor.organizationId, jobCardId, current.episodeNo,
+    const reminders = await this.repository.listSubmissionRemindersForIncident(
+      actor.organizationId, jobCardId, current.id,
     );
     // JOB-010 release 2a (D1 §5): while a request is open, automatic OVR-4
     // Staff reminders stop and the wait is management time. The incident

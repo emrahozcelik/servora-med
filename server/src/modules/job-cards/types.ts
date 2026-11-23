@@ -905,6 +905,14 @@ export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
  *   actor and the schedule revision that proved the new boundary;
  * - `endReason` = 'DEADLINE_EXTENDED'; `endNote` = the mandatory reason;
  * - `endedDurationSeconds` = endedAt - breachedAt (same rounding as above).
+ *
+ * OVR-2 invalidation appendix (owner decision 2026-11-20): an authorized
+ * `INVALIDATE` ends every open obligation of the card with `endReason` =
+ * 'CARD_INVALIDATED'. It is neither completion nor recovery: `recoveredAt` /
+ * `recoveryActor` stay null, `totalDelaySeconds` stays null, no schedule
+ * revision is claimed (`endedByScheduleRevisionNo` null) and
+ * `endedDurationSeconds` is the actual delay the card carried until it was
+ * invalidated. Cards invalidated before this rule keep their open rows.
  */
 export type OverdueIncidentHistoryItem = {
   id: string;

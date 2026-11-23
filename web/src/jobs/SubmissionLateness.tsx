@@ -194,9 +194,12 @@ export function historyDetail(item: OverdueIncidentHistoryItem): string {
   parts.push(`${DEADLINE_LABELS[item.delayType]}: ${formatInstant(item.deadlineAt)}`);
   parts.push(`Gecikme başlangıcı: ${formatInstant(item.breachedAt)}`);
   if (item.endedAt) {
-    // OVR-5a: an authorized deadline extension ends the obligation. The breach
-    // evidence stays; the row is never presented as recovered or on time.
-    parts.push(`Tarih uzatılmasıyla sonlandırıldı: ${formatInstant(item.endedAt)}`);
+    // OVR-5a: an authorized deadline extension ends the obligation; OVR-2:
+    // an administrative card invalidation ends it instead. The breach evidence
+    // stays and the row is never presented as recovered or on time.
+    parts.push(item.endReason === 'CARD_INVALIDATED'
+      ? `Geçersiz kılındı: ${formatInstant(item.endedAt)}`
+      : `Tarih uzatılmasıyla sonlandırıldı: ${formatInstant(item.endedAt)}`);
     parts.push(`Sonlandıran: ${item.endedBy?.name ?? 'Belirtilmedi'}`);
     if (item.endNote) parts.push(`Gerekçe: ${item.endNote}`);
     if (item.endedDurationSeconds !== null) {

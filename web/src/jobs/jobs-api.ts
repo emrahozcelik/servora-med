@@ -1743,12 +1743,13 @@ export type OverdueIncidentHistoryItem = {
   recoveryActor: RelatedName | null;
   /**
    * OVR-5a: an authorized deadline extension ends the obligation without
-   * touching the breach evidence. Ended rows keep the ending facts and never
-   * become recovered or on-time rows.
+   * touching the breach evidence. OVR-2: an INVALIDATE ends it as a card
+   * invalidation. Ended rows keep the ending facts and never become recovered
+   * or on-time rows.
    */
   endedAt: string | null;
   endedBy: { id: string; name: string | null } | null;
-  endReason: 'DEADLINE_EXTENDED' | null;
+  endReason: 'DEADLINE_EXTENDED' | 'CARD_INVALIDATED' | null;
   endNote: string | null;
   endedByScheduleRevisionNo: number | null;
   endedDurationSeconds: number | null;
@@ -1799,7 +1800,7 @@ function parseOverdueIncidentHistoryItem(value: unknown): OverdueIncidentHistory
     endedBy: nullableActor(v.endedBy, 'endedBy'),
     endReason: v.endReason === null
       ? null
-      : oneOf(v.endReason, 'endReason', ['DEADLINE_EXTENDED'] as const),
+      : oneOf(v.endReason, 'endReason', ['DEADLINE_EXTENDED', 'CARD_INVALIDATED'] as const),
     endNote: nullableString(v.endNote, 'endNote'),
     endedByScheduleRevisionNo: v.endedByScheduleRevisionNo === null
       ? null

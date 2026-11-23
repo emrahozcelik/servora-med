@@ -1321,6 +1321,67 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(0);
     });
   });
+
+  it('25: invalidation beats a stale reminder candidate and no reminder fires afterwards', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Invalidation Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const adminId = await insertUser(pool, organizationId, 'ADMIN', 'Yönetici');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { manager, staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      let job = await createTask(service, staffA, { title: 'Geçersiz kılınacak görev', dueDate });
+      job = await startJob(service, staffA, job);
+      await scanOnce(pool, await dbBaseline(pool));
+      const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
+
+      // The worker discovered the candidate before invalidation committed.
+      const repository = new PostgresJobCardRepository(pool);
+      const workerRepository = new PostgresOverdueReminderWorkerRepository(
+        repository, false, ALWAYS_OPEN_NOTIFICATION_WINDOW,
+      );
+      const scanTime = shiftMs(breachedAt, 15 * 60_000);
+      const candidates = await workerRepository.listCandidates({
+        scanTime, timing: TIMING, limit: 50,
+      });
+      expect(candidates).toHaveLength(1);
+
+      await syncClock(pool, clock);
+      const invalidated = await service.invalidate(
+        { id: adminId, organizationId, role: 'ADMIN' } as JobCardActor,
+        job.id,
+        {
+          clientActionId: randomUUID(),
+          expectedVersion: job.version,
+          reasonCode: 'DUPLICATE',
+          note: null,
+        } as never,
+      );
+
+      const stale = await workerRepository.processCandidate({
+        candidate: candidates[0]!, scanTime, timing: TIMING,
+      });
+      expect(stale.outcome).toEqual({ kind: 'skipped-state-changed' });
+      expect(await selectDeliveries(pool, organizationId, job.id)).toHaveLength(0);
+      expect((await selectNotifications(pool, organizationId, job.id))
+        .filter((notification) => notification.kind.startsWith('job.submission_'))).toHaveLength(0);
+
+      // A fresh worker iteration finds nothing to send for the invalidated card.
+      const after = await reminderWorker(pool, []).runOnce(scanTime);
+      expect(after.candidates).toBe(0);
+      expect(after.sent).toBe(0);
+
+      // The manual reminder path is fail-closed after invalidation too.
+      await expect(service.sendSubmissionReminder(manager, job.id, {
+        clientActionId: randomUUID(), expectedVersion: invalidated.version,
+      })).rejects.toMatchObject({ code: 'SUBMISSION_REMINDER_NOT_APPLICABLE' });
+      expect(await selectManualReminders(pool, organizationId, job.id)).toHaveLength(0);
+    });
+  });
 });
 
 async function syncClock(pool: Pool, clock: { now: Date }): Promise<Date> {

@@ -1215,6 +1215,24 @@ describe('OVR-5a overdue incident history ending transport', () => {
     });
   });
 
+  it('accepts a card-invalidated ending with no schedule revision', async () => {
+    const invalidated = {
+      ...historyItem,
+      endedBy: { id: 'a1', name: 'Sistem Yöneticisi' },
+      endReason: 'CARD_INVALIDATED',
+      endNote: null,
+      endedByScheduleRevisionNo: null,
+      manualReminderSentAt: null,
+      manualReminderCount: 0,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [invalidated], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listOverdueIncidents('job-1')).resolves.toEqual({
+      items: [invalidated], total: 1, limit: 25, offset: 0,
+    });
+  });
+
   it('still rejects unknown keys and unknown end reasons on an incident row', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
       items: [{ ...historyItem, rawEndNote: 'gizli' }], total: 1, limit: 25, offset: 0,

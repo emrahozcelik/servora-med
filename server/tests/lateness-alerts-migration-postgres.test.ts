@@ -23,7 +23,7 @@ import {
  * and activity CHECKs, and the schema head. Contract §10 DB.
  */
 
-const SCHEMA_VERSION = '069_lateness_alerts_and_quiet_hours';
+const SCHEMA_VERSION = '070_overdue_incident_invalidation_closure';
 
 /**
  * Complete `in_app_notifications_kind_check` vocabulary before 069 (065 is the

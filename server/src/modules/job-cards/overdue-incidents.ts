@@ -12,7 +12,9 @@
  * - A job without `scheduled_ends_at` is never attributable as LATE_START.
  * - APPROVAL_WAIT threshold is 24 hours, responsibility MANAGEMENT.
  * - A deadline/schedule revision after a breach must not erase, mutate or
- *   close the prior incident; only a real lifecycle recovery closes one.
+ *   close the prior incident. Only a reasoned one-way ending (OVR-5 authorized
+ *   deadline extension, OVR-2 card invalidation) or a real lifecycle recovery
+ *   closes one; neither rewrites the evidence.
  *
  * Clock discipline: every domain instant below is either a persisted fact or
  * derived from the injected request clock. No `new Date()` / `Date.now()` /
@@ -72,15 +74,20 @@ export const OVERDUE_INCIDENT_SOURCES: readonly OverdueIncidentSource[] = [
 ] as const satisfies readonly OverdueIncidentSource[];
 
 /**
- * OVR-5: how an open obligation stopped being late without being recovered.
- * The only accepted reason is an authorized deadline extension; an ended
- * incident is never presented as on time, successful or recovered.
+ * OVR-5 / OVR-2 invalidation closure: how an open obligation stopped being
+ * late without being recovered. `DEADLINE_EXTENDED` is the authorized
+ * management extension that moved the boundary; `CARD_INVALIDATED` is the
+ * administrative end of the card itself. Neither is completion or recovery:
+ * an ended incident is never presented as on time, successful or recovered.
  */
-export type OverdueIncidentEndReason = 'DEADLINE_EXTENDED';
+export type OverdueIncidentEndReason = 'DEADLINE_EXTENDED' | 'CARD_INVALIDATED';
 
-/** Every end reason accepted by the incident CHECK (migration 066). */
+/**
+ * Every end reason accepted by the incident CHECK (migration 070 widens the
+ * 066 vocabulary).
+ */
 export const OVERDUE_INCIDENT_END_REASONS: readonly OverdueIncidentEndReason[] = [
-  'DEADLINE_EXTENDED',
+  'DEADLINE_EXTENDED', 'CARD_INVALIDATED',
 ] as const satisfies readonly OverdueIncidentEndReason[];
 
 export type OverdueAccountableRole = 'STAFF' | 'MANAGEMENT';

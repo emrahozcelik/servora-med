@@ -111,7 +111,7 @@ keeps its existing `STAFF_IDENTITY_SQL` rule (404 for a non-Staff user).
 | Outcome | Rule | Duration |
 | --- | --- | --- |
 | `RECOVERED` — "Kapandı" | `recovered_at IS NOT NULL` | `recovered_at − breached_at` |
-| `EXTENDED` — "Tarih uzatıldı" | `ended_at IS NOT NULL` (OVR-5) | `ended_at − breached_at` |
+| `EXTENDED` — "Tarih uzatıldı" | `ended_at IS NOT NULL` and `end_reason = 'DEADLINE_EXTENDED'` (OVR-5) | `ended_at − breached_at` |
 | `OPEN` — "Devam ediyor" | both NULL | elapsed `requestTime − breached_at` |
 
 Every duration uses one canonical SQL expression, matching the per-job history
@@ -121,7 +121,11 @@ Every duration uses one canonical SQL expression, matching the per-job history
 where `end_instant` is `recovered_at`, `ended_at` or `requestTime`. The same
 integer is used for `durationSeconds`, `maxSeconds`, `maxElapsedSeconds` and as
 the `percentile_cont(0.5)` input; the median is then `FLOOR(...)::int`.
-`EXTENDED` is neither success nor on time; it is a separate outcome.
+`EXTENDED` is neither success nor on time; it is a separate outcome. A
+`CARD_INVALIDATED` ending (OVR-2, 2026-11-20) is not an outcome here: those
+incidents belong to invalidated cards and are excluded by the cohort gate; the
+cohort SQL additionally excludes the reason so loosening that gate can never
+report an administrative closure as an extension.
 
 ### 4.3 Operational flag (JOB-010 D1 §7)
 
@@ -394,6 +398,7 @@ tracking note, the §5 freshness line and a "Yenile" button. All zero: "Bu döne
 | LR-06 | A change request with `CUSTOMER_ABSENT` resolved `RESCHEDULED` by a manager while the incident was open makes it operational; the same request `REJECTED` or `SUPERSEDED` does not; a request resolved before the breach does not; a request closed `CANCELLED` by a Staff self-`CANCEL` (window disabled) does not; two qualifying requests still count the incident once and show the later reason. |
 | LR-07 | Two `LATE_SUBMISSION` episodes on one job give incident count 2 and delayed-job count 1; a job with one operational and one non-operational incident counts once in each group. |
 | LR-08 | Incidents on an `INVALIDATED` job are excluded; incidents on a `SALE` job are excluded when the Sale capability gate excludes the job. |
+| LR-08b | An incident ended by a card invalidation (`end_reason = 'CARD_INVALIDATED'`) is never classified `EXTENDED`, even if the job-status exclusion changes; an OVR-5 `DEADLINE_EXTENDED` incident stays `EXTENDED`. |
 | LR-09 | Staff `/staff/me` and `/staff/me/lateness-incidents` return only their own `STAFF_PROVEN` incidents; a transferred job shows `job: null`; Staff calling the management paths or `/lateness` get 403. |
 | LR-10 | Cross-organization incidents and Staff ids never appear; an unknown Staff id returns 404. |
 | LR-11 | Medians and maxima are per type and outcome, integer seconds, never negative, equal to the per-job history values for the same rows; no response field contains a summed duration, rate or rank. |

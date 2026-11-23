@@ -21,6 +21,49 @@ const draft = {
   blockers: null, highlights: null, fieldObservations: null, supportNeeded: null,
 };
 
+async function insertOpenSubmissionIncident(
+  pool: Pool, organizationId: string, jobCardId: string, staffId: string,
+): Promise<void> {
+  const revisionNo = (await pool.query<{ revision_no: number }>(
+    `SELECT MAX(revision_no) AS revision_no FROM job_card_schedule_revisions
+      WHERE organization_id = $1 AND job_card_id = $2`,
+    [organizationId, jobCardId],
+  )).rows[0]!.revision_no;
+  await pool.query(
+    `INSERT INTO job_card_overdue_incidents
+       (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+        deadline_at, breached_at, accountable_user_id, accountable_role,
+        accountable_source, source)
+     VALUES ($1, $2, 'LATE_SUBMISSION', 1, $3, $4, $4, $5, 'STAFF',
+             'ASSIGNMENT_AT_BREACH', 'SCANNER')`,
+    [organizationId, jobCardId, revisionNo, new Date('2026-08-03T07:30:00.001Z'), staffId],
+  );
+}
+
+async function selectJobIncidents(pool: Pool, organizationId: string, jobCardId: string) {
+  return (await pool.query(
+    `SELECT delay_type, episode_no, schedule_revision_no, deadline_at, breached_at,
+            accountable_user_id, recovered_at, recovery_actor_user_id,
+            ended_at, ended_by_user_id, end_reason, end_note,
+            ended_by_schedule_revision_no
+       FROM job_card_overdue_incidents
+      WHERE organization_id = $1 AND job_card_id = $2
+      ORDER BY breached_at ASC, id ASC`,
+    [organizationId, jobCardId],
+  )).rows as Record<string, unknown>[];
+}
+
+async function selectActivityMetadata(
+  pool: Pool, organizationId: string, jobCardId: string, eventType: string,
+): Promise<Record<string, unknown>[]> {
+  return (await pool.query<{ metadata: Record<string, unknown> }>(
+    `SELECT metadata FROM job_card_activity_logs
+      WHERE organization_id = $1 AND job_card_id = $2 AND event_type = $3
+      ORDER BY created_at ASC, id ASC`,
+    [organizationId, jobCardId, eventType],
+  )).rows.map((row) => row.metadata);
+}
+
 async function withFixture(run: (fixture: {
   pool: Pool; service: JobCardService; admin: JobCardActor; staff: JobCardActor; manager: JobCardActor;
 }) => Promise<void>) {
@@ -81,6 +124,111 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       expect(replacement.reportId).not.toBe(created.reportId);
       expect(replacement.jobCardId).not.toBe(created.jobCardId);
       expect((await pool.query('SELECT count(*)::int AS n FROM weekly_reports')).rows[0].n).toBe(2);
+    });
+  });
+
+  it('closes open overdue incidents when removal invalidates the report root', async () => {
+    await withFixture(async ({ pool, service, admin, staff }) => {
+      const created = await service.createWeeklyReport(staff,
+        parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart }));
+      await service.start(staff, created.jobCardId, { clientActionId: randomUUID(), expectedVersion: 1 });
+      await insertOpenSubmissionIncident(
+        pool, staff.organizationId, created.jobCardId, staff.id,
+      );
+      expect(await selectJobIncidents(pool, staff.organizationId, created.jobCardId))
+        .toHaveLength(1);
+
+      const removed = await service.removeWeeklyReport(admin, created.jobCardId, {
+        clientActionId: randomUUID(), expectedVersion: 2, expectedReportVersion: 1,
+        reason: 'Yanlış raporlama haftası seçildi.',
+      });
+      expect(removed.jobStatus).toBe('INVALIDATED');
+
+      // Removal uses the same correction semantics as INVALIDATE: the open
+      // obligation ends with the card, in the same transaction, with the
+      // removal request time and actor. It is closure, not recovery.
+      const rows = await selectJobIncidents(pool, staff.organizationId, created.jobCardId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        delay_type: 'LATE_SUBMISSION',
+        episode_no: 1,
+        accountable_user_id: staff.id,
+        recovered_at: null,
+        recovery_actor_user_id: null,
+        ended_at: new Date('2026-08-03T09:00:00.000Z'),
+        ended_by_user_id: admin.id,
+        end_reason: 'CARD_INVALIDATED',
+        end_note: null,
+        ended_by_schedule_revision_no: null,
+      });
+      const history = await service.listOverdueIncidents(
+        admin, created.jobCardId, { limit: 25, offset: 0 },
+      );
+      expect(history.items).toHaveLength(1);
+      expect(history.items[0]).toMatchObject({
+        endReason: 'CARD_INVALIDATED',
+        endedAt: '2026-08-03T09:00:00.000Z',
+        endedBy: { id: admin.id },
+        endedByScheduleRevisionNo: null,
+        recoveredAt: null,
+        recoveryActor: null,
+        totalDelaySeconds: null,
+      });
+      // The closure count lives on the existing command events; no new event
+      // type is invented for an administrative closure.
+      expect(await selectActivityMetadata(
+        pool, staff.organizationId, created.jobCardId, 'JOB_INVALIDATED',
+      )).toEqual([expect.objectContaining({ closedOverdueIncidents: 1 })]);
+      expect(await selectActivityMetadata(
+        pool, staff.organizationId, created.jobCardId, 'WEEKLY_REPORT_REMOVED',
+      )).toEqual([expect.objectContaining({ closedOverdueIncidents: 1 })]);
+    });
+  });
+
+  it('leaves open incidents untouched when the report root was already invalidated', async () => {
+    await withFixture(async ({ pool, service, admin, staff }) => {
+      const created = await service.createWeeklyReport(staff,
+        parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart }));
+      await service.start(staff, created.jobCardId, { clientActionId: randomUUID(), expectedVersion: 1 });
+      // Historical shape: the root was invalidated before the OVR-2 closure
+      // rule existed, so its incident is still open. Removal must not backfill.
+      await pool.query(
+        `UPDATE job_cards
+            SET status = 'INVALIDATED', invalidated_at = $2,
+                invalidated_by = $3, invalidation_reason_code = 'DUPLICATE'
+          WHERE organization_id = $1 AND id = $4`,
+        [staff.organizationId, new Date('2026-07-01T09:00:00.000Z'), admin.id, created.jobCardId],
+      );
+      await insertOpenSubmissionIncident(
+        pool, staff.organizationId, created.jobCardId, staff.id,
+      );
+      const before = await selectJobIncidents(pool, staff.organizationId, created.jobCardId);
+      expect(before).toHaveLength(1);
+      expect(before[0]).toMatchObject({
+        recovered_at: null, ended_at: null, ended_by_user_id: null, end_reason: null,
+      });
+
+      const removed = await service.removeWeeklyReport(admin, created.jobCardId, {
+        clientActionId: randomUUID(), expectedVersion: 2, expectedReportVersion: 1,
+        reason: 'Yanlış raporlama haftası seçildi.',
+      });
+      expect(removed.jobStatus).toBe('INVALIDATED');
+      expect(await selectJobIncidents(pool, staff.organizationId, created.jobCardId))
+        .toEqual(before);
+      const history = await service.listOverdueIncidents(
+        admin, created.jobCardId, { limit: 25, offset: 0 },
+      );
+      expect(history.items[0]).toMatchObject({
+        endReason: null, endedAt: null, recoveredAt: null, totalDelaySeconds: null,
+      });
+      // No closure happened here, so no command event is added and the count
+      // stays zero on the removal it actually performed.
+      expect(await selectActivityMetadata(
+        pool, staff.organizationId, created.jobCardId, 'JOB_INVALIDATED',
+      )).toEqual([]);
+      expect(await selectActivityMetadata(
+        pool, staff.organizationId, created.jobCardId, 'WEEKLY_REPORT_REMOVED',
+      )).toEqual([expect.objectContaining({ closedOverdueIncidents: 0 })]);
     });
   });
 
