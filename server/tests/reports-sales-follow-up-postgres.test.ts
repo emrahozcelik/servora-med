@@ -790,7 +790,6 @@ describe.skipIf(!databaseUrl)('Reports R2D-1 sales and follow-up operational agg
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 0 },
         { type: 'SALES_MEETING', count: 0 },
-        { type: 'SALE', count: 0 },
       ]);
 
       await insertJob({
@@ -825,7 +824,6 @@ describe.skipIf(!databaseUrl)('Reports R2D-1 sales and follow-up operational agg
         { type: 'PRODUCT_DELIVERY', count: 1 },
         { type: 'GENERAL_TASK', count: 1 },
         { type: 'SALES_MEETING', count: 1 },
-        { type: 'SALE', count: 0 },
       ]);
       expect(report.current.followUpChildren.total).toBe(3);
       expect(report.current.followUpChildren.statusDistribution).toEqual([
@@ -839,7 +837,6 @@ describe.skipIf(!databaseUrl)('Reports R2D-1 sales and follow-up operational agg
         { type: 'PRODUCT_DELIVERY', count: 1 },
         { type: 'GENERAL_TASK', count: 0 },
         { type: 'SALES_MEETING', count: 2 },
-        { type: 'SALE', count: 0 },
       ]);
       expect(report.relationships.directFollowUpLinks).toBe(4);
     } finally {

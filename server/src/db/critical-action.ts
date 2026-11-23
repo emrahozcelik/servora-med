@@ -52,6 +52,25 @@ export function assertCriticalActionRequestHash(
   }
 }
 
+/**
+ * Transaction-level SQLSTATEs that rolled back every statement of the attempt.
+ *
+ * `40P01` (deadlock_detected) and `40001` (serialization_failure) leave no
+ * business fact, receipt or side effect behind, so replaying the identical
+ * request with the same `clientActionId` is the correct client behaviour. They
+ * share the existing `409 ACTION_IN_PROGRESS` retry contract instead of
+ * surfacing as an opaque 500.
+ */
+function retryableTransactionConflict(error: unknown): AppError | null {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code !== '40P01' && code !== '40001') return null;
+  return new AppError(
+    'ACTION_IN_PROGRESS',
+    409,
+    'İşlem başka bir işlemle çakıştı. Aynı istekle yeniden deneyin.',
+  );
+}
+
 function transactionTimeout(value: number | undefined, name: string): number | null {
   if (value === undefined) return null;
   if (!Number.isInteger(value) || value < 1) {
@@ -131,6 +150,7 @@ export async function runCriticalAction<T>(
   const requestTimeoutMs = transactionTimeout(options.requestTimeoutMs, 'requestTimeoutMs');
   if (requestTimeoutMs !== null) return withCriticalActionDeadline(pool, claim, work, options, requestTimeoutMs);
   const client = await pool.connect();
+  let rollbackFailed = false;
   try {
     await client.query('BEGIN');
     if (statementTimeoutMs !== null) await client.query(`SET LOCAL statement_timeout = ${statementTimeoutMs}`);
@@ -187,9 +207,16 @@ export async function runCriticalAction<T>(
       realtimeEvents: workResult.realtimeEvents,
     };
   } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
+    // The original failure stays authoritative: a ROLLBACK that fails too must
+    // never replace it. A failed ROLLBACK means the connection is unusable, so
+    // it is destroyed instead of being returned to the pool.
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      rollbackFailed = true;
+    }
+    throw retryableTransactionConflict(error) ?? error;
   } finally {
-    client.release();
+    client.release(rollbackFailed);
   }
 }

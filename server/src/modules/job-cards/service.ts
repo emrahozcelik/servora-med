@@ -1,5 +1,6 @@
 import { uuidString } from './validation.js';
 import { AppError } from '../../errors/index.js';
+import { isManagementRole } from '../auth/types.js';
 import { randomUUID } from 'node:crypto';
 import { presentActivity } from './activity-presenter.js';
 import { JobCardSaleService } from './sale-service.js';
@@ -3618,7 +3619,7 @@ export class JobCardService {
       scheduleChanged = nextScheduledAt !== (job.scheduledAt ?? null)
         || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
       scheduleRevisionChanged = scheduleChanged || dueDateChanged;
-      const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
+      const management = isManagementRole(actor.role);
       // OVR-5b §4.11: only management may resolve the Staff request, and only
       // a patch that really appends a schedule revision. Nothing is written.
       if (changeRequestResolution !== null) {
@@ -6010,8 +6011,14 @@ export class JobCardService {
           if (!source) followUpInvariantViolation();
           // JOB-008: the approval-created child is never blocked by chain
           // length; the 10-level cap applies to manual createFollowUp only.
+          // A DEMO parent's child stays in the same demo dataset (same rule as
+          // createFollowUp and the JOB-009 replacement), so a complete demo
+          // purge also removes it.
+          const childIsDemo = source.dataClass === 'DEMO' && source.demoDatasetId !== null;
           const childTitle = Array.from(`Takip: ${updated.title.trim()}`).slice(0, 250).join('');
           const child = await this.createFollowUpChild(tx, actor, {
+            dataClass: childIsDemo ? 'DEMO' : 'BUSINESS',
+            demoDatasetId: childIsDemo ? source.demoDatasetId : null,
             sourceJobCardId: jobCardId,
             customerId: updated.customerId,
             type: approval.proposal.type,

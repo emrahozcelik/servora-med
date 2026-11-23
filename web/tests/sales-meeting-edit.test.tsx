@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SalesMeetingEditForm } from '../src/jobs/SalesMeetingEditForm';
 import type { JobCard } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
-import { clearCustomerSelection, stubMatchMedia } from './customer-search-select-harness';
+import { clearCustomerSelection, pickCustomerByName, stubMatchMedia } from './customer-search-select-harness';
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -106,10 +106,98 @@ describe('SalesMeetingEditForm', () => {
     const patch = onSave.mock.calls[0]![0];
     expect(patch).toEqual({
       expectedVersion: 5, title: 'Güncel başlık', description: 'Güncel açıklama',
-      customerId: 'customer-1', assignedTo: 'staff-1', priority: 'urgent',
+      assignedTo: 'staff-1', priority: 'urgent',
       engagementKind: 'SALES_MEETING',
     });
     expect(patch).not.toHaveProperty('contactId');
+    expect(patch).not.toHaveProperty('customerId');
+    // The follow-up-only help text never appears on an ordinary meeting.
+    expect(container.textContent).not.toContain('müşteri değiştirilemez');
+    expect(container.querySelector('#meeting-edit-customer-help')).toBeNull();
+  });
+
+  it('sends customerId only when the customer actually changed', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await act(async () => root.render(<SalesMeetingEditForm job={job} user={manager} pending={false}
+      onCancel={vi.fn()} onSave={onSave} />));
+    await settle();
+    change(container.querySelector('#meeting-edit-title')!, 'Güncel başlık');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave.mock.calls[0]![0]).not.toHaveProperty('customerId');
+
+    await pickCustomerByName(container, 'meeting-edit-customer', 'B Klinik');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave.mock.calls[1]![0]).toMatchObject({ customerId: 'customer-2' });
+  });
+
+  it('keeps a follow-up visit customer read-only and never echoes customerId', async () => {
+    const followUpJob: JobCard = {
+      ...job,
+      title: 'Takip: Dizayn ile görüşme',
+      engagementKind: 'FOLLOW_UP',
+      followUpContext: {
+        sourceJobCardId: 'source-1',
+        followUpInstructions: 'Karar durumunu teyit edin.',
+        sourceAccess: 'FULL',
+        sourceJobPath: '/jobs/source-1',
+        sourceSummary: {
+          sourceType: 'SALES_MEETING',
+          sourcePlannedAt: '2026-07-10T10:00:00.000Z',
+          sourceOccurredAt: '2026-07-10T10:05:00.000Z',
+          sourceCompletedAt: '2026-07-10T11:00:00.000Z',
+          customer: { id: 'customer-1', name: 'A Klinik' },
+          contact: null,
+          outcome: 'POSITIVE',
+        },
+      },
+    };
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await act(async () => root.render(<SalesMeetingEditForm job={followUpJob} user={manager} pending={false}
+      onCancel={vi.fn()} onSave={onSave} />));
+    await settle();
+    const customerInput = container.querySelector('#meeting-edit-customer') as HTMLInputElement;
+    const customerRoot = customerInput.closest('.ant-select');
+    expect(customerInput.disabled || customerRoot?.className.includes('ant-select-disabled')).toBe(true);
+    expect(container.textContent).toContain('müşteri değiştirilemez');
+    expect(customerInput.getAttribute('aria-describedby')).toContain('meeting-edit-customer-help');
+    change(container.querySelector('#meeting-edit-title')!, 'Takip: Güncel başlık');
+    change(container.querySelector('#meeting-edit-assignee')!, 'staff-2');
+    change(container.querySelector('#meeting-edit-priority')!, 'urgent');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const patch = onSave.mock.calls[0]![0];
+    expect(patch).toMatchObject({
+      expectedVersion: 5, title: 'Takip: Güncel başlık', assignedTo: 'staff-2', priority: 'urgent',
+    });
+    expect(patch).not.toHaveProperty('customerId');
+    expect(patch).not.toHaveProperty('contactId');
+  });
+
+  it('does not block a follow-up that has no resolved customer', async () => {
+    const customerlessFollowUp: JobCard & { type: 'SALES_MEETING' } = {
+      ...job,
+      customerId: null,
+      customer: null,
+      engagementKind: 'FOLLOW_UP',
+      followUpContext: {
+        sourceJobCardId: 'source-1', followUpInstructions: 'Karar durumunu teyit edin.',
+        sourceAccess: 'RESTRICTED', sourceJobPath: null,
+        sourceSummary: {
+          sourceType: 'SALES_MEETING', sourcePlannedAt: null, sourceOccurredAt: null,
+          sourceCompletedAt: '2026-07-10T11:00:00.000Z', customer: null, contact: null,
+          outcome: 'FOLLOW_UP_REQUIRED',
+        },
+      },
+    };
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await act(async () => root.render(<SalesMeetingEditForm job={customerlessFollowUp} user={manager}
+      pending={false} onCancel={vi.fn()} onSave={onSave} />));
+    await settle();
+    change(container.querySelector('#meeting-edit-title')!, 'Takip: Güncel başlık');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0]![0]).not.toHaveProperty('customerId');
+    expect(container.querySelector('#meeting-edit-customer-error')).toBeNull();
   });
 
   it('loads management assignment and submits a canonical patch without any contactId', async () => {

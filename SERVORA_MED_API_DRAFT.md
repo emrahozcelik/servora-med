@@ -158,6 +158,7 @@ Rules:
 - atomic processing claim before business side effects
 - completed duplicate returns the original status and response body
 - concurrent duplicate returns `409 ACTION_IN_PROGRESS`
+- a transaction rolled back by PostgreSQL deadlock (`40P01`) or serialization failure (`40001`) also returns `409 ACTION_IN_PROGRESS`; no receipt remains, so the identical request may be retried; a failing `ROLLBACK` never replaces the original error and the broken connection is not returned to the pool
 - a failed command may return its recorded failure according to the processed-action policy
 
 Ordinary profile, customer, contact, product, and field updates do not use full processed-response caching by default. Their validation, authorization, database constraints, and applicable version checks still apply.

@@ -43,6 +43,7 @@ describe('PostgresOverviewRepository', () => {
     expect(sql).toContain('ORDER BY j.manager_approved_at DESC, j.id DESC');
     expect(sql).toContain('ORDER BY n.created_at DESC, n.id DESC');
     expect(sql).toContain("j.status <> 'INVALIDATED'");
+    expect(sql).toContain("j.type <> 'WEEKLY_REPORT'");
     expect(sql).not.toContain('n.note');
     expect(sql).not.toContain('preview');
     expect(query.mock.calls[0]![1]).toEqual([
