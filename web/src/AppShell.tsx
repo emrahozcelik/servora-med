@@ -256,6 +256,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
           onOpenMenu={openDrawer}
           onCreateMeeting={() => navigate(paths.newMeeting)}
           onCreateTask={() => navigate(paths.newTask)}
+          onCreateSale={() => navigate(paths.newStandaloneSale)}
           onCreateDelivery={() => navigate(paths.newDelivery)}
           onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
         />

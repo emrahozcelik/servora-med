@@ -73,6 +73,7 @@ export function JobWorkspace(props: {
   onCreateDelivery?: () => void;
   onCreateTask?: () => void;
   onCreateMeeting?: () => void;
+  onCreateSale?: () => void;
   onCreateWeeklyReport?: () => void;
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
@@ -90,12 +91,13 @@ export function JobWorkspace(props: {
   return <JobWorkspaceContent {...props} />;
 }
 
-function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask, onCreateMeeting, onCreateWeeklyReport, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
+function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask, onCreateMeeting, onCreateSale, onCreateWeeklyReport, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
   user: CurrentUser;
   notice?: string;
   onCreateDelivery?: () => void;
   onCreateTask?: () => void;
   onCreateMeeting?: () => void;
+  onCreateSale?: () => void;
   onCreateWeeklyReport?: () => void;
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
@@ -315,6 +317,7 @@ function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask
         <NewJobMenu
           onCreateMeeting={onCreateMeeting}
           onCreateTask={onCreateTask}
+          onCreateSale={onCreateSale}
           onCreateDelivery={onCreateDelivery}
           onCreateWeeklyReport={onCreateWeeklyReport}
         />

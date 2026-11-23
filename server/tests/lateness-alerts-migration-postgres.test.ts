@@ -23,7 +23,7 @@ import {
  * and activity CHECKs, and the schema head. Contract §10 DB.
  */
 
-const SCHEMA_VERSION = '070_overdue_incident_invalidation_closure';
+const SCHEMA_VERSION = '071_sale_standalone_and_delivery_link';
 
 /**
  * Complete `in_app_notifications_kind_check` vocabulary before 069 (065 is the

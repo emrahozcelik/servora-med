@@ -28,6 +28,10 @@ export function canAccessRoute(
     // The page reauthorizes its source through Sale create-context; role alone grants no write.
     case 'saleCreate':
       return true;
+    // SALE-002 standalone: any authenticated user may open the form; the create
+    // service enforces STAFF self-only and management any-active-STAFF.
+    case 'saleStandaloneCreate':
+      return true;
     case 'overview':
       return user.capabilities?.overviewDashboard === true;
     case 'calendar':

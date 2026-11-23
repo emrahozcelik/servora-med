@@ -1002,10 +1002,13 @@ export class JobCardService {
     if (input.jobType === 'SALES_MEETING') resourceKeys.add('sale-origin-context');
     if (input.jobType === 'SALE') {
       const snapshot = await transaction.getSubmissionSale(input.organizationId, input.jobCardId);
-      const source = snapshot ? await transaction.getJob(input.organizationId, snapshot.sourceVisitId) : null;
-      if (source) {
-        resourceKeys.add('job-detail:' + source.id);
-        audience = { roles: mapped.audience.roles, userIds: [...new Set([...mapped.audience.userIds, source.assignedTo])].sort() };
+      // A standalone sale has no source visit; never query a null source id.
+      if (snapshot?.sourceVisitId) {
+        const source = await transaction.getJob(input.organizationId, snapshot.sourceVisitId);
+        if (source) {
+          resourceKeys.add('job-detail:' + source.id);
+          audience = { roles: mapped.audience.roles, userIds: [...new Set([...mapped.audience.userIds, source.assignedTo])].sort() };
+        }
       }
     }
     const realtimeEvent = await transaction.appendRealtimeEvent({
@@ -1661,6 +1664,10 @@ export class JobCardService {
 
   async createSaleFromVisit(actor: JobCardActor, visitId: string, input: unknown) {
     return this.saleService.createSaleFromVisit(actor, visitId, input);
+  }
+
+  async createStandaloneSale(actor: JobCardActor, input: unknown) {
+    return this.saleService.createStandaloneSale(actor, input);
   }
 
   async patchSaleItem(actor: JobCardActor, jobCardId: string, itemId: string, input: unknown) {

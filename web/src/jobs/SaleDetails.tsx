@@ -20,6 +20,7 @@ export function SaleDetailsSection({ details, originPending = false }: { details
     ]} />
     <h3>Kaynak ziyaret</h3>
     {originPending ? <p role="status">Kaynak ziyaret erişimi doğrulanıyor…</p>
+      : source.kind === 'STANDALONE' ? <p>Bağımsız satış kaydı (ziyaret yok).</p>
       : source.access === 'RESTRICTED' ? <p>Kaynak ziyarete erişiminiz yok.</p> : <>
       <a href={paths.job(source.id)}>{source.title}</a> · {jobCardStatusLabel(source.status)}
       <RecordDescriptions ariaLabel="Kaynak ziyaret snapshot bilgileri" items={[

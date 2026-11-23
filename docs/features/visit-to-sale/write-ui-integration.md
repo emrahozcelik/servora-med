@@ -47,6 +47,43 @@ opened. Actual soldAt uses the established **device-local datetime → UTC insta
 helpers, with the device timezone stated beside the input; organization timezone
 is never substituted for the device timezone implicitly.
 
+## Standalone and completed-visit creation (SALE-002 S1)
+
+SALE-002 keeps the visit-origin route and adds one collection create:
+
+| Method and path under `/api/job-cards` | Body |
+| --- | --- |
+| `POST /sales` (standalone, no visit) | clientActionId, title, optional description, customerId, assignedTo, soldAt, optional saleContactId, items[{productId,quantity}] |
+
+The body is a strict allowlist; `type`, `status`, source fields, snapshots and
+`expectedSourceVersion` are rejected. STAFF may name only themselves;
+MANAGER/ADMIN may name any active same-organization STAFF user. A STAFF create is
+`ACCEPTED`; a management create is `NEW`. The customer is required, active and
+`BUSINESS`; the optional Sale contact must be active and belong to that customer;
+1–25 distinct active `BUSINESS` products carry whole-unit quantities. Response is
+the existing `{jobCardId,version}` receipt with `SALE_STANDALONE_CREATE` idempotency
+(`SALE_STANDALONE_CREATE:v1`); replay returns the original receipt and a changed
+payload is `409 CLIENT_ACTION_REUSED`. Domain failures keep the existing vocabulary
+(`CUSTOMER_NOT_FOUND`, `CUSTOMER_INACTIVE`, `SALE_REFERENCE_NOT_ELIGIBLE`,
+`CONTACT_NOT_FOUND`, `CONTACT_NOT_IN_CUSTOMER`, `CONTACT_INACTIVE`,
+`PRODUCT_NOT_FOUND`, `SALE_PRODUCT_DUPLICATE`, `SALE_ITEM_LIMIT`, `SALE_TIME_INVALID`).
+The route needs no legacy `includeSaleCapability` opt-in because it is a new surface;
+authenticated authorization is still enforced by the service.
+
+`POST /:visitId/sales` is unchanged except that the source visit may now be
+`IN_PROGRESS` **or** `COMPLETED`; the customer, assignee and all origin snapshots
+are still derived from the locked visit, one active sale per visit still applies,
+and the `SALE_FROM_VISIT_CREATED` fact is still written on the visit. A cancelled
+or invalidated visit remains ineligible.
+
+Read integration: the Sale detail `sourceVisit` union gains
+`{kind: 'STANDALONE'}` for a card whose `sale_source_visit_id IS NULL`. It must
+render as "Bağımsız satış kaydı (ziyaret yok)", never as the restricted-source
+message; the restricted `{access: RESTRICTED, kind: SALE_FROM_VISIT}` variant is
+unchanged for a concealed visit-origin source. S1 writes **no**
+`delivery_source_sale_id` and exposes no approval-dialog delivery section; those
+arrive with S2/S3.
+
 ## Selection and correction
 
 Canonical `GET /api/products` accepts an optional `dataClass=BUSINESS` filter.

@@ -264,8 +264,15 @@ function SaleCreateRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { jobCardId: visitId } = useParams();
   const navigate = useNavigate();
   if (!visitId || !canAccessRoute('saleCreate', user, { visitId })) return <ForbiddenView />;
-  return <SaleCreateScreen key={`${user.organizationId}:${user.id}:${visitId}`} visitId={visitId} user={user}
+  return <SaleCreateScreen key={`${user.organizationId}:${user.id}:${visitId}`} mode={{ kind: 'visit', visitId }} user={user}
     onCancel={() => navigate(paths.job(visitId))} onCreated={(id) => navigate(paths.job(id))} />;
+}
+
+function SaleStandaloneCreateRoute({ user }: Pick<AppRouterProps, 'user'>) {
+  const navigate = useNavigate();
+  if (!canAccessRoute('saleStandaloneCreate', user)) return <ForbiddenView />;
+  return <SaleCreateScreen key={`${user.organizationId}:${user.id}:standalone`} mode={{ kind: 'standalone' }} user={user}
+    onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
 }
 
 function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
@@ -414,6 +421,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
           onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
           onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}
           onCreateMeeting={() => { onClearNotice(); navigate(paths.newMeeting); }}
+          onCreateSale={() => { onClearNotice(); navigate(paths.newStandaloneSale); }}
           onCreateWeeklyReport={() => { onClearNotice(); navigate(paths.newWeeklyReport); }}
           onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
         <Route path={paths.newDelivery} element={<DeliveryCreateRoute user={user}
@@ -427,6 +435,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path="/jobs/new-follow-up" element={<FollowUpCreateRoute user={user}
           navigate={navigate} />} />
         <Route path="/jobs/:jobCardId/new-sale" element={<SaleCreateRoute user={user} />} />
+        <Route path={paths.newStandaloneSale} element={<SaleStandaloneCreateRoute user={user} />} />
         <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
         <Route path={paths.users} element={canAccessRoute('users', user) ? <UserListScreen /> : <ForbiddenView />} />
         <Route path={paths.newUser} element={canAccessRoute('userCreate', user) ? <UserCreateScreen /> : <ForbiddenView />} />

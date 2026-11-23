@@ -16,6 +16,8 @@ export const paths = {
   settingsDemoData: '/settings/data-management/demo-data',
   settingsBackupRecovery: '/settings/data-management/backup-recovery',
   newSale: (visitId: string) => `/jobs/${encoded(visitId)}/new-sale`,
+  /** SALE-002 standalone create: no source visit. */
+  newStandaloneSale: '/jobs/new-sale',
   newDelivery: '/jobs/new-delivery',
   newTask: '/jobs/new-task',
   newMeeting: '/jobs/new-meeting',

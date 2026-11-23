@@ -808,6 +808,62 @@ list, the per-job snapshot, the scanner and OVR-4 discovery, the manual reminder
 open incident: a reminder/escalation kind is due for an episode only while no delivery of
 that kind references a still-open incident of the same `(job, delayType, episodeNo)`.
 
+### Sale origin and standalone creation (SALE-001 / SALE-002 S1)
+
+`POST /api/job-cards/sales` creates a standalone `SALE` with no source visit
+(authenticated; no legacy `includeSaleCapability` opt-in is required for this new
+surface):
+
+```ts
+type SaleStandaloneCreateInput = {
+  clientActionId: string
+  title: string                        // 1–255 code points after trim
+  description?: string | null         // ≤ 4000
+  customerId: string                  // active, BUSINESS, same organization
+  assignedTo: string                  // STAFF: must equal the actor
+  soldAt: string                      // ISO instant, not in the future
+  saleContactId?: string | null       // active, belongs to customerId
+  items: Array<{ productId: string; quantity: number }>  // 1–25 distinct BUSINESS lines
+}
+```
+
+The body is a strict allowlist; `type`, `status`, `expectedSourceVersion`, source
+fields and snapshots are rejected with `400 VALIDATION_ERROR`. STAFF create only
+for themselves and receive `ACCEPTED`; MANAGER/ADMIN may name any active
+same-organization STAFF user and receive `NEW`. `201` returns the existing
+`{ jobCardId, version }` receipt. Idempotency is `SALE_STANDALONE_CREATE`
+(discriminator `SALE_STANDALONE_CREATE:v1`, normalized body hash): replay returns
+the original receipt and a changed payload is `409 CLIENT_ACTION_REUSED`. Errors
+are the existing `CUSTOMER_NOT_FOUND`, `CUSTOMER_INACTIVE`,
+`SALE_REFERENCE_NOT_ELIGIBLE`, `CONTACT_NOT_FOUND`, `CONTACT_NOT_IN_CUSTOMER`,
+`CONTACT_INACTIVE`, `PRODUCT_NOT_FOUND`, `SALE_PRODUCT_DUPLICATE`,
+`SALE_ITEM_LIMIT` and `SALE_TIME_INVALID`. Lock order is sorted users → customer
+`FOR UPDATE` → sorted contacts `FOR SHARE` → sorted products `FOR SHARE` →
+insert. The transaction writes the root, `job_card_sale_details` with every
+source column NULL, items, `JOB_CREATED` plus one `SALE_ITEM_ADDED` per line,
+realtime, and the receipt; it writes no delivery, follow-up or visit mutation.
+
+`POST /api/job-cards/:visitId/sales` keeps its existing body and behavior; the
+locked source visit may now be `IN_PROGRESS` **or** `COMPLETED` (a cancelled or
+invalidated visit stays `409 SALE_FROM_VISIT_SOURCE_NOT_ELIGIBLE`). Customer,
+assignee and origin snapshots are still derived from the visit, the one-active-sale
+slot rule is unchanged, and the visit receives `SALE_FROM_VISIT_CREATED`.
+
+`GET /api/job-cards/:saleId/sale-details` keeps the `sourceVisit` key. Its union
+is now:
+
+```ts
+type SaleOrigin =
+  | { kind: 'STANDALONE' }                                   // no source to conceal
+  | { access: 'RESTRICTED'; kind: 'SALE_FROM_VISIT' }
+  | { access: 'FULL'; kind: 'SALE_FROM_VISIT'; /* snapshots as before */ }
+```
+
+A standalone origin is exactly `{ kind: 'STANDALONE' }` and must not render the
+restricted-source message. `job_cards.delivery_source_sale_id` exists from
+migration `071_sale_standalone_and_delivery_link` but no route reads or writes it
+in S1.
+
 ## 11. Delivery Items
 
 | Method | Path | Roles | Idempotency |
