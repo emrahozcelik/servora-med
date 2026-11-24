@@ -301,7 +301,7 @@ function contractFailures(measurement, viewport) {
       if (chip.minHeight !== '0px') failures.push(`event chip keeps a min-height floor (${chip.minHeight})`);
       if (chip.chipHeight > 50) failures.push(`event chip grew into a ${chip.chipHeight}px block`);
       if (chip.labelFontPixels < 12) failures.push(`event label type below 12px (${chip.labelFontPixels}px)`);
-      if (!['İş', 'Özel'].includes(chip.kind)) failures.push('event source cue missing from the chip');
+      if (!['İş', 'Kişisel plan'].includes(chip.kind)) failures.push('event source cue missing from the chip');
       if (chip.kindTruncated) failures.push('event source cue is truncated in the chip');
       if (!/İş|Kişisel plan/.test(chip.accessibleName ?? '')) failures.push('event source missing from the accessible name');
       if (chip.lineClamp !== '2') failures.push('event label is not two-line clamped');

@@ -22,7 +22,10 @@ vi.mock('../src/services/calendar-api', () => ({
   patchManualEvent: vi.fn(),
   cancelManualEvent: vi.fn(),
 }));
-vi.mock('../src/jobs/jobs-api', () => ({ patchJobCard: vi.fn() }));
+vi.mock('../src/jobs/jobs-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/jobs/jobs-api')>()),
+  patchJobCard: vi.fn(),
+}));
 vi.mock('../src/realtime/RealtimeProvider', () => ({
   useRealtimeInvalidation: vi.fn(),
 }));
