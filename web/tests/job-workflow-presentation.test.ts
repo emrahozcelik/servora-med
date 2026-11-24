@@ -1221,6 +1221,9 @@ describe('JOB-010 release 2b assignment answers', () => {
           closedAt: '2026-07-17T08:30:00.000Z',
           closeReason: 'PLANNED_WINDOW_PASSED',
           closeText: null,
+          proposedScheduledAt: null,
+          proposedScheduledEndsAt: null,
+          proposalAcceptedAt: null,
         },
       });
       expect(derive(expiredNewJob, staff).responsibility).toMatchObject({
@@ -1339,6 +1342,9 @@ describe('JOB-010 release 2b assignment answers', () => {
           closedAt: '2026-07-17T08:20:00.000Z',
           closeReason: 'SCHEDULE_CONFLICT',
           closeText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+          proposedScheduledAt: null,
+          proposedScheduledEndsAt: null,
+          proposalAcceptedAt: null,
           ...offer,
         },
       });

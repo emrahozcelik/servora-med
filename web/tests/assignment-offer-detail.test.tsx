@@ -7,6 +7,7 @@ import { JobDetailPanel, JobDetailScreen } from '../src/JobDetail';
 import {
   AssignmentOfferSection,
 } from '../src/jobs/AssignmentOffer';
+import { isoInstantToLocalDateTime, localDateTimeToIso } from '../src/jobs/scheduling';
 import type {
   AssignmentOffer,
   JobCard,
@@ -45,6 +46,9 @@ const offer: AssignmentOffer = {
   closedAt: null,
   closeReason: null,
   closeText: null,
+  proposedScheduledAt: null,
+  proposedScheduledEndsAt: null,
+  proposalAcceptedAt: null,
 };
 
 /** The production shape: Staff declined the offered time with a reason text. */
@@ -58,6 +62,21 @@ function closedOffer(overrides: Partial<AssignmentOffer> = {}): AssignmentOffer 
     closeText: 'Önümüzdeki haftaya ziyaret sağlanacak',
     ...overrides,
   };
+}
+
+/** JOB-012: a declined offer carrying a Staff time proposal awaiting management. */
+function proposedOffer(overrides: Partial<AssignmentOffer> = {}): AssignmentOffer {
+  const start = new Date(Date.now() + 2 * 86_400_000);
+  start.setSeconds(0, 0);
+  return closedOffer({
+    state: 'DECLINED',
+    closeReason: 'SCHEDULE_CONFLICT',
+    closeText: null,
+    proposedScheduledAt: start.toISOString(),
+    proposedScheduledEndsAt: new Date(start.getTime() + 30 * 60_000).toISOString(),
+    proposalAcceptedAt: null,
+    ...overrides,
+  });
 }
 
 function jobCard(overrides: Partial<JobCard> = {}): JobCard {
@@ -90,6 +109,18 @@ function jobCard(overrides: Partial<JobCard> = {}): JobCard {
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+/** JOB-012: a device-local value in the future, for datetime-local inputs. */
+function futureLocal(days: number): string {
+  return isoInstantToLocalDateTime(new Date(Date.now() + days * 86_400_000).toISOString());
+}
+
+/** JOB-012: the exact interval sentence the guidance renders. */
+function proposedInterval(start: string, end: string): string {
+  const date = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' }).format(new Date(start));
+  const time = new Intl.DateTimeFormat('tr-TR', { timeStyle: 'short' });
+  return `${date} ${time.format(new Date(start))}–${time.format(new Date(end))}`;
 }
 
 async function settle() {
@@ -285,6 +316,147 @@ describe('assignment offer detail surface', () => {
       expect(host.querySelector('[data-assignment-offer-action="new-time"]')?.className)
         .toContain('primary-button');
     }
+  });
+
+  it('shows the Staff proposal and makes confirming it the primary management action', async () => {
+    const candidate = proposedOffer();
+    await renderWithReassign(jobCard({ assignmentOffer: candidate }), manager, vi.fn());
+
+    const facts = host.querySelector('[data-assignment-offer-recovery] dl');
+    const term = Array.from(facts?.querySelectorAll('dt') ?? [])
+      .find((node) => node.textContent === 'Personelin önerdiği zaman');
+    expect(term).not.toBeUndefined();
+    const interval = proposedInterval(
+      candidate.proposedScheduledAt!,
+      candidate.proposedScheduledEndsAt!,
+    );
+    expect(facts?.querySelector('[data-assignment-offer-proposal="PENDING"]')?.textContent)
+      .toBe(interval);
+
+    const buttons = Array.from(host.querySelectorAll<HTMLButtonElement>(
+      '[data-assignment-offer-recovery] [data-assignment-offer-action]',
+    ));
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+      'Önerilen zamanı onayla',
+      'Yeni zaman belirle',
+      'Sorumlu personeli değiştir',
+      'Aynı zamanla yeniden teklif et',
+    ]);
+    expect(buttons[0]?.classList.contains('primary-button')).toBe(true);
+    expect(buttons[1]?.classList.contains('secondary-button')).toBe(true);
+    expect(buttons[2]?.classList.contains('secondary-button')).toBe(true);
+    expect(buttons[3]?.classList.contains('secondary-button')).toBe(true);
+  });
+
+  it('confirms the proposed time through the dialog and refreshes the card', async () => {
+    const onChanged = vi.fn();
+    const candidate = proposedOffer();
+    const receipt = {
+      jobCardId: 'job-1',
+      offerId: 'offer-1',
+      scheduledAt: candidate.proposedScheduledAt,
+      scheduledEndsAt: candidate.proposedScheduledEndsAt,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(json(receipt));
+    vi.stubGlobal('fetch', fetchMock);
+    await renderSection(jobCard({ assignmentOffer: candidate }), manager, onChanged);
+
+    const trigger = host.querySelector<HTMLButtonElement>(
+      '[data-assignment-offer-action="accept-proposal"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger!.click());
+
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    const interval = proposedInterval(
+      candidate.proposedScheduledAt!,
+      candidate.proposedScheduledEndsAt!,
+    );
+    expect(dialog?.textContent)
+      .toContain(`İş ${interval} zamanına taşınır ve Ayşe Personel için kabul edilmiş olur.`);
+
+    const confirm = dialog?.querySelector<HTMLButtonElement>(
+      '.product-dialog-actions .primary-button',
+    );
+    expect(confirm?.textContent).toBe('Önerilen zamanı onayla');
+    await act(async () => confirm!.click());
+    await settle();
+    await settle();
+
+    expect(String(fetchMock.mock.calls[0]?.[0]))
+      .toBe('/api/job-cards/job-1/assignment-offers/accept-proposal');
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toEqual({
+      clientActionId: expect.any(String),
+      expectedVersion: 3,
+      offerId: 'offer-1',
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-proposal-accepted="true"]')?.textContent)
+      .toContain('Önerilen zaman onaylandı');
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('never shows a pending proposal or its confirm control to the assigned Staff member', async () => {
+    await renderSection(jobCard({ assignmentOffer: proposedOffer() }), staff);
+
+    expect(host.querySelector('[data-assignment-offer-recovery]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-proposal]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-action="accept-proposal"]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-proposal-expired="true"]')).toBeNull();
+    expect(host.textContent).not.toContain('Personelin önerdiği zaman');
+  });
+
+  it('shows no proposal outside the recovery state, even a passed one', async () => {
+    const passed = new Date(Date.now() - 86_400_000).toISOString();
+    await renderSection(jobCard({
+      status: 'CANCELLED',
+      assignmentOffer: proposedOffer({ proposedScheduledAt: passed, proposedScheduledEndsAt: passed }),
+    }), manager);
+
+    expect(host.querySelector('[data-assignment-offer-proposal]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-proposal-expired="true"]')).toBeNull();
+  });
+
+  it('hides the confirm button when the proposed start has passed', async () => {
+    const candidate = proposedOffer({
+      proposedScheduledAt: '2020-01-02T07:00:00.000Z',
+      proposedScheduledEndsAt: '2020-01-02T07:30:00.000Z',
+    });
+    await renderWithReassign(jobCard({ assignmentOffer: candidate }), manager, vi.fn());
+
+    expect(host.querySelector('[data-assignment-offer-action="accept-proposal"]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-proposal="EXPIRED"]')).not.toBeNull();
+    expect(host.querySelector('[data-assignment-offer-proposal-expired="true"]')?.textContent)
+      .toContain('Önerilen zaman geçti');
+    // The other recovery actions stay available.
+    expect(host.querySelector('[data-assignment-offer-action="new-time"]')).not.toBeNull();
+  });
+
+  it.each([
+    ['ASSIGNMENT_PROPOSAL_NOT_AVAILABLE', 409, 'Personelin önerdiği zaman artık onaylanamıyor', 'Öneri artık geçerli değil.'],
+    ['ASSIGNMENT_PROPOSAL_EXPIRED', 409, 'Önerilen zaman geçti. Onaylanamıyor', 'Önerilen zaman geçti.'],
+    ['CALENDAR_CONFLICT', 409, 'Personelin takviminde çakışma var', 'Personelin takviminde çakışma var.'],
+    ['VERSION_CONFLICT', 409, 'İş başka bir işlemle güncellendi', 'İş güncellendi.'],
+  ] as const)('maps a %s rejection to a Turkish explanation and refreshes', async (code, status, expected, serverText) => {
+    const onChanged = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: serverText, code }, status)));
+    await renderSection(jobCard({ assignmentOffer: proposedOffer() }), manager, onChanged);
+
+    await act(async () => host
+      .querySelector<HTMLButtonElement>('[data-assignment-offer-action="accept-proposal"]')!
+      .click());
+    const confirm = host.querySelector<HTMLButtonElement>(
+      '[role="dialog"] .product-dialog-actions .primary-button',
+    );
+    await act(async () => confirm!.click());
+    await settle();
+    await settle();
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-proposal-error="true"]')?.textContent)
+      .toContain(expected);
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it('says the same time will be asked again and that saving the time opens a new offer', async () => {
@@ -632,7 +804,7 @@ describe('decline and release dialogs', () => {
 
     await act(async () => selectValue(
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
-      'SCHEDULE_CONFLICT',
+      'OTHER',
     ));
     await act(async () => setNativeValue(
       dialog()!.querySelector('textarea') as HTMLTextAreaElement,
@@ -650,7 +822,7 @@ describe('decline and release dialogs', () => {
     expect(JSON.parse(String((declineCall![1] as RequestInit).body))).toEqual({
       clientActionId: expect.any(String),
       expectedVersion: 3,
-      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonCode: 'OTHER',
       reasonText: 'Aynı saatte başka teslim var.',
     });
     expect(dialog()).toBeNull();
@@ -679,10 +851,18 @@ describe('decline and release dialogs', () => {
     expect(dialog()).not.toBeNull();
     expect(buttonByText(dialog()!, 'Görevi geri bırak')).not.toBeNull();
 
+    // JOB-012: release carries the same proposal field as decline.
+    await act(async () => selectValue(
+      dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
+      'SCHEDULE_CONFLICT',
+    ));
+    expect(dialog()?.querySelector('#assignment-proposed-at')).not.toBeNull();
+
     await act(async () => selectValue(
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
       'MISSING_STOCK_OR_EQUIPMENT',
     ));
+    expect(dialog()?.querySelector('#assignment-proposed-at')).toBeNull();
     await act(async () => setNativeValue(
       dialog()!.querySelector('textarea') as HTMLTextAreaElement,
       'Eldiven stoğu kalmadı.',
@@ -702,6 +882,147 @@ describe('decline and release dialogs', () => {
       reasonText: 'Eldiven stoğu kalmadı.',
     });
     expect(host.textContent).toContain('Görev geri bırakıldı. Yönetici bilgilendirildi.');
+  });
+
+  it('shows the proposed time only for a schedule conflict and clears it on switching away', async () => {
+    const fetchMock = mockDetailFetch(jobCard());
+    await renderScreen(jobCard(), fetchMock);
+
+    await act(async () => buttonByText(host, 'Görevi reddet')!.click());
+    const reasonSelect = () => dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement;
+    const proposedInput = () => dialog()?.querySelector('#assignment-proposed-at') as HTMLInputElement | null;
+    expect(proposedInput()).toBeNull();
+
+    await act(async () => selectValue(reasonSelect(), 'SCHEDULE_CONFLICT'));
+    expect(proposedInput()).not.toBeNull();
+    expect(proposedInput()?.getAttribute('type')).toBe('datetime-local');
+    expect(proposedInput()?.hasAttribute('required')).toBe(true);
+    expect(dialog()?.querySelector('label[for="assignment-proposed-at"]')?.textContent)
+      .toBe('Önerdiğiniz zaman');
+    expect(dialog()?.querySelector('#assignment-proposed-at-help')?.textContent)
+      .toBe('Yönetici onaylarsa iş bu zamana taşınır ve sizin için kabul edilmiş olur.');
+    // The shared quick presets and advisory hints travel with the field.
+    expect(dialog()?.querySelector('.schedule-quick-chips')).not.toBeNull();
+
+    await act(async () => setNativeValue(proposedInput()!, futureLocal(2)));
+    await act(async () => selectValue(reasonSelect(), 'ON_LEAVE'));
+    expect(proposedInput()).toBeNull();
+
+    await act(async () => selectValue(reasonSelect(), 'SCHEDULE_CONFLICT'));
+    expect(proposedInput()?.value).toBe('');
+  });
+
+  it('requires a future proposed time before a schedule-conflict decline leaves the browser', async () => {
+    const fetchMock = mockDetailFetch(jobCard());
+    await renderScreen(jobCard(), fetchMock);
+
+    await act(async () => buttonByText(host, 'Görevi reddet')!.click());
+    await act(async () => selectValue(
+      dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
+      'SCHEDULE_CONFLICT',
+    ));
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('textarea') as HTMLTextAreaElement,
+      'Aynı saatte başka teslim var.',
+    ));
+    const declineCalls = () => fetchMock.mock.calls
+      .filter(([url]) => String(url).includes('/decline'));
+
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    expect(dialog()?.querySelector('#assignment-proposed-at-error')?.textContent)
+      .toBe('Plan çakışması için önerdiğiniz zamanı seçin.');
+    expect(declineCalls()).toHaveLength(0);
+
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement,
+      '2020-01-02T10:00',
+    ));
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    expect(dialog()?.querySelector('#assignment-proposed-at-error')?.textContent)
+      .toBe('Önerilen zaman gelecekte olmalı.');
+    expect(declineCalls()).toHaveLength(0);
+
+    const proposedLocal = futureLocal(3);
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement,
+      proposedLocal,
+    ));
+    expect(dialog()?.querySelector('#assignment-proposed-at-error')).toBeNull();
+    fetchMock.mockResolvedValueOnce(json(jobCard({ version: 4 })));
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await settle();
+    await settle();
+
+    expect(declineCalls()).toHaveLength(1);
+    expect(JSON.parse(String((declineCalls()[0]![1] as RequestInit).body))).toEqual({
+      clientActionId: expect.any(String),
+      expectedVersion: 3,
+      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonText: 'Aynı saatte başka teslim var.',
+      proposedScheduledAt: localDateTimeToIso(proposedLocal),
+    });
+    expect(dialog()).toBeNull();
+  });
+
+  it('keeps the dialog open and maps the server proposed-time field error inline', async () => {
+    const fetchMock = mockDetailFetch(jobCard());
+    await renderScreen(jobCard(), fetchMock);
+
+    await act(async () => buttonByText(host, 'Görevi reddet')!.click());
+    await act(async () => selectValue(
+      dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
+      'SCHEDULE_CONFLICT',
+    ));
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement,
+      futureLocal(2),
+    ));
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('textarea') as HTMLTextAreaElement,
+      'Aynı saatte başka teslim var.',
+    ));
+    fetchMock.mockResolvedValueOnce(json({
+      error: 'İstek geçersiz.',
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { proposedScheduledAt: 'Önerilen zaman geçmişte olamaz.' } },
+    }, 400));
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await settle();
+    await settle();
+
+    expect(dialog()).not.toBeNull();
+    expect(dialog()?.querySelector('#assignment-proposed-at-error')?.textContent)
+      .toBe('Önerilen zaman geçmişte olamaz.');
+  });
+
+  it('shows a staff calendar conflict inline and keeps the dialog open', async () => {
+    const fetchMock = mockDetailFetch(jobCard());
+    await renderScreen(jobCard(), fetchMock);
+
+    await act(async () => buttonByText(host, 'Görevi reddet')!.click());
+    await act(async () => selectValue(
+      dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
+      'SCHEDULE_CONFLICT',
+    ));
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement,
+      futureLocal(2),
+    ));
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('textarea') as HTMLTextAreaElement,
+      'Aynı saatte başka teslim var.',
+    ));
+    fetchMock.mockResolvedValueOnce(json({
+      error: 'Personelin takviminde çakışma var: Klinik ziyareti 09:00.',
+      code: 'CALENDAR_CONFLICT',
+    }, 409));
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await settle();
+    await settle();
+
+    expect(dialog()).not.toBeNull();
+    expect(dialog()?.querySelector('#assignment-proposed-at-error')?.textContent)
+      .toBe('Personelin takviminde çakışma var: Klinik ziyareti 09:00.');
   });
 
   it('opens the existing reassignment form from the declined-offer guidance', async () => {

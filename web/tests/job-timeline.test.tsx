@@ -224,6 +224,7 @@ describe('safe JobCard timeline', () => {
         details: {
           kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
           reasonCode: 'SCHEDULE_CONFLICT', reasonText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+          proposedScheduledAt: null,
         },
         createdAt: '2026-11-21T11:20:00.000Z',
       },
@@ -232,19 +233,26 @@ describe('safe JobCard timeline', () => {
         actor: { id: 'staff-1', name: 'Ayşe Personel' },
         details: {
           kind: 'ASSIGNMENT_DECISION', decision: 'RELEASED', reasonCode: null, reasonText: null,
+          proposedScheduledAt: null,
         },
         createdAt: '2026-11-21T11:10:00.000Z',
       },
       {
         id: 'code-only', jobCardId: 'job-1', eventType: 'JOB_ASSIGNMENT_DECLINED',
         actor: { id: 'staff-1', name: 'Ayşe Personel' },
-        details: { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: 'ON_LEAVE', reasonText: null },
+        details: {
+          kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: 'ON_LEAVE', reasonText: null,
+          proposedScheduledAt: null,
+        },
         createdAt: '2026-11-21T11:00:00.000Z',
       },
       {
         id: 'text-only', jobCardId: 'job-1', eventType: 'JOB_ASSIGNMENT_RELEASED',
         actor: { id: 'staff-1', name: 'Ayşe Personel' },
-        details: { kind: 'ASSIGNMENT_DECISION', decision: 'RELEASED', reasonCode: null, reasonText: 'Araç arızalı' },
+        details: {
+          kind: 'ASSIGNMENT_DECISION', decision: 'RELEASED', reasonCode: null, reasonText: 'Araç arızalı',
+          proposedScheduledAt: null,
+        },
         createdAt: '2026-11-21T10:50:00.000Z',
       },
     ];
@@ -263,6 +271,30 @@ describe('safe JobCard timeline', () => {
     // Missing parts are omitted instead of leaving empty quotes or a stray dot.
     expect(host.querySelector('[data-activity-id="released"] .activity-timeline-detail')).toBeNull();
     expect(host.textContent).not.toMatch(/DECLINED|RELEASED|SCHEDULE_CONFLICT|oldValue|metadata/);
+  });
+
+  it('appends the JOB-012 proposed time to the assignment decision detail', async () => {
+    const activity: JobCardActivity = {
+      id: 'proposed', jobCardId: 'job-1', eventType: 'JOB_ASSIGNMENT_DECLINED',
+      actor: { id: 'staff-1', name: 'Ayşe Personel' },
+      details: {
+        kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
+        reasonCode: 'SCHEDULE_CONFLICT', reasonText: 'Sabah kliniği yoğun',
+        proposedScheduledAt: '2026-11-23T09:00:00.000Z',
+      },
+      createdAt: '2026-11-21T11:20:00.000Z',
+    };
+    await act(async () => root.render(<JobTimeline jobId="job-1"
+      load={vi.fn().mockResolvedValue(page([activity]))} />));
+    await act(async () => { await Promise.resolve(); });
+
+    const proposedText = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+      .format(new Date(activity.details.kind === 'ASSIGNMENT_DECISION'
+        ? activity.details.proposedScheduledAt!
+        : ''));
+    expect(host.querySelector('[data-activity-id="proposed"] .activity-timeline-detail')?.textContent)
+      .toBe(`Plan çakışması · “Sabah kliniği yoğun” · Önerilen: ${proposedText}`);
+    expect(host.textContent).not.toContain('2026-11-23T09:00:00.000Z');
   });
 
   it('presents schedule mutation field names without raw audit values', async () => {

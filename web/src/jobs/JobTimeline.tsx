@@ -167,9 +167,14 @@ function detailText(details: JobCardActivityDetails) {
     // form's first-person option text.
     const reasonLabel = assignmentOfferCloseReasonLabel(details.reasonCode);
     const reasonText = details.reasonText?.trim();
+    // JOB-012: the proposed time is part of the answer, when one was asked for.
+    const proposed = details.proposedScheduledAt !== null
+      ? `Önerilen: ${formatInstant(details.proposedScheduledAt)}`
+      : null;
     return [
       reasonLabel,
       reasonText ? `“${reasonText}”` : null,
+      proposed,
     ].filter(Boolean).join(' · ');
   }
   if (details.kind === 'MEETING_DETAILS') return details.changedFields
