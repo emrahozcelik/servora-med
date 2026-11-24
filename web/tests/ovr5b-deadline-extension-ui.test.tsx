@@ -456,6 +456,41 @@ describe('OVR-5 deadline extension UI', () => {
     });
   });
 
+  it('sends the change-request resolution only when the planned time really changed', async () => {
+    const harness = makeFetch({
+      card: generalTask({ scheduledAt: '2026-11-20T09:00:00.000Z', changeRequest: openRequest }),
+    });
+    await render(managerUser, harness);
+
+    // Unchanged interval: no closure is offered and none is sent.
+    expect(host.querySelector('#job-schedule-resolve-change-request')).toBeNull();
+    await submit('Planlanan zamanı kaydet');
+    expect(harness.patchBodies).toHaveLength(1);
+    expect(harness.patchBodies[0]).not.toHaveProperty('changeRequestResolution');
+
+    // A real change offers the checked closure; unticking keeps the request open.
+    await setInput('#job-scheduled-at', '2026-11-26T09:00');
+    await settle();
+    const checkbox = host.querySelector<HTMLInputElement>('#job-schedule-resolve-change-request')!;
+    expect(checkbox).not.toBeNull();
+    expect(checkbox.checked).toBe(true);
+    expect(
+      host.querySelector('label[for="job-schedule-resolve-change-request"]')?.textContent?.trim(),
+    ).toBe("Personel önerisini 'Yeniden planlandı' olarak kapat");
+
+    await act(async () => {
+      checkbox.click();
+      await Promise.resolve();
+    });
+    await submit('Planlanan zamanı kaydet');
+
+    expect(harness.patchBodies).toHaveLength(2);
+    expect(harness.patchBodies[1]).toMatchObject({
+      scheduledAt: localDateTimeToIso('2026-11-26T09:00'),
+    });
+    expect(harness.patchBodies[1]).not.toHaveProperty('changeRequestResolution');
+  });
+
   it('shows DEADLINE_CHANGE_REQUIRES_MANAGEMENT for a Staff deadline edit', async () => {
     const harness = makeFetch({
       card: generalTask({ hasOpenOverdueIncident: false }),

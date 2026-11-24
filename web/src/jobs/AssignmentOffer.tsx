@@ -126,7 +126,7 @@ function recoveryHeadline(offer: AssignmentOffer): string {
 }
 
 /** Moves the reader to the existing planned-time editor; no new route. */
-function focusScheduleEditor(): void {
+export function focusScheduleEditor(): void {
   const target = document.getElementById('job-scheduled-at');
   if (target === null) return;
   target.scrollIntoView({ block: 'center' });

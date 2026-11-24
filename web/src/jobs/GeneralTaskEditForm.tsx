@@ -180,7 +180,7 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
             type="checkbox" checked={resolveChangeRequest}
             onChange={(event) => setResolveChangeRequest(event.target.checked)} />
           <label htmlFor="general-task-edit-resolve-change-request">
-            Personelin önerisini “Yeniden planlandı” olarak sonuçlandır
+            Personel önerisini 'Yeniden planlandı' olarak kapat
           </label>
         </div>
       )}

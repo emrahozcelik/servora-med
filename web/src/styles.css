@@ -3055,7 +3055,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-invalidation-action > .detail-feedback { margin: 0; }
 /* JOB-010 release 2a: the change-request decision row is a left-aligned
    action group inside the job summary, not a dialog footer. */
-.change-request-actions { justify-content: flex-start; }
 .job-notes-help,
 .workflow-requirements-help {
   margin: 0 0 0.85rem;
@@ -3720,6 +3719,50 @@ label.field-group > input, label.field-group > select, label.field-group > texta
    right-aligned form footer. */
 .assignment-offer-recovery .review-buttons {
   justify-content: flex-start;
+}
+/* JOB-010 management guidance: the real commands come first; the record-only
+   closures sit in their own separated, confirmed group below them. */
+.change-request-guidance {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  margin-top: 0.6rem;
+}
+.change-request-guidance-headline {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+.change-request-guidance .job-row-facts {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+.change-request-guidance-label {
+  margin: 0;
+  color: var(--ink);
+}
+.change-request-guidance .form-help {
+  margin: 0;
+}
+.change-request-guidance-actions,
+.change-request-closures .review-buttons {
+  justify-content: flex-start;
+}
+.change-request-guidance .review-buttons button,
+.change-request-closures .review-buttons button {
+  min-height: var(--control-height);
+}
+.change-request-form {
+  display: grid;
+  gap: 1rem;
+}
+.change-request-closures {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  margin-top: 0.35rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--rule);
 }
 .workflow-responsibility-submission,
 .revision-loop-facts,
