@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type { AvailableSlot } from './jobs-api';
+import { isoInstantToLocalDateTime } from './scheduling';
 
 const INITIAL_VISIBLE_SLOTS = 6;
 
@@ -26,6 +27,7 @@ export function AvailableSlotsNotice({
   error,
   featureDisabled,
   disabled = false,
+  selectedStartLocal,
   onSelect,
 }: {
   searched: boolean;
@@ -35,6 +37,7 @@ export function AvailableSlotsNotice({
   featureDisabled: boolean;
   /** OVR-5 §5.4: the planned time is locked, so slots must not be selectable. */
   disabled?: boolean;
+  selectedStartLocal?: string;
   onSelect: (slot: AvailableSlot) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -47,23 +50,33 @@ export function AvailableSlotsNotice({
 
   if (!searched && !searching && !error && !featureDisabled) return null;
   return <section className="available-slots-notice" aria-live="polite" aria-labelledby="available-slots-heading">
-    <h2 id="available-slots-heading">Ortak uygun saatler</h2>
-    {searching && <p role="status">Müşteri ve personel için uygun saatler aranıyor…</p>}
+    <h2 id="available-slots-heading">Personel için uygun saatler</h2>
+    {searching && <p role="status">Atanan personel için uygun saatler aranıyor…</p>}
     {!searching && featureDisabled && <p role="status">Takvim uygun saat araması etkin değil.</p>}
     {!searching && !featureDisabled && error && (
       <p role="status">Uygun saatler yüklenemedi. Formu yine kaydedebilirsiniz.</p>
     )}
     {!searching && !featureDisabled && !error && slots.length === 0 && (
-      <p role="status">Bu aralık için ortak uygun saat bulunamadı.</p>
+      <p role="status">Bu aralık için uygun saat bulunamadı.</p>
     )}
     {!searching && !error && !featureDisabled && slots.length > 0 && (
       <>
-        <div className="available-slots-list" role="group" aria-label="Ortak uygun saat seçenekleri">
+        <div className="available-slots-list" role="group" aria-label="Personel için uygun saat seçenekleri">
           {(expanded ? slots : slots.slice(0, INITIAL_VISIBLE_SLOTS)).map((slot) => {
             const key = slotKey(slot);
             const dateLabel = dateLabelForSlot(slot);
             const timeLabel = timeLabelForSlot(slot);
-            const selected = selectedSlotKey === key;
+            let matchesControlledStart = false;
+            if (selectedStartLocal !== undefined) {
+              try {
+                matchesControlledStart = isoInstantToLocalDateTime(slot.startsAt) === selectedStartLocal;
+              } catch {
+                matchesControlledStart = false;
+              }
+            }
+            const selected = selectedStartLocal !== undefined
+              ? matchesControlledStart
+              : selectedSlotKey === key;
             return (
               <button
                 key={key}

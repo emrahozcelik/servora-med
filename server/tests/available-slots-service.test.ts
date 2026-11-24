@@ -310,6 +310,57 @@ describe('JobCardService.availableSlots', () => {
     expect(result.slots[0]!.startsAt).toBe('2026-08-18T10:00:00.000Z');
   });
 
+  it('filters same-day candidates against assignee blockers while preserving remaining same-day free slots', async () => {
+    const tx = {
+      getAssignee: vi.fn().mockResolvedValue({
+        id: input.assignedTo,
+        organizationId: actor.organizationId,
+        role: 'STAFF' as const,
+        isActive: true,
+      }),
+      customerExists: vi.fn().mockResolvedValue(true),
+      getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
+      listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
+      listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
+      listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([{
+        startsAt: '2026-09-12T11:00:00.000Z',
+        endsAt: '2026-09-12T12:30:00.000Z',
+      }]),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    const result = await new JobCardService(
+      repository,
+      () => new Date('2026-09-01T00:00:00.000Z'),
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, {
+      ...input,
+      scheduledAt: '2026-09-12T10:00:00.000Z',
+      scheduledEndsAt: '2026-09-12T11:00:00.000Z',
+    });
+
+    const sameDayStarts = result.slots
+      .filter((slot) => slot.startsAt.startsWith('2026-09-12'))
+      .map((slot) => slot.startsAt);
+    expect(sameDayStarts).not.toContain('2026-09-12T10:30:00.000Z');
+    expect(sameDayStarts).not.toContain('2026-09-12T11:00:00.000Z');
+    expect(sameDayStarts).not.toContain('2026-09-12T11:30:00.000Z');
+    expect(sameDayStarts).not.toContain('2026-09-12T12:00:00.000Z');
+    expect(sameDayStarts[0]).toBe('2026-09-12T12:30:00.000Z');
+    expect(sameDayStarts.at(-1)).toBe('2026-09-12T18:00:00.000Z');
+    expect(sameDayStarts).toHaveLength(12);
+    expect(result.slots[sameDayStarts.length]).toEqual({
+      startsAt: '2026-09-14T10:00:00.000Z',
+      endsAt: '2026-09-14T11:00:00.000Z',
+    });
+  });
+
   it('retains candidates regardless of Customer contact frequency', async () => {
     const tx = {
       getAssignee: vi.fn().mockResolvedValue({
