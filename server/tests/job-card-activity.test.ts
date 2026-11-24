@@ -425,6 +425,70 @@ describe('safe JobCard activity presenter', () => {
     });
   });
 
+  it('keeps the other assignment offer facts as plain facts', () => {
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_OFFER_OPENED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'SCHEDULE_CONFLICT', reasonText: 'x' },
+    })).details).toEqual({ kind: 'NONE' });
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_OFFER_WITHDRAWN', {
+      metadata: { offerId: 'offer-1', reasonCode: 'RESCHEDULED', reasonText: 'x' },
+    })).details).toEqual({ kind: 'NONE' });
+  });
+
+  it.each([
+    ['JOB_ASSIGNMENT_DECLINED', 'DECLINED'],
+    ['JOB_ASSIGNMENT_RELEASED', 'RELEASED'],
+  ] as const)('projects %s with the assignee reason code and text', (eventType, decision) => {
+    const result = presentActivity(baseRecord(eventType, {
+      metadata: {
+        offerId: 'offer-1',
+        reasonCode: 'SCHEDULE_CONFLICT',
+        reasonText: '  Onumuzdeki haftaya ziyaret saglanacak  ',
+      },
+    }));
+    expect(result.details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision,
+      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonText: 'Onumuzdeki haftaya ziyaret saglanacak',
+    });
+    // The offer id and any other metadata stay server-side.
+    expect(JSON.stringify(result)).not.toMatch(/offer-1|metadata/);
+  });
+
+  it.each([
+    ['an unknown reason code', { offerId: 'offer-1', reasonCode: 'NOT_A_CODE', reasonText: 'Depo eksik.' }, 'Depo eksik.'],
+    ['a missing reason code', { offerId: 'offer-1', reasonText: 'Depo eksik.' }, 'Depo eksik.'],
+    ['a non-string reason code', { offerId: 'offer-1', reasonCode: 42, reasonText: 'Depo eksik.' }, 'Depo eksik.'],
+    ['a non-object metadata', null, null],
+  ] as const)('projects a null reason code for %s', (_label, metadata, reasonText) => {
+    // Each member is parsed on its own: a bad code never discards usable text.
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_DECLINED', { metadata })).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'DECLINED',
+      reasonCode: null,
+      reasonText,
+    });
+  });
+
+  it('projects a valid code with no usable text as a null reason text', () => {
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_RELEASED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'ON_LEAVE', reasonText: '   ' },
+    })).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'RELEASED',
+      reasonCode: 'ON_LEAVE',
+      reasonText: null,
+    });
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_RELEASED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'ON_LEAVE', reasonText: 7 },
+    })).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'RELEASED',
+      reasonCode: 'ON_LEAVE',
+      reasonText: null,
+    });
+  });
+
   it.each([
     ['JOB_STARTED', { status: 'UNKNOWN' }, { status: 'IN_PROGRESS' }, null],
     ['JOB_ASSIGNED', { assignedTo: 4 }, { assignedTo: 'staff-2' }, null],

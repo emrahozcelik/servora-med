@@ -532,6 +532,9 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         openedAt: offer.opened_at.toISOString(),
         urgentReason: null,
         assignee: { id: staffId, name: 'Saha Personeli' },
+        closedAt: null,
+        closeReason: null,
+        closeText: null,
       });
       expect(offeredDetail.workflowContext.allowedCommands).toContain('ACCEPT_ASSIGNMENT');
       expect(offeredDetail.workflowContext.allowedCommands).toContain('DECLINE_ASSIGNMENT');
@@ -695,6 +698,15 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
       expect(item).toMatchObject({
         offerId,
         state: 'DECLINED',
+        closeReason: 'SCHEDULE_CONFLICT',
+        closeText: 'Aynı saatte başka bir klinik teslimi var.',
+      });
+
+      // The job detail management reads carries the same close fact.
+      expect((await service.detail(manager, job.id)).assignmentOffer).toMatchObject({
+        id: offerId,
+        state: 'DECLINED',
+        closedAt: reservedAt.toISOString(),
         closeReason: 'SCHEDULE_CONFLICT',
         closeText: 'Aynı saatte başka bir klinik teslimi var.',
       });
@@ -888,6 +900,16 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
       expect(releasedActivity[0]!.metadata).toMatchObject({
         offerId,
         reasonCode: 'MISSING_STOCK_OR_EQUIPMENT',
+      });
+
+      // The job detail management reads carries the release close fact.
+      expect((await service.detail(actor(managerId, organizationId, 'MANAGER'), job.id))
+        .assignmentOffer).toMatchObject({
+        id: offerId,
+        state: 'RELEASED',
+        closedAt: reservedAt.toISOString(),
+        closeReason: 'MISSING_STOCK_OR_EQUIPMENT',
+        closeText: 'Teslim edilecek implant seti depoda yok.',
       });
 
       const managementNotified = (await selectNotifications(pool, organizationId, job.id))

@@ -1540,12 +1540,17 @@ export class JobCardService {
       urgentReason: JobAssignmentOfferUrgentReason | null;
       assigneeId: string;
       assigneeName: string | null;
+      closedAt: Date | null;
+      closeReason: string | null;
+      closeText: string | null;
     } | null | undefined,
     evaluatedAt: Date,
   ): JobAssignmentOfferView | null {
     if (offer === null || offer === undefined) return null;
     const expired = offer.state === 'OPEN'
       && evaluatedAt.valueOf() >= offer.acceptanceDueAt.valueOf();
+    // A read-time EXPIRED offer is not persisted as closed, so it carries no
+    // close fact even when a stale row would.
     return {
       id: offer.id,
       state: expired ? 'EXPIRED' : offer.state,
@@ -1553,6 +1558,9 @@ export class JobCardService {
       openedAt: offer.openedAt.toISOString(),
       urgentReason: offer.urgentReason,
       assignee: { id: offer.assigneeId, name: offer.assigneeName },
+      closedAt: expired || offer.closedAt === null ? null : offer.closedAt.toISOString(),
+      closeReason: expired ? null : offer.closeReason,
+      closeText: expired ? null : offer.closeText,
     };
   }
 
