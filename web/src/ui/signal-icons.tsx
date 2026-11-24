@@ -9,7 +9,7 @@ import type {
 } from '../jobs/jobs-api';
 
 /**
- * Decorative inline SVG signal and workflow icons (DECISIONS.md UI-004).
+ * Decorative inline SVG signal and workflow icons (DESIGN.md Two-Channel Rule).
  *
  * All icons are purely geometric paths (`aria-hidden`, `focusable="false"`) so
  * the visible Turkish text always remains the accessible label and test DOM

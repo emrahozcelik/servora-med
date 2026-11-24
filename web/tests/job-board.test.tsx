@@ -277,7 +277,7 @@ describe('read-only JobCard board', () => {
     expect(card.textContent).not.toContain('3 aşama tamamlandı');
   });
 
-  it('renders follow-up badge and server-owned overdue signal on board cards without fabricating lateness', () => {
+  it('keeps board cards free of the follow-up chain badge and list-only lateness signal', () => {
     const followUpOverdue: JobCardListItem = {
       ...baseItem,
       id: 'job-followup-late',
@@ -307,11 +307,14 @@ describe('read-only JobCard board', () => {
       <MemoryRouter><JobBoard board={signalBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
     );
 
+    // The engagement kind is already the card's type label ("Takip görüşmesi");
+    // the "Takip" badge means follow-up continuity, which list items do not
+    // carry. Lateness is evaluated only on the list-only overdue view.
     const lateCard = host.querySelector<HTMLElement>('[data-board-card="job-followup-late"]')!;
-    expect(lateCard.querySelector('.job-board-signals')).not.toBeNull();
-    expect(lateCard.querySelector('.follow-up-badge')?.textContent).toContain('Takip');
-    expect(lateCard.querySelector('.job-overdue-signal')?.textContent).toContain('2 saat gecikti');
-    expect(lateCard.querySelector('.job-overdue-signal-icon')).not.toBeNull();
+    expect(lateCard.querySelector('.job-board-type')?.textContent).toBe('Takip görüşmesi');
+    expect(lateCard.querySelector('.job-board-type .job-type-icon')).not.toBeNull();
+    expect(lateCard.querySelector('.follow-up-badge')).toBeNull();
+    expect(lateCard.querySelector('.job-overdue-signal')).toBeNull();
 
     const onTimeCard = host.querySelector<HTMLElement>('[data-board-card="job-zero-late"]')!;
     expect(onTimeCard.querySelector('.follow-up-badge')).toBeNull();
