@@ -15,6 +15,7 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
 import { isDefinitiveMutationError } from './mutation-attempt-error';
+import { isoInstantToLocalDateTime } from './scheduling';
 
 const unsuccessfulReasonLabels: Record<UnsuccessfulVisitReasonCode, string> = {
   CONTACT_NOT_AVAILABLE: 'İlgili kişi mevcut değil',
@@ -297,15 +298,25 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       <div className="field-group"><label htmlFor="meeting-actual-at">
         Gerçekleşme zamanı{meetingOptional ? ' (isteğe bağlı)' : ''}
       </label>
-        <input id="meeting-actual-at" type="datetime-local" value={meetingAt}
-          required={!meetingOptional}
-          aria-invalid={fieldErrors.meetingAt ? true : undefined}
-          aria-describedby={describedBy(
-            'meeting-timezone-help',
-            meetingOptional && 'meeting-time-optional-help',
-            fieldErrors.meetingAt && 'meeting-actual-at-error',
-          )}
-          onChange={(event) => setMeetingAt(event.target.value)} />
+        <div className="meeting-actual-at-row">
+          <input id="meeting-actual-at" type="datetime-local" value={meetingAt}
+            required={!meetingOptional}
+            aria-invalid={fieldErrors.meetingAt ? true : undefined}
+            aria-describedby={describedBy(
+              'meeting-timezone-help',
+              meetingOptional && 'meeting-time-optional-help',
+              fieldErrors.meetingAt && 'meeting-actual-at-error',
+            )}
+            onChange={(event) => setMeetingAt(event.target.value)} />
+          <button
+            className="secondary-button compact-button"
+            type="button"
+            disabled={mutationPending || ambiguous}
+            onClick={() => setMeetingAt(isoInstantToLocalDateTime(new Date().toISOString()))}
+          >
+            Şimdi
+          </button>
+        </div>
         <span id="meeting-timezone-help" className="field-status">Saat dilimi: {timezoneLabel()}</span>
         {meetingOptional && <span id="meeting-time-optional-help" className="field-status">
           Görüşme gerçekleşmediyse bu alanı boş bırakabilirsiniz.

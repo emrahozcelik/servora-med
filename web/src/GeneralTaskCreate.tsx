@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type SyntheticEvent } from 'react';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
-import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
+import { localDateTimeToIso } from './jobs/scheduling';
+import { ScheduleQuickControls } from './jobs/ScheduleQuickControls';
 import { ApiError, type CurrentUser } from './services/api';
 import {
   listContacts,
@@ -41,9 +42,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<JobCardPriority>('normal');
-  const [scheduledLocal, setScheduledLocal] = useState(
-    () => defaultScheduledLocalValue(new Date()),
-  );
+  const [scheduledLocal, setScheduledLocal] = useState('');
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<LoadState>(user.role === 'STAFF' ? 'ready' : 'loading');
@@ -229,7 +228,12 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
 
               <div className="field-group"><label htmlFor="task-scheduled-at">Planlanan zaman (isteğe bağlı)</label>
                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
-                  onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+                  onChange={(event) => setScheduledLocal(event.target.value)} />
+                <ScheduleQuickControls
+                  value={scheduledLocal}
+                  disabled={pending || ambiguous}
+                  onSelect={setScheduledLocal}
+                /></div>
           </div>
         </section>
         <details className="task-optional job-create-optional">

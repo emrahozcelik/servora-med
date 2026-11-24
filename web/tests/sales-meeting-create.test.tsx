@@ -42,7 +42,9 @@ vi.mock('../src/services/crm-api', async (original) => ({
 vi.mock('../src/services/people-api', async (original) => ({
   ...await original<typeof import('../src/services/people-api')>(), ...people,
 }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (original) => ({
+  ...await original<typeof import('../src/jobs/scheduling')>(), ...scheduling,
+}));
 vi.mock('../src/jobs/useCustomerSchedulePreview', () => preview);
 
 const manager: CurrentUser = {
@@ -456,5 +458,87 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(titles).not.toContain('Snapshot Klinik');
     expect(customerOptionTitles().filter((title) => title.includes('Canonical Klinik'))).toHaveLength(1);
     expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Canonical refresh taslağı');
+  });
+
+  it('triggers available-slot search before engagementKind is chosen and gates customer preview for STAFF', async () => {
+    await render(staffUser);
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
+    expect(preview.useCustomerSchedulePreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await flush();
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-1',
+    }));
+  });
+
+  it('auto-fills active responsible staff on customer pick without overwriting manual selection or wiping on null', async () => {
+    const profile1 = {
+      ...profile,
+      id: 'profile-1',
+      user: { ...profile.user, id: 'staff-1', name: 'Ayşe Personel' },
+    };
+    const staffPromise = deferred<typeof profile[]>();
+    people.listStaff.mockReturnValueOnce(staffPromise.promise);
+    const assignedCustomer = {
+      ...customer,
+      id: 'customer-assigned',
+      name: 'Atamalı Klinik',
+      assignedStaffUserId: 'staff-1',
+      assignedStaffName: 'Ayşe Personel',
+    };
+    crm.listCustomers.mockResolvedValue({
+      items: [assignedCustomer, customer], total: 2, limit: 20, offset: 0,
+    });
+
+    await render(manager);
+    // Customer picked before active staff resolves: resolves async once staff arrives
+    await pickCustomerByName(host, 'meeting-customer', 'Atamalı Klinik');
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('');
+    await act(async () => staffPromise.resolve([profile1, profile]));
+    await flush();
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('staff-1');
+
+    // Switching to a customer with assignedStaffUserId === null does not wipe existing assignee
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('staff-1');
+
+    // Manual selection is never overwritten by a later customer pick
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await pickCustomerByName(host, 'meeting-customer', 'Atamalı Klinik');
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('staff-2');
+  });
+
+  it('renders quick schedule controls (60 dk preview, advisory hints) and shifts past start to future from acknowledgement drawer', async () => {
+    jobs.createJobCard.mockRejectedValueOnce(
+      new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç saati geçti.'),
+    );
+    await render(manager);
+    expect(host.querySelector('.schedule-duration-preview')?.textContent).toContain('(60 dk)');
+    const quickChip = host.querySelector('.schedule-quick-chip') as HTMLButtonElement;
+    expect(quickChip).not.toBeNull();
+    await act(async () => quickChip.click());
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).not.toBe('');
+
+    // Non-blocking Sunday advisory hint
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-07-19T10:00');
+    const hints = Array.from(host.querySelectorAll('.schedule-advisory-hint[role="status"]'))
+      .map((el) => el.textContent);
+    expect(hints.some((t) => t?.includes('Pazar günü çalışma günü dışıdır'))).toBe(true);
+
+    // 409 opens drawer with shift-to-future shortcut
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await fillAndSubmit();
+    await flush();
+    expect(host.querySelector('form.past-start-acknowledgement-form')).not.toBeNull();
+
+    scheduling.defaultScheduledLocalValue.mockReturnValueOnce('2026-08-15T11:00');
+    const shiftBtn = Array.from(host.querySelectorAll('form.past-start-acknowledgement-form button'))
+      .find((b) => b.textContent === 'Saati şimdiye / geleceğe al') as HTMLButtonElement;
+    expect(shiftBtn).toBeTruthy();
+    await act(async () => shiftBtn.click());
+    expect(host.querySelector('form.past-start-acknowledgement-form')).toBeNull();
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-15T11:00');
   });
 });

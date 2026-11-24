@@ -42,7 +42,9 @@ vi.mock('../src/services/crm-api', async (original) => ({
 vi.mock('../src/services/products-api', async (original) => ({
   ...await original<typeof import('../src/services/products-api')>(), ...products,
 }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (original) => ({
+  ...await original<typeof import('../src/jobs/scheduling')>(), ...scheduling,
+}));
 
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
@@ -824,6 +826,45 @@ describe('Follow-up create page', () => {
     await setDraft('a'.repeat(3_900));
     expect(host.querySelector('[data-follow-up-instructions-counter]')!.getAttribute('data-counter-state'))
       .toBe('attention');
+  });
+
+  it('preserves user-edited scheduledLocal on same-source reload and supports quick controls + shift-to-future', async () => {
+    await render();
+    expect(host.textContent).toContain('Zamanı belirleyin ve personelin uygun saatlerini gözden geçirin.');
+    expect(host.textContent).not.toContain('müşteri-personel ortak uygunluğunu');
+    expect(host.querySelector('.schedule-duration-preview')?.textContent).toContain('(60 dk)');
+
+    change(host.querySelector('#follow-up-scheduled-at') as HTMLInputElement, '2026-08-01T13:16');
+    const admin = { ...manager, role: 'ADMIN' as const };
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={admin}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T13:16');
+
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    expect(host.querySelector('.schedule-duration-preview')?.textContent).toContain('(30 dk)');
+
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'GENERAL_TASK');
+    expect(host.querySelector('.schedule-duration-preview')).toBeNull();
+
+    // Shift to future from past-start acknowledgement drawer
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'SALES_MEETING');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Takip kapsamı');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    jobs.createFollowUp.mockRejectedValueOnce(
+      new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç saati geçti.'),
+    );
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(host.querySelector('form.past-start-acknowledgement-form')).not.toBeNull();
+
+    scheduling.defaultScheduledLocalValue.mockReturnValueOnce('2026-08-18T10:30');
+    const shiftBtn = Array.from(host.querySelectorAll('form.past-start-acknowledgement-form button'))
+      .find((b) => b.textContent === 'Saati şimdiye / geleceğe al') as HTMLButtonElement;
+    expect(shiftBtn).toBeTruthy();
+    await act(async () => shiftBtn.click());
+    expect(host.querySelector('form.past-start-acknowledgement-form')).toBeNull();
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value).toBe('2026-08-18T10:30');
   });
 });
 

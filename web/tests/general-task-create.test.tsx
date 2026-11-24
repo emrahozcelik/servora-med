@@ -48,7 +48,9 @@ vi.mock('../src/services/people-api', async (original) => ({
 vi.mock('../src/services/crm-api', async (original) => ({
   ...await original<typeof import('../src/services/crm-api')>(), ...crm,
 }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (original) => ({
+  ...await original<typeof import('../src/jobs/scheduling')>(), ...scheduling,
+}));
 
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
@@ -125,15 +127,16 @@ describe('General Task quick create', () => {
     return act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
   }
 
-  it('keeps Staff ownership fixed and submits the prefilled planned time', async () => {
+  it('keeps Staff ownership fixed and starts with an empty planned time until explicitly set', async () => {
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     expect(people.listStaff).not.toHaveBeenCalled();
     expect(container.textContent).toContain('Ayşe Personel');
     expect(container.querySelector('#task-assignee')).toBeNull();
-    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
-    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-07-17T14:30');
+    expect(scheduling.defaultScheduledLocalValue).not.toHaveBeenCalled();
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('');
     change(container.querySelector('#task-title') as HTMLInputElement, '  Doktoru ara  ');
     change(container.querySelector('#task-description') as HTMLTextAreaElement, '  Randevu durumunu sor  ');
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-17T14:30');
 
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
 
@@ -146,12 +149,21 @@ describe('General Task quick create', () => {
     expect(onCreated).toHaveBeenCalledWith('job-task-1');
   });
 
-  it('allows clearing the prefilled planned time and submits scheduledAt null', async () => {
+  it('submits scheduledAt null by default and supports quick schedule chips', async () => {
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     change(container.querySelector('#task-title') as HTMLInputElement, 'Takip et');
-    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+      scheduledAt: null, dueDate: null,
+    }));
+
+    const quickChip = container.querySelector('.schedule-quick-chip') as HTMLButtonElement;
+    expect(quickChip).not.toBeNull();
+    await act(async () => quickChip.click());
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).not.toBe('');
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: null, dueDate: null,
     }));
   });
@@ -168,7 +180,7 @@ describe('General Task quick create', () => {
     await act(async () => (container.querySelector('[data-retry-staff]') as HTMLButtonElement).click());
     await settle();
     expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T08:30');
-    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
+    expect(scheduling.defaultScheduledLocalValue).not.toHaveBeenCalled();
   });
 
   it('uses the existing design-system border token for optional fields', () => {
@@ -276,9 +288,9 @@ describe('General Task quick create', () => {
     ));
     const disclosure = container.querySelector('details.task-optional')!;
     expect(disclosure.querySelector('summary')?.textContent).toContain('Müşteri ve öncelik');
-    // A default scheduling value must be discoverable without opening optional fields.
+    // The optional scheduling field starts empty outside the optional disclosure.
     expect(container.querySelector('#task-scheduled-at')?.closest('details')).toBeNull();
-    expect(container.querySelector<HTMLInputElement>('#task-scheduled-at')?.value).toBe('2026-07-17T14:30');
+    expect(container.querySelector<HTMLInputElement>('#task-scheduled-at')?.value).toBe('');
     for (const label of ['Başlık', 'Açıklama (isteğe bağlı)', 'Öncelik', 'Planlanan zaman (isteğe bağlı)',
       'Müşteri (isteğe bağlı)', 'İlgili kişi (isteğe bağlı)']) {
       expect(container.textContent).toContain(label);

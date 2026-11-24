@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailScreen } from '../src/JobDetail';
 import type { JobCard, JobLifecycleFacts, JobWorkflowContext } from '../src/jobs/jobs-api';
-import { defaultCorrectionDueLocalValue, localDateTimeToIso } from '../src/jobs/scheduling';
+import { addMinutesLocal, defaultCorrectionDueLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 import { workflowContext } from './fixtures/job-workflow';
 
@@ -259,5 +259,41 @@ describe('OVR-5 revision correction deadline dialog', () => {
     await render(harness);
     expect(host.textContent).toContain('Düzeltme son tarihi');
     expect(host.querySelector('time[datetime="2026-11-24T10:00:00.000Z"]')).not.toBeNull();
+  });
+
+  it('applies quick deadline chips (+24 saat, +3 gün, +7 gün) to the correction deadline input', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-18T10:00:00.000Z'));
+      const harness = makeFetch({ card: jobCard() });
+      await render(harness);
+      await openRevisionDialog();
+
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      const chips = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.schedule-quick-chip'));
+      expect(chips.map((c) => c.textContent)).toEqual(['+24 saat', '+3 gün', '+7 gün']);
+
+      await act(async () => {
+        chips[1]!.click();
+        await Promise.resolve();
+      });
+      const expected3Days = addMinutesLocal(
+        isoInstantToLocalDateTime('2026-11-18T10:00:00.000Z'),
+        3 * 24 * 60,
+      );
+      expect(dialog.querySelector<HTMLInputElement>('#revision-correction-due-at')?.value).toBe(expected3Days);
+
+      typeReason(dialog, '3 gün içinde düzeltin.');
+      await act(async () => {
+        buttonByName(dialog, 'Düzeltme için geri gönder')!.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(harness.requestBodies[0]).toMatchObject({
+        correctionDueAt: localDateTimeToIso(expected3Days),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -6,6 +6,13 @@
 import { plannedIntervalShape } from './job-schedule-integrity';
 import type { JobCardType } from './jobs-api';
 
+export const CANONICAL_DURATION_MINUTES: Readonly<Partial<Record<JobCardType, number>>> = {
+  SALES_MEETING: 60,
+  PRODUCT_DELIVERY: 30,
+};
+
+const LOCAL_DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+
 function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
@@ -133,6 +140,101 @@ export function shiftInterval(
   return [newStartLocal, format(shiftedEnd)];
 }
 
+function parseLocalDateTime(value: string): Date | null {
+  const match = LOCAL_DATETIME_RE.exec(value.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const hours = Number(match[4]);
+  const minutes = Number(match[5]);
+  const seconds = match[6] ? Number(match[6]) : 0;
+  const date = new Date(year, monthIndex, day, hours, minutes, seconds, 0);
+  if (
+    Number.isNaN(date.getTime())
+    || date.getFullYear() !== year
+    || date.getMonth() !== monthIndex
+    || date.getDate() !== day
+    || date.getHours() !== hours
+    || date.getMinutes() !== minutes
+  ) {
+    return null;
+  }
+  return date;
+}
+
+/** Format a live canonical planned interval preview as `HH:mm – HH:mm (N dk)`. */
+export function formatPlannedDurationPreview(
+  localStart: string,
+  durationMinutes: number,
+): string | null {
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return null;
+  const parsed = parseLocalDateTime(localStart);
+  if (!parsed) return null;
+  const canonicalStart = formatLocalDateTime(parsed);
+  const endLocal = addMinutesLocal(canonicalStart, durationMinutes);
+  return `${canonicalStart.slice(11, 16)} – ${endLocal.slice(11, 16)} (${durationMinutes} dk)`;
+}
+
+/** True when a device-local datetime string falls on a local Sunday. */
+export function isLocalSunday(localValue: string): boolean {
+  const date = parseLocalDateTime(localValue);
+  return date !== null && date.getDay() === 0;
+}
+
+/** True when a device-local datetime string is strictly before `now`. */
+export function isLocalPast(localValue: string, now = new Date()): boolean {
+  const date = parseLocalDateTime(localValue);
+  return date !== null && date.getTime() < now.getTime();
+}
+
+/** Sunday-skipping quick schedule presets for create/follow-up forms. */
+export function buildQuickSchedulePresets(
+  now = new Date(),
+): Array<{ label: string; value: string }> {
+  const presets: Array<{ label: string; value: string }> = [];
+  const seen = new Set<string>();
+  const push = (label: string, value: string) => {
+    if (seen.has(value)) return;
+    seen.add(value);
+    presets.push({ label, value });
+  };
+
+  if (now.getDay() !== 0) {
+    const plusOne = defaultScheduledLocalValue(now);
+    if (!isLocalSunday(plusOne)) {
+      push('Bugün +1s', plusOne);
+    }
+  }
+
+  const nextWorkday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  let nextWorkdayPrefix = 'Yarın';
+  if (nextWorkday.getDay() === 0) {
+    nextWorkday.setDate(nextWorkday.getDate() + 1);
+    nextWorkdayPrefix = 'Pazartesi';
+  }
+  push(
+    `${nextWorkdayPrefix} 10:00`,
+    formatLocalDateTime(new Date(
+      nextWorkday.getFullYear(), nextWorkday.getMonth(), nextWorkday.getDate(), 10, 0, 0, 0,
+    )),
+  );
+  push(
+    `${nextWorkdayPrefix} 14:00`,
+    formatLocalDateTime(new Date(
+      nextWorkday.getFullYear(), nextWorkday.getMonth(), nextWorkday.getDate(), 14, 0, 0, 0,
+    )),
+  );
+
+  const daysUntilNextMonday = ((1 - now.getDay() + 7) % 7) || 7;
+  const nextMonday = new Date(
+    now.getFullYear(), now.getMonth(), now.getDate() + daysUntilNextMonday, 9, 0, 0, 0,
+  );
+  push('Pazartesi 09:00', formatLocalDateTime(nextMonday));
+
+  return presets;
+}
+
 export type CardScheduleFact = {
   label: string;
   text: string;
@@ -195,16 +297,24 @@ export function cardScheduleFact(job: {
   });
   if (job.scheduledAt) {
     const scheduled = new Date(job.scheduledAt);
+    const endsAt = job.scheduledEndsAt ? new Date(job.scheduledEndsAt) : null;
+    const endSuffix = endsAt !== null
+      && !Number.isNaN(scheduled.getTime())
+      && !Number.isNaN(endsAt.getTime())
+      && endsAt.getTime() > scheduled.getTime()
+      && sameLocalCalendarDay(scheduled, endsAt)
+      ? `–${formatLocalTime(job.scheduledEndsAt!)}`
+      : '';
     if (job.type !== 'SALES_MEETING' && !Number.isNaN(scheduled.getTime())
       && sameLocalCalendarDay(scheduled, now)) {
-      return fact('Bugün', formatLocalTime(job.scheduledAt), job.scheduledAt);
+      return fact('Bugün', `${formatLocalTime(job.scheduledAt)}${endSuffix}`, job.scheduledAt);
     }
     const label = job.type === 'SALES_MEETING'
       ? 'Planlanan görüşme'
       : job.type === 'PRODUCT_DELIVERY'
         ? 'Planlanan teslim'
         : 'Planlanan zaman';
-    return fact(label, formatCardDateTime(job.scheduledAt), job.scheduledAt);
+    return fact(label, `${formatCardDateTime(job.scheduledAt)}${endSuffix}`, job.scheduledAt);
   }
   // Historical fallback only — new SM/PD writes use scheduledAt.
   if (job.type === 'SALES_MEETING') {
