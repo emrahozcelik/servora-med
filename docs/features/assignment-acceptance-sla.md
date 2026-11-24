@@ -605,13 +605,62 @@ request). The web parser stays strict.
 - Assigned Staff: action "Düzenleme / sonlandırma önerisi gönder" on job
   detail (dialog: reason select with Turkish labels + mandatory text), then a
   status line "Öneriniz yöneticide" with the reason.
-- Management: on job detail, the open request with actions "Düzeltildi",
-  "Yeniden planlandı", "Bağlı yeni iş oluşturuldu" (job id input), "Reddet"
-  (note required) and a pointer to the existing cancel command; on the
-  overview, a section "Personel önerileri" (open list), placed next to the
-  open-late section.
+- Management: on job detail, the open request as a guidance panel (see
+  "Management guidance for an open request" below); on the overview, a
+  section "Personel önerileri" (open list), placed next to the open-late
+  section.
 - New notification kinds and activity events get Turkish copy; loading,
   success and error states everywhere.
+
+### Management guidance for an open request
+
+Owner feedback (2026-11-24): the first panel offered record-only resolutions
+("Düzeltildi", "Yeniden planlandı") as one-click buttons beside the real
+commands, so a manager could believe a button rescheduled or corrected the job
+and feared an irreversible click. The resolve endpoint is unchanged; it still
+only records the resolution. The panel is reorganized in the web client only;
+the server contract, vocabulary and permissions are unchanged.
+
+1. **Headline and facts.** "<Staff name> bu iş için değişiklik istiyor", then
+   "Neden" (reason label), "Personelin açıklaması" (the text) and "Gönderim".
+2. **"Ne yapabilirsiniz" — real actions first.** Buttons that run an existing
+   command or open an existing editor, never a record-only resolution:
+   - "Yeni zaman belirle": focuses the planned-time editor (as in the declined
+     offer guidance). Shown when the planned time is editable.
+   - "Sorumlu personeli değiştir": opens the existing reassignment form.
+   - "İşi iptal et": opens the existing cancel command dialog. Shown only when
+     `CANCEL` is in `allowedCommands`; cancelling closes the request as
+     `CANCELLED` (existing server rule).
+   The order follows the reason: `CUSTOMER_POSTPONED`, `CUSTOMER_ABSENT` and
+   `VISIT_NOT_POSSIBLE` put "Yeni zaman belirle" first; `CUSTOMER_CHANGED_MIND`
+   puts "İşi iptal et" first; `OTHER`, `WRONG_PRODUCT` and
+   `MISSING_STOCK_OR_EQUIPMENT` put "Sorumlu personeli değiştir" first. Only the
+   first action is primary.
+3. **Saving a new planned time closes the request.** While a request is open,
+   the planned-time editor shows a checked option "Personel önerisini
+   'Yeniden planlandı' olarak kapat" and sends the existing PATCH
+   `changeRequestResolution: { changeRequestId, resolution: 'RESCHEDULED' }`
+   (OVR-5b §4.11), so the reschedule and the closure are one transaction.
+   Unchecking it leaves the request open.
+4. **"Öneriyi kapat" — record-only closures, separated and confirmed.** A
+   secondary group below the actions, introduced by "Bu seçenekler işi
+   değiştirmez; yalnızca öneriyi kapatır ve personele bildirim gider.":
+   - "Gerekli düzeltmeyi yaptım" → `CORRECTED`
+   - "Zamanı değiştirdim" → `RESCHEDULED`
+   - "Yerine yeni iş açtım" → `LINKED_JOB_CREATED`; the job is chosen from the
+     same customer's other jobs (existing job list filtered by `customerId`,
+     this job excluded), never typed as an id. Without a customer the option
+     is not shown.
+   - "Öneriyi reddet" → `REJECTED` (note required, unchanged).
+   Every closure opens a confirmation that names the outcome and states:
+   "Öneri kapatılır ve geri açılamaz. Personel gerekirse yeni bir öneri
+   gönderebilir." The history label of each resolution is unchanged.
+5. **After a real action.** When the job is reassigned while the request is
+   still open, the panel says "Sorumlu personel değişti; öneriyi kapatmayı
+   unutmayın." and keeps the closures available.
+6. States: loading/success/error on every command; `CHANGE_REQUEST_NOT_OPEN`
+   refreshes the card and explains that the request was already closed.
+   Mobile: the actions stack in the documented order, 44px targets.
 
 ### Ownership for parallel work
 
