@@ -3318,6 +3318,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   padding: 0;
 }
 .delivery-lines h2 { margin: 0 0 0.85rem; font-size: 1.125rem; font-weight: 720; }
+.delivery-bulk-action {
+  margin-bottom: 0.9rem;
+}
 .delivery-lines > ul,
 .delivery-lines-list {
   padding: 0;
@@ -3458,6 +3461,60 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .job-schedule-edit .review-buttons {
   margin-top: 1rem;
+}
+.schedule-quick-controls {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  min-width: 0;
+}
+.schedule-quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.schedule-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-chip);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 620;
+  line-height: 1.25;
+}
+.schedule-quick-chip:hover:not(:disabled) {
+  border-color: var(--border-control-hover);
+  background: var(--surface-hover);
+}
+.schedule-quick-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+.schedule-duration-preview {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+.schedule-advisory-hint {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+  background: var(--warning-wash);
+  color: var(--warning);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 .compact-workflow {
   display: grid;
@@ -3915,6 +3972,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-weight: 650;
 }
 .field-status { margin-top: 0.15rem; color: var(--muted); font-size: 0.85rem; }
+.location-capture-status {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  color: var(--info);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
 .similar-customers { margin: 1.5rem 0; padding-block: 1rem; border-block: 1px solid var(--rule); background: var(--canvas); }
 .similar-customers h2 { margin: 0; font-size: 1rem; }
 .similar-customers p { max-width: 65ch; margin: 0.45rem 0; color: var(--muted); font-size: 0.875rem; }
@@ -4194,6 +4262,7 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .detail-heading { align-items: flex-start; }
   .meeting-details .detail-summary { grid-template-columns: 1fr; }
   .delivery-lines > ul > li { grid-template-columns: 1fr; gap: 0.9rem; }
+  .delivery-bulk-action { width: 100%; min-height: var(--control-height); }
   .delivery-line-item { grid-template-columns: 1fr; gap: 0.9rem; }
   .delivery-lines dl { grid-template-columns: 1fr 1fr; }
   .delivery-line-facts { grid-template-columns: 1fr 1fr; }

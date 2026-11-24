@@ -105,12 +105,14 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
   const [done, setDone] = useState(false);
   const [ackOpen, setAckOpen] = useState(false);
   const [ackPending, setAckPending] = useState(false);
+  const [ackError, setAckError] = useState('');
   const reofferTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setError('');
     setDone(false);
     setAckOpen(false);
+    setAckError('');
   }, [job.id, job.version, offer?.id]);
 
   if (offer === null) return null;
@@ -125,6 +127,7 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
   async function sendReoffer(acknowledgement?: PastStartAcknowledgement): Promise<boolean> {
     setPending(true);
     setError('');
+    if (acknowledgement !== undefined) setAckError('');
     try {
       await reofferAssignment(job.id, {
         clientActionId: crypto.randomUUID(),
@@ -133,14 +136,21 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
       });
       setDone(true);
       setAckOpen(false);
+      setAckError('');
       onChanged?.();
       return true;
     } catch (caught) {
       if (acknowledgement === undefined && isPastStartAcknowledgementRequired(caught)) {
+        setAckError('');
         setAckOpen(true);
         return false;
       }
-      setError(assignmentWindowErrorMessage(caught, 'Yeniden atama teklifi açılamadı.'));
+      const message = assignmentWindowErrorMessage(caught, 'Yeniden atama teklifi açılamadı.');
+      if (acknowledgement !== undefined) {
+        setAckError(message);
+      } else {
+        setError(message);
+      }
       return false;
     } finally {
       setPending(false);
@@ -149,12 +159,9 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
 
   async function confirmAck(acknowledgement: PastStartAcknowledgement) {
     setAckPending(true);
+    setAckError('');
     try {
-      if (!(await sendReoffer(acknowledgement))) {
-        // Nothing was opened: the section shows the authoritative reason, so the
-        // drawer closes instead of repeating it behind the overlay.
-        setAckOpen(false);
-      }
+      await sendReoffer(acknowledgement);
     } finally {
       setAckPending(false);
     }
@@ -204,7 +211,7 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
             disabled={disabled || pending || done}
             aria-expanded={ackOpen}
             data-assignment-offer-action="reoffer"
-            onClick={() => { setError(''); void sendReoffer(); }}
+            onClick={() => { setError(''); setAckError(''); void sendReoffer(); }}
           >
             {pending && !ackOpen ? 'Kaydediliyor…' : 'Yeniden teklif et'}
           </button>
@@ -214,8 +221,14 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
         open={ackOpen}
         description="Planlanan başlangıç saati geçti. Yeni teklifi açmadan önce müşterinin güncel durumunu onaylayın."
         pending={ackPending}
+        error={ackError}
         returnFocusRef={reofferTriggerRef}
-        onDismiss={() => { if (!ackPending) setAckOpen(false); }}
+        onDismiss={() => {
+          if (!ackPending) {
+            setAckOpen(false);
+            setAckError('');
+          }
+        }}
         onConfirm={(acknowledgement) => { void confirmAck(acknowledgement); }}
       />
     </section>

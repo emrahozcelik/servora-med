@@ -249,6 +249,45 @@ describe('assignment offer detail surface', () => {
     expect(host.textContent).toContain('Planlanan zaman aralığı atama için çok kısa.');
     expect(host.querySelector('[data-past-start-acknowledgement="true"]')).toBeNull();
   });
+
+  it('keeps the acknowledgement drawer open with inline error when re-offer retry fails', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({
+        error: 'Başlangıç saati geçti.', code: 'PAST_START_ACKNOWLEDGEMENT_REQUIRED',
+      }, 409))
+      .mockResolvedValueOnce(json({
+        error: 'Aralık çok kısa.', code: 'ASSIGNMENT_WINDOW_TOO_SHORT',
+      }, 409));
+    vi.stubGlobal('fetch', fetchMock);
+    await renderSection(
+      jobCard({
+        status: 'NEW',
+        assignmentOffer: { ...offer, state: 'EXPIRED' },
+      }),
+      manager,
+    );
+
+    await act(async () => buttonByText(host, 'Yeniden teklif et')!.click());
+    await settle();
+    const form = host.querySelector('form.past-start-acknowledgement-form') as HTMLFormElement;
+    expect(form).not.toBeNull();
+
+    await act(async () => selectValue(
+      host.querySelector('#past-start-ack-code') as HTMLSelectElement,
+      'CUSTOMER_WAITING',
+    ));
+    await act(async () => setNativeValue(
+      host.querySelector('#past-start-ack-text') as HTMLTextAreaElement,
+      'Müşteri bekliyor.',
+    ));
+    await act(async () => form.requestSubmit());
+    await settle();
+    await settle();
+
+    const drawerForm = host.querySelector('form.past-start-acknowledgement-form');
+    expect(drawerForm).not.toBeNull();
+    expect(drawerForm?.textContent).toContain('Planlanan zaman aralığı atama için çok kısa.');
+  });
 });
 
 describe('assignment offer command buttons', () => {
@@ -615,5 +654,50 @@ describe('past-start acknowledgement retry on the schedule edit', () => {
     });
     expect(host.querySelector('[data-past-start-acknowledgement="true"]')).toBeNull();
     expect(host.textContent).toContain('Planlanan zaman güncellendi.');
+  });
+
+  it('keeps the acknowledgement drawer open with the error when schedule replay fails', async () => {
+    const card = jobCard({
+      workflowContext: {
+        ...workflowContext,
+        allowedCommands: ['CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES'],
+        lifecycle,
+      },
+    });
+    const fetchMock = mockFetch(card, [
+      json({ error: 'Başlangıç saati geçti.', code: 'PAST_START_ACKNOWLEDGEMENT_REQUIRED' }, 409),
+      json({ error: 'Aralık çok kısa.', code: 'ASSIGNMENT_WINDOW_TOO_SHORT' }, 409),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    await act(async () => {
+      root.render(<JobDetailScreen jobId={card.id} user={manager} onBack={() => {}} onChanged={() => {}} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const input = host.querySelector('#job-scheduled-at') as HTMLInputElement;
+    await act(async () => setNativeValue(input, '2026-11-21T15:30'));
+    await act(async () => buttonByText(host, 'Planlanan zamanı kaydet')!.click());
+    await settle();
+    await settle();
+
+    const form = host.querySelector('form.past-start-acknowledgement-form') as HTMLFormElement;
+    expect(form).not.toBeNull();
+    await act(async () => selectValue(
+      host.querySelector('#past-start-ack-code') as HTMLSelectElement,
+      'CUSTOMER_WAITING',
+    ));
+    await act(async () => setNativeValue(
+      host.querySelector('#past-start-ack-text') as HTMLTextAreaElement,
+      'Müşteri bekliyor.',
+    ));
+    await act(async () => form.requestSubmit());
+    await settle();
+    await settle();
+
+    const drawerForm = host.querySelector('form.past-start-acknowledgement-form');
+    expect(drawerForm).not.toBeNull();
+    expect(drawerForm?.textContent).toContain('Planlanan zaman aralığı atama için çok kısa.');
   });
 });
