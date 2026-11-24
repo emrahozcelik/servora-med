@@ -4641,6 +4641,12 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 .overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
 .overview-section .unaccepted-past-start-card [data-unaccepted-past-start-change-request] { margin-top: 0.45rem; }
 .overview-trend { margin-block: 1rem; }
+.overview-distribution-period {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
 .overview-distribution-list {
   display: grid;
   gap: 0.9rem;

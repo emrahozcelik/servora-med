@@ -292,6 +292,11 @@ describe('UI/UX Dilim 4 scheduling helpers', () => {
     ]);
     expect(sat.every((p) => !isLocalSunday(p.value))).toBe(true);
 
+    // Weekday late evening: +1h rolls into tomorrow, so "Bugün" is not offered.
+    const wedLate = buildQuickSchedulePresets(localDate('2026-07-15T23:20'));
+    expect(wedLate.map((p) => p.label)).not.toContain('Bugün +1s');
+    expect(wedLate[0]).toEqual({ label: 'Yarın 10:00', value: '2026-07-16T10:00' });
+
     // Saturday late night: Bugün +1s would land on Sunday 00:30, so omitted
     const satLate = buildQuickSchedulePresets(localDate('2026-07-18T23:20'));
     expect(satLate.map((p) => p.label)).not.toContain('Bugün +1s');

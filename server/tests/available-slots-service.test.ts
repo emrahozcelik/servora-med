@@ -84,6 +84,50 @@ describe('JobCardService.availableSlots', () => {
     expect(tx.listAssigneeCalendarIntervals).toHaveBeenCalledTimes(1);
   });
 
+  it('never advertises a slot at or before the request time for an already-past start', async () => {
+    const tx = {
+      getAssignee: vi.fn().mockResolvedValue({
+        id: input.assignedTo,
+        organizationId: actor.organizationId,
+        role: 'STAFF' as const,
+        isActive: true,
+      }),
+      customerExists: vi.fn().mockResolvedValue(true),
+      getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
+      listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
+      listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
+      listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+    const now = new Date('2026-08-17T15:10:00.000Z');
+
+    // Monday 09:00 requested at 15:10: the same-day window must start after now.
+    const result = await new JobCardService(
+      repository,
+      () => now,
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, {
+      ...input,
+      scheduledAt: '2026-08-17T09:00:00.000Z',
+      scheduledEndsAt: '2026-08-17T10:00:00.000Z',
+    });
+
+    expect(result.slots.length).toBeGreaterThan(0);
+    for (const slot of result.slots) {
+      expect(Date.parse(slot.startsAt), slot.startsAt).toBeGreaterThan(now.valueOf());
+    }
+    expect(result.slots[0]).toEqual({
+      startsAt: '2026-08-17T15:30:00.000Z',
+      endsAt: '2026-08-17T16:30:00.000Z',
+    });
+  });
+
   it('derives a 30-minute Product Delivery duration when the end is omitted', async () => {
     const tx = {
       getAssignee: vi.fn().mockResolvedValue({

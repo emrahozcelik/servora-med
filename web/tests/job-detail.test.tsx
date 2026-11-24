@@ -7461,8 +7461,8 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('Gerçekleşen teslim zamanı kaydedildi.');
     expect(document.activeElement).not.toBe(host.querySelector('.detail-feedback'));
 
-    // Bulk apply now chains expectedVersion 4 -> 5 sequentially.
-    const bulkBtn = buttonByName(host, 'Tüm kalemler için şimdiki saati uygula') as HTMLButtonElement;
+    // Bulk apply fills only the line without a recorded time; i1 keeps 12:00.
+    const bulkBtn = buttonByName(host, 'Boş kalemlere şimdiki saati uygula') as HTMLButtonElement;
     expect(bulkBtn).not.toBeNull();
     expect(bulkBtn.classList.contains('delivery-bulk-action')).toBe(true);
     await act(async () => {
@@ -7470,12 +7470,13 @@ describe('Staff JobCard detail', () => {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(patchCalls).toHaveLength(3);
-    expect(patchCalls[1]!.url).toContain('/delivery-items/i1');
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls[1]!.url).toContain('/delivery-items/i2');
     expect(patchCalls[1]!.body.expectedVersion).toBe(4);
-    expect(patchCalls[2]!.url).toContain('/delivery-items/i2');
-    expect(patchCalls[2]!.body.expectedVersion).toBe(5);
-    expect(host.textContent).toContain('Tüm kalemler için gerçekleşen teslim zamanı kaydedildi.');
+    expect(patchCalls.filter((call) => call.url.endsWith('/delivery-items/i1'))).toHaveLength(1);
+    expect(host.textContent).toContain('1 kalem için gerçekleşen teslim zamanı kaydedildi.');
+    // Nothing is left empty, so the shortcut disappears.
+    expect(buttonByName(host, 'Boş kalemlere şimdiki saati uygula')).toBeNull();
   });
 
   it('reports partial failure count and refreshes truth when bulk delivery save fails mid-chain', async () => {
@@ -7515,7 +7516,7 @@ describe('Staff JobCard detail', () => {
     await renderScreen(deliveryCard, staffUser, fetch);
 
     await act(async () => {
-      buttonByName(host, 'Tüm kalemler için şimdiki saati uygula')?.click();
+      buttonByName(host, 'Boş kalemlere şimdiki saati uygula')?.click();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });

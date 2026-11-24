@@ -44,7 +44,10 @@ vi.mock('../src/services/people-api', async (original) => ({
 vi.mock('../src/services/crm-api', async (original) => ({
   ...await original<typeof import('../src/services/crm-api')>(), ...crm,
 }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/jobs/scheduling')>()),
+  ...scheduling,
+}));
 vi.mock('../src/jobs/useCustomerSchedulePreview', () => preview);
 vi.mock('../src/jobs/CustomerScheduleNotice', () => ({
   CustomerScheduleNotice: () => null,

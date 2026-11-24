@@ -202,7 +202,9 @@ export function buildQuickSchedulePresets(
 
   if (now.getDay() !== 0) {
     const plusOne = defaultScheduledLocalValue(now);
-    if (!isLocalSunday(plusOne)) {
+    // "Bugün" must stay today: late in the evening the +1h value rolls into
+    // tomorrow, where the Yarın presets already apply.
+    if (plusOne.slice(0, 10) === formatLocalDateTime(now).slice(0, 10) && !isLocalSunday(plusOne)) {
       push('Bugün +1s', plusOne);
     }
   }

@@ -561,7 +561,9 @@ function JobScheduleEditForm({
     customerId: job.customerId,
     scheduledLocal: localValue,
     jobCardId: job.id,
-    enabled: managementUser && (job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY'),
+    // Staff receive the server's role-projected evaluation; only a locked
+    // planned time has nothing to preview.
+    enabled: !scheduleLocked && (job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY'),
   });
   const availableSlotSearch = useAvailableSlotSearch({
     type: intervalJobType,
@@ -1150,14 +1152,15 @@ export function JobDetailPanel({
               data-job-detail-block="delivery"
             >
               <h2 id="delivery-lines-title">Teslim bilgileri</h2>
-              {canEditDelivery && items.length > 1 && (
+              {canEditDelivery && items.length > 1
+                && items.some((entry) => entry.deliveredAt === null) && (
                 <button
                   className="secondary-button compact-button delivery-bulk-action"
                   type="button"
                   disabled={localMutationPending || !onSaveAllDeliveredAtNow}
                   onClick={() => { void onSaveAllDeliveredAtNow?.(); }}
                 >
-                  {localMutationPending ? 'Kaydediliyor…' : 'Tüm kalemler için şimdiki saati uygula'}
+                  {localMutationPending ? 'Kaydediliyor…' : 'Boş kalemlere şimdiki saati uygula'}
                 </button>
               )}
               <ul className="delivery-lines-list">
@@ -2821,14 +2824,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }
   async function saveAllDeliveredAtNow() {
     if (state.kind !== 'ready' || state.detail.kind !== 'PRODUCT_DELIVERY'
-      || state.detail.deliveryItems.length === 0
       || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
       return;
     }
+    // Only lines without a recorded time: an existing delivered time is
+    // evidence and is never overwritten by a bulk shortcut.
+    const entries = state.detail.deliveryItems.filter((entry) => entry.deliveredAt === null);
+    if (entries.length === 0) return;
     const owner = startMutationOperation();
     if (!owner) return;
     const operationJobId = jobId;
-    const entries = state.detail.deliveryItems;
     const deliveredAt = localDateTimeToIso(defaultDeliveredAtLocalValue());
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
@@ -2847,7 +2852,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!(await refreshTruth())) return;
       if (!(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
-      setMessage('Tüm kalemler için gerçekleşen teslim zamanı kaydedildi.');
+      setMessage(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;

@@ -173,9 +173,22 @@ describe('JobDetail joint slot edit', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('disables customer-schedule preview for STAFF and enables it for MANAGER', async () => {
+  it('previews the customer schedule for Staff and Manager, but not for a locked Staff time', async () => {
+    // Staff get the server's role-projected evaluation while they may edit.
     await act(async () => root.render(<JobDetailPanel
       job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    expect(preview.lastEnabled).toBe(true);
+
+    // JOB-010: a Staff-locked customer time has nothing to preview.
+    await act(async () => root.render(<JobDetailPanel
+      job={{ ...job, status: 'ACCEPTED', assignmentOffer: { state: 'ACCEPTED' } as unknown as JobCard['assignmentOffer'] }}
       items={[]}
       user={user}
       pending={false}

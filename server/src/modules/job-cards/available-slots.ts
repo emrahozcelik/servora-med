@@ -17,6 +17,12 @@ export type GenerateAvailableSlotCandidatesInput = Readonly<{
   endsAt: Date;
   timezone: string;
   horizonDays: number;
+  /**
+   * Server request time. A suggestion must be bookable now: no candidate may
+   * start at or before it, even when the requested start is already past.
+   * Optional so pure generation tests stay clock-free.
+   */
+  notBefore?: Date;
 }>;
 
 export type AvailableSlotBlocker = Readonly<{
@@ -71,6 +77,9 @@ export function generateAvailableSlotCandidates(
     if (candidateStart.valueOf() <= input.startsAt.valueOf()) {
       continue;
     }
+    if (input.notBefore !== undefined && candidateStart.valueOf() <= input.notBefore.valueOf()) {
+      continue;
+    }
     const candidateEnd = new Date(candidateStart.valueOf() + durationMs);
     const endClock = localClockParts(candidateEnd, input.timezone);
     const endSec = localClockSecond(candidateEnd, input.timezone);
@@ -109,6 +118,7 @@ export function generateAvailableSlotCandidates(
       second,
       input.timezone,
     )) continue;
+    if (input.notBefore !== undefined && candidateStart.valueOf() <= input.notBefore.valueOf()) continue;
     const candidateEnd = new Date(candidateStart.valueOf() + durationMs);
     // Skip a whole-Sunday date and any late Saturday start whose duration
     // spills past local midnight into Sunday.

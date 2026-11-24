@@ -7,6 +7,22 @@ import {
 import { localClockParts, localDateKey } from '../src/modules/job-cards/local-calendar.js';
 
 describe('generateAvailableSlotCandidates', () => {
+  it('drops every candidate at or before notBefore, same-day and following days', () => {
+    // Requested two days ago at 10:00 UTC; now is today 12:00 UTC.
+    const notBefore = new Date('2026-08-19T12:00:00.000Z');
+    const candidates = generateAvailableSlotCandidates({
+      startsAt: new Date('2026-08-17T10:00:00.000Z'),
+      endsAt: new Date('2026-08-17T11:00:00.000Z'),
+      timezone: 'UTC',
+      horizonDays: 5,
+      notBefore,
+    });
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.every((c) => c.startsAt.valueOf() > notBefore.valueOf())).toBe(true);
+    // The first survivor is the following-day wall clock after now.
+    expect(candidates[0]!.startsAt.toISOString()).toBe('2026-08-20T10:00:00.000Z');
+  });
+
   it('offers same-day [08:00, 19:00] slots first, then preserves wall clock and exact duration across DST', () => {
     const startsAt = new Date('2026-03-07T15:00:00.000Z');
     const endsAt = new Date('2026-03-07T16:30:00.000Z');

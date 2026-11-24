@@ -1,4 +1,9 @@
-import * as schedulingModule from './scheduling';
+import {
+  buildQuickSchedulePresets,
+  formatPlannedDurationPreview,
+  isLocalPast,
+  isLocalSunday,
+} from './scheduling';
 
 export type ScheduleQuickControlsProps = {
   value: string;
@@ -22,20 +27,12 @@ export function ScheduleQuickControls({
   showPastHint = true,
   showSundayHint = true,
 }: ScheduleQuickControlsProps) {
-  // Shallow-copy own exports so legacy test files mocking `../src/jobs/scheduling`
-  // without `importOriginal` do not fail on Vitest's missing-export proxy trap.
-  const schedulingApi = { ...schedulingModule } as Partial<typeof schedulingModule>;
-  const presets = typeof schedulingApi.buildQuickSchedulePresets === 'function'
-    ? schedulingApi.buildQuickSchedulePresets()
-    : [];
+  const presets = buildQuickSchedulePresets();
   const preview = value && durationMinutes != null && durationMinutes > 0
-    && typeof schedulingApi.formatPlannedDurationPreview === 'function'
-    ? schedulingApi.formatPlannedDurationPreview(value, durationMinutes)
+    ? formatPlannedDurationPreview(value, durationMinutes)
     : null;
-  const sundayHint = showSundayHint && Boolean(value)
-    && typeof schedulingApi.isLocalSunday === 'function' && schedulingApi.isLocalSunday(value);
-  const pastHint = showPastHint && Boolean(value)
-    && typeof schedulingApi.isLocalPast === 'function' && schedulingApi.isLocalPast(value);
+  const sundayHint = showSundayHint && Boolean(value) && isLocalSunday(value);
+  const pastHint = showPastHint && Boolean(value) && isLocalPast(value);
 
   if (presets.length === 0 && !preview && !sundayHint && !pastHint) {
     return null;
