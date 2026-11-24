@@ -305,6 +305,15 @@ export function assertCanReofferAssignment(actor: JobCardActor) {
   if (!isManagementRole(actor.role)) forbidden();
 }
 
+/**
+ * JOB-012: confirming the time a Staff member proposed for an assignment is a
+ * management power (Q2: the customer time stays management-owned). STAFF is
+ * rejected with 403 before any lookup.
+ */
+export function assertCanAcceptAssignmentProposal(actor: JobCardActor) {
+  if (!isManagementRole(actor.role)) forbidden();
+}
+
 export function assertCanListAssignmentOffersNeedingAction(actor: JobCardActor) {
   if (!isManagementRole(actor.role)) forbidden();
 }

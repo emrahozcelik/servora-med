@@ -67,6 +67,8 @@ const offerBase: JobAssignmentOfferRecord = {
   closedAt: null,
   closeReason: null,
   closeText: null,
+  proposedScheduledAt: null,
+  proposalAcceptedAt: null,
 };
 
 const declinedOffer: JobAssignmentOfferRecord = {
@@ -105,6 +107,9 @@ describe('JobCard detail assignment offer projection', () => {
       closedAt: '2026-11-24T09:05:00.000Z',
       closeReason: 'SCHEDULE_CONFLICT',
       closeText: 'Aynı saatte başka bir klinik teslimi var.',
+      proposedScheduledAt: null,
+      proposedScheduledEndsAt: null,
+      proposalAcceptedAt: null,
     });
   });
 
@@ -124,6 +129,9 @@ describe('JobCard detail assignment offer projection', () => {
       closedAt: null,
       closeReason: null,
       closeText: null,
+      proposedScheduledAt: null,
+      proposedScheduledEndsAt: null,
+      proposalAcceptedAt: null,
     });
   });
 
@@ -140,6 +148,9 @@ describe('JobCard detail assignment offer projection', () => {
       closedAt: null,
       closeReason: null,
       closeText: null,
+      proposedScheduledAt: null,
+      proposedScheduledEndsAt: null,
+      proposalAcceptedAt: null,
     });
   });
 });

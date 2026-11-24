@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest';
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { loadMigrationCatalog, type MigrationCatalog } from '../src/db/migration-catalog.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
-import { saleFixture } from './support/sale-harness.js';
+import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { JobCardService } from '../src/modules/job-cards/service.js';
+import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import { withIntentSchema } from './support/lifecycle-intent-harness.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -18,6 +20,7 @@ const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import
 const MIGRATION_071 = '071_sale_standalone_and_delivery_link';
 // SALE-002 S2 adds 072 (R9) after this slice; the 071 bytes are unchanged.
 const MIGRATION_072 = '072_sale_submit_without_start';
+const MIGRATION_073 = '073_assignment_offer_time_proposal';
 
 async function insertUser(pool: Pool, organizationId: string, role = 'STAFF') {
   return (await pool.query<{ id: string }>(
@@ -171,11 +174,11 @@ describe.skipIf(!databaseUrl)('SALE-002 migration 071', () => {
       }
 
       const catalog: MigrationCatalog = await loadMigrationCatalog(migrationsDirectory);
-      expect(catalog.head?.version).toBe(MIGRATION_072);
-      expect(catalog.count).toBe(72);
+      expect(catalog.head?.version).toBe(MIGRATION_073);
+      expect(catalog.count).toBe(73);
       expect((await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
-      )).rows[0]!.version).toBe(MIGRATION_072);
+      )).rows[0]!.version).toBe(MIGRATION_073);
       expect(schema).toMatch(/^lcproof_/);
     });
   });
@@ -198,55 +201,83 @@ describe.skipIf(!databaseUrl)('SALE-002 migration 071', () => {
       expect(baseRun.appliedVersions.at(-1)).toBe('070_overdue_incident_invalidation_closure');
       expect(baseRun.appliedVersions).toHaveLength(70);
 
-      const f = await saleFixture(pool);
-      const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
-      const delivery = await f.service.createProductDelivery(f.staff, {
-        clientActionId: 'legacy-phone-order', type: 'PRODUCT_DELIVERY', title: 'Telefon siparişi',
-        description: null, customerId: f.customerId, contactId: null, assignedTo: f.staff.id,
-        priority: 'normal', dueDate: null, scheduledAt: '2026-10-15T11:00:00.000Z',
-        scheduledEndsAt: '2026-10-15T11:30:00.000Z', deliveryPurpose: 'SALE', deliveryNote: null,
-        items: [{ productId: f.products[0], quantity: 1 }],
+      // The pre-upgrade rows are inserted with SQL. The application only runs at
+      // the exact schema head (startup guard), so a service fixture cannot build
+      // rows on an older schema; the upgrade's byte-preservation contract below
+      // is unchanged.
+      const base = await insertBase(pool);
+      const visit = await insertVisit(pool, base);
+      // At 070 the source-presence CHECK is immediate, so the visit-origin
+      // SALE is inserted with its source in one statement.
+      const sale = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, customer_id, assigned_to, created_by,
+            sale_source_visit_id)
+         VALUES ($1, 'SALE', 'NEW', 'SALE-002 row', $2, $3, $3, $4) RETURNING id`,
+        [base.organizationId, base.customerId, base.userId, visit],
+      )).rows[0]!.id;
+      await insertStandaloneDetails(pool, base, sale, {
+        version: 1, title: 'Migration visit', customerName: 'Migration clinic',
       });
+      await pool.query(
+        `INSERT INTO job_card_sale_items
+           (organization_id,job_card_id,product_id,quantity,product_name_snapshot,sort_order)
+         VALUES ($1,$2,$3,1,'Migration product',0)`,
+        [base.organizationId, sale, base.productId],
+      );
+      const delivery = await insertJob(pool, base, 'PRODUCT_DELIVERY');
+      await pool.query(
+        `INSERT INTO job_card_delivery_items
+           (organization_id,job_card_id,product_id,delivery_purpose,quantity,product_name_snapshot,sort_order)
+         VALUES ($1,$2,$3,'SALE',1,'Migration product',0)`,
+        [base.organizationId, delivery, base.productId],
+      );
       const saleBefore = (await pool.query('SELECT *,xmin::text AS xmin FROM job_cards WHERE id=$1',
-        [sale.jobCardId])).rows[0];
+        [sale])).rows[0];
       const deliveryBefore = (await pool.query('SELECT *,xmin::text AS xmin FROM job_cards WHERE id=$1',
-        [delivery.jobCardId])).rows[0];
+        [delivery])).rows[0];
       const detailsBefore = (await pool.query('SELECT *,xmin::text AS xmin FROM job_card_sale_details WHERE job_card_id=$1',
-        [sale.jobCardId])).rows[0];
+        [sale])).rows[0];
       const itemsBefore = (await pool.query('SELECT *,xmin::text AS xmin FROM job_card_sale_items WHERE job_card_id=$1 ORDER BY id',
-        [sale.jobCardId])).rows;
+        [sale])).rows;
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072] });
+      expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072, MIGRATION_073] });
 
       const saleAfter = (await pool.query('SELECT *,xmin::text AS xmin FROM job_cards WHERE id=$1',
-        [sale.jobCardId])).rows[0];
+        [sale])).rows[0];
       expect(saleAfter.delivery_source_sale_id).toBeNull();
       const { delivery_source_sale_id: _link, ...saleAfterOld } = saleAfter;
       expect(saleAfterOld).toEqual(saleBefore);
       const deliveryAfter = (await pool.query('SELECT *,xmin::text AS xmin FROM job_cards WHERE id=$1',
-        [delivery.jobCardId])).rows[0];
+        [delivery])).rows[0];
       expect(deliveryAfter.delivery_source_sale_id).toBeNull();
       const { delivery_source_sale_id: _deliveryLink, ...deliveryAfterOld } = deliveryAfter;
       expect(deliveryAfterOld).toEqual(deliveryBefore);
       expect((await pool.query('SELECT *,xmin::text AS xmin FROM job_card_sale_details WHERE job_card_id=$1',
-        [sale.jobCardId])).rows[0]).toEqual(detailsBefore);
+        [sale])).rows[0]).toEqual(detailsBefore);
       expect((await pool.query('SELECT *,xmin::text AS xmin FROM job_card_sale_items WHERE job_card_id=$1 ORDER BY id',
-        [sale.jobCardId])).rows).toEqual(itemsBefore);
+        [sale])).rows).toEqual(itemsBefore);
 
       const history = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows;
-      expect(history).toHaveLength(72);
-      expect(history.at(-1)!.version).toBe(MIGRATION_072);
+      expect(history).toHaveLength(73);
+      expect(history.at(-1)!.version).toBe(MIGRATION_073);
       expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });
 
       // Forward path: the new standalone create is reachable after the
       // schema-first upgrade, and it still writes no source.
-      const standalone = await f.service.createStandaloneSale(f.staff, {
+      const service = new JobCardService(
+        new PostgresJobCardRepository(pool), () => new Date('2026-10-16T09:00:00.000Z'),
+      );
+      const staff: JobCardActor = {
+        id: base.userId, organizationId: base.organizationId, role: 'STAFF',
+      };
+      const standalone = await service.createStandaloneSale(staff, {
         clientActionId: 'post-upgrade-standalone', title: 'Yeni telefon siparişi', description: null,
-        customerId: f.customerId, assignedTo: f.staff.id, soldAt: f.input.soldAt,
-        saleContactId: null, items: [{ productId: f.products[0], quantity: 1 }],
+        customerId: base.customerId, assignedTo: base.userId, soldAt: '2026-10-16T09:00:00.000Z',
+        saleContactId: null, items: [{ productId: base.productId, quantity: 1 }],
       });
       expect((await pool.query(
         'SELECT sale_source_visit_id,delivery_source_sale_id FROM job_cards WHERE id=$1', [standalone.jobCardId],

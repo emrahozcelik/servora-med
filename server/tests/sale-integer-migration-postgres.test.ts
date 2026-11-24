@@ -95,7 +95,7 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
         blocker.release();
         await upgrade;
       }
-      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident', '068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start'] });
+      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident', '068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start', '073_assignment_offer_time_proposal'] });
       const storageAfter = await tableStorage(pool);
       expect(storageBefore.typmod).toBe(786439); // NUMERIC(12,3)
       expect(storageAfter.typmod).toBe(-1); // unrestricted NUMERIC

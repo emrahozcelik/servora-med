@@ -413,6 +413,21 @@ export type TransitionInput = {
   revisionReason?: string | null;
   cancelReason?: string | null;
   followUpCycleEndReason?: FollowUpCycleEndReason | null;
+  /**
+   * JOB-012: the acceptance is recorded for the assigned Staff member, while
+   * the acting management user owns the activity that proves it. Defaults to
+   * the actor, exactly like every pre-JOB-012 transition.
+   */
+  acceptedBy?: string | null;
+  /**
+   * JOB-012: the confirmed proposal moves the planned interval in the same
+   * statement as the transition, so the reschedule and the acceptance are one
+   * fact. Absent means "keep the current schedule".
+   */
+  schedule?: {
+    scheduledAt: Date | null;
+    scheduledEndsAt: Date | null;
+  } | null;
   followUpProposal?: {
     scheduledAt: Date;
     type: JobCardType;
@@ -970,6 +985,11 @@ export type AssignmentOfferRecord = {
   closedBy: string | null;
   closeReason: string | null;
   closeText: string | null;
+  /** JOB-012: the Staff proposal stored on the answer that closed it. */
+  proposedScheduledAt: Date | null;
+  /** JOB-012: the one-way management confirmation, or null. */
+  proposalAcceptedAt: Date | null;
+  proposalAcceptedBy: string | null;
 };
 
 /** JOB-010 release 2b: one management needs-action row with navigation context. */
@@ -985,6 +1005,8 @@ export type NeedsActionAssignmentOfferRow = {
   acceptanceDueAt: Date;
   urgentReason: JobAssignmentOfferUrgentReason | null;
   scheduledAt: Date | null;
+  /** JOB-012: the pending Staff proposal, or null. */
+  proposedScheduledAt: Date | null;
   assigneeId: string;
   assigneeName: string | null;
   customerId: string | null;
@@ -1348,11 +1370,13 @@ export interface JobCardTransaction extends SubmissionReader {
     /**
      * Compound producers record an offer that can never be answered and close
      * it in the same statement (`WITHDRAWN` / `PLANNED_WINDOW_PASSED`).
+     * JOB-012 records the confirmed proposal the same way, already `ACCEPTED`.
      */
     closeImmediately?: {
+      state?: Extract<JobAssignmentOfferState, 'WITHDRAWN' | 'ACCEPTED'>;
       closedAt: Date;
       closedBy: string;
-      closeReason: JobAssignmentOfferWithdrawReasonCode;
+      closeReason: JobAssignmentOfferWithdrawReasonCode | null;
     } | null;
   }): Promise<AssignmentOfferRecord>;
   /**
@@ -1370,6 +1394,20 @@ export interface JobCardTransaction extends SubmissionReader {
     closedBy: string | null;
     closeReason: string | null;
     closeText: string | null;
+    /** JOB-012: the Staff proposal carried by the answer (schedule conflict only). */
+    proposedScheduledAt?: Date | null;
+  }): Promise<boolean>;
+  /**
+   * JOB-012: record the management confirmation on the declined/released offer
+   * that carried the proposal. One-way: an offer already confirmed is not
+   * updated again, and the caller reports the stale view as 409.
+   */
+  markAssignmentOfferProposalAccepted(input: {
+    organizationId: string;
+    jobCardId: string;
+    offerId: string;
+    proposalAcceptedAt: Date;
+    proposalAcceptedBy: string;
   }): Promise<boolean>;
   /**
    * JOB-010 release 2b: anchor the once-per-offer-and-kind automatic delivery
@@ -2067,6 +2105,9 @@ type JobCardDetailRow = JobCardRow & {
   assignment_offer_assignee_user_id: string | null;
   assignment_offer_assignee_id: string | null;
   assignment_offer_assignee_name: string | null;
+  /** JOB-012: the pending Staff proposal and its one-way confirmation. */
+  assignment_offer_proposed_scheduled_at: Date | null;
+  assignment_offer_proposal_accepted_at: Date | null;
 };
 type JobCardListRow = {
   id: string;
@@ -2595,11 +2636,15 @@ type AssignmentOfferRow = {
   closed_by: string | null;
   close_reason: string | null;
   close_text: string | null;
+  proposed_scheduled_at: Date | null;
+  proposal_accepted_at: Date | null;
+  proposal_accepted_by: string | null;
 };
 
 const ASSIGNMENT_OFFER_COLUMNS = `id, organization_id, job_card_id, assignee_user_id,
   opened_at, opened_reason, opened_by, assignment_history_id, acceptance_due_at,
-  urgent_reason, ack_code, ack_text, state, closed_at, closed_by, close_reason, close_text`;
+  urgent_reason, ack_code, ack_text, state, closed_at, closed_by, close_reason, close_text,
+  proposed_scheduled_at, proposal_accepted_at, proposal_accepted_by`;
 
 const ASSIGNMENT_OFFER_SELECT = `SELECT ${ASSIGNMENT_OFFER_COLUMNS}
   FROM job_card_assignment_offers`;
@@ -2623,6 +2668,9 @@ function mapAssignmentOffer(row: AssignmentOfferRow): AssignmentOfferRecord {
     closedBy: row.closed_by,
     closeReason: row.close_reason,
     closeText: row.close_text,
+    proposedScheduledAt: row.proposed_scheduled_at,
+    proposalAcceptedAt: row.proposal_accepted_at,
+    proposalAcceptedBy: row.proposal_accepted_by,
   };
 }
 
@@ -2725,6 +2773,8 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        assignment_offer.closed_at AS assignment_offer_closed_at,
        assignment_offer.close_reason AS assignment_offer_close_reason,
        assignment_offer.close_text AS assignment_offer_close_text,
+       assignment_offer.proposed_scheduled_at AS assignment_offer_proposed_scheduled_at,
+       assignment_offer.proposal_accepted_at AS assignment_offer_proposal_accepted_at,
        assignment_offer.assignee_user_id AS assignment_offer_assignee_user_id,
        assignment_offer.assignee_id AS assignment_offer_assignee_id,
        assignment_offer.assignee_name AS assignment_offer_assignee_name,
@@ -2838,7 +2888,9 @@ LEFT JOIN LATERAL (
          o.close_text,
          o.assignee_user_id,
          offer_assignee.id AS assignee_id,
-         offer_assignee.name AS assignee_name
+         offer_assignee.name AS assignee_name,
+         o.proposed_scheduled_at,
+         o.proposal_accepted_at
   FROM job_card_assignment_offers o
   JOIN users offer_assignee
     ON offer_assignee.organization_id = o.organization_id
@@ -2984,6 +3036,8 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
           closedAt: row.assignment_offer_closed_at,
           closeReason: row.assignment_offer_close_reason,
           closeText: row.assignment_offer_close_text,
+          proposedScheduledAt: row.assignment_offer_proposed_scheduled_at,
+          proposalAcceptedAt: row.assignment_offer_proposal_accepted_at,
         },
   };
 }
@@ -3456,8 +3510,14 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
                               WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $5
                               ELSE accepted_at END,
            accepted_by = CASE WHEN $10 = 'RELEASE_ASSIGNMENT' THEN NULL
-                              WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $6
+                              WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN COALESCE($18::uuid, $6)
                               ELSE accepted_by END,
+           -- JOB-012: the confirmed proposal moves the planned interval in the
+           -- same statement as the acceptance it justifies.
+           scheduled_at = CASE WHEN $19::boolean THEN $20::timestamptz
+                               ELSE scheduled_at END,
+           scheduled_ends_at = CASE WHEN $19::boolean THEN $21::timestamptz
+                                    ELSE scheduled_ends_at END,
            started_at = CASE WHEN $10 = 'START' THEN COALESCE(started_at, $5) ELSE started_at END,
            staff_completed_at = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $5 ELSE staff_completed_at END,
            staff_completed_by = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $6 ELSE staff_completed_by END,
@@ -3490,7 +3550,11 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
         input.followUpProposal?.instructions ?? null,
         input.followUpProposal?.origin ?? null,
         input.followUpProposal?.proposedBy ?? null,
-        input.followUpCycleEndReason ?? null],
+        input.followUpCycleEndReason ?? null,
+        input.acceptedBy ?? null,
+        input.schedule !== undefined && input.schedule !== null,
+        input.schedule?.scheduledAt ?? null,
+        input.schedule?.scheduledEndsAt ?? null],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
@@ -4277,9 +4341,10 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     ackCode: JobAssignmentOfferAckCode | null;
     ackText: string | null;
     closeImmediately?: {
+      state?: Extract<JobAssignmentOfferState, 'WITHDRAWN' | 'ACCEPTED'>;
       closedAt: Date;
       closedBy: string;
-      closeReason: JobAssignmentOfferWithdrawReasonCode;
+      closeReason: JobAssignmentOfferWithdrawReasonCode | null;
     } | null;
   }): Promise<AssignmentOfferRecord> {
     // Callers hold the JobCard row lock; the partial unique index on OPEN rows
@@ -4296,7 +4361,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       [input.organizationId, input.jobCardId, input.assigneeUserId, input.openedAt,
         input.openedReason, input.openedBy, input.assignmentHistoryId,
         input.acceptanceDueAt, input.urgentReason, input.ackCode, input.ackText,
-        closed === null ? 'OPEN' : 'WITHDRAWN',
+        closed === null ? 'OPEN' : closed.state ?? 'WITHDRAWN',
         closed?.closedAt ?? null, closed?.closedBy ?? null, closed?.closeReason ?? null],
     );
     return mapAssignmentOffer(result.rows[0]!);
@@ -4312,17 +4377,42 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     closedBy: string | null;
     closeReason: string | null;
     closeText: string | null;
+    proposedScheduledAt?: Date | null;
   }): Promise<boolean> {
     // One-way close: the state predicate makes a stale view a no-op that the
     // caller reports as 409 instead of silently overwriting history.
     const result = await this.client.query(
       `UPDATE job_card_assignment_offers
           SET state = $4, closed_at = $5, closed_by = $6,
-              close_reason = $7, close_text = $8
+              close_reason = $7, close_text = $8,
+              proposed_scheduled_at = $10
         WHERE organization_id = $1 AND job_card_id = $2 AND id = $3 AND state = $9`,
       [input.organizationId, input.jobCardId, input.offerId, input.state,
         input.closedAt, input.closedBy, input.closeReason, input.closeText,
-        input.expectedState],
+        input.expectedState, input.proposedScheduledAt ?? null],
+    );
+    return (result.rowCount ?? 0) === 1;
+  }
+
+  async markAssignmentOfferProposalAccepted(input: {
+    organizationId: string;
+    jobCardId: string;
+    offerId: string;
+    proposalAcceptedAt: Date;
+    proposalAcceptedBy: string;
+  }): Promise<boolean> {
+    // One-way, like every other offer fact: only an unconfirmed proposal of an
+    // answered offer can be confirmed, so a stale view is a 409 for the caller
+    // instead of a silent overwrite.
+    const result = await this.client.query(
+      `UPDATE job_card_assignment_offers
+          SET proposal_accepted_at = $4, proposal_accepted_by = $5
+        WHERE organization_id = $1 AND job_card_id = $2 AND id = $3
+          AND state IN ('DECLINED', 'RELEASED')
+          AND proposed_scheduled_at IS NOT NULL
+          AND proposal_accepted_at IS NULL`,
+      [input.organizationId, input.jobCardId, input.offerId,
+        input.proposalAcceptedAt, input.proposalAcceptedBy],
     );
     return (result.rowCount ?? 0) === 1;
   }
@@ -5372,7 +5462,7 @@ export function latestAssignmentOfferLateralSql(refs: {
   columns?: string;
 }): string {
   return `LATERAL (
-    SELECT ${refs.columns ?? 'o.id, o.state, o.close_reason, o.close_text, o.urgent_reason, o.acceptance_due_at'}
+    SELECT ${refs.columns ?? 'o.id, o.state, o.close_reason, o.close_text, o.urgent_reason, o.acceptance_due_at, o.proposed_scheduled_at'}
       FROM job_card_assignment_offers o
      WHERE o.organization_id = ${refs.job}.organization_id
        AND o.job_card_id = ${refs.job}.id
@@ -7253,12 +7343,14 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       close_reason: string | null; close_text: string | null;
       acceptance_due_at: Date; urgent_reason: JobAssignmentOfferUrgentReason | null;
       scheduled_at: Date | null;
+      proposed_scheduled_at: Date | null;
       assignee_id: string; assignee_name: string | null;
       customer_id: string | null; customer_name: string | null;
     }>(
       `SELECT j.id AS job_card_id, j.title AS job_title, j.type AS job_type,
               latest.id AS offer_id, latest.state, latest.close_reason, latest.close_text,
               latest.acceptance_due_at, latest.urgent_reason, j.scheduled_at,
+              latest.proposed_scheduled_at,
               u.id AS assignee_id, u.name AS assignee_name,
               c.id AS customer_id, c.name AS customer_name
          FROM job_cards j
@@ -7285,6 +7377,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         acceptanceDueAt: row.acceptance_due_at,
         urgentReason: row.urgent_reason,
         scheduledAt: row.scheduled_at,
+        proposedScheduledAt: row.proposed_scheduled_at,
         assigneeId: row.assignee_id,
         assigneeName: row.assignee_name,
         customerId: row.customer_id,
