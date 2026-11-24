@@ -4634,7 +4634,10 @@ export class JobCardService {
       ...page, ...(options?.includeSaleCapability === false ? { includeSaleCapability: false } : {}),
     });
     return {
-      items: result.items.map((item) => presentActivity(item, options)),
+      items: result.items.map((item) => presentActivity(item, {
+        ...options,
+        viewer: { id: actor.id, role: actor.role },
+      })),
       total: result.total,
       limit: result.limit,
       offset: result.offset,

@@ -295,6 +295,24 @@ describe('assignment offer detail surface', () => {
     expect(host.textContent).toContain('Zamanı değiştirmeden aynı personele yeniden sorar.');
   });
 
+  it('offers no new-time action or save hint when this viewer has no planned-time editor', async () => {
+    const onReassign = vi.fn();
+    await act(async () => root.render(
+      <AssignmentOfferSection
+        job={jobCard({ assignmentOffer: closedOffer() })}
+        user={manager}
+        onReassign={onReassign}
+        canSetNewTime={false}
+      />,
+    ));
+
+    expect(host.querySelector('[data-assignment-offer-action="new-time"]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-schedule-hint]')).toBeNull();
+    // Reassignment becomes the primary recovery action.
+    expect(host.querySelector('[data-assignment-offer-action="reassign"]')?.className)
+      .toContain('primary-button');
+  });
+
   it('focuses the existing planned-time input from the guidance', async () => {
     const scrollIntoView = vi.fn();
     const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');

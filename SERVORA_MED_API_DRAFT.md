@@ -1502,7 +1502,10 @@ reasonText }`. `reasonCode` is read from metadata and must be one of
 `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`;
 `reasonText` is the trimmed non-empty text. An unknown or missing code, and a blank
 text, project as `null`; both answers write `reasonCode` / `reasonText` into the same
-metadata as `offerId`. Every other offer activity keeps `details: { kind: 'NONE' }`.
+metadata as `offerId`. The reason is reader-scoped: MANAGER/ADMIN and the Staff member
+who answered see `reasonCode` / `reasonText`; any other Staff reader of the card (for
+example a later assignee) receives both as `null`. Every other offer activity keeps
+`details: { kind: 'NONE' }`.
 
 ### Submit requirements
 

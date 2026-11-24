@@ -3699,6 +3699,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .assignment-offer-recovery .form-help {
   margin: 0;
 }
+/* The recovery actions read as part of the left-aligned guidance, not as a
+   right-aligned form footer. */
+.assignment-offer-recovery .review-buttons {
+  justify-content: flex-start;
+}
 .workflow-responsibility-submission,
 .revision-loop-facts,
 .completed-job-facts {

@@ -1,4 +1,5 @@
 import type { ActivityRecord } from './repository.js';
+import type { UserRole } from '../auth/types.js';
 import {
   DELIVERY_PURPOSES,
   JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES,
@@ -30,6 +31,12 @@ function saleCount(value: unknown): string | null {
  * activity, because previous bundles reject unknown changed-field names.
  */
 export type ActivityPresentationOptions = {
+  /**
+   * The reader. A Staff member's decline/release reason is personal (leave,
+   * equipment, distance): management and that Staff member see it; another
+   * Staff reader of the same card (after a reassignment) does not.
+   */
+  viewer?: { id: string; role: UserRole };
   includeSaleCapability?: boolean;
   includeSubmitLocationCapability?: boolean;
   includeMetContactCapability?: boolean;
@@ -290,13 +297,21 @@ function saleDeliveryDetails(metadata: unknown): JobCardActivityDetails {
 function assignmentDecisionDetails(
   eventType: 'JOB_ASSIGNMENT_DECLINED' | 'JOB_ASSIGNMENT_RELEASED',
   metadata: unknown,
+  actorId: string | null,
+  viewer: ActivityPresentationOptions['viewer'],
 ): JobCardActivityDetails {
+  const decision = eventType === 'JOB_ASSIGNMENT_DECLINED' ? 'DECLINED' : 'RELEASED';
+  // Fail closed: an unknown reader, or Staff reading someone else's answer,
+  // sees only that the assignment was declined/released.
+  if (viewer === undefined || (viewer.role === 'STAFF' && viewer.id !== actorId)) {
+    return { kind: 'ASSIGNMENT_DECISION', decision, reasonCode: null, reasonText: null };
+  }
   const record = jsonRecord(metadata);
   const code = record?.reasonCode;
   const text = record?.reasonText;
   return {
     kind: 'ASSIGNMENT_DECISION',
-    decision: eventType === 'JOB_ASSIGNMENT_DECLINED' ? 'DECLINED' : 'RELEASED',
+    decision,
     reasonCode: JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES
       .includes(code as JobAssignmentOfferDeclineReasonCode)
       ? code as JobAssignmentOfferDeclineReasonCode
@@ -406,7 +421,7 @@ function details(
     // JOB-010 §5: why the assignee declined or released the assignment.
     case 'JOB_ASSIGNMENT_DECLINED':
     case 'JOB_ASSIGNMENT_RELEASED':
-      return assignmentDecisionDetails(record.eventType, record.metadata);
+      return assignmentDecisionDetails(record.eventType, record.metadata, record.actorId, options?.viewer);
   }
 }
 

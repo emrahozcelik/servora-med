@@ -148,7 +148,9 @@ export function AssignmentReasonSection({
  * deadline and its urgency are server facts; this section never derives them
  * from the browser clock.
  */
-export function AssignmentOfferSection({ job, user, disabled = false, onChanged, onReassign }: {
+export function AssignmentOfferSection({
+  job, user, disabled = false, onChanged, onReassign, canSetNewTime = true,
+}: {
   job: JobCard;
   user: CurrentUser;
   disabled?: boolean;
@@ -158,6 +160,8 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged,
    * guidance never grows a second assignee form of its own.
    */
   onReassign?: (trigger: HTMLButtonElement) => void;
+  /** False when this viewer has no planned-time editor on the page. */
+  canSetNewTime?: boolean;
 }) {
   const offer = job.assignmentOffer ?? null;
   const [pending, setPending] = useState(false);
@@ -189,11 +193,9 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged,
   const closeReasonLabel = assignmentOfferCloseReasonLabel(offer.closeReason);
   const newTimeFirst = offer.state === 'EXPIRED'
     || (offer.closeReason !== null && NEW_TIME_FIRST_CLOSE_REASONS.includes(offer.closeReason));
-  const newTimeAction: RecoveryAction = {
-    key: 'new-time',
-    label: 'Yeni zaman belirle',
-    run: () => { focusScheduleEditor(); },
-  };
+  const newTimeAction: RecoveryAction | null = canSetNewTime
+    ? { key: 'new-time', label: 'Yeni zaman belirle', run: () => { focusScheduleEditor(); } }
+    : null;
   const reassignAction: RecoveryAction | null = onReassign === undefined
     ? null
     : { key: 'reassign', label: 'Sorumlu personeli değiştir', run: onReassign };
@@ -306,9 +308,11 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged,
           {canReoffer && (
             <p className="form-help">Zamanı değiştirmeden aynı personele yeniden sorar.</p>
           )}
-          <p className="form-help" data-assignment-offer-schedule-hint="true">
-            Planlanan zamanı kaydettiğinizde {offer.assignee.name} kişisine yeni atama teklifi gider.
-          </p>
+          {canSetNewTime && (
+            <p className="form-help" data-assignment-offer-schedule-hint="true">
+              Planlanan zamanı kaydettiğinizde {offer.assignee.name} kişisine yeni atama teklifi gider.
+            </p>
+          )}
         </div>
       ) : (
         <dl className="job-row-facts">

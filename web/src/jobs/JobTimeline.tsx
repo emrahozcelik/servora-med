@@ -9,7 +9,7 @@ import {
 import { ResultState } from '../ui/antd/ResultState';
 import type { SignalGlyphName } from '../ui/signal-icons';
 import {
-  assignmentReasonLabels,
+  assignmentOfferCloseReasonLabel,
   historicalJobStatusLabels,
   isKnownJobCardActivityEvent,
   jobActivityLabel,
@@ -163,7 +163,9 @@ function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'ASSIGNMENT_DECISION') {
     // The event label already says declined/released; the detail adds the
     // recorded reason and the Staff member's own words.
-    const reasonLabel = details.reasonCode === null ? null : assignmentReasonLabels[details.reasonCode];
+    // Recorded fact, third person ("İzinli / müsait değil"), not the Staff
+    // form's first-person option text.
+    const reasonLabel = assignmentOfferCloseReasonLabel(details.reasonCode);
     const reasonText = details.reasonText?.trim();
     return [
       reasonLabel,

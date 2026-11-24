@@ -3518,6 +3518,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           setTimelineKey((value) => value + 1);
           void refreshTruth();
         }}
+        canSetNewTime={Boolean(presentationFor(detail).scheduleEdit)}
         onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
           : undefined}

@@ -312,7 +312,12 @@ The job detail management already reads carries the latest offer's
 `closedAt`, `closeReason` and `closeText`, and the `JOB_ASSIGNMENT_DECLINED` /
 `JOB_ASSIGNMENT_RELEASED` activity row carries the same reason as an
 `ASSIGNMENT_DECISION` detail, so recovery does not depend on the "needs
-action" list row alone.
+action" list row alone. The activity reason is shown to management and to the
+Staff member who answered; another Staff reader of the card (a later assignee)
+sees only that the assignment was declined or released. The job detail renders
+the reason with reason-ordered recovery actions: "Yeni zaman belirle" (saving
+the planned time opens a new offer), "Sorumlu personeli değiştir", and the
+secondary "Aynı zamanla yeniden teklif et".
 
 ### 9. Concurrency, idempotency and versioning
 

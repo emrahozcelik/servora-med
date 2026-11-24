@@ -235,11 +235,27 @@ describe('safe JobCard timeline', () => {
         },
         createdAt: '2026-11-21T11:10:00.000Z',
       },
+      {
+        id: 'code-only', jobCardId: 'job-1', eventType: 'JOB_ASSIGNMENT_DECLINED',
+        actor: { id: 'staff-1', name: 'Ayşe Personel' },
+        details: { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: 'ON_LEAVE', reasonText: null },
+        createdAt: '2026-11-21T11:00:00.000Z',
+      },
+      {
+        id: 'text-only', jobCardId: 'job-1', eventType: 'JOB_ASSIGNMENT_RELEASED',
+        actor: { id: 'staff-1', name: 'Ayşe Personel' },
+        details: { kind: 'ASSIGNMENT_DECISION', decision: 'RELEASED', reasonCode: null, reasonText: 'Araç arızalı' },
+        createdAt: '2026-11-21T10:50:00.000Z',
+      },
     ];
     await act(async () => root.render(<JobTimeline jobId="job-1"
       load={vi.fn().mockResolvedValue(page(activities))} />));
     await act(async () => { await Promise.resolve(); });
 
+    expect(host.querySelector('[data-activity-id="code-only"] .activity-timeline-detail')?.textContent)
+      .toBe('İzinli / müsait değil');
+    expect(host.querySelector('[data-activity-id="text-only"] .activity-timeline-detail')?.textContent)
+      .toBe('“Araç arızalı”');
     expect(host.textContent).toContain('Personel görevi reddetti');
     expect(host.textContent).toContain('Personel görevi geri bıraktı');
     expect(host.querySelector('[data-activity-id="declined"] .activity-timeline-detail')?.textContent)
