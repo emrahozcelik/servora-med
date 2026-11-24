@@ -9,7 +9,7 @@ description: Reliable, simple, and orderly product UI for mobile field action an
 
 **Creative North Star: "The Clear Field Ledger"**
 
-Servora-Med should feel like a carefully maintained field ledger translated into a modern product interface. Information is calm, structured, and immediately trustworthy. The surface gives staff enough guidance to act quickly on a phone while preserving the density managers need to oversee work on a desktop.
+Servora-Med (platform name; rendered to end users under the white-label **Dünya Dental** identity) should feel like a carefully maintained field ledger translated into a modern product interface. Information is calm, structured, and immediately trustworthy. The surface gives staff enough guidance to act quickly on a phone while preserving the density managers need to oversee work on a desktop.
 
 The physical scene is a field employee using a phone in a bright clinic corridor and a manager scanning approvals on a desktop during a busy workday. This requires a light-first, high-contrast system with restrained color, readable controls, visible focus, and no dependence on subtle translucency. Dark mode is not assumed; it can be designed later from measured need.
 
@@ -34,22 +34,22 @@ The implemented palette uses warm, lightly tinted neutrals and a low-chroma mine
 
 ### Primary
 
-- **Mineral Blue** (`oklch(47% 0.105 238deg)`): Primary actions, current selection, and the smallest set of active state indicators. Focus uses the related `oklch(58% 0.14 238deg)` token.
+- **Mineral Blue** (`--accent`, with `--accent-hover`, `--accent-soft`, and focus ring `--focus` defined in `servora-visual-tokens.ts`): Primary actions, current selection, and the smallest set of active state indicators.
 
 ### Neutral
 
-- **Daylight Paper** (`oklch(98.5% 0.004 235deg)`): Main content background; softly tinted rather than pure white.
-- **Quiet Canvas** (`oklch(95.5% 0.009 235deg)`): Navigation, toolbar, and grouped-workflow background.
-- **Graphite Ink** (`oklch(26% 0.016 246deg)`): Primary text; tinted rather than pure black.
-- **Muted Record** (`oklch(47% 0.018 246deg)`): Secondary text and supporting metadata.
-- **Soft Rule** (`oklch(86% 0.012 238deg)`): Borders and dividers that clarify grouping without boxing every element.
+- **Daylight Paper** (`--paper`): Main content background; softly tinted rather than pure white.
+- **Quiet Canvas** (`--canvas`, over `--frame` page background and `--surface-hover` hover tint): Navigation, toolbar, and grouped-workflow background.
+- **Graphite Ink** (`--ink`): Primary text; tinted rather than pure black.
+- **Muted Record** (`--muted`): Secondary text and supporting metadata.
+- **Soft Rule** (`--rule`, plus `--border-control` / `--border-control-hover` for interactive inputs): Borders and dividers that clarify grouping without boxing every element.
 
 ### Semantic
 
-- **Critical Red** (`oklch(44% 0.14 28deg)`): Errors and destructive outcomes only.
-- **Delay Amber** (`oklch(39% 0.08 70deg)` on `oklch(95% 0.025 80deg)`): Warnings, lateness, and attention states only.
-- **Confirmed Green** (`oklch(38% 0.08 150deg)` on `oklch(95% 0.025 150deg)`): Successful completion and approval only.
-- **Information Blue** (`oklch(41% 0.105 238deg)` on `oklch(92% 0.025 238deg)`): Neutral informational state when the primary accent would imply action.
+- **Critical Red** (`--error`, `--error-soft`, `--error-wash`): Errors and destructive outcomes only.
+- **Delay Amber** (`--warning`, `--warning-soft`, `--warning-wash`): Warnings, lateness, and attention states only.
+- **Confirmed Green** (`--success`, `--success-soft`): Successful completion and approval only.
+- **Information Blue** (`--info`, `--info-soft`): Neutral informational state when the primary accent would imply action.
 
 **The Concentrated Signal Rule.** Primary and semantic colors should clarify hierarchy, selection, urgency, and outcome without flooding the interface. There is no fixed percentage cap, but repeated saturated accents, decorative gradients, and color-only status remain prohibited.
 
@@ -145,8 +145,8 @@ Corners stay quiet. Radius is not a brand flourish; it only keeps touch targets 
 ```yaml
 components:
   button-primary:
-    backgroundColor: "oklch(47% 0.105 238deg)"
-    textColor: "oklch(98.5% 0.004 235deg)"
+    backgroundColor: "var(--accent) (via servora-visual-tokens.ts)"
+    textColor: "var(--paper)"
     rounded: 0.6rem
   form-control:
     height: 2.75rem
@@ -166,11 +166,11 @@ components:
 
 ### Ant Design foundation
 
-Ant Design `6.5.1` is an exact-pinned runtime dependency for reviewed complex
-primitives. `DESIGN.md` remains the source of truth for visual tokens,
-interaction rules, responsive structure, and accessibility. Production modules
-outside `web/src/ui/antd/` must not import Ant Design directly; feature screens
-consume Servora-owned adapters instead of raw primitives.
+Ant Design (exact-pinned in `web/package.json`, currently `6.7.0`) is the runtime
+library for reviewed complex primitives. `DESIGN.md` and `servora-visual-tokens.ts` remain
+the source of truth for visual tokens, interaction rules, responsive structure, and
+accessibility. Production modules outside `web/src/ui/antd/` must not import Ant Design
+directly; feature screens consume Servora-owned adapters instead of raw primitives.
 
 The application root pairs `ConfigProvider` with Ant Design `App`, uses the
 `servora-ant` class prefix and Turkish locale, maps the canonical Servora tokens
@@ -198,21 +198,21 @@ ConfirmationAction
 ReasonDialog
 WorkflowSteps
 ActivityTimeline
-useAppFeedback
-```
-
-**Approved new adapter families when repository preflight confirms need:**
-
-```text
-ServoraCard / OperationalCard
+OperationalCard
 MetricStatistic
 ServoraCalendar
-ServoraProgress
 UserAvatar
 IconSegmented
 ContentCollapse / ContentAnchor
 SettingsTabs
+ServoraTable / StaffPerformanceTable
+ServoraPagination / ServoraListPagination
+ServoraSelect
+ServoraCheckbox
+useAppFeedback
 ```
+
+Future Ant adapter families (such as `ServoraProgress`) require repository preflight to confirm genuine need before being added.
 
 Do not wrap every Ant component merely to rename it. Create an adapter when Servora needs stable domain props, token/semantic styling, accessibility behavior, responsive behavior, or an import boundary.
 
@@ -295,7 +295,12 @@ Desktop list rows stay flat when list/table scanning is better; Card is not mand
 
 ### FormControl
 
-Text inputs, selects, and textareas share padding, border, radius, min-height, hover, focus, disabled, optional hint (`aria-describedby`), and error presentation. Bare selects (for example staff profile filters) must join this contract rather than native-unstyled outliers.
+Text inputs, selects, and textareas share `--border-control` / `--border-control-hover` / `--focus`, `--radius-control`, `--control-height`, padding (`0.72rem 0.85rem` for inputs/textareas; `0 0.85rem` for selects), hover/focus/disabled/error states, and optional hint (`aria-describedby`). Static short option lists (including filter toolbars, calendar assignee filter, report dropdowns, and duplicate resolution reason selects) use native `<select>` under this shared FormControl CSS contract; async or searchable large datasets use the owned `ServoraSelect` adapter.
+
+### Filter Bars, Search & Pagination
+
+- List and report toolbars wrap filters inside `.filter-region` and prefer `.surface-flat` (`var(--canvas)` + `--rule` border, no card-on-card shadow) with a desktop reset action (`Filtreleri temizle` / `Filtreleri sıfırla` / `Temizle`) whenever non-default filters are active. On viewports below `64rem`, high-density list filters collapse into `FilterSheet` while keeping primary search accessible.
+- Fixed-page offset lists standardize on `ServoraListPagination` (`Sayfa X / Y · Toplam N <öğe>`), hiding automatically on single-page results and preserving keyboard focus across page transitions. Cursor-based continuation streams (duplicate pair scan, job notes, older messages, notifications, append-mode staff lateness) intentionally keep explicit cursor buttons rather than total-page counters.
 
 ### Status and priority chips
 
@@ -401,8 +406,8 @@ use the owned Ant Design boundary in later implementation PRs.
 
 - **Lifecycle stepper** (`.servora-workflow-steps` via `WorkflowSteps`): screen-reader
   ordered list plus visual Ant Steps of presentation phases
-  (`Oluşturuldu` → `Planlandı` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
-  Current step uses `aria-current="step"`. Complete, current, skipped (`Planlama atlandı`),
+  (`Atandı` → `Kabul edildi` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
+  Current step uses `aria-current="step"`. Complete, current, skipped (`Atlandı`),
   attention (revision loop), and upcoming states use text/icon semantics plus restrained
   color—never color alone. Attention is Delay Amber with explicit text; it is never
   Critical Red and never Ant's `error` status. Desktop: five-column when space permits;
@@ -425,9 +430,18 @@ use the owned Ant Design boundary in later implementation PRs.
 - **Workflow dialogs**: confirmation for completion and withdraw-to-edit; reason capture for
   revision and cancel. Contain focus, support Escape when safe, restore focus to the opener,
   disable controls while pending, announce status/errors via live regions.
-- **Terminal banner**: cancellation is not a green completion. Banner shows actor, time,
-  reason, and frozen source phase; completed state uses Confirmed Green only for true
-  success.
+- **Terminal banner**: cancellation (`CANCELLED` / `İptal edildi`) and historical
+  invalidation (`INVALIDATED` / `Geçersiz`) are not green completions. Banner shows actor,
+  time, reason, and frozen source phase (plus restoration cue where applicable); completed
+  state (`COMPLETED` / `Tamamlandı`) uses Confirmed Green only for true success.
+- **Planning & scheduling surfaces**: job creation and schedule-edit forms pair native
+  `datetime-local` inputs with `ScheduleQuickControls` (quick non-Sunday presets, planned
+  interval/duration preview, and non-blocking Sunday/past-start `status` hints) plus
+  same-day/horizon `AvailableSlotsNotice` that preserves the chosen slot selection.
+  Unacknowledged past-start submissions recover in-flow through `PastStartAcknowledgementDrawer`
+  with an optional shortcut to shift forward to the next open working slot. Calendar unifies
+  manual plans under **Kişisel plan** (concise `Plan` chip in desktop month cells to prevent
+  1024px clipping; `Yeni plan` in the desktop top bar via `page-create-action.tsx`).
 - **Compact workflow summary** (list/board): ordinal phase string such as
   `3 / 5 · Uygulanıyor` with optional attention flag. Secondary to the technical status
   chip; never replaces board column status labels.
@@ -479,22 +493,6 @@ captures. UI-001 and PRODUCT.md continue to own accessibility completion.
 - **Don't** reach for a modal before inline disclosure, a dedicated page, or a non-blocking panel has been considered.
 
 
-## Phase U visual direction amendment — 2026-07-26
+## Historical Direction Pointer (Phase U — 2026-07-26)
 
-The Phase U dashboard reference direction is the SaaS + AI dashboard composition at `demos.shadcndashboard.dev`, translated into Servora's domain and component boundary rather than copied. The target similarity is information architecture—role-aware summary, time controls, metrics, trends, upcoming work, recent work, notes, messages, and direct actions—not Tailwind, shadcn, demo colors, or demo business copy.
-
-Phase U delivery priorities recorded on 2026-07-26 (historical checkpoint):
-
-1. complete this Ant visual documentation reconciliation checkpoint,
-2. complete the U2 Calendar post-merge visual correction (branch: `fix/phase-u2-calendar-visual-closeout`),
-3. create a Workspace Visual Composition checkpoint for Overview, Documentation, Help Center, Settings, Result states, and shared Card/Statistic/Avatar/Segmented primitives,
-4. build U3 messaging and advanced analytics on those primitives,
-5. keep Phase T5 as final state, reflow, accessibility, and regression closure rather than a redesign phase.
-
-Authoritative details live in:
-
-```text
-docs/superpowers/specs/2026-07-26-servora-ant-visual-language.md
-docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md
-docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md
-```
+The July 2026 Phase U visual direction amendment (overview/analytics/calendar/messaging integration against Ant primitives) has been shipped and incorporated into the sections above. Archival rationale and resolved plans live in `docs/superpowers/specs/2026-07-26-servora-ant-visual-language.md`, `docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md`, and `docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md`.
