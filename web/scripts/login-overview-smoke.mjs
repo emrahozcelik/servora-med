@@ -217,7 +217,7 @@ async function verifyOverview(page, viewport, captureName) {
   check(`${label} approval queue copy`, Boolean(m.queueText)
     && m.queueText.includes('3 iş onay bekliyor')
     && m.queueText.includes('En eskisi 2 sa 15 dk bekliyor.'), m.queueText ?? 'missing');
-  check(`${label} approval queue link`, m.queueHref === '/reports/approvals', m.queueHref ?? 'missing');
+  check(`${label} approval queue link`, m.queueHref === '/jobs?status=WAITING_APPROVAL', m.queueHref ?? 'missing');
   check(`${label} overdue KPI is the strongest tone`,
     m.kpiCards.filter((card) => card.classes.includes('servora-metric-statistic--overdue')).length === 1,
     m.kpiCards.map((card) => card.classes).join(' | '));
