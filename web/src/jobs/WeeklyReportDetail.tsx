@@ -407,13 +407,13 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   }, [jobCardId]);
 
   if (load.kind === 'error') {
-    return <main className="workspace"><ResultState status="error" title="Rapor yüklenemedi"
+    return <main className="workspace"><PageHeader fallbackTitle="Haftalık rapor" /><ResultState status="error" title="Rapor yüklenemedi"
       description={load.message}
       action={<button className="secondary-button" type="button"
         onClick={() => void refresh({ showLoading: true })}>Tekrar dene</button>} /></main>;
   }
   if (!job || !report || !form) {
-    return <main className="workspace"><ResultState status="info" title="Rapor yükleniyor" description="Haftalık rapor hazırlanıyor…" /></main>;
+    return <main className="workspace"><PageHeader fallbackTitle="Haftalık rapor" /><ResultState status="info" title="Rapor yükleniyor" description="Haftalık rapor hazırlanıyor…" /></main>;
   }
   const loadedJob: JobCard = job;
   const loadedReport: WeeklyReportDetailDto = report;

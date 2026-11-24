@@ -1,5 +1,5 @@
 import type { CurrentUser } from '../services/api';
-import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
+import { EmptyState, LoadingSkeleton, ResultState, ServoraListPagination } from '../ui/antd';
 import type { JobCardListItem, Paginated } from './jobs-api';
 import { JobRow, type JobCommandIntent } from './JobRow';
 
@@ -44,8 +44,6 @@ export function JobList({ state, user, hasFilters, onRetry, onOffsetChange, onCo
   }
 
   const { page } = state;
-  const first = page.total === 0 ? 0 : page.offset + 1;
-  const last = Math.min(page.offset + page.limit, page.total);
   return (
     <div className="job-results" data-job-results-state={page.items.length === 0 ? (hasFilters ? 'filtered-empty' : 'empty') : 'ready'}>
       {page.items.length === 0 ? (
@@ -65,27 +63,14 @@ export function JobList({ state, user, hasFilters, onRetry, onOffsetChange, onCo
           ))}
         </ul>
       )}
-      {page.total > page.limit && (
-        <nav className="job-pagination" aria-label="İş sayfaları">
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={page.offset === 0}
-            onClick={() => onOffsetChange(Math.max(0, page.offset - page.limit))}
-          >
-            Önceki
-          </button>
-          <span aria-live="polite">{first}–{last} / {page.total}</span>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={page.offset + page.limit >= page.total}
-            onClick={() => onOffsetChange(page.offset + page.limit)}
-          >
-            Sonraki
-          </button>
-        </nav>
-      )}
+      <ServoraListPagination
+        label="İş sayfaları"
+        itemName="iş"
+        total={page.total}
+        offset={page.offset}
+        pageSize={page.limit}
+        onOffsetChange={onOffsetChange}
+      />
     </div>
   );
 }

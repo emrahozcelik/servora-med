@@ -168,6 +168,17 @@ describe('StaffPerformanceReport', () => {
     expect(container.textContent).not.toContain('Ayşe Yılmaz');
     expect(container.textContent).toContain('Mehmet Kaya');
     expect(getStaffPerformance).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(search, 'Olmayan Personel');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const clearButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Aramayı temizle');
+    expect(clearButton).toBeTruthy();
+    await act(async () => clearButton!.click());
+    expect(container.textContent).toContain('Ayşe Yılmaz');
   });
 
   it('renders bounded loading, error/retry, and empty states', async () => {

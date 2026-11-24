@@ -279,7 +279,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   }
 
   if (user.role === 'STAFF') {
-    return <main className="workspace"><ResultState status="403" title="Erişim yetkiniz yok"
+    return <main className="workspace"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="403" title="Erişim yetkiniz yok"
       description="Takip işlerini yalnız yöneticiler oluşturabilir." /></main>;
   }
   if (state.kind === 'loading') {
@@ -287,7 +287,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       title="Takip işi hazırlanıyor" headingLevel={1} rows={6} /></main>;
   }
   if (state.kind === 'error') {
-    return <main className="task-create"><ResultState status={state.status}
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status={state.status}
       title={state.status === '404' ? 'Kaynak iş bulunamadı' : state.status === '403' ? 'Erişim yetkiniz yok' : 'Takip işi hazırlanamadı'}
       description={state.message}
       action={state.status === 'error'
@@ -296,7 +296,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     </main>;
   }
   if (fatalError) {
-    return <main className="task-create"><ResultState status={fatalError.status}
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status={fatalError.status}
       title={fatalError.status === '403' ? 'Erişim yetkiniz yok' : fatalError.status === '404' ? 'Kaynak iş kullanılamıyor' : 'Takip işi oluşturulamadı'}
       description={fatalError.message}
       action={<button className="secondary-button" type="button" onClick={onCancel}>Kaynak işe dön</button>} />
@@ -305,14 +305,14 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
 
   const { source, staff } = state;
   if (source.type === 'SALE') {
-    return <main className="task-create"><ResultState status="error"
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="error"
       title="Takip işi oluşturulamaz"
       description="Satış kaydı takip işi kaynağı değildir."
       action={<button className="secondary-button" type="button" onClick={onCancel}>Kaynak işe dön</button>} />
     </main>;
   }
   if (source.status !== 'COMPLETED') {
-    return <main className="task-create"><ResultState status="error"
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="error"
       title="Takip işi oluşturulamaz"
       description="Yalnız tamamlanmış bir işten yeni takip işi oluşturulabilir."
       action={<button className="secondary-button" type="button" onClick={onCancel}>Kaynak işe dön</button>} />

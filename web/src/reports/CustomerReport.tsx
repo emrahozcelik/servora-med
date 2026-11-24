@@ -168,6 +168,7 @@ export function CustomerReport() {
   const [formError, setFormError] = useState('');
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
   const [resolvedTimezone, setResolvedTimezone] = useState<string | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<ReportDatePreset | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const requestSequence = useRef(0);
 
@@ -231,6 +232,7 @@ export function CustomerReport() {
       return;
     }
     setFormError('');
+    setSelectedPreset(null);
     const rawStatus = String(data.get('status') ?? '');
     const rawType = String(data.get('customerType') ?? '');
     setSearch(customerSearch({
@@ -249,6 +251,7 @@ export function CustomerReport() {
     if (!resolvedTimezone) return;
     const range = resolveDatePreset(preset, resolvedTimezone);
     setFormError('');
+    setSelectedPreset(preset);
     setSearch(customerSearch({
       ...range,
       search: state.search,
@@ -300,6 +303,7 @@ export function CustomerReport() {
         onSubmit={submit}
         onPreset={applyPreset}
         presetsDisabled={!resolvedTimezone}
+        selectedPreset={selectedPreset}
         wide
         formClass="report-filters-wide--customer"
       >

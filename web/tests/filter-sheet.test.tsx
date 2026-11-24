@@ -268,4 +268,45 @@ describe('filter sheets and active counts', () => {
     expect(onDismiss).toHaveBeenCalled();
     expect(onApply).not.toHaveBeenCalled();
   });
+
+  it('shows desktop Filtreleri temizle only when filters are active and calls onClear', async () => {
+    setNarrow(false);
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    const onClear = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <JobFilters
+          user={manager}
+          filters={{ view: 'list', offset: 0, status: 'active' }}
+          onApply={() => {}}
+          onClear={onClear}
+          onChange={() => {}}
+          onViewChange={() => {}}
+          boardSupported
+        />,
+      );
+    });
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Filtreleri temizle')).toBe(false);
+
+    await act(async () => {
+      root!.render(
+        <JobFilters
+          user={manager}
+          filters={{ view: 'list', offset: 0, status: 'active', q: 'klinik' }}
+          onApply={() => {}}
+          onClear={onClear}
+          onChange={() => {}}
+          onViewChange={() => {}}
+          boardSupported
+        />,
+      );
+    });
+    const clearButton = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Filtreleri temizle');
+    expect(clearButton).toBeTruthy();
+    await act(async () => clearButton!.click());
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
 });

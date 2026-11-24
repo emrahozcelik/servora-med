@@ -207,6 +207,12 @@ describe('Customer list and creation', () => {
     expect(filters).not.toContain('>Pasif</option>');
     expect(filters).not.toContain('<option value="all">');
 
+    expect(filters).toContain('customer-filters surface-flat');
+    const activeDesktop = renderToStaticMarkup(<CustomerListView state={{ kind: 'ready', customers: [] }} user={manager}
+      hasFilters onRetry={() => {}} onCreate={() => {}} filters={{ q: 'dent' }} staff={[profile]}
+      onFilterChange={() => {}} onApplyFilters={() => {}} />);
+    expect(activeDesktop).toContain('Filtreleri temizle');
+
     const form = renderToStaticMarkup(<MemoryRouter><CustomerCreateForm staff={[profile]} pending similarCustomers={[customer]}
       fieldErrors={{ name: 'Müşteri adı zorunludur.' }} error="Sunucu alanları kabul etmedi."
       onCancel={() => {}} onSubmit={() => {}} /></MemoryRouter>);

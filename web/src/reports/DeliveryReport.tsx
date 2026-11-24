@@ -17,6 +17,7 @@ import {
   type OperationalTableColumn,
   type OperationalTableRow,
 } from '../ui/OperationalTable';
+import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import {
   ReportDateRangeForm,
   ReportEmptyState,
@@ -153,6 +154,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
   const [formError, setFormError] = useState('');
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
   const [resolvedTimezone, setResolvedTimezone] = useState<string | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<ReportDatePreset | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const requestSequence = useRef(0);
 
@@ -238,6 +240,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
       return;
     }
     setFormError('');
+    setSelectedPreset(null);
     setSearch(deliverySearch({
       ...range.value,
       groupBy: nextGroup as DeliveryReportResponse['groupBy'],
@@ -251,6 +254,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
     if (!resolvedTimezone) return;
     const range = resolveDatePreset(preset, resolvedTimezone);
     setFormError('');
+    setSelectedPreset(preset);
     setSearch(deliverySearch({
       ...range,
       groupBy: state.groupBy,
@@ -272,6 +276,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
     }));
   }
 
+  const filtersActive = state.groupBy !== 'day' || state.staffUserId !== null;
   const unavailable = state.staffUserId !== null
     && !options.items.some((item) => item.user.id === state.staffUserId);
   const refreshLabel = refreshedAt && resolvedTimezone
@@ -295,6 +300,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
         onSubmit={submit}
         onPreset={applyPreset}
         presetsDisabled={!resolvedTimezone}
+        selectedPreset={selectedPreset}
         wide
       >
         <label>
@@ -325,6 +331,13 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
           </select>
         </label>
       </ReportDateRangeForm>
+      {filtersActive && (
+        <div className="report-active-filters">
+          <button type="button" className="secondary-button" onClick={resetFilters}>
+            Filtreleri sıfırla
+          </button>
+        </div>
+      )}
       {options.status === 'error' && (
         <div className="inline-report-error" role="alert">
           Personel seçenekleri yüklenemedi.
@@ -339,23 +352,18 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
       {!loading && !error && report && (
         <>
           <DeliveryReportView report={report} onResetFilters={resetFilters} />
-          <div className="report-pagination">
-            <button
-              type="button"
-              disabled={state.offset === 0}
-              onClick={() => setSearch(deliverySearch({ ...state, offset: Math.max(0, state.offset - 50) }))}
-            >
-              Önceki
-            </button>
-            <span>{report.total} grup</span>
-            <button
-              type="button"
-              disabled={state.offset + report.limit >= report.total}
-              onClick={() => setSearch(deliverySearch({ ...state, offset: state.offset + report.limit }))}
-            >
-              Sonraki
-            </button>
-          </div>
+          <ServoraListPagination
+            label="Teslim raporu sayfaları"
+            itemName="grup"
+            total={report.total}
+            offset={state.offset}
+            pageSize={report.limit}
+            onOffsetChange={(nextOffset) => setSearch(deliverySearch({
+              ...state,
+              offset: nextOffset,
+              canonical: true,
+            }))}
+          />
         </>
       )}
     </ReportShell>

@@ -990,4 +990,17 @@ describe('Follow-up create ambiguous attempt contract', () => {
     expect(jobs.createFollowUp).toHaveBeenCalledTimes(1);
     expect(host.querySelector('[data-original-retry]')).toBeNull();
   });
+
+  it('renders PageHeader h1 even on early-return access and load error states', async () => {
+    await act(async () => root.render(
+      <FollowUpCreatePage
+        sourceId={source.id}
+        user={{ ...manager, role: 'STAFF' }}
+        onCancel={() => {}}
+        onCreated={onCreated}
+      />,
+    ));
+    expect(host.querySelector('h1')?.textContent).toBe('Takip işi planla');
+    expect(host.textContent).toContain('Erişim yetkiniz yok');
+  });
 });

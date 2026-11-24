@@ -304,6 +304,7 @@ export function WorkflowTrend({ created, completed }: WorkflowTrendProps) {
           </div>
           <details className="report-data-disclosure">
             <summary>Günlük iş akışı verileri</summary>
+            <div className="report-table-scroll">
             <table className="report-workflow-table">
               <caption>Günlük iş akışı verileri</caption>
               <thead>
@@ -323,6 +324,7 @@ export function WorkflowTrend({ created, completed }: WorkflowTrendProps) {
                 ))}
               </tbody>
             </table>
+            </div>
           </details>
         </>
       )}

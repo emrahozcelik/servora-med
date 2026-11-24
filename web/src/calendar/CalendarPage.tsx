@@ -831,7 +831,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
         <>
           {/* Toolbar with Staff filter for Manager/Admin */}
           {user.role !== 'STAFF' && (
-            <div className="calendar-toolbar surface">
+            <div className="calendar-toolbar surface-flat">
               <label htmlFor="calendar-personnel-filter"><span>Personel</span>
                 <select id="calendar-personnel-filter" name="personnel" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
                   <option value="">Tüm yetkili personel</option>
