@@ -190,7 +190,9 @@ export function OverviewPage({
         {
           label: 'Kontrol bekleyen',
           value: overview.waitingApproval,
-          href: paths.approvalReports,
+          // The actionable queue is the Jobs "Onay kuyruğu" view; the approval
+          // report under Raporlar is analysis, not the place to decide.
+          href: `${paths.jobs}?status=WAITING_APPROVAL`,
           tone: 'default' as const,
           statusPhrase: overview.waitingApproval > 0 ? 'Yönetici değerlendirmesinde' : 'Bekleyen onay yok',
         },
@@ -251,7 +253,7 @@ export function OverviewPage({
               ) : (
                 <p className="overview-queue-count">Kontrol bekleyen iş yok.</p>
               )}
-              <Link className="overview-queue-link" to={paths.approvalReports}>
+              <Link className="overview-queue-link" to={`${paths.jobs}?status=WAITING_APPROVAL`}>
                 Onay kuyruğuna git
               </Link>
             </OperationalCard>

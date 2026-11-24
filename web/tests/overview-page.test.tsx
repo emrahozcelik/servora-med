@@ -131,7 +131,10 @@ describe('OverviewPage', () => {
     expect(html).toContain('Onay kuyruğu');
     expect(html).toContain('3</strong> iş onay bekliyor');
     expect(html).toContain('En eskisi 2 sa 0 dk bekliyor.');
-    expect(html).toContain('href="/reports/approvals"');
+    // Both the KPI and the queue card open the actionable Jobs queue, never
+    // the analysis report.
+    expect(html.match(/href="\/jobs\?status=WAITING_APPROVAL"/g)).toHaveLength(2);
+    expect(html).not.toContain('/reports/approvals');
     expect(html).toContain('Tamamlanma eğilimi');
     expect(html).not.toContain('Kontrol kuyruğunda');
 

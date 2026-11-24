@@ -7,6 +7,7 @@ import { NewJobMenu } from './jobs/NewJobMenu';
 import { paths } from './paths';
 import type { CurrentUser } from './services/api';
 import { MobileBottomNav } from './shell/MobileBottomNav';
+import { PageCreateActionProvider, usePageCreateAction } from './shell/page-create-action';
 import { MobileTopBar } from './shell/MobileTopBar';
 import { NavigationIcon } from './shell/navigation-icons';
 import { ShellUserMenu } from './shell/ShellUserMenu';
@@ -122,9 +123,11 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   return (
     <ResolvedIdentityProvider scopeKey={identityScopeKey(location.pathname)} match={match} role={user.role}>
       <RouteNavigationProvider user={user}>
-        <ShellBody user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut}>
-          {children}
-        </ShellBody>
+        <PageCreateActionProvider>
+          <ShellBody user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut}>
+            {children}
+          </ShellBody>
+        </PageCreateActionProvider>
       </RouteNavigationProvider>
     </ResolvedIdentityProvider>
   );
@@ -153,6 +156,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
   const resolved = useResolvedIdentity();
+  const pageCreate = usePageCreateAction();
   // Single resolved identity feeds MobileTopBar and document.title. Desktop
   // route identity is owned by PageHeader; the desktop topbar carries global
   // quick search, create action, notifications, and compact user menu.
@@ -301,15 +305,29 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
               <kbd className="shell-kbd" aria-hidden="true">{shortcutLabel}</kbd>
             </button>
             <div className="desktop-shell-new-job">
-              <NewJobMenu
-                presentation="popover"
-                triggerIcon={<NavigationIcon id="new-job" className="desktop-shell-create-icon" />}
-                onCreateMeeting={() => navigate(paths.newMeeting)}
-                onCreateTask={() => navigate(paths.newTask)}
-                onCreateSale={() => navigate(paths.newStandaloneSale)}
-                onCreateDelivery={() => navigate(paths.newDelivery)}
-                onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
-              />
+              {pageCreate ? (
+                <button
+                  type="button"
+                  className="primary-button compact-button new-job-menu-trigger desktop-shell-page-create"
+                  disabled={pageCreate.disabled}
+                  onClick={(event) => pageCreate.run(event.currentTarget)}
+                >
+                  <span className="new-job-menu-trigger-icon" aria-hidden="true">
+                    <NavigationIcon id="new-job" className="desktop-shell-create-icon" />
+                  </span>
+                  <span className="new-job-menu-trigger-label">{pageCreate.label}</span>
+                </button>
+              ) : (
+                <NewJobMenu
+                  presentation="popover"
+                  triggerIcon={<NavigationIcon id="new-job" className="desktop-shell-create-icon" />}
+                  onCreateMeeting={() => navigate(paths.newMeeting)}
+                  onCreateTask={() => navigate(paths.newTask)}
+                  onCreateSale={() => navigate(paths.newStandaloneSale)}
+                  onCreateDelivery={() => navigate(paths.newDelivery)}
+                  onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
+                />
+              )}
             </div>
             <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
             <ShellUserMenu

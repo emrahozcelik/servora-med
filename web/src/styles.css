@@ -4413,6 +4413,11 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .desktop-shell-new-job .new-job-menu-trigger {
     gap: 0.45rem;
   }
+  /* The desktop topbar shows the page's own create action (page-create-action.tsx),
+     so the page header does not repeat it: one primary create per viewport. */
+  .page-create-action {
+    display: none;
+  }
   .desktop-shell-create-icon {
     flex: 0 0 auto;
     width: 1rem;

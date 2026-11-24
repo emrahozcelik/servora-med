@@ -223,7 +223,7 @@ describe('Customer list and creation', () => {
   it('renders exactly one primary create-customer command in the workspace heading', () => {
     const html = list({ kind: 'ready', customers: [] }, manager);
     const primaryMatches = [...html.matchAll(/class="primary-button[^"]*"[^>]*>/g)];
-    const createButtons = primaryMatches.filter((m) => html.slice(m.index! - 40, m.index! + 80).includes('Yeni müşteri'));
+    const createButtons = primaryMatches.filter((m) => html.slice(m.index! - 40, m.index! + m[0].length + 40).includes('Yeni müşteri'));
     expect(createButtons).toHaveLength(1);
   });
 

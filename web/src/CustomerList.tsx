@@ -23,6 +23,7 @@ import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset, normalizeListOffset } from './ui/pagination';
 import { ServoraListPagination } from './ui/antd/ServoraPagination';
+import { useRegisterPageCreateAction } from './shell/page-create-action';
 
 export { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 
@@ -255,12 +256,13 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   feedback?: string;
 }) {
   const canManage = user.role !== 'STAFF';
+  useRegisterPageCreateAction({ label: 'Yeni müşteri', run: () => onCreate() });
   const total = state.kind === 'ready' ? (state.total ?? state.customers.length) : 0;
   const offset = state.kind === 'ready' ? (state.offset ?? 0) : 0;
 
   return <main className="workspace customer-workspace">
     <PageHeader fallbackTitle="Müşteriler"
-      actions={<>{canManage && user.capabilities?.duplicateCustomerComparison === true && <Link className="secondary-button" to={paths.duplicateCustomers}>Olası mükerrerler</Link>}<button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button></>}
+      actions={<>{canManage && user.capabilities?.duplicateCustomerComparison === true && <Link className="secondary-button" to={paths.duplicateCustomers}>Olası mükerrerler</Link>}<button className="primary-button compact-button page-create-action" type="button" onClick={onCreate}>Yeni müşteri</button></>}
     />
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
