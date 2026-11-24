@@ -230,6 +230,9 @@ describe('JobDetail joint slot edit', () => {
         closedAt: '2026-08-15T09:30:00.000Z',
         closeReason: null,
         closeText: null,
+        proposedScheduledAt: null,
+        proposedScheduledEndsAt: null,
+        proposalAcceptedAt: null,
       },
     };
     await act(async () => root.render(<JobDetailPanel

@@ -7395,6 +7395,9 @@ describe('Staff JobCard detail', () => {
         closedAt: '2026-07-17T08:30:00.000Z',
         closeReason: null,
         closeText: null,
+        proposedScheduledAt: null,
+        proposedScheduledEndsAt: null,
+        proposalAcceptedAt: null,
       },
       workflowContext: staffContext('ACCEPTED', {
         acceptedAt: '2026-07-17T08:30:00.000Z',

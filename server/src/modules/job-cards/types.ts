@@ -115,6 +115,10 @@ export const JOB_ASSIGNMENT_OFFER_OPENED_REASONS = [
   'REOFFER',
   // SALE-002 §5.4: the delivery the manager opens while approving a sale.
   'SALE_APPROVAL',
+  // JOB-012: management confirmed the time the Staff member proposed; the new
+  // offer is recorded directly in `ACCEPTED` (the proposer accepted by
+  // proposing), so no second Staff acceptance is asked for.
+  'PROPOSAL_ACCEPTED',
 ] as const;
 export type JobAssignmentOfferOpenedReason =
   (typeof JOB_ASSIGNMENT_OFFER_OPENED_REASONS)[number];
@@ -185,6 +189,15 @@ export type JobAssignmentOfferView = {
    */
   closeReason: string | null;
   closeText: string | null;
+  /**
+   * JOB-012: the time the answering Staff member proposed on a
+   * `SCHEDULE_CONFLICT` decline/release, or null. The end is derived at read
+   * time from the job's planned duration, never stored.
+   */
+  proposedScheduledAt: string | null;
+  proposedScheduledEndsAt: string | null;
+  /** JOB-012: set once, when management confirmed the proposal. */
+  proposalAcceptedAt: string | null;
 };
 
 /** Latest offer fact carried by the list/board/follow-up projections. */
@@ -206,6 +219,12 @@ export type AssignmentOfferDecisionInput = {
   expectedVersion: number;
   reasonCode: JobAssignmentOfferDeclineReasonCode;
   reasonText: string;
+  /**
+   * JOB-012: the alternative time a `SCHEDULE_CONFLICT` answer proposes.
+   * Required with `SCHEDULE_CONFLICT`, forbidden with every other reason, and
+   * always in the future. Management confirms it explicitly.
+   */
+  proposedScheduledAt?: string | null;
 };
 
 export type ReofferAssignmentInput = {
@@ -221,6 +240,26 @@ export type ReofferAssignmentReceipt = {
   urgentReason: JobAssignmentOfferUrgentReason | null;
 };
 
+/** JOB-012: management confirms the time the Staff member proposed. */
+export type AcceptAssignmentProposalInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  /** The declined/released offer that carries the proposal. */
+  offerId: string;
+};
+
+/**
+ * JOB-012: the confirmed interval. `offerId` is the new `PROPOSAL_ACCEPTED`
+ * offer created in state `ACCEPTED`; the confirmed proposal offer is the
+ * request's own `offerId`.
+ */
+export type AcceptAssignmentProposalReceipt = {
+  jobCardId: string;
+  offerId: string;
+  scheduledAt: string;
+  scheduledEndsAt: string;
+};
+
 /** One row of the management "needs action" assignment list, oldest first. */
 export type NeedsActionAssignmentOfferItem = {
   jobCardId: string;
@@ -233,6 +272,8 @@ export type NeedsActionAssignmentOfferItem = {
   acceptanceDueAt: string;
   urgentReason: JobAssignmentOfferUrgentReason | null;
   scheduledAt: string | null;
+  /** JOB-012: the pending Staff proposal, or null. */
+  proposedScheduledAt: string | null;
   assignee: { id: string; name: string | null };
   customer: { id: string; name: string } | null;
   jobPath: string;
@@ -600,6 +641,10 @@ export type JobAssignmentOfferRecord = {
   closedAt: Date | null;
   closeReason: string | null;
   closeText: string | null;
+  /** JOB-012: the pending Staff proposal, or null. */
+  proposedScheduledAt: Date | null;
+  /** JOB-012: set once, when management confirmed the proposal. */
+  proposalAcceptedAt: Date | null;
 };
 
 /** JOB-010 release 2a: the open request a job detail exposes. */
@@ -1237,6 +1282,8 @@ export type JobCardActivityDetails =
       decision: 'DECLINED' | 'RELEASED';
       reasonCode: JobAssignmentOfferDeclineReasonCode | null;
       reasonText: string | null;
+      /** JOB-012: the Staff proposal, under the same reader scope. */
+      proposedScheduledAt: string | null;
     }
   | { kind: 'NONE' };
 

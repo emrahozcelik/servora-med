@@ -170,9 +170,15 @@ const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 // JOB-010 release 2b: Staff decline/release answers and the management re-offer.
 const ASSIGNMENT_DECISION_FIELDS = [
   'clientActionId', 'expectedVersion', 'reasonCode', 'reasonText',
+  // JOB-012: the alternative time a schedule-conflict answer proposes.
+  'proposedScheduledAt',
 ] as const;
 const ASSIGNMENT_REOFFER_FIELDS = [
   'clientActionId', 'expectedVersion', 'pastStartAcknowledgement',
+] as const;
+// JOB-012: management confirms the proposal the named offer carries.
+const ASSIGNMENT_ACCEPT_PROPOSAL_FIELDS = [
+  'clientActionId', 'expectedVersion', 'offerId',
 ] as const;
 const START_FIELDS = [...LIFECYCLE_FIELDS, 'locationCapture'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
@@ -346,6 +352,13 @@ export function createJobCardHandlers(service: JobCardService) {
       uuidString(request.params.id, 'jobCardId'),
       body(request, ASSIGNMENT_REOFFER_FIELDS) as never,
     )),
+    // JOB-012: the confirmation is 200 — it answers an existing offer.
+    acceptAssignmentProposal: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.acceptAssignmentProposal(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+        body(request, ASSIGNMENT_ACCEPT_PROPOSAL_FIELDS) as never,
+      ),
     listAssignmentOffersNeedingAction: async (request: FastifyRequest) =>
       service.listAssignmentOffersNeedingAction(actor(request), page(request.query, 25)),
     // OVR-6 §6.2: the management unaccepted past-start list shares the

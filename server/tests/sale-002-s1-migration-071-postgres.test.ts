@@ -33,6 +33,7 @@ const MIGRATION_071 = '071_sale_standalone_and_delivery_link';
 // SALE-002 S2 adds 072 (R9); 071 stays applied and every S1 assertion below
 // keeps checking its own bytes.
 const MIGRATION_072 = '072_sale_submit_without_start';
+const MIGRATION_073 = '073_assignment_offer_time_proposal';
 const MIGRATION_070 = '070_overdue_incident_invalidation_closure';
 
 async function withSchema(run: (pool: Pool, schema: string) => Promise<void>): Promise<void> {
@@ -185,24 +186,24 @@ function withoutDeliveryLink(rows: Row[]): Row[] {
 describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
   it('installs 071 under the exact catalog head 072 and moves HEALTH_SCHEMA_VERSION', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.count).toBe(72);
-    expect(catalog.head?.version).toBe(MIGRATION_072);
+    expect(catalog.count).toBe(73);
+    expect(catalog.head?.version).toBe(MIGRATION_073);
 
     if (existsSync(distMigrationsDirectory)) {
       const distCatalog = await loadMigrationCatalog(distMigrationsDirectory);
-      expect(distCatalog.head?.version).toBe(MIGRATION_072);
+      expect(distCatalog.head?.version).toBe(MIGRATION_073);
     }
 
     await withSchema(async (pool, schema) => {
       const store = new PostgresMigrationStore(pool);
       const applied = await runMigrations({ migrationsDirectory, store });
-      expect(applied.appliedVersions).toHaveLength(72);
+      expect(applied.appliedVersions).toHaveLength(73);
       expect(applied.appliedVersions[70]).toBe(MIGRATION_071);
 
       const history = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows.map((row) => row.version);
-      expect(history).toHaveLength(72);
+      expect(history).toHaveLength(73);
       expect(history[70]).toBe(MIGRATION_071);
 
       expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });
@@ -213,7 +214,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
       if (existsSync(distSchemaCheck)) {
         const url = new URL(databaseUrl as string);
         url.searchParams.set('options', `-c search_path=${schema},public`);
-        const current = runDistSchemaCheck(url.toString(), MIGRATION_072);
+        const current = runDistSchemaCheck(url.toString(), MIGRATION_073);
         expect(current.exitCode).toBe(0);
         expect(current.output).toMatch(/COMPATIBLE/);
 
@@ -240,22 +241,67 @@ describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
           'job_card_assignment_offers_opened_reason_check',
         );
 
-        const fixture = await saleFixture(pool);
-        const sale = await fixture.service.createSaleFromVisit(
-          fixture.staff,
-          fixture.visitId,
-          fixture.input,
+        // The pre-upgrade rows are inserted with SQL. The application only runs
+        // at the exact schema head (startup guard), so a service fixture cannot
+        // build rows on an older schema; every assertion below is unchanged.
+        const organizationId = (await pool.query<{ id: string }>(
+          `INSERT INTO organizations (name) VALUES ('S1 migration clinic') RETURNING id`,
+        )).rows[0]!.id;
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const customerId = await insertCustomer(pool, organizationId);
+        const productIds: string[] = [];
+        for (const name of ['S1 implant', 'S1 bonding']) {
+          productIds.push((await pool.query<{ id: string }>(
+            `INSERT INTO products (organization_id, name, sku) VALUES ($1, $2, $3) RETURNING id`,
+            [organizationId, name, `${name}-${randomUUID()}`],
+          )).rows[0]!.id);
+        }
+        const visitId = (await pool.query<{ id: string }>(
+          `INSERT INTO job_cards
+             (organization_id, type, status, title, assigned_to, created_by, customer_id, engagement_kind)
+           VALUES ($1, 'SALES_MEETING', 'NEW', 'S1 visit', $2, $2, $3, 'CUSTOMER_VISIT') RETURNING id`,
+          [organizationId, staffId, customerId],
+        )).rows[0]!.id;
+        const saleId = await insertSaleRow(pool, organizationId, staffId, customerId, {
+          sourceVisitId: visitId,
+        });
+        await pool.query(
+          `INSERT INTO job_card_sale_details
+             (organization_id, job_card_id, sold_at, source_visit_version,
+              source_visit_title_snapshot, source_customer_name_snapshot)
+           VALUES ($1, $2, $3, 1, 'S1 visit', 'S1 Klinik')`,
+          [organizationId, saleId, '2026-10-14T07:30:00.000Z'],
         );
-        const delivery = await fixture.service.createProductDelivery(
-          fixture.manager,
-          deliveryInput(fixture, 's1-migration-delivery'),
+        for (const [index, productId] of productIds.entries()) {
+          await pool.query(
+            `INSERT INTO job_card_sale_items
+               (organization_id, job_card_id, product_id, quantity, product_name_snapshot, sort_order)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [organizationId, saleId, productId, index === 0 ? 1 : 15,
+              index === 0 ? 'S1 implant' : 'S1 bonding', index],
+          );
+        }
+        const deliveryId = (await pool.query<{ id: string }>(
+          `INSERT INTO job_cards
+             (organization_id, type, status, title, assigned_to, created_by, customer_id,
+              scheduled_at, scheduled_ends_at)
+           VALUES ($1, 'PRODUCT_DELIVERY', 'NEW', 'S1 delivery', $2, $2, $3,
+             '2026-10-14T11:00:00.000Z', '2026-10-14T11:30:00.000Z') RETURNING id`,
+          [organizationId, staffId, customerId],
+        )).rows[0]!.id;
+        await pool.query(
+          `INSERT INTO job_card_delivery_items
+             (organization_id, job_card_id, product_id, delivery_purpose, quantity,
+              product_name_snapshot, sort_order)
+           VALUES ($1, $2, $3, 'SALE', 2, 'S1 implant', 0)`,
+          [organizationId, deliveryId, productIds[0]!],
         );
 
         const before = await snapshotExistingRows(pool);
         expect(before.jobCards).toHaveLength(3);
 
         const upgrade = await runMigrations({ migrationsDirectory, store });
-        expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072] });
+        expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072, MIGRATION_073] });
 
         const after = await snapshotExistingRows(pool);
         for (const row of after.jobCards) {
@@ -280,11 +326,11 @@ describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
         // Existing rows stay addressable by the new link, and no re-apply happens.
         const linkable = await pool.query<{ delivery_source_sale_id: string }>(
           'UPDATE job_cards SET delivery_source_sale_id = $2 WHERE id = $1 RETURNING delivery_source_sale_id',
-          [delivery.jobCardId, sale.jobCardId],
+          [deliveryId, saleId],
         );
-        expect(linkable.rows[0]!.delivery_source_sale_id).toBe(sale.jobCardId);
+        expect(linkable.rows[0]!.delivery_source_sale_id).toBe(saleId);
         await pool.query('UPDATE job_cards SET delivery_source_sale_id = NULL WHERE id = $1', [
-          delivery.jobCardId,
+          deliveryId,
         ]);
 
         expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });

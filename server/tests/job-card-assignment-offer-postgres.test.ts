@@ -213,6 +213,9 @@ type OfferRow = {
   closed_by: string | null;
   close_reason: string | null;
   close_text: string | null;
+  proposed_scheduled_at: Date | null;
+  proposal_accepted_at: Date | null;
+  proposal_accepted_by: string | null;
 };
 
 type OfferState = 'OPEN' | 'ACCEPTED' | 'DECLINED' | 'RELEASED' | 'EXPIRED' | 'WITHDRAWN';
@@ -262,7 +265,8 @@ async function readOffers(pool: Pool, jobCardId: string): Promise<OfferRow[]> {
   return (await pool.query<OfferRow>(
     `SELECT id, organization_id, job_card_id, assignee_user_id, opened_at, opened_reason,
             opened_by, assignment_history_id, acceptance_due_at, urgent_reason, ack_code,
-            ack_text, state, closed_at, closed_by, close_reason, close_text
+            ack_text, state, closed_at, closed_by, close_reason, close_text,
+            proposed_scheduled_at, proposal_accepted_at, proposal_accepted_by
        FROM job_card_assignment_offers
       WHERE job_card_id = $1
       ORDER BY opened_at ASC, id ASC`,
@@ -402,13 +406,32 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]?.version).toMatch(/^072_/);
+      expect(head.rows[0]?.version).toMatch(/^073_/);
       for (const table of ['job_card_assignment_offers', 'job_card_assignment_offer_notifications']) {
         const found = await pool.query<{ name: string | null }>(
           'SELECT to_regclass($1)::text AS name', [table],
         );
         expect(found.rows[0]?.name, table).not.toBeNull();
       }
+
+      // JOB-012 (073): the three proposal columns, their CHECKs and the new
+      // offer reason are in place.
+      const proposalColumns = await pool.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'job_card_assignment_offers'
+            AND column_name IN ('proposed_scheduled_at', 'proposal_accepted_at', 'proposal_accepted_by')`,
+      );
+      expect(proposalColumns.rows.map((row) => row.column_name).sort()).toEqual([
+        'proposal_accepted_at', 'proposal_accepted_by', 'proposed_scheduled_at',
+      ]);
+      const openedReasonCheck = await pool.query<{ definition: string }>(
+        `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+          WHERE conrelid = 'job_card_assignment_offers'::regclass
+            AND conname = 'job_card_assignment_offers_opened_reason_check'`,
+      );
+      expect(openedReasonCheck.rows[0]?.definition).toContain('PROPOSAL_ACCEPTED');
+      expect(openedReasonCheck.rows[0]?.definition).toContain('SALE_APPROVAL');
 
       // 049 command CHECK widened with the two new lifecycle commands.
       const organizationId = await insertOrg(pool);
@@ -535,6 +558,9 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         closedAt: null,
         closeReason: null,
         closeText: null,
+        proposedScheduledAt: null,
+        proposedScheduledEndsAt: null,
+        proposalAcceptedAt: null,
       });
       expect(offeredDetail.workflowContext.allowedCommands).toContain('ACCEPT_ASSIGNMENT');
       expect(offeredDetail.workflowContext.allowedCommands).toContain('DECLINE_ASSIGNMENT');
@@ -647,11 +673,15 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
       clock.now = new Date(baseline.getTime() + 30 * MINUTE_MS);
 
       const clientActionId = randomUUID();
+      // JOB-012 (Q1): a SCHEDULE_CONFLICT answer must propose an alternative
+      // time; it is stored on the offer the answer closes.
+      const proposedScheduledAt = isoOffset(baseline, 240 * MINUTE_MS);
       const declined = await service.declineAssignment(staff, job.id, {
         clientActionId,
         expectedVersion: job.version,
         reasonCode: 'SCHEDULE_CONFLICT',
         reasonText: 'Aynı saatte başka bir klinik teslimi var.',
+        proposedScheduledAt,
       });
       expect(declined).toMatchObject({ status: 'NEW', version: job.version + 1 });
 
@@ -672,6 +702,9 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         close_text: 'Aynı saatte başka bir klinik teslimi var.',
       });
       expect(offer.closed_at?.toISOString()).toBe(reservedAt.toISOString());
+      expect(offer.proposed_scheduled_at?.toISOString()).toBe(proposedScheduledAt);
+      expect(offer.proposal_accepted_at).toBeNull();
+      expect(offer.proposal_accepted_by).toBeNull();
 
       const activities = await selectActivity(pool, job.id, 'JOB_ASSIGNMENT_DECLINED');
       expect(activities).toHaveLength(1);
@@ -679,6 +712,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
       expect(activities[0]!.metadata).toMatchObject({
         offerId,
         reasonCode: 'SCHEDULE_CONFLICT',
+        proposedScheduledAt,
       });
       expect(await selectActivities(pool, job.id)).not.toContain('JOB_CANCELLED');
 
@@ -700,6 +734,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         state: 'DECLINED',
         closeReason: 'SCHEDULE_CONFLICT',
         closeText: 'Aynı saatte başka bir klinik teslimi var.',
+        proposedScheduledAt,
       });
 
       // The job detail management reads carries the same close fact.
@@ -709,6 +744,10 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         closedAt: reservedAt.toISOString(),
         closeReason: 'SCHEDULE_CONFLICT',
         closeText: 'Aynı saatte başka bir klinik teslimi var.',
+        proposedScheduledAt,
+        // The planned interval is 60 minutes, so the derived end is +60 min.
+        proposedScheduledEndsAt: new Date(Date.parse(proposedScheduledAt) + 60 * MINUTE_MS).toISOString(),
+        proposalAcceptedAt: null,
       });
 
       // Idempotent replay: the same identity returns the identical receipt and
@@ -718,6 +757,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         expectedVersion: job.version,
         reasonCode: 'SCHEDULE_CONFLICT',
         reasonText: 'Aynı saatte başka bir klinik teslimi var.',
+        proposedScheduledAt,
       });
       expect(replay).toEqual(declined);
       expect(await selectActivity(pool, job.id, 'JOB_ASSIGNMENT_DECLINED')).toHaveLength(1);
