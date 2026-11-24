@@ -105,7 +105,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
-          <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
+          <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Atandı</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
             <ul class="workflow-lane-cards">
               <li><article class="job-board-card"><a href="#"><strong>İş 1</strong></a></article></li>
               <li><article class="job-board-card"><a href="#"><strong>İş 2</strong></a></article></li>

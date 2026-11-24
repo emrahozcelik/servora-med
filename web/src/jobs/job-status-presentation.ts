@@ -14,8 +14,8 @@ export type ActiveWorkflowPresentation = Readonly<{
 export const activeWorkflowPresentation: Readonly<
   Record<ActiveWorkflowStatus, ActiveWorkflowPresentation>
 > = {
-  NEW: { status: 'NEW', label: 'Hazırlanıyor' },
-  ACCEPTED: { status: 'ACCEPTED', label: 'Atandı' },
+  NEW: { status: 'NEW', label: 'Atandı' },
+  ACCEPTED: { status: 'ACCEPTED', label: 'Kabul edildi' },
   IN_PROGRESS: { status: 'IN_PROGRESS', label: 'Uygulanıyor' },
   WAITING_APPROVAL: { status: 'WAITING_APPROVAL', label: 'Yönetici kontrolünde' },
   REVISION_REQUESTED: { status: 'REVISION_REQUESTED', label: 'Düzeltme istendi' },

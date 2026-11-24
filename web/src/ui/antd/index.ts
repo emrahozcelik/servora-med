@@ -17,7 +17,7 @@ export {
 } from './RecordDescriptions';
 export type { RecordDescriptionItem } from './RecordDescriptions';
 export { ActivityTimeline } from './ActivityTimeline';
-export type { ActivityTimelineItem } from './ActivityTimeline';
+export type { ActivityTimelineItem, ActivityTimelineTone } from './ActivityTimeline';
 export { ConfirmationAction } from './ConfirmationAction';
 export type { ConfirmationActionProps } from './ConfirmationAction';
 export { CompactConfirmationAction } from './CompactConfirmationAction';

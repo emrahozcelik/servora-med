@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { OperationalCard, RecordDescriptions } from '../ui/antd';
+import { SignalGlyph } from '../ui/signal-icons';
 import { jobCardStatusLabel, jobTypeLabels } from './job-labels';
 import {
   getJobCard,
@@ -28,7 +29,12 @@ function formatInstant(value: string | null) {
 }
 
 export function FollowUpBadge({ visible }: { visible: boolean }) {
-  return visible ? <span className="follow-up-badge">{FOLLOW_UP_BADGE_LABEL}</span> : null;
+  return visible ? (
+    <span className="follow-up-badge">
+      <SignalGlyph name="follow-up" className="follow-up-badge-icon" size={13} />
+      {FOLLOW_UP_BADGE_LABEL}
+    </span>
+  ) : null;
 }
 
 /**
@@ -131,7 +137,7 @@ export function FollowUpCreateAction({ onCreate, existingChildrenCount, disabled
 
 function ChildRow({ item }: { item: FollowUpListItem }) {
   return <li className="follow-up-child-row">
-    <div><span className="follow-up-badge">{FOLLOW_UP_BADGE_LABEL}</span>
+    <div><FollowUpBadge visible />
       <a href={paths.job(item.id)}><strong>{item.title}</strong></a></div>
     <dl><div><dt>Tür</dt><dd>{jobTypeLabels[item.type]}</dd></div>
       <div><dt>Durum</dt><dd>{jobCardStatusLabel(item.status)}</dd></div>

@@ -168,6 +168,8 @@ describe('Servora visual token contract', () => {
     expect(token.fontFamily).toBe(typography.fontFamily);
     expect(token.fontSize).toBe(typography.bodySizePx);
     expect(token.motion).toBe(true);
+    // ActivityTimeline's tone marker fills the Ant dot node (24px).
+    expect(servoraAntTheme.components?.Timeline?.dotSize).toBe(24);
 
     const resolved = theme.getDesignToken(servoraAntTheme);
     expect(resolved.colorPrimary.toUpperCase()).toBe(color.accent.antValue);

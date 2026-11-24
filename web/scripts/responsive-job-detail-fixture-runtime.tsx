@@ -59,7 +59,7 @@ if (typeof window !== 'undefined') {
 }
 
 const descriptionItems = [
-  { key: 'status', label: 'Durum', content: 'Hazırlanıyor' },
+  { key: 'status', label: 'Durum', content: 'Atandı' },
   { key: 'assignee', label: 'Sorumlu personel', content: 'Ayşe Personel' },
   { key: 'priority', label: 'Öncelik', content: 'Normal' },
   { key: 'schedule', label: 'Planlanan teslim zamanı', content: 'Belirtilmedi' },
@@ -90,7 +90,7 @@ const timelineItems = [
   {
     key: 'smoke-activity-1',
     action: 'Düzeltme için geri gönderildi',
-    detail: 'Yönetici kontrolünde → Düzeltme gerekiyor',
+    detail: 'Yönetici kontrolünde → Düzeltme istendi',
     reason: 'Teslim miktarı ve seri numarası kaydını doğrulayın',
     actor: 'Emrah Yönetici',
     occurredAt: '2026-07-18T09:00:00.000Z',

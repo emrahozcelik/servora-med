@@ -953,8 +953,8 @@ describe('deriveJobWorkflowPresentation', () => {
 
   it('shares job status labels for chip and presentation consumers', () => {
     expect(jobStatusLabels).toMatchObject({
-      NEW: 'Hazırlanıyor',
-      ACCEPTED: 'Atandı',
+      NEW: 'Atandı',
+      ACCEPTED: 'Kabul edildi',
       PLANNED: 'Planlandı',
       IN_PROGRESS: 'Uygulanıyor',
       WAITING_APPROVAL: 'Yönetici kontrolünde',
@@ -1009,12 +1009,12 @@ describe('deriveCompactWorkflowSummary', () => {
     expect(deriveCompactWorkflowSummary({
       job: { status: 'NEW' }, user: staff,
     })).toEqual({
-      ordinal: 1, total: 5, label: 'Hazırlanıyor', attention: false, expectedRole: 'STAFF',
+      ordinal: 1, total: 5, label: 'Atandı', attention: false, expectedRole: 'STAFF',
     });
     expect(deriveCompactWorkflowSummary({
       job: { status: 'ACCEPTED' }, user: staff,
     })).toEqual({
-      ordinal: 2, total: 5, label: 'Atandı', attention: false, expectedRole: 'STAFF',
+      ordinal: 2, total: 5, label: 'Kabul edildi', attention: false, expectedRole: 'STAFF',
     });
     expect(deriveCompactWorkflowSummary({
       job: { status: 'IN_PROGRESS' }, user: staff,

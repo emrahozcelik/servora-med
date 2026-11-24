@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { SignalGlyph, type SignalGlyphName } from '../ui/signal-icons';
 import type { JobWorkflowPresentation } from './job-workflow-presentation';
 import type { SubmissionRequirement } from './jobs-api';
 import { jobCardInvalidationReasonLabel } from './job-labels';
@@ -10,10 +11,10 @@ const REQUIREMENT_STATE_TEXT: Record<SubmissionRequirement['state'], string> = {
   invalid: 'Geçersiz',
 };
 
-const REQUIREMENT_STATE_ICON: Record<SubmissionRequirement['state'], string> = {
-  met: '✓',
-  missing: '○',
-  invalid: '!',
+const REQUIREMENT_STATE_GLYPH: Record<SubmissionRequirement['state'], SignalGlyphName> = {
+  met: 'check',
+  missing: 'circle',
+  invalid: 'exclamation',
 };
 
 function formatInstant(value: string | null): string {
@@ -62,35 +63,59 @@ export function CurrentResponsibilityPanel(props: {
   );
 }
 
+export function RequirementsList(props: {
+  requirements: JobWorkflowPresentation['requirements'];
+  listClassName?: string;
+}): ReactNode {
+  const { requirements, listClassName } = props;
+  if (requirements.length === 0) return null;
+  const listClass = listClassName
+    ? `workflow-requirements-list ${listClassName}`
+    : 'workflow-requirements-list';
+  return (
+    <ul className={listClass}>
+      {requirements.map((item) => (
+        <li
+          key={item.code}
+          className={`workflow-requirement workflow-requirement-${item.state}`}
+        >
+          <span className="workflow-requirement-icon" aria-hidden="true">
+            <SignalGlyph
+              name={REQUIREMENT_STATE_GLYPH[item.state]}
+              className="workflow-requirement-glyph"
+              size={13}
+            />
+          </span>
+          <span className="workflow-requirement-label">{item.label}</span>
+          <span className="workflow-requirement-state">{REQUIREMENT_STATE_TEXT[item.state]}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function RequirementsChecklist(props: {
   requirements: JobWorkflowPresentation['requirements'];
 }): ReactNode {
   const { requirements } = props;
   if (requirements.length === 0) return null;
+  const metCount = requirements.filter((item) => item.state === 'met').length;
   return (
     <section
       className="workflow-requirements surface-flat job-workflow-panel"
       aria-labelledby="workflow-requirements-title"
       data-job-workflow-panel="requirements"
     >
-      <h2 id="workflow-requirements-title">Kontrole hazırlık</h2>
+      <div className="workflow-requirements-header">
+        <h2 id="workflow-requirements-title">Kontrole hazırlık</h2>
+        <span className="workflow-requirements-progress">
+          {metCount} / {requirements.length} hazır
+        </span>
+      </div>
       <p className="workflow-requirements-help">
         Eksik maddeleri tamamladığınızda iş yöneticinin kontrolüne gönderilebilir.
       </p>
-      <ul className="workflow-requirements-list">
-        {requirements.map((item) => (
-          <li
-            key={item.code}
-            className={`workflow-requirement workflow-requirement-${item.state}`}
-          >
-            <span className="workflow-requirement-icon" aria-hidden="true">
-              {REQUIREMENT_STATE_ICON[item.state]}
-            </span>
-            <span className="workflow-requirement-label">{item.label}</span>
-            <span className="workflow-requirement-state">{REQUIREMENT_STATE_TEXT[item.state]}</span>
-          </li>
-        ))}
-      </ul>
+      <RequirementsList requirements={requirements} />
     </section>
   );
 }

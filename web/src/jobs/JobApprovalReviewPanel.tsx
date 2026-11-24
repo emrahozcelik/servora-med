@@ -1,14 +1,9 @@
 import type { ReactNode } from 'react';
 
+import { RequirementsList } from './JobWorkflowPanels';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import type { JobWorkflowPresentation } from './job-workflow-presentation';
-import type { JobCard, JobLifecycleFacts, SubmissionRequirement } from './jobs-api';
-
-const REQUIREMENT_STATE_TEXT: Record<SubmissionRequirement['state'], string> = {
-  met: 'Tamam',
-  missing: 'Eksik',
-  invalid: 'Geçersiz',
-};
+import type { JobCard, JobLifecycleFacts } from './jobs-api';
 
 function formatInstant(value: string): string {
   return new Intl.DateTimeFormat('tr-TR', {
@@ -68,14 +63,10 @@ export function JobApprovalReviewPanel(props: {
           {typeAwareSummary(job)}
         </p>
         {requirements.length > 0 && (
-          <ul className="approval-review-requirements">
-            {requirements.map((item) => (
-              <li key={item.code}>
-                <span>{item.label}</span>
-                <span>{REQUIREMENT_STATE_TEXT[item.state]}</span>
-              </li>
-            ))}
-          </ul>
+          <RequirementsList
+            requirements={requirements}
+            listClassName="approval-review-requirements"
+          />
         )}
       </div>
       <p className="approval-review-instruction">İş kayıtlarını inceleyerek karar verin.</p>

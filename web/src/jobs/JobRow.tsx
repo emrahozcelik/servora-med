@@ -5,6 +5,7 @@ import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { StatusChip } from '../ui/StatusChip';
 import { formatOverdueLateness } from '../ui/duration';
+import { JobTypeIcon, SignalGlyph, WorkflowCommandIcon } from '../ui/signal-icons';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardListItem, LifecycleCommand } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
@@ -115,7 +116,10 @@ export function JobRow({ job, user, onCommand }: {
         <h2>
           <Link className="job-row-title-link" to={paths.job(job.id)}>{job.title}</Link>
         </h2>
-        <p className="job-row-type">{typeLabel(job)}</p>
+        <p className="job-row-type">
+          <JobTypeIcon type={job.type} engagementKind={job.engagementKind} />
+          {typeLabel(job)}
+        </p>
         <dl className="job-row-relations">
           <div>
             <dt>Müşteri</dt>
@@ -133,6 +137,7 @@ export function JobRow({ job, user, onCommand }: {
           <PriorityChip priority={job.priority} longLabel />
           {overdueSignal && (
             <span className="job-overdue-signal" data-job-overdue-signal="true">
+              <SignalGlyph name="clock" className="job-overdue-signal-icon" />
               {overdueSignal}
             </span>
           )}
@@ -178,6 +183,7 @@ export function JobRow({ job, user, onCommand }: {
               expectedVersion: job.version,
             })}
           >
+            <WorkflowCommandIcon command={primaryCommand} />
             {openLabels[primaryCommand]}
           </button>
         </div>
@@ -201,6 +207,7 @@ export function JobRow({ job, user, onCommand }: {
                 expectedVersion: job.version,
               })}
             >
+              <WorkflowCommandIcon command={command} />
               {openLabels[command]}
             </button>
           );

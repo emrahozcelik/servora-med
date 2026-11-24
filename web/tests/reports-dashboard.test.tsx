@@ -100,15 +100,15 @@ describe('Reports dashboard presentation', () => {
 
     expect(html).toContain('data-report-distribution="active-status"');
     expect(html).toContain('data-report-distribution="created-work-type"');
-    for (const label of ['Hazırlanıyor', 'Atandı', 'Uygulanıyor', 'Yönetici kontrolünde', 'Düzeltme istendi']) {
+    for (const label of ['Atandı', 'Kabul edildi', 'Uygulanıyor', 'Yönetici kontrolünde', 'Düzeltme istendi']) {
       expect(html).toContain(label);
     }
     for (const label of ['Ürün teslimi', 'Genel görev', 'Satış görüşmesi']) {
       expect(html).toContain(label);
     }
     expect(html).toContain('<strong>0</strong>');
-    expect(html.indexOf('Hazırlanıyor')).toBeLessThan(html.indexOf('Atandı'));
-    expect(html.indexOf('Atandı')).toBeLessThan(html.indexOf('Uygulanıyor'));
+    expect(html.indexOf('Atandı')).toBeLessThan(html.indexOf('Kabul edildi'));
+    expect(html.indexOf('Kabul edildi')).toBeLessThan(html.indexOf('Uygulanıyor'));
     expect(html.indexOf('Uygulanıyor')).toBeLessThan(html.indexOf('Yönetici kontrolünde'));
     expect(html.indexOf('Yönetici kontrolünde')).toBeLessThan(html.indexOf('Düzeltme istendi'));
   });

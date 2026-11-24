@@ -288,6 +288,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.45rem;
   min-width: 7rem;
   min-height: var(--control-height);
   padding: 0.68rem 1rem;
@@ -1898,6 +1899,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   z-index: 0;
 }
 .job-row-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   margin: 0;
   color: var(--muted);
   font-size: 0.875rem;
@@ -1936,18 +1940,31 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-overdue-signal {
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
   min-height: 1.75rem;
   padding: 0.2rem 0.65rem;
-  border: 1px solid var(--border-error);
+  border: 1px solid var(--border-warning);
   border-radius: var(--radius-chip);
   font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1.2;
-  color: var(--error);
-  background: var(--error-soft);
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 .job-status, .status-chip { display: inline-flex; align-items: center; gap: 0.45rem; }
-.job-status-shape, .status-chip-shape { width: 0.65rem; height: 0.65rem; border: 2px solid currentColor; border-radius: 50%; background: transparent; flex: 0 0 auto; }
+.job-status-shape,
+.status-chip-shape,
+.priority-chip-icon,
+.follow-up-badge-icon,
+.job-overdue-signal-icon,
+.button-leading-icon,
+.job-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  line-height: 1;
+}
 .status-chip, .priority-chip {
   display: inline-flex;
   align-items: center;
@@ -1962,14 +1979,19 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   color: var(--muted);
   background: var(--canvas);
 }
-.status-chip--waiting_approval, .priority-chip--high, .priority-chip--urgent {
+.status-chip--accepted {
+  color: var(--info);
+  border-color: var(--border-accent);
+  background: var(--paper);
+}
+.status-chip--waiting_approval, .status-chip--revision_requested, .priority-chip--high, .priority-chip--urgent {
   color: var(--warning);
   border-color: var(--border-warning);
   background: var(--warning-soft);
 }
 .status-chip--in_progress {
   color: var(--accent-hover);
-  border-color: var(--accent-soft);
+  border-color: var(--border-accent);
   background: var(--accent-soft);
 }
 .status-chip--completed {
@@ -1977,23 +1999,35 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-color: var(--border-success);
   background: var(--success-soft);
 }
-.status-chip--revision_requested {
-  color: var(--warning);
-  border-color: var(--border-warning);
-  background: var(--warning-soft);
-}
 .status-chip--cancelled {
   color: var(--error);
   border-color: var(--border-error);
   background: var(--error-soft);
+}
+.status-chip--invalidated {
+  color: var(--muted);
+  border-color: var(--border-control);
+  background: var(--frame);
+}
+.priority-chip--low {
+  color: var(--muted);
+  border-color: var(--rule);
+  background: var(--paper);
+}
+.priority-chip--normal {
+  color: var(--ink);
+  border-color: var(--border-control);
+  background: var(--canvas);
 }
 .priority-chip--urgent {
   color: var(--error);
   border-color: var(--border-error);
   background: var(--error-soft);
 }
+.job-status-accepted { color: var(--info); }
 .job-status-waiting_approval, .job-priority-high, .job-priority-urgent { color: var(--warning); }
 .job-status-in_progress { color: var(--accent-hover); }
+.job-status-revision_requested { color: var(--warning); }
 .job-status-completed { color: var(--success); }
 .job-row-facts {
   display: grid;
@@ -2199,6 +2233,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 .job-board-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 700;
@@ -2722,10 +2759,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-badge {
   display: inline-flex;
   align-items: center;
+  gap: 0.3rem;
   min-height: 1.65rem;
   padding: 0.2rem 0.55rem;
   border: 1px solid var(--border-accent);
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   color: var(--accent-hover);
   background: var(--accent-soft);
   font-size: 0.75rem;
@@ -3456,6 +3494,31 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-weight: 720;
   overflow-wrap: anywhere;
 }
+.workflow-requirements-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.55rem;
+}
+.workflow-requirements-header h2 {
+  margin: 0;
+}
+.workflow-requirements-progress {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.6rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-chip);
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .workflow-responsibility p,
 .revision-loop p,
 .completed-job-banner p,
@@ -3573,11 +3636,15 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-weight: 700;
 }
 .workflow-requirement-met .workflow-requirement-icon {
-  color: var(--accent-hover);
-  border-color: var(--border-accent);
-  background: var(--accent-soft);
+  color: var(--success);
+  border-color: var(--border-success);
+  background: var(--success-soft);
 }
-.workflow-requirement-missing .workflow-requirement-icon,
+.workflow-requirement-missing .workflow-requirement-icon {
+  color: var(--warning);
+  border-color: var(--border-warning);
+  background: var(--warning-soft);
+}
 .workflow-requirement-invalid .workflow-requirement-icon {
   color: var(--error);
   border-color: var(--border-error);
@@ -3593,6 +3660,15 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-size: 0.8rem;
   font-weight: 680;
   white-space: nowrap;
+}
+.workflow-requirement-met .workflow-requirement-state {
+  color: var(--success);
+}
+.workflow-requirement-missing .workflow-requirement-state {
+  color: var(--warning);
+}
+.workflow-requirement-invalid .workflow-requirement-state {
+  color: var(--error);
 }
 .job-detail-sections { display: grid; gap: 2.5rem; margin-top: 2.5rem; }
 .job-notes, .job-timeline { min-width: 0; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
@@ -3619,6 +3695,60 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .servora-activity-timeline article p { overflow-wrap: anywhere; }
 .servora-activity-timeline article footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; }
 .servora-activity-timeline article footer > * { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-marker {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--muted);
+}
+.activity-timeline-marker--success {
+  color: var(--success);
+  border-color: var(--border-success);
+  background: var(--success-soft);
+}
+.activity-timeline-marker--info {
+  color: var(--info);
+  border-color: var(--border-accent);
+  background: var(--info-soft);
+}
+.activity-timeline-marker--warning {
+  color: var(--warning);
+  border-color: var(--border-warning);
+  background: var(--warning-soft);
+}
+.activity-timeline-marker--danger {
+  color: var(--error);
+  border-color: var(--border-error);
+  background: var(--error-soft);
+}
+.activity-timeline-marker--neutral {
+  color: var(--muted);
+  border-color: var(--border-control);
+  background: var(--canvas);
+}
+.activity-timeline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.25rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-chip);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.activity-timeline-badge-icon {
+  flex: 0 0 auto;
+}
 .activity-timeline-action { font-weight: 700; }
 .activity-timeline-detail { min-width: 0; overflow-wrap: anywhere; }
 .activity-timeline-reason { min-width: 0; overflow-wrap: anywhere; }
@@ -3683,20 +3813,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .approval-review-summary > p { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
 .approval-review-type { color: var(--ink); font-weight: 700; }
 .approval-review-requirements {
-  display: grid;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.approval-review-requirements li {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
+  margin-top: 0.35rem;
 }
 .approval-review-instruction { margin: 0; padding: 0.7rem 0.85rem; border: 0; background: var(--accent-soft); font-weight: 680; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
 
@@ -3801,9 +3918,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-history-row a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 0.2rem; overflow-wrap: anywhere; }
 .job-history-row p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.8rem; }
 .job-history-row time { flex: 0 0 auto; color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
-.follow-up-badge, .calendar-follow-up-badge { display: inline-flex; align-items: center; margin-left: 0.5rem; padding: 0.15rem 0.45rem; border: 1px solid var(--accent); border-radius: var(--radius-chip); color: var(--accent-hover); font-size: 0.75rem; font-weight: 700; }
+a + .follow-up-badge { margin-left: 0.5rem; }
 .pagination-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 1rem; }
-.calendar-follow-up-badge { margin: 0 0 0 0.45rem; }
+.calendar-follow-up-badge { display: inline-flex; align-items: center; margin: 0 0 0 0.45rem; padding: 0.15rem 0.45rem; border: 1px solid var(--border-accent); border-radius: var(--radius-chip); color: var(--accent-hover); background: var(--accent-soft); font-size: 0.75rem; font-weight: 700; }
 .calendar-follow-up-context { display: grid; gap: 0.35rem; margin: 0.7rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--rule); }
 .calendar-follow-up-context div { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.78rem; }
 .calendar-follow-up-context dt { color: var(--muted); }
