@@ -42,7 +42,7 @@ describe('JobInvalidationAction', () => {
       );
     });
 
-    expect(host.querySelector('#job-invalidation-title')?.textContent).toBe('Kayıt düzeltme (Admin)');
+    expect(host.querySelector('#job-invalidation-title')?.textContent).toBe('Kaydı geçersiz kıl');
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[data-job-invalidation-trigger]')?.click();

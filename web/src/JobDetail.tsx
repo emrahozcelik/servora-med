@@ -927,6 +927,7 @@ export function JobDetailPanel({
           <RevisionLoopPanel
             loop={presentation.revisionLoop}
             resumed={job.status === 'IN_PROGRESS'}
+            viewerIsAssignee={user.role === 'STAFF' && job.assignee.id === user.id}
           />
         </div>
       )}
@@ -1321,6 +1322,9 @@ function nextSessionToken() {
 
 function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
+  // The lateness history is a collapsed disclosure below the workflow for
+  // managers below the 64rem gate only (DECISIONS.md UI-005).
+  const narrowDetail = useNarrowDetail();
   const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   useEffect(() => {
     setRouteRuntimeLabel(state.kind === 'ready' ? state.detail.job.title : undefined);
@@ -2926,9 +2930,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       // version (400) or silently drop the delivery section, so wait for it.
       if (state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
         && pairState.kind === 'loading') {
-        const message = 'Bağlı satış kaydı yükleniyor. Lütfen bekleyin.';
-        setFollowUpLoadError(message);
-        return message;
+        // The pair note already shows its own loading status and the confirm
+        // is blocked meanwhile; never park this wait in the follow-up error.
+        return 'Bağlı satış kaydı yükleniyor. Lütfen bekleyin.';
       }
       if (followUpLoading) {
         return 'Takip önerisi yükleniyor. Lütfen bekleyin.';
@@ -3289,7 +3293,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       />
     }
     overdueHistory={isManagementUser(user) ? (
-      <OverdueIncidentHistorySection jobId={jobId} collapsible />
+      <OverdueIncidentHistorySection jobId={jobId} collapsible={narrowDetail} />
     ) : undefined}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name, trigger) => command(name, trigger)}
@@ -3366,6 +3370,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       uncertain={uncertain}
       loadingFollowUp={followUpLoading}
       followUpLoadError={followUpLoadError}
+      confirmBlocked={dialog.kind === 'approve' && detail.kind === 'SALES_MEETING'
+        && pairState.kind === 'loading'}
       validatePrelude={validateDialogPrelude}
       onClose={() => { if (!uncertain) closeDialog(); }}
       onConfirm={confirmDialog}

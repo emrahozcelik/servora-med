@@ -129,30 +129,36 @@ export function RequirementsChecklist(props: {
 export function RevisionLoopPanel(props: {
   loop: NonNullable<JobWorkflowPresentation['revisionLoop']>;
   resumed?: boolean;
+  /** The assigned Staff member reading their own card (second-person copy). */
+  viewerIsAssignee?: boolean;
 }): ReactNode {
-  const { loop, resumed = false } = props;
+  const { loop, resumed = false, viewerIsAssignee = false } = props;
+  const expectedRole = resumed
+    ? (viewerIsAssignee ? 'Düzeltme üzerinde çalışıyorsunuz.' : 'Düzeltme üzerinde çalışılıyor.')
+    : (viewerIsAssignee ? 'Düzeltmeye başlamanız bekleniyor.' : 'Personelin düzeltmeyi başlatması bekleniyor.');
+  const nextAction = viewerIsAssignee
+    ? (resumed
+      ? 'Yönetici notunu giderip kayıtları güncelledikten sonra yeniden kontrole gönderin.'
+      : 'Önce düzeltmeye başlayın; tamamladığınızda yeniden kontrole gönderin.')
+    : 'Personel kayıtları güncelleyip işi yeniden kontrole gönderecek.';
   return (
     <section
       className="revision-loop surface job-workflow-panel"
       aria-labelledby="revision-loop-title"
       data-job-workflow-panel="revision"
     >
-      <h2 id="revision-loop-title">Düzeltme notu ve geçmişi</h2>
+      <h2 id="revision-loop-title">Düzeltme notu</h2>
       <p className="revision-description">
         <span className="revision-hook" data-revision-context="lifecycle">
           Yönetici kontrolünden uygulamaya geri gönderildi.
         </span>
         {' '}
         <span className="revision-hook" data-revision-context="expected-role">
-          {resumed
-            ? 'Düzeltme üzerinde çalışılıyor.'
-            : 'Personelin düzeltmeyi başlatması bekleniyor.'}
+          {expectedRole}
         </span>
       </p>
       <p className="revision-next-action-hook" data-revision-context="next-action">
-        {resumed
-          ? 'Yönetici notunu giderip kayıtları güncelledikten sonra yeniden kontrole gönderin.'
-          : 'Önce düzeltmeye başlayın; tamamladığınızda yeniden kontrole gönderin.'}
+        {nextAction}
       </p>
       <p className="revision-loop-reason">
         <span className="revision-loop-reason-label">Düzeltme nedeni</span>

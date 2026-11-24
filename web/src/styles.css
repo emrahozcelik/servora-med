@@ -3446,10 +3446,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   order: 2;
 }
 .review-buttons-separator {
+  /* A full-row rule: destructive commands always start their own row, so the
+     divider never becomes a stray vertical stub when the buttons wrap. */
   order: 2;
-  flex: 0 0 1px;
-  align-self: stretch;
-  margin-inline: 0.15rem;
+  flex: 0 0 100%;
+  height: 1px;
   background: var(--rule);
 }
 .inline-form-actions {
@@ -4217,7 +4218,9 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .job-note-list li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
   .review-buttons { align-items: stretch; flex-direction: column; }
   .review-buttons button { width: 100%; }
-  .review-buttons-separator { width: 100%; height: 1px; margin-inline: 0; margin-block: 0.15rem; }
+  /* Column direction: a 100% flex-basis would be read as height and push the
+     destructive command into a new off-screen column. */
+  .review-buttons-separator { flex: 0 0 1px; width: 100%; }
   .approval-review-summary { grid-template-columns: 1fr; }
   .people-row { align-items: stretch; flex-direction: column; }
   .people-actions { justify-content: space-between; }

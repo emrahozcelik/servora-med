@@ -107,7 +107,7 @@ export function FollowUpSourcePanel({ job }: { job: JobCard }) {
     data-follow-up-source-access={context.sourceAccess}>
     {context.followUpInstructions?.trim() ? (
       <p className="follow-up-instructions-preview">
-        <strong>Takip talimatı:</strong> {context.followUpInstructions}
+        <strong>Takip kapsamı:</strong> {context.followUpInstructions}
       </p>
     ) : null}
     <details className="follow-up-source-disclosure">
@@ -116,7 +116,10 @@ export function FollowUpSourcePanel({ job }: { job: JobCard }) {
         {context.sourceAccess === 'FULL' && context.sourceJobPath
           ? <a className="inline-action" href={context.sourceJobPath}>Önceki işi aç</a>
           : null}
-        <p className="follow-up-instructions"><strong>Takip kapsamı</strong><span>{context.followUpInstructions}</span></p>
+        {/* Non-empty instructions are already shown above the disclosure. */}
+        {context.followUpInstructions?.trim() ? null : (
+          <p className="follow-up-instructions"><strong>Takip kapsamı</strong><span>{context.followUpInstructions}</span></p>
+        )}
         <RecordDescriptions ariaLabel="Önceki iş özeti" items={[
           { key: 'type', label: 'İş türü', content: jobTypeLabels[summary.sourceType] },
           { key: 'planned', label: FOLLOW_UP_DATE_LABELS.planned, content: formatInstant(summary.sourcePlannedAt) },

@@ -183,7 +183,7 @@ export function JobInvalidationAction({
     >
       <div className="job-invalidation-heading">
         <div>
-          <h2 id="job-invalidation-title">Kayıt düzeltme (Admin)</h2>
+          <h2 id="job-invalidation-title">Kaydı geçersiz kıl</h2>
           <p>Bu kayıt operasyonel akıştan çıkarılır ve yeniden açılamaz.</p>
         </div>
         <button

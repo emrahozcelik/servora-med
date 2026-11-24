@@ -50,6 +50,8 @@ export function JobWorkflowDialog(props: {
   followUp?: FollowUpProposalSectionProps;
   loadingFollowUp?: boolean;
   followUpLoadError?: string | null;
+  /** Locks the confirm while another dependency (the visit pair) is still loading. */
+  confirmBlocked?: boolean;
   validatePrelude?: () => string | null;
   /**
    * SALE-002 §8.1: pair summary rendered above the preludes for the visit
@@ -87,7 +89,7 @@ export function JobWorkflowDialog(props: {
     dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
     assignmentReason, revisionCorrection, returnFocusRef, restoreFocusEnabledRef,
     pairNote, pairDetails = [], saleDelivery,
-    loadingFollowUp = false, followUpLoadError = null, validatePrelude,
+    loadingFollowUp = false, followUpLoadError = null, confirmBlocked = false, validatePrelude,
   } = props;
   const continuity = dialog.kind === 'cancel' ? cancelContinuity : undefined;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
@@ -223,7 +225,7 @@ export function JobWorkflowDialog(props: {
       maxLength={2000}
       required={dialog.kind !== 'approve'}
       pending={pending}
-      confirmDisabled={Boolean(loadingFollowUp)}
+      confirmDisabled={loadingFollowUp || confirmBlocked}
       inputsDisabled={uncertain}
       destructive={dialog.kind === 'cancel' || dialog.kind === 'decline' || dialog.kind === 'release'}
       prelude={prelude}

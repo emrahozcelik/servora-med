@@ -236,14 +236,21 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     await render(revisionRequested, staff);
 
     expect(section('responsibility')!.textContent).toContain('Düzeltme gerekiyor');
-    expect(host.querySelector('#revision-loop-title')?.textContent).toBe('Düzeltme notu ve geçmişi');
+    expect(host.querySelector('#revision-loop-title')?.textContent).toBe('Düzeltme notu');
     expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
-      .toBe('Personelin düzeltmeyi başlatması bekleniyor.');
+      .toBe('Düzeltmeye başlamanız bekleniyor.');
     expect(precedes(section('responsibility')!, section('actions')!)).toBe(true);
     expect(precedes(section('actions')!, section('lifecycle')!)).toBe(true);
     expect(precedes(section('lifecycle')!, section('revision')!)).toBe(true);
     expect(host.querySelector('[data-job-decision-panel="true"]')?.textContent)
       .toContain('Düzeltmeye başla');
+ 
+    // Management reads the same panel in the third person.
+    await render(revisionRequested, manager);
+    expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
+      .toBe('Personelin düzeltmeyi başlatması bekleniyor.');
+    expect(host.querySelector('[data-revision-context="next-action"]')?.textContent)
+      .toBe('Personel kayıtları güncelleyip işi yeniden kontrole gönderecek.');
   });
 
   it('deduplicates manager review headings/submission facts and places invalidation below notes in rail', async () => {
@@ -251,7 +258,7 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     await render(managerWaiting, manager, {
       messagingAction: <div data-test-messaging="true">Mesaj</div>,
       notes: <section data-test-notes="true">Notlar</section>,
-      invalidationAction: <section data-invalidation-action="true">Kayıt düzeltme (Admin)</section>,
+      invalidationAction: <section data-invalidation-action="true">Kaydı geçersiz kıl</section>,
     });
 
     expect(host.querySelector('#workflow-responsibility-title')?.textContent).toBe('Yönetici kontrolü');
@@ -286,7 +293,7 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
       staff,
     );
     expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
-      .toBe('Düzeltme üzerinde çalışılıyor.');
+      .toBe('Düzeltme üzerinde çalışıyorsunuz.');
     expect(host.querySelector('[data-revision-context="next-action"]')?.textContent)
       .toBe('Yönetici notunu giderip kayıtları güncelledikten sonra yeniden kontrole gönderin.');
   });

@@ -393,7 +393,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     </fieldset><div className="review-buttons inline-form-actions">
       {ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={mutationPending}
         onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt.input); }}>Özgün isteği tekrar dene</button>}
-      <button className="secondary-button compact-button" type="submit" disabled={mutationPending || ambiguous}>
+      <button className="primary-button compact-button" type="submit" disabled={mutationPending || ambiguous}>
         {mutationPending ? 'Kaydediliyor…' : 'Görüşme sonucunu kaydet'}
       </button>
     </div></form>

@@ -71,7 +71,7 @@ export function JobDecisionPanel({
     data-job-decision-panel="true"
   >
     {startLocationCaptureEnabled && hasStart && <div className="start-location-notice">
-      <p>İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınır.</p>
+      <p>İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.</p>
       <details className="location-notice-more">
         <summary>Ayrıntı</summary>
         <span>
@@ -81,7 +81,7 @@ export function JobDecisionPanel({
       </details>
     </div>}
     {submitLocationCaptureEnabled && hasSubmit && <div className="submit-location-notice">
-      <p>Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınır.</p>
+      <p>Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.</p>
       <details className="location-notice-more">
         <summary>Ayrıntı</summary>
         <span>

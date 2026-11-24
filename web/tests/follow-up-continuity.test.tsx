@@ -178,8 +178,11 @@ describe('JobDetail follow-up continuity', () => {
     await renderPanel(fullFollowUp, staff);
     const preview = host.querySelector('.follow-up-instructions-preview');
     expect(preview).not.toBeNull();
-    expect(preview?.textContent).toContain('Takip talimatı:');
+    expect(preview?.textContent).toContain('Takip kapsamı:');
     expect(preview?.textContent).toContain('Uzun takip kapsamı');
+    // Shown once: the disclosure does not repeat non-empty instructions.
+    expect(host.querySelector('.follow-up-source-disclosure .follow-up-instructions')).toBeNull();
+    expect(host.textContent?.split('Uzun takip kapsamı').length).toBe(2);
     const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure');
     expect(disclosure).not.toBeNull();
     expect(disclosure?.open).toBe(false);
@@ -228,7 +231,9 @@ describe('JobDetail follow-up continuity', () => {
     const summary = disclosure.querySelector('summary')!;
     await act(async () => { (summary as HTMLElement).click(); });
     expect(disclosure.open).toBe(true);
-    expect(disclosure.textContent).toContain('Uzun takip kapsamı');
+    expect(disclosure.textContent).toContain('Görüşme sonucu');
+    // The instructions stay visible above the disclosure instead of repeating.
+    expect(disclosure.textContent).not.toContain('Uzun takip kapsamı');
     expect(summary.querySelector('a')).toBeNull();
     expect(disclosure.querySelector('a[href="/jobs/source-1"]')).not.toBeNull();
   });
