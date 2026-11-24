@@ -890,6 +890,19 @@ describe.skipIf(!databaseUrl)('JOB-012 — assignment time proposal', () => {
         reasonText,
         proposedScheduledAt: proposal,
       });
+
+      // Q4: a released answer's proposal is confirmable exactly like a decline.
+      const receipt = await withProposalCommands(service).acceptAssignmentProposal(
+        seed.manager, job.id,
+        { clientActionId: randomUUID(), expectedVersion: job.version + 1, offerId },
+      );
+      expect(receipt).toMatchObject({ jobCardId: job.id, scheduledAt: proposal });
+      expect(await readJob(pool, job.id)).toMatchObject({
+        status: 'ACCEPTED',
+        accepted_by: seed.staffId,
+      });
+      expect((await readOffers(pool, job.id)).map((row) => row.opened_reason))
+        .toContain('PROPOSAL_ACCEPTED');
     });
   });
 
@@ -923,13 +936,11 @@ describe.skipIf(!databaseUrl)('JOB-012 — assignment time proposal', () => {
       }));
       const declinedVersion = job.version + 1;
 
-      const startedAt = new Date();
       const receipt = await commands.acceptAssignmentProposal(seed.manager, job.id, {
         clientActionId: randomUUID(),
         expectedVersion: declinedVersion,
         offerId,
       });
-      const finishedAt = new Date();
 
       // The response names the new ACCEPTED offer and the moved interval.
       expect(receipt).toEqual({
@@ -978,19 +989,18 @@ describe.skipIf(!databaseUrl)('JOB-012 — assignment time proposal', () => {
       expect(acceptedOffer.closed_at).not.toBeNull();
 
       // The contract binds accepted_at, proposal_accepted_at and the new
-      // offer's closed_at to one request instant; assert they belong to the
-      // same command window without pinning which clock is sampled.
-      const windowStart = startedAt.getTime() - 1_000;
-      const windowEnd = finishedAt.getTime() + 1_000;
+      // offer's closed_at/opened_at to one request instant: the injected clock.
       for (const instant of [
         persisted.accepted_at,
         proposalOffer.proposal_accepted_at,
         acceptedOffer.closed_at,
+        acceptedOffer.opened_at,
       ]) {
-        expect(instant).not.toBeNull();
-        expect(instant!.getTime()).toBeGreaterThanOrEqual(windowStart);
-        expect(instant!.getTime()).toBeLessThanOrEqual(windowEnd);
+        expect(instant?.toISOString()).toBe(clock.now.toISOString());
       }
+      // OVR-2: the acceptance basis is the new, future interval, so the
+      // confirmation materializes no LATE_START incident.
+      expect(await readOverdueIncidents(pool, job.id)).toEqual([]);
 
       // The move is a real management reschedule: schedule revision + version.
       const revisions = await readScheduleRevisions(pool, job.id);
@@ -1241,6 +1251,7 @@ describe.skipIf(!databaseUrl)('JOB-012 — assignment time proposal', () => {
       const declinedVersion = job.version + 1;
 
       // Contract boundary: proposed_scheduled_at <= requestTime expires.
+      const beforeBoundary = await readJobEvidence(pool, job.id);
       clock.now = new Date(baseline.getTime() + 30 * MINUTE_MS);
       const atBoundary = await rejectionOf(() => commands.acceptAssignmentProposal(
         seed.manager, job.id,
@@ -1252,6 +1263,7 @@ describe.skipIf(!databaseUrl)('JOB-012 — assignment time proposal', () => {
       });
 
       const afterBoundary = await readJobEvidence(pool, job.id);
+      expect(afterBoundary).toEqual(beforeBoundary);
       clock.now = new Date(baseline.getTime() + 45 * MINUTE_MS);
       const past = await rejectionOf(() => commands.acceptAssignmentProposal(
         seed.manager, job.id,

@@ -1409,8 +1409,9 @@ MANAGER/ADMIN receives `job.assignment_declined`. A missing/stale offer returns
 `proposedScheduledAt` (JOB-012) is the alternative time a `SCHEDULE_CONFLICT` answer proposes,
 as a canonical ISO instant. It is **required** with `SCHEDULE_CONFLICT` (missing/null →
 `400 VALIDATION_ERROR` with `fieldErrors.proposedScheduledAt`), **forbidden** with every other
-reason (`400`, same field error), and must be strictly after the request clock (`400`,
-"Önerilen zaman gelecekte olmalı."). The proposed interval
+reason (`400`, same field error), and must be strictly after the 049 reservation instant
+(`400`, "Önerilen zaman gelecekte olmalı."; checked after the replay lookup, so a completed
+answer replays even once its proposal has passed). The proposed interval
 `[proposedScheduledAt, proposedScheduledAt + D)` — `D` = the persisted planned duration, else
 the canonical 60 min (`SALES_MEETING`) / 30 min (`PRODUCT_DELIVERY`) — must not collide with
 the answering Staff member's calendar (the same occupancy reader a reschedule uses, this job

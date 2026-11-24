@@ -49,7 +49,9 @@ Body gains `proposedScheduledAt?: string | null` (canonical ISO instant).
 - Any other `reasonCode`: it must be absent or null → otherwise `400` with
   `fieldErrors.proposedScheduledAt`.
 - `proposedScheduledAt <= requestTime` → `400` `fieldErrors.proposedScheduledAt`
-  ("Önerilen zaman gelecekte olmalı.").
+  ("Önerilen zaman gelecekte olmalı."). `requestTime` is the 049 reservation
+  instant, checked after the replay lookup, so a completed answer still replays
+  after its proposal has passed.
 - The derived interval conflicting with the Staff member's calendar (the same
   occupancy reader as reschedule, excluding this job) → `409 CALENDAR_CONFLICT`
   with the existing Staff-projected conflict shape.
@@ -92,7 +94,9 @@ Effects, one transaction:
    The OVR-2 acceptance basis is the new planned interval (no `LATE_START` for a
    future start).
 
-Response `200 { jobCardId, offerId, scheduledAt, scheduledEndsAt }`.
+Response `200 { jobCardId, offerId, scheduledAt, scheduledEndsAt }`, where
+`offerId` is the new `PROPOSAL_ACCEPTED` offer (the confirmed one is
+`proposalOfferId` in the `JOB_ACCEPTED` metadata).
 
 ### Reads
 
