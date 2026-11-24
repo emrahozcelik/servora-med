@@ -304,7 +304,7 @@ test('normal route argument rules: a pinned CI run needs its package; no attempt
 });
 
 /**
- * 2026-11-24 (run 45367120236): a transient TRUSTED_TIME_UNKNOWN left the
+ * 2026-11-24 (runs 45367120236, 45370383361): a load-driven TRUSTED_TIME_UNKNOWN left the
  * postdeploy observation proof null. The runner must classify that live state
  * distinctly from a failed backup and from a generic postdeploy failure.
  */
@@ -319,7 +319,7 @@ test('runner classifies a live postdeploy observation-state failure distinctly',
   const observation = classify(['OBSERVATION_STATE_FILE_CONTRACT_INVALID', `LIVE_BUT_OBSERVATION_STATE_FAILED sha=${DEPLOY_SHA}`].join('\n'));
   assert.equal(observation.status, 0, observation.stderr);
   assert.match(observation.stdout, /^STATUS=LIVE_BUT_OBSERVATION_STATE_FAILED$/m);
-  assert.match(observation.stderr, /POSTDEPLOY_OBSERVATION_HINT=.*TRUSTED_TIME_UNKNOWN.*same-SHA rerun/);
+  assert.match(observation.stderr, /POSTDEPLOY_OBSERVATION_HINT=.*TRUSTED_TIME_UNKNOWN.*production-deployment\.md/);
   const backup = classify(`LIVE_BUT_POSTDEPLOY_BACKUP_FAILED sha=${DEPLOY_SHA}`);
   assert.match(backup.stdout, /^STATUS=LIVE_BUT_POSTDEPLOY_BACKUP_FAILED$/m);
   assert.doesNotMatch(backup.stderr, /POSTDEPLOY_OBSERVATION_HINT/);

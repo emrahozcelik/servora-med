@@ -170,15 +170,18 @@ test('OPS-TT-003: a new event preserves legacy nested scheduled proof bytes with
   assert.equal(JSON.stringify(next.latestScheduledVerifiedProof),bytes);
 }));
 
-test('TT-B transient trusted time: retry delays are bounded and span one minimum chrony poll',()=>{
-  assert.deepEqual([...TRUSTED_TIME_RETRY_DELAYS_MS],[5000,20000,45000]);
+test('TT-B transient trusted time: backoff is bounded, grows, and outlasts the observed two-minute load window',()=>{
+  const delays=[...TRUSTED_TIME_RETRY_DELAYS_MS];
+  assert.deepEqual(delays,[5000,15000,30000,60000,90000]);
   assert.ok(Object.isFrozen(TRUSTED_TIME_RETRY_DELAYS_MS));
-  assert.ok(TRUSTED_TIME_RETRY_DELAYS_MS.reduce((a,b)=>a+b,0)>=64000);
+  assert.ok(delays.every((delay,index)=>index===0||delay>delays[index-1]));
+  const total=delays.reduce((a,b)=>a+b,0);
+  assert.ok(total>=130000&&total<=300000);
 });
 test('TT-B transient trusted time: a transient before-sample miss is retried and still mints the full postdeploy proof',()=>fixture(({base,statePath,artifactPath})=>{
   const postdeploy={...base,trigger:'postdeploy'},retry=retryRecorder(),read=sequence(unknown,unknown,()=>sample());
   publishObservation({...postdeploy,outcome:'running'},read,retry.options);
-  assert.equal(read.calls(),3);assert.deepEqual(retry.sleeps,[5000,20000]);assert.deepEqual(retry.warnings,[]);
+  assert.equal(read.calls(),3);assert.deepEqual(retry.sleeps,[5000,15000]);assert.deepEqual(retry.warnings,[]);
   publishObservation({...postdeploy,outcome:'success',artifactPath,sidecarPath:artifactPath+'.sha256'},()=>sample(1000),retry.options);
   const raw=JSON.parse(readFileSync(statePath,'utf8'));
   assert.ok(parseBackupObservationState(raw));
@@ -201,11 +204,11 @@ test('TT-B transient trusted time: a persistent miss stops after the bounded att
   const postdeploy={...base,trigger:'postdeploy'},retry=retryRecorder(),read=sequence(unknown);
   publishObservation({...postdeploy,outcome:'running'},read,retry.options);
   assert.equal(read.calls(),TRUSTED_TIME_RETRY_DELAYS_MS.length+1);
-  assert.deepEqual(retry.warnings,['backup-observation: TRUSTED_TIME_UNKNOWN sample=before attempts=4; freshness proof not recorded\n']);
+  assert.deepEqual(retry.warnings,['backup-observation: TRUSTED_TIME_UNKNOWN sample=before attempts=6; freshness proof not recorded\n']);
   // No before sample means no proof is possible: the after sample is taken once, never retried.
   const after=sequence(unknown);
   publishObservation({...postdeploy,outcome:'success',artifactPath,sidecarPath:artifactPath+'.sha256'},after,retry.options);
-  assert.equal(after.calls(),1);assert.equal(retry.sleeps.length,3);
+  assert.equal(after.calls(),1);assert.equal(retry.sleeps.length,TRUSTED_TIME_RETRY_DELAYS_MS.length);
   assert.match(retry.warnings[1],/^backup-observation: TRUSTED_TIME_UNKNOWN sample=after attempts=1;/);
   const raw=JSON.parse(readFileSync(statePath,'utf8'));
   assert.equal(raw.latestAttemptResult,'success');assert.equal(raw.latestAttemptTime,null);assert.equal(raw.latestVerifiedProof,null);
@@ -213,10 +216,10 @@ test('TT-B transient trusted time: a persistent miss stops after the bounded att
 }));
 test('TT-B transient trusted time: retries never accept evidence the unchanged contract rejects',()=>fixture(({base,statePath,artifactPath})=>{
   const postdeploy={...base,trigger:'postdeploy'},retry=retryRecorder();
-  publishObservation({...postdeploy,outcome:'running'},sequence(()=>legacySample(),()=>legacySample(),()=>legacySample(),()=>sample()),retry.options);
+  publishObservation({...postdeploy,outcome:'running'},sequence(()=>legacySample(),()=>legacySample(),()=>legacySample(),()=>legacySample(),()=>legacySample(),()=>sample()),retry.options);
   publishObservation({...postdeploy,outcome:'success',artifactPath,sidecarPath:artifactPath+'.sha256'},sequence(()=>legacySample(1000)),retry.options);
   const raw=JSON.parse(readFileSync(statePath,'utf8'));
-  // The fourth (valid) before sample is used; every after attempt is legacy, so no proof is minted.
+  // The last (valid) before sample is used; every after attempt is legacy, so no proof is minted.
   assert.deepEqual(raw.latestAttemptTime,sample());assert.equal(raw.latestVerifiedProof,null);
-  assert.deepEqual(retry.sleeps,[5000,20000,45000,5000,20000,45000]);
+  assert.deepEqual(retry.sleeps,[...TRUSTED_TIME_RETRY_DELAYS_MS,...TRUSTED_TIME_RETRY_DELAYS_MS]);
 }));

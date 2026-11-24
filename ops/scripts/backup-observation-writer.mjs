@@ -10,12 +10,15 @@ import {BACKUP_TRIGGER_CLASSES,BACKUP_ATTEMPT_RESULTS,BACKUP_FAILURE_CLASSES,OBS
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const fail=()=>{throw new Error('BACKUP_OBSERVATION_UNTRUSTED');};
 const flushDirectory=path=>{const fd=openSync(path,constants.O_RDONLY|constants.O_DIRECTORY);try{fsyncSync(fd);}finally{closeSync(fd);}};
-// Bounded retry of a transient TRUSTED_TIME_UNKNOWN sample (for example one NTS
-// source briefly unreachable while chrony re-evaluates its quorum). The waits
-// total 70 s, longer than one minimum 64-second chrony poll. Every attempt is a
-// fresh, fully validated sample: nothing is cached, synthesized or relaxed, and
-// a sample that is still unknown after the last attempt records no proof.
-export const TRUSTED_TIME_RETRY_DELAYS_MS=Object.freeze([5000,20000,45000]);
+// Bounded backoff for a TRUSTED_TIME_UNKNOWN sample. Observed 2026-11-24: under
+// deploy load (release extract, service restart, pg_dump) the socket-activated
+// chrony collector exceeds its fixed 2000 ms budget on every call for about two
+// minutes, then succeeds again once the host is idle. An immediate retry would hit
+// the same load, so the waits grow (200 s in all, six attempts) to sample after it
+// settles. Every attempt is a fresh, fully validated sample: nothing is cached,
+// synthesized or relaxed, and a sample still unknown after the last attempt
+// records no proof.
+export const TRUSTED_TIME_RETRY_DELAYS_MS=Object.freeze([5000,15000,30000,60000,90000]);
 const sleepSync=ms=>{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,ms);};
 const RETRY_DEFAULTS=Object.freeze({retryDelaysMs:TRUSTED_TIME_RETRY_DELAYS_MS,sleep:sleepSync,
   warn:line=>process.stderr.write(line)});

@@ -933,8 +933,8 @@ postdeploy_remote() {
       POSTDEPLOY_STATUS=LIVE_BUT_OBSERVATION_STATE_FAILED
       # The verified dump exists; only the observation proof contract failed.
       echo "POSTDEPLOY_OBSERVATION_HINT=release live and postdeploy dump verified, but its observation proof was rejected;" \
-        "a transient trusted-time miss logs 'backup-observation: TRUSTED_TIME_UNKNOWN' in" \
-        "journalctl -u servora-med-postdeploy-backup.service. Recovery: same-SHA rerun (docs/operations/production-deployment.md)." >&2
+        "a trusted-time miss logs 'backup-observation: TRUSTED_TIME_UNKNOWN' in" \
+        "journalctl -u servora-med-postdeploy-backup.service. Recovery: docs/operations/production-deployment.md." >&2
     else
       POSTDEPLOY_STATUS=FAIL
     fi

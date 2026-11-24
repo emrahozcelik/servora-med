@@ -726,45 +726,68 @@ The run fails with `reason=LIVE_BUT_OBSERVATION_STATE_FAILED` (host line
 postdeploy dump was written and verified, but the observation state does not
 carry the postdeploy freshness proof the host helper requires. Nothing is
 rolled back. `/var/lib/servora-med/deploy/<sha>.state` stays at
-`postdeploy=not_run`.
+`postdeploy=not_run`, and `/api/health` reports backup `unavailable` until a
+later backup records a proof.
 
-The usual cause is a trusted-time sample that stayed `TRUSTED_TIME_UNKNOWN`. On
-2026-11-24 (run 45367120236) one of the three NTS sources was unreachable and
-the before-dump sample failed once, which left `latestAttemptTime` and
-`latestVerifiedProof` null. The backup writer now retries an unknown sample
-within a bounded window (waits of 5 s, 20 s and 45 s, four attempts in all), so
-this failure means trusted time stayed unknown for that whole window, or that
-another contract field did not match. The proof requirements and the
-`nts-quorum-v1` source policy are unchanged.
+Root cause observed on 2026-11-24 (runs 45367120236 and 45370383361, SHA
+505fa20, read-only host inspection): the socket-activated collector
+`servora-med-time-evidence@.service` runs about nine `systemctl`/`chronyc`
+subprocesses inside a fixed 2000 ms budget (`RuntimeMaxSec=3`). Under deploy
+load (release extract, service restart, pg_dump) it exceeded that budget and
+exited `status=1` on every call for about two minutes. Outside the deploy
+windows the same socket succeeded every time. The writer's single before-dump
+sample therefore returned `TRUSTED_TIME_UNKNOWN`, which left `latestAttemptTime`
+and `latestVerifiedProof` null. The NTS quorum was not the cause: two of three
+sources still allow a sample.
+
+The backup writer now backs off on an unknown sample (waits of 5, 15, 30, 60 and
+90 s, six attempts, about 200 s) so that it samples after the load settles.
+With the fix, this failure means trusted time stayed unknown for that whole
+window, or that another contract field did not match. The proof requirements,
+the collector budget and the `nts-quorum-v1` source policy are unchanged.
 
 1. Diagnose read-only, as root on the host:
 
    ```bash
    journalctl -u servora-med-postdeploy-backup.service --since -2h | grep backup-observation
+   journalctl -u 'servora-med-time-evidence@*' --since -2h | grep -E 'status=|Deactivated|Failed'
    chronyc -N sources
    chronyc -N authdata
    ```
 
    `backup-observation: TRUSTED_TIME_UNKNOWN sample=<before|after> attempts=<n>`
-   confirms the trusted-time cause. Wait until at least two of the three NTS
-   sources (`time.cloudflare.com`, `bevtime1.metrologie.at`,
-   `1.ntp.ubuntu.com`) are reachable and authenticated (`NTS`). If no
-   `TRUSTED_TIME_UNKNOWN` line is present, stop and investigate the contract
-   mismatch before rerunning.
+   confirms the trusted-time cause. Collector exits with `status=1` only during
+   the deploy window point to load. Collector failures that persist while the
+   host is idle, or fewer than two reachable `NTS` sources (`time.cloudflare.com`,
+   `bevtime1.metrologie.at`, `1.ntp.ubuntu.com`), are a time-infrastructure
+   incident: stop and investigate. If no `TRUSTED_TIME_UNKNOWN` line is
+   present, stop and investigate the contract mismatch before rerunning.
 2. Never edit `observation-v1.json` or `<sha>.state` by hand. Never copy or
-   synthesize a time proof, and never relax the chrony configuration to pass
-   the gate.
-3. Recover with a same-SHA rerun: re-run the failed Production Deploy run, or
-   dispatch it again on `main`, while `main` is still at that SHA. If `main` has
-   moved on, the runner stops with `REMOTE_MAIN_MISMATCH`, so deploy the newer
-   `main` normally instead. The rerun re-verifies the already-staged bytes
-   (`RELEASE_STAGE=EXISTING_BYTE_IDENTICAL`) and takes a new predeploy backup.
-   It finds no pending migrations, so `allow_migrations` is not needed. It then
-   re-activates the same release with a brief service restart, runs health and
-   the browser smoke, and takes one new postdeploy backup. A passing rerun ends
-   with `postdeploy_backup=PASS` and writes `postdeploy=success`. In that rerun
-   the recorded `old_release` is the same release, so its automatic rollback
-   target is that release and not the one before it.
+   synthesize a time proof, and never relax the chrony configuration, the
+   collector budget or the installed units to pass the gate.
+3. Recover with a rerun once the host is idle, only when the live release
+   already contains the writer backoff. A same-SHA rerun of a release without
+   it reproduced the failure on 2026-11-24 (run 45370383361), so for such a
+   release, deploy the next `main` that contains the fix instead. Until then,
+   the next scheduled backup restores backup health. For a same-SHA rerun,
+   re-run the failed Production Deploy run, or dispatch it again on `main`,
+   while `main` is still at that SHA. If `main` has moved on, the runner stops
+   with `REMOTE_MAIN_MISMATCH`, so deploy the newer `main` normally. The rerun
+   re-verifies the already-staged bytes (`RELEASE_STAGE=EXISTING_BYTE_IDENTICAL`)
+   and takes a new predeploy backup. It finds no pending migrations, so
+   `allow_migrations` is not needed. It then re-activates the same release with
+   a brief service restart, runs health and the browser smoke, and takes one new
+   postdeploy backup. A passing rerun ends with `postdeploy_backup=PASS` and
+   writes `postdeploy=success`. In that rerun the recorded `old_release` is the
+   same release, so its automatic rollback target is that release and not the
+   one before it.
+
+A larger collector budget would remove the load sensitivity itself. It is not
+part of this change, because the collector runs from the hash-pinned
+forward-tools copy (`/usr/local/libexec/servora-med-forward-tools/<manifest>/trusted-time.mjs`
+through the `90-servora-forward-time.conf` drop-in), and the reader unit hash is
+pinned in `trusted-time.mjs`. Changing either needs a separately approved
+forward-tools install on the host.
 
 The deployment path contains no personnel/customer importer, seed, demo-data,
 or admin-bootstrap invocation. No business-data import occurs during
