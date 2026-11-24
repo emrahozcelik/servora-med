@@ -3417,7 +3417,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     return <main className="job-detail"><PageHeader fallbackTitle="İş detayı" /><LoadingSkeleton title="İş detayları yükleniyor" headingLevel={2} rows={6} /></main>;
   }
   if (state.kind === 'error') {
-    return <main className="job-detail"><ResultState status="error" title="İş yüklenemedi" description={state.message} headingLevel={1}
+    return <main className="job-detail"><PageHeader fallbackTitle="İş detayı" /><ResultState status="error" title="İş yüklenemedi" description={state.message}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button> : undefined}
     /></main>;
   }

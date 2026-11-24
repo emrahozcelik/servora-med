@@ -304,7 +304,8 @@ export function WorkflowTrend({ created, completed }: WorkflowTrendProps) {
           </div>
           <details className="report-data-disclosure">
             <summary>Günlük iş akışı verileri</summary>
-            <div className="report-table-scroll">
+            {/* Keyboard users must be able to scroll the table on narrow screens (UI-001). */}
+            <div className="report-table-scroll" tabIndex={0} role="region" aria-label="Günlük iş akışı tablosu">
             <table className="report-workflow-table">
               <caption>Günlük iş akışı verileri</caption>
               <thead>

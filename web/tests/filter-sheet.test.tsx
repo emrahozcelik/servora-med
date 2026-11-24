@@ -291,6 +291,26 @@ describe('filter sheets and active counts', () => {
     });
     expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Filtreleri temizle')).toBe(false);
 
+    // A quick-view membership is not a filter: no clear action that would
+    // leave the chosen view.
+    for (const status of ['WAITING_APPROVAL', 'REVISION_REQUESTED', 'closed'] as const) {
+      await act(async () => {
+        root!.render(
+          <JobFilters
+            user={manager}
+            filters={{ view: 'list', offset: 0, status }}
+            onApply={() => {}}
+            onClear={onClear}
+            onChange={() => {}}
+            onViewChange={() => {}}
+            boardSupported
+          />,
+        );
+      });
+      expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Filtreleri temizle'))
+        .toBe(false);
+    }
+
     await act(async () => {
       root!.render(
         <JobFilters

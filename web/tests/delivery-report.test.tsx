@@ -79,7 +79,7 @@ describe('DeliveryReport controls and pagination', () => {
     host.remove();
   });
 
-  it('renders ServoraListPagination, active preset state, and Filtreleri sıfırla', async () => {
+  it('renders ServoraListPagination and the active preset state', async () => {
     vi.mocked(getDeliveryReport).mockResolvedValue({
       ...base,
       groupBy: 'purpose',
@@ -96,12 +96,33 @@ describe('DeliveryReport controls and pagination', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(host.textContent).toContain('Sayfa 1 / 2 · Toplam 60 grup');
     expect(host.querySelector('.servora-list-pagination')).not.toBeNull();
-    const reset = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Filtreleri sıfırla');
-    expect(reset).toBeTruthy();
+    // Grouping alone is a view choice, not a filter.
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Filtreleri sıfırla'))
+      .toBe(false);
 
     const presetBtn = Array.from(host.querySelectorAll('.report-preset-button'))
       .find((b) => b.textContent === 'Son 7 gün') as HTMLButtonElement;
     await act(async () => presetBtn.click());
     expect(presetBtn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('offers Filtreleri sıfırla only for the Staff filter and keeps a single-page total visible', async () => {
+    vi.mocked(getDeliveryReport).mockResolvedValue({
+      ...base,
+      groupBy: 'day',
+      items: [{ date: '2026-07-14', unit: 'Kutu', quantity: '3.000' }],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/reports/deliveries?staffUserId=11111111-1111-4111-8111-111111111111']}>
+        <DeliveryReport user={manager} />
+      </MemoryRouter>,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Filtreleri sıfırla'))
+      .toBe(true);
+    expect(host.textContent).toContain('Toplam 1 grup');
   });
 });

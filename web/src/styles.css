@@ -3317,6 +3317,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   padding: 1rem 1.1rem;
   box-shadow: none;
 }
+/* Stacked job-detail panels (early start, Staff request, assignment offer)
+   keep a visible gap so two panels never read as one box. */
+.job-detail > .detail-summary.surface-flat { margin-block: 0.75rem; }
+.early-start-authorization h2 { margin: 0 0 0.35rem; font-size: 1rem; }
+.early-start-authorization .form-help { margin: 0 0 0.75rem; }
 .meeting-details .detail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem 2rem; }
 .meeting-details .detail-summary > div { display: grid; gap: 0.25rem; }
 .detail-summary dt, .delivery-lines dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }

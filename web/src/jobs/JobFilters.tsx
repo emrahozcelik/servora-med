@@ -297,9 +297,10 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
     );
   }
 
-  const hasAnyDesktopFilter = Boolean(filters.q?.trim())
-    || activeCount > 0
-    || (Boolean(filters.status) && filters.status !== 'active');
+  // A selected quick-view membership (Onay kuyruğu, Düzeltme, Kapalı) is not a
+  // filter: the same rule as the FilterSheet badge, so clearing never silently
+  // leaves the view the operator chose.
+  const hasAnyDesktopFilter = Boolean(filters.q?.trim()) || activeCount > 0;
 
   return (
     <div className="filter-region">

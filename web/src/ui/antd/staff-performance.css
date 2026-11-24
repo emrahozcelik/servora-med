@@ -1,8 +1,13 @@
 .staff-performance-comparison .staff-performance-expand {
-  display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
-  width: auto; min-width: 5rem; height: auto; min-height: 44px; padding: .5rem .25rem;
-  border: 0; border-radius: var(--radius-button); background: transparent;
-  color: var(--accent); font-size: .875rem; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+  /* Icon-only row toggle: the chevron is the app-wide disclosure cue; the
+     accessible name and tooltip carry the words. 44px target (UI-001). */
+  width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0;
+  border: 1px solid var(--rule); border-radius: 999px; background: var(--paper);
+  color: var(--accent);
+}
+.staff-performance-comparison .staff-performance-expand[aria-expanded="true"] {
+  border-color: var(--accent); background: var(--accent-soft);
 }
 .staff-performance-comparison .staff-performance-expand:hover { background: var(--accent-soft); }
 .staff-performance-comparison .staff-performance-sort { min-height: 44px; font-size: .875rem; }

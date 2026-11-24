@@ -147,6 +147,7 @@ export function ApprovalReport() {
             total={report.total}
             offset={state.offset}
             pageSize={report.limit}
+            showSinglePageTotal
             onOffsetChange={(nextOffset) => setSearch(approvalSearch({
               offset: nextOffset,
               canonical: true,

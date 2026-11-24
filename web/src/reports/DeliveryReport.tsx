@@ -24,6 +24,7 @@ import {
   ReportErrorState,
   ReportLoadingState,
   ReportShell,
+  matchingReportPreset,
 } from './report-shell';
 
 const purposeLabels = {
@@ -154,7 +155,6 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
   const [formError, setFormError] = useState('');
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
   const [resolvedTimezone, setResolvedTimezone] = useState<string | null>(null);
-  const [selectedPreset, setSelectedPreset] = useState<ReportDatePreset | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const requestSequence = useRef(0);
 
@@ -240,7 +240,6 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
       return;
     }
     setFormError('');
-    setSelectedPreset(null);
     setSearch(deliverySearch({
       ...range.value,
       groupBy: nextGroup as DeliveryReportResponse['groupBy'],
@@ -254,7 +253,6 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
     if (!resolvedTimezone) return;
     const range = resolveDatePreset(preset, resolvedTimezone);
     setFormError('');
-    setSelectedPreset(preset);
     setSearch(deliverySearch({
       ...range,
       groupBy: state.groupBy,
@@ -276,9 +274,11 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
     }));
   }
 
-  const filtersActive = state.groupBy !== 'day' || state.staffUserId !== null;
+  // Grouping is a view choice, not a filter: only the Staff filter narrows the data.
+  const filtersActive = state.staffUserId !== null;
   const unavailable = state.staffUserId !== null
     && !options.items.some((item) => item.user.id === state.staffUserId);
+  const selectedPreset = matchingReportPreset(state.from, state.to, resolvedTimezone);
   const refreshLabel = refreshedAt && resolvedTimezone
     ? formatRefreshTime(refreshedAt, resolvedTimezone)
     : null;
@@ -358,6 +358,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
             total={report.total}
             offset={state.offset}
             pageSize={report.limit}
+            showSinglePageTotal
             onOffsetChange={(nextOffset) => setSearch(deliverySearch({
               ...state,
               offset: nextOffset,

@@ -330,19 +330,20 @@ export function StaffPerformanceTable({
             columnTitle: <span className="visually-hidden">Ayrıntı</span>,
             expandedRowRender: (record) => <StaffContext record={record} />,
             expandRowByClick: false,
-            columnWidth: '6.25rem',
+            columnWidth: '3.75rem',
             expandIcon: ({ expanded, onExpand, record }) => (
               <button
                 type="button"
                 className="staff-performance-expand"
                 aria-label={`${record.name} ayrıntılarını ${expanded ? 'gizle' : 'göster'}`}
+                title={expanded ? 'Ayrıntıları gizle' : 'Ayrıntıları göster'}
                 aria-expanded={expanded}
                 onClick={(event: MouseEvent<HTMLButtonElement>) => {
                   event.stopPropagation();
                   onExpand(record, event);
                 }}
               >
-                <span>Ayrıntı</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={expanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} /></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={expanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} /></svg>
               </button>
             ),
           }}

@@ -144,7 +144,9 @@ describe('StaffPerformanceReport', () => {
     expect(headers).toContain('Tamamlanan');
     expect(headers).not.toContain('Onaya gönderme kaydı');
     const expand = container.querySelector<HTMLButtonElement>('.staff-performance-expand')!;
-    expect(expand.textContent).toBe('Ayrıntı');
+    // Icon-only toggle: no visible word, the name and tooltip carry it.
+    expect(expand.textContent).toBe('');
+    expect(expand.getAttribute('title')).toBe('Ayrıntıları göster');
     expect(expand.getAttribute('aria-expanded')).toBe('false');
     await act(async () => expand.click());
     expect(expand.getAttribute('aria-expanded')).toBe('true');

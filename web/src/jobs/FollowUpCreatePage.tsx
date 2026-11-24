@@ -283,8 +283,8 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       description="Takip işlerini yalnız yöneticiler oluşturabilir." /></main>;
   }
   if (state.kind === 'loading') {
-    return <main className="task-create" aria-busy="true"><LoadingSkeleton
-      title="Takip işi hazırlanıyor" headingLevel={1} rows={6} /></main>;
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><LoadingSkeleton
+      title="Takip işi hazırlanıyor" rows={6} /></main>;
   }
   if (state.kind === 'error') {
     return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status={state.status}
