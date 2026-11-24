@@ -42,7 +42,23 @@ const offer: AssignmentOffer = {
   acceptanceDueAt: '2026-11-21T12:00:00.000Z',
   urgentReason: 'SHORT_NOTICE',
   assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+  closedAt: null,
+  closeReason: null,
+  closeText: null,
 };
+
+/** The production shape: Staff declined the offered time with a reason text. */
+function closedOffer(overrides: Partial<AssignmentOffer> = {}): AssignmentOffer {
+  return {
+    ...offer,
+    state: 'DECLINED',
+    urgentReason: null,
+    closedAt: '2026-11-21T11:20:00.000Z',
+    closeReason: 'SCHEDULE_CONFLICT',
+    closeText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+    ...overrides,
+  };
+}
 
 function jobCard(overrides: Partial<JobCard> = {}): JobCard {
   return {
@@ -123,6 +139,16 @@ describe('assignment offer detail surface', () => {
     ));
   }
 
+  async function renderWithReassign(
+    job: JobCard,
+    user: CurrentUser,
+    onReassign: (trigger: HTMLButtonElement) => void,
+  ) {
+    await act(async () => root.render(
+      <AssignmentOfferSection job={job} user={user} onReassign={onReassign} />,
+    ));
+  }
+
   it('shows the server deadline and the urgent badge to the assignee', async () => {
     await renderSection(jobCard());
     const section = host.querySelector('[data-assignment-offer="OPEN"]');
@@ -164,7 +190,7 @@ describe('assignment offer detail surface', () => {
       jobCard({ assignmentOffer: { ...offer, state } }),
       manager,
     );
-    expect(buttonByText(host, 'Yeniden teklif et') !== null).toBe(visible);
+    expect(buttonByText(host, 'Aynı zamanla yeniden teklif et') !== null).toBe(visible);
   });
 
   it('hides re-offer when the job is no longer NEW', async () => {
@@ -172,7 +198,159 @@ describe('assignment offer detail surface', () => {
       status: 'ACCEPTED',
       assignmentOffer: { ...offer, state: 'DECLINED' },
     }), manager);
-    expect(buttonByText(host, 'Yeniden teklif et')).toBeNull();
+    expect(buttonByText(host, 'Aynı zamanla yeniden teklif et')).toBeNull();
+  });
+
+  it('explains a declined offer to management with the reason, the text and the decision time', async () => {
+    await renderSection(jobCard({ assignmentOffer: closedOffer() }), manager);
+
+    const block = host.querySelector('[data-assignment-offer-recovery="DECLINED"]');
+    expect(block).not.toBeNull();
+    expect(block?.querySelector('h3')?.textContent).toBe('Ayşe Personel görevi reddetti');
+    expect(block?.textContent).toContain('Plan çakışması');
+    expect(block?.textContent).toContain('“Önümüzdeki haftaya ziyaret sağlanacak”');
+    expect(block?.querySelector('time')?.getAttribute('dateTime')).toBe('2026-11-21T11:20:00.000Z');
+    expect(block?.textContent).toContain('Ne yapabilirsiniz');
+    // The bare status row is replaced, not stacked under the guidance.
+    expect(host.querySelector('[data-assignment-offer-state]')).toBeNull();
+    expect(host.textContent).not.toContain('Kabul için son');
+  });
+
+  it('keeps the bare status row for the assigned Staff member', async () => {
+    await renderSection(jobCard({ assignmentOffer: closedOffer() }), staff);
+
+    expect(host.querySelector('[data-assignment-offer-recovery]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-state="DECLINED"]')?.textContent)
+      .toBe('Reddedildi');
+    expect(host.textContent).toContain('Kabul için son');
+    expect(host.textContent).not.toContain('Ne yapabilirsiniz');
+  });
+
+  it.each([
+    ['DECLINED', 'Ayşe Personel görevi reddetti'],
+    ['RELEASED', 'Ayşe Personel görevi geri bıraktı'],
+    ['EXPIRED', 'Ayşe Personel teklifi süresinde yanıtlamadı'],
+  ] as const)('names the %s state in the guidance headline', async (state, headline) => {
+    await renderSection(jobCard({ assignmentOffer: closedOffer({ state }) }), manager);
+    expect(host.querySelector('[data-assignment-offer-recovery] h3')?.textContent).toBe(headline);
+  });
+
+  it('reads a passed planned window as a passed planned time, and only that withdrawal', async () => {
+    await renderSection(jobCard({
+      assignmentOffer: closedOffer({ state: 'WITHDRAWN', closeReason: 'PLANNED_WINDOW_PASSED', closeText: null }),
+    }), manager);
+    expect(host.querySelector('[data-assignment-offer-recovery] h3')?.textContent)
+      .toBe('Planlanan zaman geçti');
+
+    // Any other withdrawal already opened a newer offer: no recovery copy.
+    await renderSection(jobCard({
+      assignmentOffer: closedOffer({ state: 'WITHDRAWN', closeReason: 'RESCHEDULED', closeText: null }),
+    }), manager);
+    expect(host.querySelector('[data-assignment-offer-recovery]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-state]')).not.toBeNull();
+  });
+
+  it.each([
+    ['DECLINED', 'SCHEDULE_CONFLICT', 'Yeni zaman belirle'],
+    ['DECLINED', 'ON_LEAVE', 'Sorumlu personeli değiştir'],
+    ['DECLINED', 'TOO_FAR', 'Sorumlu personeli değiştir'],
+    ['RELEASED', 'MISSING_STOCK_OR_EQUIPMENT', 'Sorumlu personeli değiştir'],
+    ['RELEASED', 'OTHER', 'Sorumlu personeli değiştir'],
+  ] as const)('orders a %s offer closed as %s', async (state, closeReason, first) => {
+    await renderWithReassign(
+      jobCard({ assignmentOffer: closedOffer({ state, closeReason }) }),
+      manager,
+      vi.fn(),
+    );
+    const buttons = Array.from(host.querySelectorAll<HTMLButtonElement>(
+      '[data-assignment-offer-recovery] [data-assignment-offer-action]',
+    ));
+    const other = first === 'Yeni zaman belirle' ? 'Sorumlu personeli değiştir' : 'Yeni zaman belirle';
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+      first,
+      other,
+      'Aynı zamanla yeniden teklif et',
+    ]);
+    expect(buttons[0]?.classList.contains('primary-button')).toBe(true);
+    expect(buttons[1]?.classList.contains('secondary-button')).toBe(true);
+    expect(buttons[2]?.classList.contains('secondary-button')).toBe(true);
+  });
+
+  it('puts the new time first for an expired offer and a passed window', async () => {
+    for (const candidate of [
+      closedOffer({ state: 'EXPIRED', closeReason: null, closeText: null }),
+      closedOffer({ state: 'WITHDRAWN', closeReason: 'PLANNED_WINDOW_PASSED', closeText: null }),
+    ]) {
+      await renderWithReassign(jobCard({ assignmentOffer: candidate }), manager, vi.fn());
+      expect(host.querySelector('[data-assignment-offer-action="new-time"]')?.className)
+        .toContain('primary-button');
+    }
+  });
+
+  it('says the same time will be asked again and that saving the time opens a new offer', async () => {
+    await renderSection(jobCard({ assignmentOffer: closedOffer() }), manager);
+
+    expect(host.querySelector('[data-assignment-offer-schedule-hint]')?.textContent)
+      .toBe('Planlanan zamanı kaydettiğinizde Ayşe Personel kişisine yeni atama teklifi gider.');
+    expect(host.textContent).toContain('Zamanı değiştirmeden aynı personele yeniden sorar.');
+  });
+
+  it('offers no new-time action or save hint when this viewer has no planned-time editor', async () => {
+    const onReassign = vi.fn();
+    await act(async () => root.render(
+      <AssignmentOfferSection
+        job={jobCard({ assignmentOffer: closedOffer() })}
+        user={manager}
+        onReassign={onReassign}
+        canSetNewTime={false}
+      />,
+    ));
+
+    expect(host.querySelector('[data-assignment-offer-action="new-time"]')).toBeNull();
+    expect(host.querySelector('[data-assignment-offer-schedule-hint]')).toBeNull();
+    // Reassignment becomes the primary recovery action.
+    expect(host.querySelector('[data-assignment-offer-action="reassign"]')?.className)
+      .toContain('primary-button');
+  });
+
+  it('focuses the existing planned-time input from the guidance', async () => {
+    const scrollIntoView = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true, writable: true, value: scrollIntoView,
+    });
+    try {
+      await act(async () => root.render(<>
+        <AssignmentOfferSection
+          job={jobCard({ assignmentOffer: closedOffer() })}
+          user={manager}
+        />
+        <input id="job-scheduled-at" aria-label="Planlanan zaman" />
+      </>));
+      const trigger = host.querySelector<HTMLButtonElement>('[data-assignment-offer-action="new-time"]');
+      expect(trigger).not.toBeNull();
+      await act(async () => trigger!.click());
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(document.activeElement?.id).toBe('job-scheduled-at');
+    } finally {
+      if (original) Object.defineProperty(Element.prototype, 'scrollIntoView', original);
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it('opens the existing record-edit reassignment from the guidance', async () => {
+    const onReassign = vi.fn();
+    await renderWithReassign(
+      jobCard({ assignmentOffer: closedOffer({ closeReason: 'ON_LEAVE' }) }),
+      manager,
+      onReassign,
+    );
+
+    const trigger = host.querySelector<HTMLButtonElement>('[data-assignment-offer-action="reassign"]');
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger!.click());
+    expect(onReassign).toHaveBeenCalledTimes(1);
+    expect(onReassign.mock.calls[0]?.[0]).toBe(trigger);
   });
 
   it('re-offers, asks for the acknowledgement on 409 and retries with it', async () => {
@@ -195,7 +373,7 @@ describe('assignment offer detail surface', () => {
       onChanged,
     );
 
-    await act(async () => buttonByText(host, 'Yeniden teklif et')!.click());
+    await act(async () => buttonByText(host, 'Aynı zamanla yeniden teklif et')!.click());
     await settle();
     expect(host.querySelector('[data-past-start-acknowledgement="true"]')).not.toBeNull();
     expect(host.textContent).toContain('Planlanan başlangıç saati geçti');
@@ -243,7 +421,7 @@ describe('assignment offer detail surface', () => {
     }, 409)));
     await renderSection(jobCard({ assignmentOffer: { ...offer, state: 'DECLINED' } }), manager);
 
-    await act(async () => buttonByText(host, 'Yeniden teklif et')!.click());
+    await act(async () => buttonByText(host, 'Aynı zamanla yeniden teklif et')!.click());
     await settle();
 
     expect(host.textContent).toContain('Planlanan zaman aralığı atama için çok kısa.');
@@ -267,7 +445,7 @@ describe('assignment offer detail surface', () => {
       manager,
     );
 
-    await act(async () => buttonByText(host, 'Yeniden teklif et')!.click());
+    await act(async () => buttonByText(host, 'Aynı zamanla yeniden teklif et')!.click());
     await settle();
     const form = host.querySelector('form.past-start-acknowledgement-form') as HTMLFormElement;
     expect(form).not.toBeNull();
@@ -394,6 +572,7 @@ describe('decline and release dialogs', () => {
         return next;
       }
       if (url.endsWith('/delivery-items')) return json({ items: [] });
+      if (url.startsWith('/api/staff?')) return json([]);
       if (url.includes('/meeting-details')) return json({ ...meetingDetails, jobCardVersion: card.version });
       if (url.includes('/notes?')) return json({ items: [], total: 0, limit: 25, offset: 0, nextCursor: null });
       if (url.includes('/activity?')) return json({ items: [], total: 0, limit: 50, offset: 0 });
@@ -525,8 +704,31 @@ describe('decline and release dialogs', () => {
     expect(host.textContent).toContain('Görev geri bırakıldı. Yönetici bilgilendirildi.');
   });
 
-  it('closes the stale dialog and reloads when the acceptance window has closed', async () => {
-    const fetchMock = mockDetailFetch(jobCard());
+  it('opens the existing reassignment form from the declined-offer guidance', async () => {
+    const card = jobCard({
+      assignmentOffer: closedOffer({ closeReason: 'ON_LEAVE' }),
+      workflowContext: {
+        ...workflowContext,
+        allowedCommands: ['CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES'],
+        lifecycle,
+      },
+    });
+    const fetchMock = mockDetailFetch(card);
+    await renderScreen(card, fetchMock, manager);
+
+    expect(host.querySelector('[data-assignment-offer-recovery="DECLINED"]')).not.toBeNull();
+    const trigger = host.querySelector<HTMLButtonElement>('[data-assignment-offer-action="reassign"]');
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger!.click());
+    await settle();
+
+    // The shared record-edit reassignment form, not a second copy in the block.
+    expect(host.querySelector('.delivery-assignee-details')).not.toBeNull();
+    expect(host.textContent).toContain('Sorumlu personel düzenleme alanı açıldı.');
+  });
+
+  it('closes the stale dialog and reloads when the acceptance window has closed', async () => {    const fetchMock = mockDetailFetch(jobCard());
     await renderScreen(jobCard(), fetchMock);
 
     await act(async () => buttonByText(host, 'Görevi reddet')!.click());
@@ -593,6 +795,39 @@ describe('past-start acknowledgement retry on the schedule edit', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
   }
+
+  it('tells management that saving the planned time opens a new offer to the same Staff member', async () => {
+    const card = jobCard({
+      workflowContext: {
+        ...workflowContext,
+        allowedCommands: ['CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES'],
+        lifecycle,
+      },
+    });
+    const fetchMock = mockFetch(card, []);
+    vi.stubGlobal('fetch', fetchMock);
+    await act(async () => {
+      root.render(<JobDetailScreen jobId={card.id} user={manager} onBack={() => {}} onChanged={() => {}} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const hint = host.querySelector('[data-schedule-offer-hint="true"]');
+    expect(hint?.textContent)
+      .toBe('Kaydettiğinizde Ayşe Personel kişisine yeni atama teklifi gider.');
+    const input = host.querySelector('#job-scheduled-at') as HTMLInputElement;
+    expect(input.getAttribute('aria-describedby')?.split(' '))
+      .toContain('job-scheduled-at-offer-hint');
+
+    // Staff never edits the customer time here, so the promise is not theirs.
+    await act(async () => {
+      root.render(<JobDetailScreen jobId={card.id} user={staff} onBack={() => {}} onChanged={() => {}} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.querySelector('[data-schedule-offer-hint="true"]')).toBeNull();
+  });
 
   it('asks for the acknowledgement on 409 and replays the same schedule with it', async () => {
     const card = jobCard({

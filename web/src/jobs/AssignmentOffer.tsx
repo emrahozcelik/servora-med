@@ -20,6 +20,8 @@ import {
   listAssignmentOffersNeedingAction,
   pastStartAcknowledgementPayload,
   reofferAssignment,
+  type AssignmentOffer,
+  type AssignmentOfferCloseReason,
   type AssignmentOfferState,
   type AssignmentOfferNeedingActionItem,
   type AssignmentReasonCode,
@@ -32,6 +34,28 @@ const REOFFERABLE_OFFER_STATES: readonly AssignmentOfferState[] = [
   'DECLINED', 'RELEASED', 'EXPIRED', 'WITHDRAWN',
 ];
 
+/**
+ * Closed offers that leave the next move with management. A planned window
+ * that simply passed is the only WITHDRAWN shape the manager recovers from
+ * here; every other withdrawal came from an action that already opened a
+ * newer offer.
+ */
+const MANAGEMENT_RECOVERY_OFFER_STATES: readonly AssignmentOfferState[] = [
+  'DECLINED', 'RELEASED', 'EXPIRED',
+];
+
+/** Reasons where the recovery starts with a new planned time. */
+const NEW_TIME_FIRST_CLOSE_REASONS: readonly AssignmentOfferCloseReason[] = [
+  'SCHEDULE_CONFLICT', 'PLANNED_WINDOW_PASSED',
+];
+
+/** One recovery control; the first rendered entry is the primary action. */
+type RecoveryAction = {
+  key: 'new-time' | 'reassign';
+  label: string;
+  run: (trigger: HTMLButtonElement) => void;
+};
+
 function isManagementUser(user: CurrentUser): boolean {
   return user.role === 'MANAGER' || user.role === 'ADMIN';
 }
@@ -39,6 +63,37 @@ function isManagementUser(user: CurrentUser): boolean {
 function formatInstant(value: string): string {
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
     .format(new Date(value));
+}
+
+function isManagementRecoveryOffer(job: JobCard, offer: AssignmentOffer): boolean {
+  if (job.status !== 'NEW') return false;
+  if (MANAGEMENT_RECOVERY_OFFER_STATES.includes(offer.state)) return true;
+  return offer.state === 'WITHDRAWN' && offer.closeReason === 'PLANNED_WINDOW_PASSED';
+}
+
+/** The state headline a management viewer reads first. */
+function recoveryHeadline(offer: AssignmentOffer): string {
+  switch (offer.state) {
+    case 'DECLINED':
+      return `${offer.assignee.name} görevi reddetti`;
+    case 'RELEASED':
+      return `${offer.assignee.name} görevi geri bıraktı`;
+    case 'EXPIRED':
+      return `${offer.assignee.name} teklifi süresinde yanıtlamadı`;
+    case 'WITHDRAWN':
+      return 'Planlanan zaman geçti';
+    case 'OPEN':
+    case 'ACCEPTED':
+      return assignmentOfferStateLabel(offer.state);
+  }
+}
+
+/** Moves the reader to the existing planned-time editor; no new route. */
+function focusScheduleEditor(): void {
+  const target = document.getElementById('job-scheduled-at');
+  if (target === null) return;
+  target.scrollIntoView({ block: 'center' });
+  target.focus({ preventScroll: true });
 }
 
 /** JOB-010 release 2b decline/release draft; validated in JobDetail. */
@@ -93,11 +148,20 @@ export function AssignmentReasonSection({
  * deadline and its urgency are server facts; this section never derives them
  * from the browser clock.
  */
-export function AssignmentOfferSection({ job, user, disabled = false, onChanged }: {
+export function AssignmentOfferSection({
+  job, user, disabled = false, onChanged, onReassign, canSetNewTime = true,
+}: {
   job: JobCard;
   user: CurrentUser;
   disabled?: boolean;
   onChanged?: () => void;
+  /**
+   * Opens the existing record-edit reassignment form. Purpose-bound so this
+   * guidance never grows a second assignee form of its own.
+   */
+  onReassign?: (trigger: HTMLButtonElement) => void;
+  /** False when this viewer has no planned-time editor on the page. */
+  canSetNewTime?: boolean;
 }) {
   const offer = job.assignmentOffer ?? null;
   const [pending, setPending] = useState(false);
@@ -123,6 +187,34 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
   const canReoffer = management
     && job.status === 'NEW'
     && REOFFERABLE_OFFER_STATES.includes(offer.state);
+  // A declined/released/expired offer with a NEW job leaves recovery to
+  // management: the bare state row alone never says what to do next.
+  const recovery = management && isManagementRecoveryOffer(job, offer);
+  const closeReasonLabel = assignmentOfferCloseReasonLabel(offer.closeReason);
+  const newTimeFirst = offer.state === 'EXPIRED'
+    || (offer.closeReason !== null && NEW_TIME_FIRST_CLOSE_REASONS.includes(offer.closeReason));
+  const newTimeAction: RecoveryAction | null = canSetNewTime
+    ? { key: 'new-time', label: 'Yeni zaman belirle', run: () => { focusScheduleEditor(); } }
+    : null;
+  const reassignAction: RecoveryAction | null = onReassign === undefined
+    ? null
+    : { key: 'reassign', label: 'Sorumlu personeli değiştir', run: onReassign };
+  const recoveryActions = (newTimeFirst
+    ? [newTimeAction, reassignAction]
+    : [reassignAction, newTimeAction]).filter((action): action is RecoveryAction => action !== null);
+  const reofferButton = canReoffer ? (
+    <button
+      ref={reofferTriggerRef}
+      className="secondary-button compact-button"
+      type="button"
+      disabled={disabled || pending || done}
+      aria-expanded={ackOpen}
+      data-assignment-offer-action="reoffer"
+      onClick={() => { setError(''); setAckError(''); void sendReoffer(); }}
+    >
+      {pending && !ackOpen ? 'Kaydediliyor…' : 'Aynı zamanla yeniden teklif et'}
+    </button>
+  ) : null;
 
   async function sendReoffer(acknowledgement?: PastStartAcknowledgement): Promise<boolean> {
     setPending(true);
@@ -174,22 +266,72 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
       data-assignment-offer={offer.state}
     >
       <h2 id="assignment-offer-title">Görev kabul durumu</h2>
-      <dl className="job-row-facts">
-        <div>
-          <dt>Durum</dt>
-          <dd data-assignment-offer-state={offer.state}>{assignmentOfferStateLabel(offer.state)}</dd>
+      {recovery ? (
+        <div className="assignment-offer-recovery" data-assignment-offer-recovery={offer.state}>
+          <h3 className="assignment-offer-recovery-headline">{recoveryHeadline(offer)}</h3>
+          <dl className="job-row-facts">
+            {closeReasonLabel !== null && (
+              <div>
+                <dt>Neden</dt>
+                <dd data-assignment-offer-close-reason={offer.closeReason}>{closeReasonLabel}</dd>
+              </div>
+            )}
+            {offer.closeText !== null && offer.closeText.trim().length > 0 && (
+              <div>
+                <dt>Personelin açıklaması</dt>
+                <dd>“{offer.closeText.trim()}”</dd>
+              </div>
+            )}
+            {offer.closedAt !== null && (
+              <div>
+                <dt>Karar zamanı</dt>
+                <dd><time dateTime={offer.closedAt}>{formatInstant(offer.closedAt)}</time></dd>
+              </div>
+            )}
+          </dl>
+          <p className="assignment-offer-recovery-actions-label"><strong>Ne yapabilirsiniz</strong></p>
+          <div className="review-buttons">
+            {recoveryActions.map((action, index) => (
+              <button
+                key={action.key}
+                className={index === 0 ? 'primary-button compact-button' : 'secondary-button compact-button'}
+                type="button"
+                disabled={disabled || pending}
+                data-assignment-offer-action={action.key}
+                onClick={(event) => { action.run(event.currentTarget); }}
+              >
+                {action.label}
+              </button>
+            ))}
+            {reofferButton}
+          </div>
+          {canReoffer && (
+            <p className="form-help">Zamanı değiştirmeden aynı personele yeniden sorar.</p>
+          )}
+          {canSetNewTime && (
+            <p className="form-help" data-assignment-offer-schedule-hint="true">
+              Planlanan zamanı kaydettiğinizde {offer.assignee.name} kişisine yeni atama teklifi gider.
+            </p>
+          )}
         </div>
-        <div>
-          <dt>Kabul için son</dt>
-          <dd>
-            <time dateTime={offer.acceptanceDueAt}>{formatInstant(offer.acceptanceDueAt)}</time>
-          </dd>
-        </div>
-        <div>
-          <dt>Personel</dt>
-          <dd>{offer.assignee.name}</dd>
-        </div>
-      </dl>
+      ) : (
+        <dl className="job-row-facts">
+          <div>
+            <dt>Durum</dt>
+            <dd data-assignment-offer-state={offer.state}>{assignmentOfferStateLabel(offer.state)}</dd>
+          </div>
+          <div>
+            <dt>Kabul için son</dt>
+            <dd>
+              <time dateTime={offer.acceptanceDueAt}>{formatInstant(offer.acceptanceDueAt)}</time>
+            </dd>
+          </div>
+          <div>
+            <dt>Personel</dt>
+            <dd>{offer.assignee.name}</dd>
+          </div>
+        </dl>
+      )}
       {urgentReasonLabel !== null && (
         <p className="assignment-offer-urgent" data-assignment-offer-urgent={offer.urgentReason}>
           <strong>{urgentReasonLabel}</strong>
@@ -202,20 +344,8 @@ export function AssignmentOfferSection({ job, user, disabled = false, onChanged 
         </p>
       )}
       {error && <p className="field-error" role="alert">{error}</p>}
-      {canReoffer && (
-        <div className="review-buttons">
-          <button
-            ref={reofferTriggerRef}
-            className="secondary-button compact-button"
-            type="button"
-            disabled={disabled || pending || done}
-            aria-expanded={ackOpen}
-            data-assignment-offer-action="reoffer"
-            onClick={() => { setError(''); setAckError(''); void sendReoffer(); }}
-          >
-            {pending && !ackOpen ? 'Kaydediliyor…' : 'Yeniden teklif et'}
-          </button>
-        </div>
+      {canReoffer && !recovery && (
+        <div className="review-buttons">{reofferButton}</div>
       )}
       <PastStartAcknowledgementDrawer
         open={ackOpen}

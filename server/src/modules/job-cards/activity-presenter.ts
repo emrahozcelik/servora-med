@@ -1,11 +1,14 @@
 import type { ActivityRecord } from './repository.js';
+import type { UserRole } from '../auth/types.js';
 import {
   DELIVERY_PURPOSES,
+  JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES,
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   JOB_CARD_STATUSES,
   MEETING_DETAIL_FIELDS,
   type DeliveryPurpose,
+  type JobAssignmentOfferDeclineReasonCode,
   type JobCardActivityDetails,
   type JobCardActivityDto,
   type JobCardActivityStatus,
@@ -28,6 +31,12 @@ function saleCount(value: unknown): string | null {
  * activity, because previous bundles reject unknown changed-field names.
  */
 export type ActivityPresentationOptions = {
+  /**
+   * The reader. A Staff member's decline/release reason is personal (leave,
+   * equipment, distance): management and that Staff member see it; another
+   * Staff reader of the same card (after a reassignment) does not.
+   */
+  viewer?: { id: string; role: UserRole };
   includeSaleCapability?: boolean;
   includeSubmitLocationCapability?: boolean;
   includeMetContactCapability?: boolean;
@@ -280,6 +289,37 @@ function saleDeliveryDetails(metadata: unknown): JobCardActivityDetails {
   };
 }
 
+/**
+ * JOB-010 §5: the Staff member's own decline/release reason. Only the
+ * allowlisted code and a trimmed non-empty text leave the presenter; unknown
+ * or missing metadata degrades to null instead of a raw client string.
+ */
+function assignmentDecisionDetails(
+  eventType: 'JOB_ASSIGNMENT_DECLINED' | 'JOB_ASSIGNMENT_RELEASED',
+  metadata: unknown,
+  actorId: string | null,
+  viewer: ActivityPresentationOptions['viewer'],
+): JobCardActivityDetails {
+  const decision = eventType === 'JOB_ASSIGNMENT_DECLINED' ? 'DECLINED' : 'RELEASED';
+  // Fail closed: an unknown reader, or Staff reading someone else's answer,
+  // sees only that the assignment was declined/released.
+  if (viewer === undefined || (viewer.role === 'STAFF' && viewer.id !== actorId)) {
+    return { kind: 'ASSIGNMENT_DECISION', decision, reasonCode: null, reasonText: null };
+  }
+  const record = jsonRecord(metadata);
+  const code = record?.reasonCode;
+  const text = record?.reasonText;
+  return {
+    kind: 'ASSIGNMENT_DECISION',
+    decision,
+    reasonCode: JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES
+      .includes(code as JobAssignmentOfferDeclineReasonCode)
+      ? code as JobAssignmentOfferDeclineReasonCode
+      : null,
+    reasonText: typeof text === 'string' && text.trim() !== '' ? text.trim() : null,
+  };
+}
+
 function details(
   record: ActivityRecord,
   options?: ActivityPresentationOptions,
@@ -329,11 +369,9 @@ function details(
     case 'JOB_CHANGE_REQUEST_RESOLVED':
     // JOB-010 release 2b: assignment offer facts carry their semantics in
     // metadata (offer id, reason code, deadline); the timeline renders them
-    // as plain facts.
+    // as plain facts. The Staff answer itself is projected below.
     case 'JOB_ASSIGNMENT_OFFER_OPENED':
     case 'JOB_ASSIGNMENT_REMINDER_SENT':
-    case 'JOB_ASSIGNMENT_DECLINED':
-    case 'JOB_ASSIGNMENT_RELEASED':
     case 'JOB_ASSIGNMENT_OFFER_EXPIRED':
     case 'JOB_ASSIGNMENT_OFFER_WITHDRAWN':
     // OVR-5: the deadline-extension ending carries its reason and incident
@@ -380,6 +418,10 @@ function details(
     }
     case 'MEETING_DETAILS_UPDATED':
       return meetingDetails(record.metadata, options);
+    // JOB-010 §5: why the assignee declined or released the assignment.
+    case 'JOB_ASSIGNMENT_DECLINED':
+    case 'JOB_ASSIGNMENT_RELEASED':
+      return assignmentDecisionDetails(record.eventType, record.metadata, record.actorId, options?.viewer);
   }
 }
 

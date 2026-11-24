@@ -7392,6 +7392,9 @@ describe('Staff JobCard detail', () => {
         acceptanceDueAt: '2026-07-17T09:00:00.000Z',
         urgentReason: null,
         assignee: { id: staffUser.id, name: staffUser.name },
+        closedAt: '2026-07-17T08:30:00.000Z',
+        closeReason: null,
+        closeText: null,
       },
       workflowContext: staffContext('ACCEPTED', {
         acceptedAt: '2026-07-17T08:30:00.000Z',
