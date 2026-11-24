@@ -75,12 +75,14 @@ import {
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
 import {
+  CANONICAL_DURATION_MINUTES,
   defaultCorrectionDueLocalValue,
   defaultDeliveredAtLocalValue,
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './jobs/scheduling';
+import { ScheduleQuickControls } from './jobs/ScheduleQuickControls';
 import { hasOriginalSubmissionDeadline, formatCorrectionDueAt } from './jobs/overdue-correction';
 import { apiFieldError } from './jobs/api-field-error';
 import type { RevisionCorrectionDraft } from './jobs/RevisionCorrectionDueField';
@@ -683,6 +685,25 @@ function JobScheduleEditForm({
               Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.
             </span>
           )}
+          <ScheduleQuickControls
+            value={localValue}
+            durationMinutes={(() => {
+              if (job.scheduledAt && job.scheduledEndsAt) {
+                const startMs = Date.parse(job.scheduledAt);
+                const endMs = Date.parse(job.scheduledEndsAt);
+                if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs > startMs) {
+                  return Math.round((endMs - startMs) / 60_000);
+                }
+              }
+              return CANONICAL_DURATION_MINUTES[job.type] ?? null;
+            })()}
+            disabled={pending || scheduleLocked}
+            onSelect={(next) => {
+              setLocalValue(next);
+              setFieldError('');
+              setSubmitError('');
+            }}
+          />
         </div>
         {managementUser && reasonVisible && (
           <div className="field-group">
@@ -737,6 +758,7 @@ function JobScheduleEditForm({
         {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
         <AvailableSlotsNotice
           {...availableSlotSearch}
+          selectedStartLocal={localValue}
           onSelect={useAvailableSlot}
           disabled={scheduleLocked}
         />
@@ -3659,13 +3681,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       returnFocusRef={dialogTriggerRef}
       restoreFocusEnabledRef={dialogFocusRestoreEnabledRef}
     />}
-    {/* Post-merge: wire onShiftToFuture={pastStartAck?.onShiftToFuture} once PastStartAcknowledgementDrawer exposes it. */}
     <PastStartAcknowledgementDrawer
       open={pastStartAck !== null}
       title={pastStartAck?.title ?? 'Başlangıç saati geçti'}
       description={pastStartAck?.description ?? ''}
       pending={pastStartAckPending}
       error={pastStartAckError}
+      onShiftToFuture={pastStartAck?.onShiftToFuture}
       returnFocusRef={pastStartAckOpenerRef}
       onDismiss={() => {
         if (!pastStartAckPending) {

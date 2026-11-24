@@ -406,6 +406,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <AvailableSlotsNotice
         {...availableSlotSearch}
+        selectedStartLocal={scheduledLocal}
         onSelect={useAvailableSlot}
       />
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>

@@ -473,6 +473,7 @@ export function EventForm({
       </div>
       <AvailableSlotsNotice
         {...availableSlotSearch}
+        selectedStartLocal={draft.startsAt}
         onSelect={useAvailableSlot}
       />
       </fieldset>
@@ -928,6 +929,14 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
         description={pastStartAck?.description ?? ''}
         pending={pastStartAckPending}
         error={pastStartAckError}
+        onShiftToFuture={pastStartAck?.shiftStartToFuture
+          ? () => {
+              if (pastStartAckPending) return;
+              pastStartAck.shiftStartToFuture?.();
+              setPastStartAck(null);
+              setPastStartAckError('');
+            }
+          : undefined}
         returnFocusRef={pastStartAckOpenerRef}
         onDismiss={() => {
           if (pastStartAckPending) return;

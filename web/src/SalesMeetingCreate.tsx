@@ -319,6 +319,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <AvailableSlotsNotice
         {...availableSlotSearch}
+        selectedStartLocal={scheduledLocal}
         onSelect={useAvailableSlot}
       />
       </section>

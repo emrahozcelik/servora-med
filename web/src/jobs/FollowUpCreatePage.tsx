@@ -661,6 +661,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
           {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
           <AvailableSlotsNotice
             {...availableSlotSearch}
+            selectedStartLocal={scheduledLocal}
             onSelect={useAvailableSlot}
           />
         </section>

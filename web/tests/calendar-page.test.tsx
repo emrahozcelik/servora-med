@@ -726,7 +726,7 @@ describe('CalendarPage', () => {
       .map((element) => element.textContent);
     expect(kinds.length).toBeGreaterThan(0);
     for (const kind of kinds) {
-      expect(['İş', 'Kişisel plan']).toContain(kind);
+      expect(['İş', 'Plan']).toContain(kind);
     }
     // The visible cue is inside the event button, so it is announced too.
     expect(container.querySelector('.servora-calendar-event-summary .servora-calendar-event-kind')).toBeTruthy();

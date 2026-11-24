@@ -127,7 +127,7 @@ export function ServoraCalendar({
                     </span>
                     {/* Visible type cue: colour is never the only channel (DESIGN.md two-channel rule). */}
                     <span className="servora-calendar-event-kind" aria-hidden="true">
-                      {event.source === 'JOB' ? 'İş' : 'Kişisel plan'}
+                      {event.source === 'JOB' ? 'İş' : 'Plan'}
                     </span>
                   </span>
                   <span className="servora-calendar-event-label" aria-hidden="true">{event.title}</span>
