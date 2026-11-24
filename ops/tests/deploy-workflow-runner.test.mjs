@@ -304,6 +304,32 @@ test('normal route argument rules: a pinned CI run needs its package; no attempt
 });
 
 /**
+ * 2026-11-24 (run 45367120236): a transient TRUSTED_TIME_UNKNOWN left the
+ * postdeploy observation proof null. The runner must classify that live state
+ * distinctly from a failed backup and from a generic postdeploy failure.
+ */
+test('runner classifies a live postdeploy observation-state failure distinctly', () => {
+  const runner = resolve(repoRoot, 'ops/deploy-production.sh');
+  const classify = (hostOutput) => spawnSync('bash', ['-c', `
+    source "$1"
+    remote_phase() { printf '%s\n' "$HOST_OUTPUT" >"$1"; return 2; }
+    SHA=${DEPLOY_SHA}; FQDN=servora.example.test; ATTEMPT_ID=
+    if postdeploy_remote; then echo STATUS=UNEXPECTED_PASS; else echo "STATUS=$POSTDEPLOY_STATUS"; fi
+  `, 'classify', runner], { encoding: 'utf8', env: { ...process.env, HOST_OUTPUT: hostOutput } });
+  const observation = classify(['OBSERVATION_STATE_FILE_CONTRACT_INVALID', `LIVE_BUT_OBSERVATION_STATE_FAILED sha=${DEPLOY_SHA}`].join('\n'));
+  assert.equal(observation.status, 0, observation.stderr);
+  assert.match(observation.stdout, /^STATUS=LIVE_BUT_OBSERVATION_STATE_FAILED$/m);
+  assert.match(observation.stderr, /POSTDEPLOY_OBSERVATION_HINT=.*TRUSTED_TIME_UNKNOWN.*same-SHA rerun/);
+  const backup = classify(`LIVE_BUT_POSTDEPLOY_BACKUP_FAILED sha=${DEPLOY_SHA}`);
+  assert.match(backup.stdout, /^STATUS=LIVE_BUT_POSTDEPLOY_BACKUP_FAILED$/m);
+  assert.doesNotMatch(backup.stderr, /POSTDEPLOY_OBSERVATION_HINT/);
+  const other = classify('POSTDEPLOY_ATTEMPT_INVALID');
+  assert.match(other.stdout, /^STATUS=FAIL$/m);
+  const source = readFileSync(runner, 'utf8');
+  assert.match(source, /== LIVE_BUT_OBSERVATION_STATE_FAILED \]\]; then\n {4}fail LIVE_BUT_OBSERVATION_STATE_FAILED/);
+});
+
+/**
  * 2026-11-19: security.ubuntu.com and archive.ubuntu.com returned 503 for hours
  * and later crawled at ~143 kB/s while azure.archive.ubuntu.com stayed fast.
  * Every Playwright `--with-deps` install in the deploy path (web ->

@@ -266,7 +266,15 @@ The writer persists the TT-A sample before the dump, verifies the actual
 artifact and portable sidecar, fsyncs both plus their directory, samples again,
 and publishes an fsynced state by atomic rename plus directory fsync. The private
 proof contains the original event interval, attempt UUID, trigger and artifact /
-sidecar SHA-256. A missing trusted sample allows recording integrity success but
+sidecar SHA-256. A trusted sample that is `TRUSTED_TIME_UNKNOWN` is retried a
+bounded number of times (waits of 5 s, 20 s and 45 s, four attempts in all,
+spanning one minimum 64-second chrony poll) before it is given up. Each attempt
+is a fresh sample validated by the unchanged TT-A contract; nothing is cached,
+synthesized or relaxed. When the before sample is already missing the after
+sample is taken once, since no proof can be minted. A sample still missing after
+the last attempt is logged to the unit's journal as
+`backup-observation: TRUSTED_TIME_UNKNOWN sample=<before|after> attempts=<n>`.
+A missing trusted sample allows recording integrity success but
 leaves its freshness proof null. Publication or checksum errors fail the backup
 visibly; prior verified history survives failed/running attempts.
 

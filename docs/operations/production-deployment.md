@@ -718,6 +718,54 @@ database rollback. A healthy application with a failed postdeploy backup is
 reported as `LIVE_BUT_POSTDEPLOY_BACKUP_FAILED` and is not rolled back solely
 for that backup failure.
 
+#### Recovering from `LIVE_BUT_OBSERVATION_STATE_FAILED`
+
+The run fails with `reason=LIVE_BUT_OBSERVATION_STATE_FAILED` (host line
+`OBSERVATION_STATE_FILE_CONTRACT_INVALID`, runner line
+`POSTDEPLOY_OBSERVATION_HINT=…`) when the release is live and healthy and the
+postdeploy dump was written and verified, but the observation state does not
+carry the postdeploy freshness proof the host helper requires. Nothing is
+rolled back. `/var/lib/servora-med/deploy/<sha>.state` stays at
+`postdeploy=not_run`.
+
+The usual cause is a trusted-time sample that stayed `TRUSTED_TIME_UNKNOWN`. On
+2026-11-24 (run 45367120236) one of the three NTS sources was unreachable and
+the before-dump sample failed once, which left `latestAttemptTime` and
+`latestVerifiedProof` null. The backup writer now retries an unknown sample
+within a bounded window (waits of 5 s, 20 s and 45 s, four attempts in all), so
+this failure means trusted time stayed unknown for that whole window, or that
+another contract field did not match. The proof requirements and the
+`nts-quorum-v1` source policy are unchanged.
+
+1. Diagnose read-only, as root on the host:
+
+   ```bash
+   journalctl -u servora-med-postdeploy-backup.service --since -2h | grep backup-observation
+   chronyc -N sources
+   chronyc -N authdata
+   ```
+
+   `backup-observation: TRUSTED_TIME_UNKNOWN sample=<before|after> attempts=<n>`
+   confirms the trusted-time cause. Wait until at least two of the three NTS
+   sources (`time.cloudflare.com`, `bevtime1.metrologie.at`,
+   `1.ntp.ubuntu.com`) are reachable and authenticated (`NTS`). If no
+   `TRUSTED_TIME_UNKNOWN` line is present, stop and investigate the contract
+   mismatch before rerunning.
+2. Never edit `observation-v1.json` or `<sha>.state` by hand. Never copy or
+   synthesize a time proof, and never relax the chrony configuration to pass
+   the gate.
+3. Recover with a same-SHA rerun: re-run the failed Production Deploy run, or
+   dispatch it again on `main`, while `main` is still at that SHA. If `main` has
+   moved on, the runner stops with `REMOTE_MAIN_MISMATCH`, so deploy the newer
+   `main` normally instead. The rerun re-verifies the already-staged bytes
+   (`RELEASE_STAGE=EXISTING_BYTE_IDENTICAL`) and takes a new predeploy backup.
+   It finds no pending migrations, so `allow_migrations` is not needed. It then
+   re-activates the same release with a brief service restart, runs health and
+   the browser smoke, and takes one new postdeploy backup. A passing rerun ends
+   with `postdeploy_backup=PASS` and writes `postdeploy=success`. In that rerun
+   the recorded `old_release` is the same release, so its automatic rollback
+   target is that release and not the one before it.
+
 The deployment path contains no personnel/customer importer, seed, demo-data,
 or admin-bootstrap invocation. No business-data import occurs during
 deployment; onboarding remains a separate, operator-authorized workflow.
