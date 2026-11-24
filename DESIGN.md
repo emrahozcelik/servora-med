@@ -428,6 +428,9 @@ use the owned Ant Design boundary in later implementation PRs.
 - **Approval review panel**: Manager/Admin summary of submission facts and readiness before
   decision controls. Primary decision is **Kontrolü tamamla ve işi kapat** (confirmation
   required); secondary is **Düzeltme için personele geri gönder** with mandatory reason.
+- **Management guidance panels**: lead with the facts and the real commands in reason
+  order (only the first action is primary); record-only resolutions sit in their own
+  separated, confirmed group that states they do not change the job.
 - **Workflow dialogs**: confirmation for completion and withdraw-to-edit; reason capture for
   revision and cancel. Contain focus, support Escape when safe, restore focus to the opener,
   disable controls while pending, announce status/errors via live regions.

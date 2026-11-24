@@ -525,7 +525,7 @@ function JobScheduleEditForm({
   const [resolveChangeRequest, setResolveChangeRequest] = useState(true);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const submitErrorRef = useRef<HTMLParagraphElement>(null);
-  const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}`;
+  const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}:${job.changeRequest?.id ?? ''}`;
   const lastKey = useRef(canonicalKey);
   const lastShiftSignalRef = useRef(scheduleShiftSignal ?? 0);
 
@@ -760,7 +760,7 @@ function JobScheduleEditForm({
               onChange={(event) => setResolveChangeRequest(event.target.checked)}
             />
             <label htmlFor="job-schedule-resolve-change-request">
-              Personelin önerisini “Yeniden planlandı” olarak sonuçlandır
+              Personel önerisini 'Yeniden planlandı' olarak kapat
             </label>
           </div>
         )}
@@ -3565,6 +3565,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         user={user}
         disabled={invalidationLocked}
         openRequestSignal={changeRequestSignal}
+        canSetNewTime={Boolean(presentationFor(detail).scheduleEdit)}
+        onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
+          ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
+          : undefined}
+        onCancel={(trigger) => { command('CANCEL', trigger); }}
         onChanged={() => {
           setTimelineKey((value) => value + 1);
           void refreshTruth();
