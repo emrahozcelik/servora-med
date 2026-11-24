@@ -1395,7 +1395,8 @@ replacement, offboarding transfer) record the offer without an acknowledgement a
 
 ```json
 { "clientActionId": "uuid", "expectedVersion": 6, "reasonCode": "SCHEDULE_CONFLICT",
-  "reasonText": "Aynı saatte başka bir teslimim var." }
+  "reasonText": "Aynı saatte başka bir teslimim var.",
+  "proposedScheduledAt": "2026-11-25T09:00:00.000Z" }
 ```
 
 Assigned STAFF only, `NEW` with an `OPEN` offer before the deadline. `reasonCode` is one of
@@ -1405,11 +1406,25 @@ Assigned STAFF only, `NEW` with an `OPEN` offer before the deadline. `reasonCode
 MANAGER/ADMIN receives `job.assignment_declined`. A missing/stale offer returns
 `409 ASSIGNMENT_OFFER_NOT_OPEN`.
 
+`proposedScheduledAt` (JOB-012) is the alternative time a `SCHEDULE_CONFLICT` answer proposes,
+as a canonical ISO instant. It is **required** with `SCHEDULE_CONFLICT` (missing/null →
+`400 VALIDATION_ERROR` with `fieldErrors.proposedScheduledAt`), **forbidden** with every other
+reason (`400`, same field error), and must be strictly after the 049 reservation instant
+(`400`, "Önerilen zaman gelecekte olmalı."; checked after the replay lookup, so a completed
+answer replays even once its proposal has passed). The proposed interval
+`[proposedScheduledAt, proposedScheduledAt + D)` — `D` = the persisted planned duration, else
+the canonical 60 min (`SALES_MEETING`) / 30 min (`PRODUCT_DELIVERY`) — must not collide with
+the answering Staff member's calendar (the same occupancy reader a reschedule uses, this job
+excluded): `409 CALENDAR_CONFLICT` with the Staff-projected conflict shape. The value is part
+of the request hash and is stored on the offer the answer closes. Nothing else about
+decline/release changes; Staff only propose, management confirms.
+
 `POST /api/job-cards/:id/release` — same body, from `ACCEPTED` while the latest offer is
 `ACCEPTED` for the actor. In one transaction: the pre-release OVR-2 `LATE_START` obligation is
 materialized, the job returns to `NEW` with `acceptedAt`/`acceptedBy` cleared, the offer
 moves `ACCEPTED -> RELEASED`, the `JOB_ASSIGNMENT_RELEASED` activity commits and management
-receives `job.assignment_declined`.
+receives `job.assignment_declined`. A `SCHEDULE_CONFLICT` release carries the same
+`proposedScheduledAt` under the same rules.
 
 `POST /api/job-cards/:id/assignment-offers/reoffer`
 
@@ -1438,8 +1453,53 @@ Management only. Jobs still `NEW` whose latest offer is `DECLINED`, `RELEASED`, 
 `WITHDRAWN`/`PLANNED_WINDOW_PASSED`, or `OPEN` with an `urgentReason` or a passed deadline
 (evaluated at read time), oldest deadline first. Item:
 `{ jobCardId, jobTitle, jobType, offerId, state, closeReason, closeText, acceptanceDueAt,
-urgentReason, scheduledAt, assignee: { id, name }, customer: { id, name } | null, jobPath }`,
-plus `total`, `limit`, `offset`.
+urgentReason, scheduledAt, proposedScheduledAt, assignee: { id, name }, customer: { id, name } |
+null, jobPath }`, plus `total`, `limit`, `offset`. `proposedScheduledAt` (JOB-012) is the
+pending Staff proposal of the latest offer, or `null`.
+
+`POST /api/job-cards/:id/assignment-offers/accept-proposal` (JOB-012)
+
+```json
+{ "clientActionId": "uuid", "expectedVersion": 7, "offerId": "uuid" }
+```
+
+MANAGER/ADMIN only (`403 FORBIDDEN` before any lookup), flag on (else
+`409 ASSIGNMENT_WINDOW_DISABLED`). Idempotent like re-offer: `clientActionId` plus the request
+hash of `jobCardId, expectedVersion, offerId`, assignee-before-JobCard lock order. `offerId` is
+the declined/released offer that carries the proposal.
+
+Preconditions, else `409 ASSIGNMENT_PROPOSAL_NOT_AVAILABLE` and nothing written: job `NEW`,
+`PRODUCT_DELIVERY`/`SALES_MEETING`; the job's latest offer has id `offerId`, state `DECLINED`
+or `RELEASED`, a `proposedScheduledAt`, `proposalAcceptedAt IS NULL`; its
+`assignee_user_id = job.assigned_to`; the assignee is an active STAFF user. A stale version is
+`409 VERSION_CONFLICT`; `proposedScheduledAt <= requestTime` is `409
+ASSIGNMENT_PROPOSAL_EXPIRED`; a calendar conflict for the derived interval is `409
+CALENDAR_CONFLICT`.
+
+One transaction, four effects: (1) the job moves to the derived interval exactly as a
+management reschedule does — `version` +1, schedule revision `source = 'RESCHEDULE'`, early-start
+authorization voided (`RESCHEDULED`), `JOB_FIELDS_UPDATED` activity with `scheduledAt` /
+`scheduledEndsAt`, calendar realtime and the existing `calendar.rescheduled` notification;
+(2) the answered offer records `proposalAcceptedAt = requestTime`, `proposalAcceptedBy = actor`;
+(3) a new offer opens with `openedReason = 'PROPOSAL_ACCEPTED'`, `openedBy = actor`, addressed
+to the assignee, created directly in state `ACCEPTED` with `closedAt = requestTime`,
+`closedBy = assignee` (the proposer accepted by proposing) — no `JOB_ASSIGNMENT_OFFER_OPENED`
+fact and no reminder/expiry is scheduled; (4) the job goes `NEW -> ACCEPTED` with
+`acceptedAt = requestTime`, `acceptedBy = assignee` and a `JOB_ACCEPTED` activity (actor =
+management, metadata `{ via: 'TIME_PROPOSAL', offerId: <new offer>, proposalOfferId,
+proposerId }`). The OVR-2 acceptance basis is the new planned interval, so a future start
+creates no `LATE_START`.
+
+Response `200`:
+
+```json
+{ "jobCardId": "uuid", "offerId": "uuid",
+  "scheduledAt": "2026-11-25T09:00:00.000Z", "scheduledEndsAt": "2026-11-25T09:30:00.000Z" }
+```
+
+`offerId` is the new `PROPOSAL_ACCEPTED` offer (the confirmed proposal offer is the request's
+own `offerId`). A replay with the same `clientActionId` returns the same result; a different
+body under the same key is `409 CLIENT_ACTION_REUSED`.
 
 `GET /api/job-cards/pending-acceptance/past-start?limit&offset`
 
@@ -1464,7 +1524,8 @@ sent only Monday–Saturday 08:00–21:00 organization time; outside that window
 
 The job detail exposes the latest offer as
 `assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name },
-closedAt, closeReason, closeText } | null` (management and assignee). `closedAt` is the
+closedAt, closeReason, closeText, proposedScheduledAt, proposedScheduledEndsAt,
+proposalAcceptedAt } | null` (management and assignee). `closedAt` is the
 persisted close instant (`null` while `OPEN`). `closeReason` is the persisted close reason
 code — a decline/release code (`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`,
 `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`) for `DECLINED`/`RELEASED`, a withdraw code
@@ -1472,8 +1533,11 @@ code — a decline/release code (`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`,
 `PLANNED_WINDOW_PASSED`) for `WITHDRAWN`, and `null` for `ACCEPTED` and for an `EXPIRED`
 close without a reason; `closeText` is the Staff member's own text. An `OPEN` offer past
 its deadline is presented with `state: EXPIRED` and all three close members `null`,
-because that presentation is not a persisted close. With the flag on, `allowedCommands`
-in the window are
+because that presentation is not a persisted close. JOB-012: `proposedScheduledAt` is the
+Staff proposal stored on the closed answer (or `null`), `proposedScheduledEndsAt` is the
+derived end of the proposed interval (server-computed from the planned duration, never
+stored), and `proposalAcceptedAt` is set once when management confirmed it. With the flag on,
+`allowedCommands` in the window are
 `ACCEPT_ASSIGNMENT` + `DECLINE_ASSIGNMENT` in `NEW`, and `START` + `RELEASE_ASSIGNMENT` in
 `ACCEPTED`; Staff never receive `CANCEL` for any JobCard type or status.
 
@@ -1498,14 +1562,16 @@ notifications, because the acting manager is already handling the recovery.
 
 The `JOB_ASSIGNMENT_DECLINED` and `JOB_ASSIGNMENT_RELEASED` activity rows project
 `details: { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED' | 'RELEASED', reasonCode,
-reasonText }`. `reasonCode` is read from metadata and must be one of
+reasonText, proposedScheduledAt }`. `reasonCode` is read from metadata and must be one of
 `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`;
 `reasonText` is the trimmed non-empty text. An unknown or missing code, and a blank
 text, project as `null`; both answers write `reasonCode` / `reasonText` into the same
-metadata as `offerId`. The reason is reader-scoped: MANAGER/ADMIN and the Staff member
-who answered see `reasonCode` / `reasonText`; any other Staff reader of the card (for
-example a later assignee) receives both as `null`. Every other offer activity keeps
-`details: { kind: 'NONE' }`.
+metadata as `offerId`, and a `SCHEDULE_CONFLICT` answer also writes `proposedScheduledAt`
+(JOB-012) there as a canonical instant (a missing or unparseable value projects as `null`).
+The reason and the proposal are reader-scoped: MANAGER/ADMIN and the Staff member
+who answered see `reasonCode` / `reasonText` / `proposedScheduledAt`; any other Staff reader of
+the card (for example a later assignee) receives all three as `null`. Every other offer
+activity keeps `details: { kind: 'NONE' }`.
 
 ### Submit requirements
 

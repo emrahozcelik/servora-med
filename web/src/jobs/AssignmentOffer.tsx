@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { Link } from 'react-router-dom';
 
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
-import type { CurrentUser } from '../services/api';
+import { ApiError, type CurrentUser } from '../services/api';
+import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
 import { OperationalCard } from '../ui/antd/OperationalCard';
 import { ResultState } from '../ui/antd/ResultState';
 import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './PastStartAcknowledgementDrawer';
+import { ScheduleQuickControls } from './ScheduleQuickControls';
 import {
   assignmentOfferCloseReasonLabel,
   assignmentOfferStateLabel,
@@ -17,6 +19,7 @@ import {
 } from './job-labels';
 import {
   ASSIGNMENT_REASON_CODES,
+  acceptAssignmentProposal,
   listAssignmentOffersNeedingAction,
   pastStartAcknowledgementPayload,
   reofferAssignment,
@@ -65,6 +68,40 @@ function formatInstant(value: string): string {
     .format(new Date(value));
 }
 
+const proposalDateFormatter = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' });
+const proposalTimeFormatter = new Intl.DateTimeFormat('tr-TR', { timeStyle: 'short' });
+
+/** JOB-012 proposal interval as `<date> <start>–<end>` (end is server-derived). */
+function formatProposedInterval(start: string, end: string | null): string {
+  const date = proposalDateFormatter.format(new Date(start));
+  const from = proposalTimeFormatter.format(new Date(start));
+  if (end === null) return `${date} ${from}`;
+  return `${date} ${from}–${proposalTimeFormatter.format(new Date(end))}`;
+}
+
+/**
+ * JOB-012: a rejected proposal confirmation means the offer, the schedule or
+ * the Staff calendar moved on. The explanation is Turkish and the card is
+ * refreshed by the caller; unknown codes keep the server text.
+ */
+function proposalAcceptErrorMessage(caught: unknown): string {
+  if (caught instanceof ApiError) {
+    switch (caught.code) {
+      case 'ASSIGNMENT_PROPOSAL_NOT_AVAILABLE':
+        return 'Personelin önerdiği zaman artık onaylanamıyor. İş güncellenmiş olabilir; en güncel durum gösteriliyor.';
+      case 'ASSIGNMENT_PROPOSAL_EXPIRED':
+        return 'Önerilen zaman geçti. Onaylanamıyor; personelden yeni bir zaman isteyin.';
+      case 'VERSION_CONFLICT':
+        return 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.';
+      case 'CALENDAR_CONFLICT':
+        return caught.message || 'Önerilen zaman personelin takvimiyle çakışıyor.';
+      default:
+        return assignmentWindowErrorMessage(caught, 'Önerilen zaman onaylanamadı.');
+    }
+  }
+  return caught instanceof Error ? caught.message : 'Önerilen zaman onaylanamadı.';
+}
+
 function isManagementRecoveryOffer(job: JobCard, offer: AssignmentOffer): boolean {
   if (job.status !== 'NEW') return false;
   if (MANAGEMENT_RECOVERY_OFFER_STATES.includes(offer.state)) return true;
@@ -99,18 +136,29 @@ function focusScheduleEditor(): void {
 /** JOB-010 release 2b decline/release draft; validated in JobDetail. */
 export type AssignmentReasonDraft = {
   code: AssignmentReasonCode | '';
+  /**
+   * JOB-012: device-local proposed time, required only for
+   * `SCHEDULE_CONFLICT`. Converted with `localDateTimeToIso` on submit.
+   */
+  proposedScheduledLocal: string;
 };
 
-export const EMPTY_ASSIGNMENT_REASON: AssignmentReasonDraft = { code: '' };
+export const EMPTY_ASSIGNMENT_REASON: AssignmentReasonDraft = {
+  code: '',
+  proposedScheduledLocal: '',
+};
 
 export function AssignmentReasonSection({
   draft,
   inlineError,
+  scheduleError,
   onChange,
   initialFocusRef,
 }: {
   draft: AssignmentReasonDraft;
   inlineError: string | null;
+  /** JOB-012: inline error of the proposed-time field, if any. */
+  scheduleError: string | null;
   onChange: (patch: Partial<AssignmentReasonDraft>) => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
 }) {
@@ -137,6 +185,34 @@ export function AssignmentReasonSection({
           Açıklamayı aşağıdaki alana yazın. Neden ve açıklama yöneticiye iletilir ve iş geçmişinde saklanır.
         </p>
       </div>
+      {draft.code === 'SCHEDULE_CONFLICT' && (
+        <div className="field-group" data-assignment-proposal-field="true">
+          <label htmlFor="assignment-proposed-at">Önerdiğiniz zaman</label>
+          <input
+            id="assignment-proposed-at"
+            name="proposedScheduledAt"
+            type="datetime-local"
+            value={draft.proposedScheduledLocal}
+            required
+            aria-invalid={scheduleError ? true : undefined}
+            aria-describedby={[
+              'assignment-proposed-at-help',
+              scheduleError ? 'assignment-proposed-at-error' : null,
+            ].filter(Boolean).join(' ')}
+            onChange={(event) => onChange({ proposedScheduledLocal: event.target.value })}
+          />
+          <p className="form-help" id="assignment-proposed-at-help">
+            Yönetici onaylarsa iş bu zamana taşınır ve sizin için kabul edilmiş olur.
+          </p>
+          <ScheduleQuickControls
+            value={draft.proposedScheduledLocal}
+            onSelect={(next) => onChange({ proposedScheduledLocal: next })}
+          />
+          {scheduleError && (
+            <p id="assignment-proposed-at-error" className="field-error" role="alert">{scheduleError}</p>
+          )}
+        </div>
+      )}
       {inlineError && <p id="assignment-reason-error" className="field-error" role="alert">{inlineError}</p>}
     </fieldset>
   );
@@ -144,9 +220,11 @@ export function AssignmentReasonSection({
 
 /**
  * JOB-010 release 2b assignment offer on the job detail: the server deadline,
- * the urgency badge and the management re-offer path. The offer itself, its
- * deadline and its urgency are server facts; this section never derives them
- * from the browser clock.
+ * the urgency badge and the management re-offer path. JOB-012 extends the
+ * management guidance with the Staff member's time proposal and its
+ * confirmation. The offer, its deadline, the proposal interval and its
+ * urgency are server facts; this section never derives them from the browser
+ * clock except to hide a confirm control for an already-passed proposal.
  */
 export function AssignmentOfferSection({
   job, user, disabled = false, onChanged, onReassign, canSetNewTime = true,
@@ -170,7 +248,15 @@ export function AssignmentOfferSection({
   const [ackOpen, setAckOpen] = useState(false);
   const [ackPending, setAckPending] = useState(false);
   const [ackError, setAckError] = useState('');
+  const [proposalConfirmOpen, setProposalConfirmOpen] = useState(false);
+  const [proposalPending, setProposalPending] = useState(false);
+  const [proposalError, setProposalError] = useState('');
+  // JOB-012: the confirmed offer and the offer the confirmation opened. The
+  // success note shows only while one of them is the latest offer: it survives
+  // the refresh right after confirming and disappears on any later change.
+  const [proposalDoneOfferIds, setProposalDoneOfferIds] = useState<readonly string[]>([]);
   const reofferTriggerRef = useRef<HTMLButtonElement>(null);
+  const proposalTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setError('');
@@ -178,6 +264,13 @@ export function AssignmentOfferSection({
     setAckOpen(false);
     setAckError('');
   }, [job.id, job.version, offer?.id]);
+
+  // JOB-012: a different job clears the proposal outcome entirely.
+  useEffect(() => {
+    setProposalConfirmOpen(false);
+    setProposalError('');
+    setProposalDoneOfferIds([]);
+  }, [job.id]);
 
   if (offer === null) return null;
   const management = isManagementUser(user);
@@ -202,12 +295,27 @@ export function AssignmentOfferSection({
   const recoveryActions = (newTimeFirst
     ? [newTimeAction, reassignAction]
     : [reassignAction, newTimeAction]).filter((action): action is RecoveryAction => action !== null);
+  /**
+   * JOB-012: the latest closed offer carries a Staff time proposal that
+   * management has not answered yet. The browser clock only decides whether
+   * the confirm control is still offered; the server re-checks the start.
+   */
+  const proposedAt = offer.proposedScheduledAt;
+  const pendingProposal = recovery
+    && proposedAt !== null
+    && offer.proposalAcceptedAt === null;
+  const proposalStartPassed = pendingProposal && proposedAt !== null
+    && Date.parse(proposedAt) <= Date.now();
+  const proposalIntervalText = pendingProposal && proposedAt !== null
+    ? formatProposedInterval(proposedAt, offer.proposedScheduledEndsAt)
+    : null;
+  const proposalPrimary = proposalIntervalText !== null && !proposalStartPassed;
   const reofferButton = canReoffer ? (
     <button
       ref={reofferTriggerRef}
       className="secondary-button compact-button"
       type="button"
-      disabled={disabled || pending || done}
+      disabled={disabled || pending || done || proposalPending}
       aria-expanded={ackOpen}
       data-assignment-offer-action="reoffer"
       onClick={() => { setError(''); setAckError(''); void sendReoffer(); }}
@@ -215,6 +323,29 @@ export function AssignmentOfferSection({
       {pending && !ackOpen ? 'Kaydediliyor…' : 'Aynı zamanla yeniden teklif et'}
     </button>
   ) : null;
+
+  async function confirmProposal(target: AssignmentOffer) {
+    if (target.proposedScheduledAt === null) return;
+    setProposalPending(true);
+    setProposalError('');
+    try {
+      const receipt = await acceptAssignmentProposal(job.id, {
+        clientActionId: crypto.randomUUID(),
+        expectedVersion: job.version,
+        offerId: target.id,
+      });
+      setProposalDoneOfferIds([target.id, receipt.offerId]);
+      setProposalConfirmOpen(false);
+      onChanged?.();
+    } catch (caught) {
+      setProposalConfirmOpen(false);
+      setProposalError(proposalAcceptErrorMessage(caught));
+      // The rejected proposal means the offer or the calendar moved: refresh.
+      onChanged?.();
+    } finally {
+      setProposalPending(false);
+    }
+  }
 
   async function sendReoffer(acknowledgement?: PastStartAcknowledgement): Promise<boolean> {
     setPending(true);
@@ -282,6 +413,14 @@ export function AssignmentOfferSection({
                 <dd>“{offer.closeText.trim()}”</dd>
               </div>
             )}
+            {pendingProposal && proposedAt !== null && proposalIntervalText !== null && (
+              <div>
+                <dt>Personelin önerdiği zaman</dt>
+                <dd data-assignment-offer-proposal={proposalStartPassed ? 'EXPIRED' : 'PENDING'}>
+                  <time dateTime={proposedAt}>{proposalIntervalText}</time>
+                </dd>
+              </div>
+            )}
             {offer.closedAt !== null && (
               <div>
                 <dt>Karar zamanı</dt>
@@ -291,12 +430,31 @@ export function AssignmentOfferSection({
           </dl>
           <p className="assignment-offer-recovery-actions-label"><strong>Ne yapabilirsiniz</strong></p>
           <div className="review-buttons">
+            {proposalPrimary && (
+              <button
+                ref={proposalTriggerRef}
+                className="primary-button compact-button"
+                type="button"
+                disabled={disabled || pending || proposalPending || done
+                  || proposalDoneOfferIds.includes(offer.id)}
+                data-assignment-offer-action="accept-proposal"
+                onClick={() => {
+                  setProposalError('');
+                  setProposalDoneOfferIds([]);
+                  setProposalConfirmOpen(true);
+                }}
+              >
+                Önerilen zamanı onayla
+              </button>
+            )}
             {recoveryActions.map((action, index) => (
               <button
                 key={action.key}
-                className={index === 0 ? 'primary-button compact-button' : 'secondary-button compact-button'}
+                className={index === 0 && !proposalPrimary
+                  ? 'primary-button compact-button'
+                  : 'secondary-button compact-button'}
                 type="button"
-                disabled={disabled || pending}
+                disabled={disabled || pending || proposalPending}
                 data-assignment-offer-action={action.key}
                 onClick={(event) => { action.run(event.currentTarget); }}
               >
@@ -344,8 +502,43 @@ export function AssignmentOfferSection({
         </p>
       )}
       {error && <p className="field-error" role="alert">{error}</p>}
+      {proposalStartPassed && (
+        <p data-assignment-offer-proposal-expired="true">
+          <strong>Önerilen zaman geçti</strong> — personelden yeni bir zaman isteyin.
+        </p>
+      )}
+      {proposalDoneOfferIds.includes(offer.id) && (
+        <p role="status" data-assignment-offer-proposal-accepted="true">
+          Önerilen zaman onaylandı; iş {offer.assignee.name} için kabul edildi.
+        </p>
+      )}
+      {proposalError && (
+        <p className="field-error" role="alert" data-assignment-offer-proposal-error="true">
+          {proposalError}
+        </p>
+      )}
       {canReoffer && !recovery && (
         <div className="review-buttons">{reofferButton}</div>
+      )}
+      {proposalPrimary && proposalIntervalText !== null && (
+        <ConfirmationAction
+          open={proposalConfirmOpen}
+          title="Önerilen zamanı onayla"
+          description={`İş ${proposalIntervalText} zamanına taşınır ve ${offer.assignee.name} için kabul edilmiş olur.`}
+          details={[
+            `Personel: ${offer.assignee.name}`,
+            `Önerilen zaman: ${proposalIntervalText}`,
+            'İş, öneri sahibi personel için kabul edilmiş olarak başlar; ayrıca kabul beklenmez.',
+          ]}
+          confirmLabel="Önerilen zamanı onayla"
+          pending={proposalPending}
+          pendingLabel="Onaylanıyor…"
+          returnFocusRef={proposalTriggerRef}
+          onCancel={() => {
+            if (!proposalPending) setProposalConfirmOpen(false);
+          }}
+          onConfirm={() => { void confirmProposal(offer); }}
+        />
       )}
       <PastStartAcknowledgementDrawer
         open={ackOpen}
@@ -461,6 +654,12 @@ export function OpenAssignmentOffersSection({ load = listAssignmentOffersNeeding
                   <p>
                     Planlanan zaman:{' '}
                     <time dateTime={item.scheduledAt}>{formatInstant(item.scheduledAt)}</time>
+                  </p>
+                )}
+                {item.proposedScheduledAt !== null && (
+                  <p data-assignment-offer-proposal="PENDING">
+                    Personelin önerdiği zaman:{' '}
+                    <time dateTime={item.proposedScheduledAt}>{formatInstant(item.proposedScheduledAt)}</time>
                   </p>
                 )}
                 {urgentLabel !== null && (

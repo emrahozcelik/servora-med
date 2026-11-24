@@ -304,11 +304,21 @@ function assignmentDecisionDetails(
   // Fail closed: an unknown reader, or Staff reading someone else's answer,
   // sees only that the assignment was declined/released.
   if (viewer === undefined || (viewer.role === 'STAFF' && viewer.id !== actorId)) {
-    return { kind: 'ASSIGNMENT_DECISION', decision, reasonCode: null, reasonText: null };
+    return {
+      kind: 'ASSIGNMENT_DECISION',
+      decision,
+      reasonCode: null,
+      reasonText: null,
+      proposedScheduledAt: null,
+    };
   }
   const record = jsonRecord(metadata);
   const code = record?.reasonCode;
   const text = record?.reasonText;
+  // JOB-012: the proposal is a canonical instant or nothing; an unknown value
+  // degrades to null instead of a raw client string.
+  const proposed = record?.proposedScheduledAt;
+  const proposedMs = typeof proposed === 'string' ? Date.parse(proposed) : Number.NaN;
   return {
     kind: 'ASSIGNMENT_DECISION',
     decision,
@@ -317,6 +327,7 @@ function assignmentDecisionDetails(
       ? code as JobAssignmentOfferDeclineReasonCode
       : null,
     reasonText: typeof text === 'string' && text.trim() !== '' ? text.trim() : null,
+    proposedScheduledAt: Number.isNaN(proposedMs) ? null : new Date(proposedMs).toISOString(),
   };
 }
 

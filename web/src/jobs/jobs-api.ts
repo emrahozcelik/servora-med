@@ -364,6 +364,16 @@ export type AssignmentOffer = {
   closeReason: AssignmentOfferCloseReason | null;
   /** The Staff member's own answer text, when one was written. */
   closeText: string | null;
+  /**
+   * JOB-012: the time the answering Staff member proposed instead of the
+   * offered one. Only a DECLINED / RELEASED offer closed with
+   * `SCHEDULE_CONFLICT` carries one.
+   */
+  proposedScheduledAt: string | null;
+  /** JOB-012: the server-derived end of the proposed interval. */
+  proposedScheduledEndsAt: string | null;
+  /** JOB-012: when management confirmed the proposal; null while pending. */
+  proposalAcceptedAt: string | null;
 };
 /** JOB-010 release 2a: one open Staff change/termination request of a job. */
 export type JobChangeRequest = {
@@ -523,6 +533,8 @@ export type JobCardActivityDetails =
       decision: 'DECLINED' | 'RELEASED';
       reasonCode: AssignmentReasonCode | null;
       reasonText: string | null;
+      /** JOB-012: the proposed time, under the same reader scope as the reason. */
+      proposedScheduledAt: string | null;
     }
   | { kind: 'NONE' };
 export type JobCardActivity = {
@@ -893,7 +905,8 @@ function parseAssignmentOffer(value: unknown): AssignmentOffer | null {
   if (value === undefined || value === null) return null;
   const v = exactObject(value, 'assignmentOffer', [
     'id', 'state', 'openedAt', 'acceptanceDueAt', 'urgentReason', 'assignee',
-    'closedAt', 'closeReason', 'closeText',
+    'closedAt', 'closeReason', 'closeText', 'proposedScheduledAt',
+    'proposedScheduledEndsAt', 'proposalAcceptedAt',
   ]);
   return {
     id: string(v.id, 'assignmentOffer.id'),
@@ -909,6 +922,18 @@ function parseAssignmentOffer(value: unknown): AssignmentOffer | null {
       ? null
       : oneOf(v.closeReason, 'assignmentOffer.closeReason', ASSIGNMENT_OFFER_CLOSE_REASONS),
     closeText: nullableString(v.closeText, 'assignmentOffer.closeText'),
+    proposedScheduledAt: nullableCanonicalInstant(
+      v.proposedScheduledAt,
+      'assignmentOffer.proposedScheduledAt',
+    ),
+    proposedScheduledEndsAt: nullableCanonicalInstant(
+      v.proposedScheduledEndsAt,
+      'assignmentOffer.proposedScheduledEndsAt',
+    ),
+    proposalAcceptedAt: nullableCanonicalInstant(
+      v.proposalAcceptedAt,
+      'assignmentOffer.proposalAcceptedAt',
+    ),
   };
 }
 /**
@@ -1303,7 +1328,9 @@ function parseDetails(value: unknown): JobCardActivityDetails {
   }
   if (kind === 'NOTE') return { kind, noteId: string(v.noteId, 'noteId') };
   if (kind === 'ASSIGNMENT_DECISION') {
-    const detail = exactObject(v, 'details', ['kind', 'decision', 'reasonCode', 'reasonText']);
+    const detail = exactObject(v, 'details', [
+      'kind', 'decision', 'reasonCode', 'reasonText', 'proposedScheduledAt',
+    ]);
     return {
       kind,
       decision: oneOf(detail.decision, 'decision', ['DECLINED', 'RELEASED'] as const),
@@ -1311,6 +1338,10 @@ function parseDetails(value: unknown): JobCardActivityDetails {
         ? null
         : oneOf(detail.reasonCode, 'reasonCode', ASSIGNMENT_REASON_CODES),
       reasonText: nullableString(detail.reasonText, 'reasonText'),
+      proposedScheduledAt: nullableCanonicalInstant(
+        detail.proposedScheduledAt,
+        'proposedScheduledAt',
+      ),
     };
   }
   if (kind === 'MEETING_DETAILS') {
@@ -1699,6 +1730,8 @@ export type AssignmentOfferNeedingActionItem = {
   acceptanceDueAt: string;
   urgentReason: AssignmentOfferUrgentReason | null;
   scheduledAt: string | null;
+  /** JOB-012: the pending Staff time proposal, when the close carried one. */
+  proposedScheduledAt: string | null;
   assignee: RelatedName;
   customer: RelatedName | null;
   jobPath: string;
@@ -1706,7 +1739,8 @@ export type AssignmentOfferNeedingActionItem = {
 function parseAssignmentOfferNeedingActionItem(value: unknown): AssignmentOfferNeedingActionItem {
   const v = exactObject(value, 'assignmentOffer', [
     'jobCardId', 'jobTitle', 'jobType', 'offerId', 'state', 'closeReason', 'closeText',
-    'acceptanceDueAt', 'urgentReason', 'scheduledAt', 'assignee', 'customer', 'jobPath',
+    'acceptanceDueAt', 'urgentReason', 'scheduledAt', 'proposedScheduledAt', 'assignee',
+    'customer', 'jobPath',
   ]);
   return {
     jobCardId: string(v.jobCardId, 'jobCardId'),
@@ -1723,6 +1757,7 @@ function parseAssignmentOfferNeedingActionItem(value: unknown): AssignmentOfferN
       ? null
       : oneOf(v.urgentReason, 'urgentReason', ASSIGNMENT_OFFER_URGENT_REASONS),
     scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
+    proposedScheduledAt: nullableCanonicalInstant(v.proposedScheduledAt, 'proposedScheduledAt'),
     assignee: exactRelated(v.assignee, 'assignee'),
     customer: nullableRelated(v.customer, 'customer'),
     jobPath: string(v.jobPath, 'jobPath'),
@@ -1962,6 +1997,11 @@ export type AssignmentReasonInput = {
   expectedVersion: number;
   reasonCode: AssignmentReasonCode;
   reasonText: string;
+  /**
+   * JOB-012: required for `SCHEDULE_CONFLICT`, absent for every other reason.
+   * Staff only propose here; management confirms separately.
+   */
+  proposedScheduledAt?: string | null;
 };
 export const declineAssignment = (id: string, input: AssignmentReasonInput) =>
   lifecycle(id, 'decline', input);
@@ -1994,6 +2034,40 @@ export const reofferAssignment = async (id: string, input: ReofferAssignmentInpu
       : oneOf(v.urgentReason, 'urgentReason', ASSIGNMENT_OFFER_URGENT_REASONS),
   } satisfies ReofferAssignmentReceipt;
   if (receipt.jobCardId !== id) invalid('assignmentOffer');
+  return receipt;
+};
+/**
+ * JOB-012: management confirms the Staff member's proposed time. The server
+ * moves the job and accepts it for the proposing Staff member in one
+ * transaction; this client only shapes the transport.
+ */
+export type AcceptAssignmentProposalInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  offerId: string;
+};
+export type AcceptAssignmentProposalReceipt = {
+  jobCardId: string;
+  offerId: string;
+  scheduledAt: string;
+  scheduledEndsAt: string;
+};
+export const acceptAssignmentProposal = async (
+  id: string,
+  input: AcceptAssignmentProposalInput,
+): Promise<AcceptAssignmentProposalReceipt> => {
+  const v = exactObject(
+    await request(`${jobPath(id)}/assignment-offers/accept-proposal`, json('POST', input)),
+    'assignmentProposal',
+    ['jobCardId', 'offerId', 'scheduledAt', 'scheduledEndsAt'],
+  );
+  const receipt = {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    offerId: string(v.offerId, 'offerId'),
+    scheduledAt: canonicalInstant(v.scheduledAt, 'scheduledAt'),
+    scheduledEndsAt: canonicalInstant(v.scheduledEndsAt, 'scheduledEndsAt'),
+  } satisfies AcceptAssignmentProposalReceipt;
+  if (receipt.jobCardId !== id) invalid('assignmentProposal');
   return receipt;
 };
 export const startJobCard = (id: string, input: StartJobCardInput) =>

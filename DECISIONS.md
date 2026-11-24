@@ -3619,3 +3619,28 @@ alternative is usually later the same day.
   expand control.
 - Implemented in `server/src/modules/job-cards/available-slots.ts`
   (`generateAvailableSlotCandidates`, `notBefore` from the service clock).
+
+## JOB-012 — Staff time proposal on a declined or released assignment
+
+- **Date:** 2026-11-24
+- **Status:** Accepted by the owner ("Faz 2'ye başlayalım. personel alternatif
+  zaman önersin… yönetici yine de tarihi değiştirebilir", 2026-11-24; Q1–Q4
+  answered with the recommended defaults). Extends JOB-010; does not amend its
+  rule that customer time is management-only.
+
+### Decision
+
+1. When a Staff member declines or releases an assignment for
+   `SCHEDULE_CONFLICT`, they must propose an alternative start; no other reason
+   carries a proposal.
+2. The proposal must be in the future and must not conflict with that Staff
+   member's calendar. Sunday and outside-hours remain advisory (human choice).
+3. Management confirms the proposal with one action: the job moves to the
+   proposed interval (duration kept) and is accepted for the proposing Staff
+   member in the same transaction, without a second Staff acceptance.
+4. Management may ignore the proposal and set any time, reassign, re-offer or
+   cancel exactly as before.
+5. The proposal is shown to management and to the proposing Staff member only.
+
+Contract, data, API and acceptance scenarios:
+[docs/features/assignment-time-proposal.md](docs/features/assignment-time-proposal.md).

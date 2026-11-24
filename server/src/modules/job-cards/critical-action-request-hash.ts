@@ -46,6 +46,8 @@ export const EARLY_START_AUTHORIZATION_REQUEST_VERSION = 'EARLY_START_AUTHORIZAT
 export const JOB_CHANGE_REQUEST_CREATE_REQUEST_VERSION = 'JOB_CHANGE_REQUEST_CREATE:v1';
 export const JOB_CHANGE_REQUEST_RESOLVE_REQUEST_VERSION = 'JOB_CHANGE_REQUEST_RESOLVE:v1';
 export const JOB_ASSIGNMENT_REOFFER_REQUEST_VERSION = 'JOB_ASSIGNMENT_REOFFER:v1';
+export const JOB_ASSIGNMENT_ACCEPT_PROPOSAL_REQUEST_VERSION =
+  'JOB_ASSIGNMENT_ACCEPT_PROPOSAL:v1';
 
 /** Deterministic one-way digest of an explicitly ordered identity object. */
 export function hashRequestIdentity(identity: Readonly<Record<string, unknown>>): string {
@@ -141,9 +143,14 @@ export type LifecycleRequestIdentity = {
   cancelContinuity?: FollowUpCancelContinuity | null;
   /**
    * JOB-010 release 2b: the deferred Staff decline/release reason. Omitted
-   * when absent so every pre-2b lifecycle hash stays byte-identical.
+   * when absent so every pre-2b lifecycle hash stays byte-identical. JOB-012
+   * adds the optional proposed time, hashed only when the answer carries one.
    */
-  assignmentReason?: { code: string; text: string } | null;
+  assignmentReason?: {
+    code: string;
+    text: string;
+    proposedScheduledAt?: string | null;
+  } | null;
   /**
    * OVR-5b (§3.8): the normalized management correction deadline of a
    * REQUEST_REVISION. Omitted when the client did not send it, so every
@@ -212,6 +219,15 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
         assignmentReason: {
           code: identity.assignmentReason.code,
           text: identity.assignmentReason.text.trim(),
+          // JOB-012: present only when the answer proposed a time, so every
+          // pre-JOB-012 decline/release hash stays byte-identical.
+          ...(identity.assignmentReason.proposedScheduledAt
+            ? {
+              proposedScheduledAt: canonicalInstantValue(
+                identity.assignmentReason.proposedScheduledAt,
+              ),
+            }
+            : {}),
         },
       }
       : {}),
@@ -503,5 +519,23 @@ export function reofferAssignmentRequestHash(
     jobCardId,
     expectedVersion,
     pastStartAcknowledgement: normalizedPastStartAcknowledgement(pastStartAcknowledgement),
+  });
+}
+
+/**
+ * JOB-012: management confirms one proposal. The job, the version it was
+ * confirmed against and the offer that carries the proposal are the whole
+ * request; the proposed instant itself is a persisted fact, not client input.
+ */
+export function acceptAssignmentProposalRequestHash(
+  jobCardId: string,
+  expectedVersion: number,
+  offerId: string,
+): string {
+  return hashRequestIdentity({
+    operation: JOB_ASSIGNMENT_ACCEPT_PROPOSAL_REQUEST_VERSION,
+    jobCardId,
+    expectedVersion,
+    offerId,
   });
 }

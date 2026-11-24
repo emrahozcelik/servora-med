@@ -59,7 +59,7 @@ The implemented palette uses warm, lightly tinted neutrals and a low-chroma mine
 
 ## Typography
 
-**Direction:** The implemented stack is `'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`. The variable font is self-hosted through `@fontsource-variable/plus-jakarta-sans` (no CDN; `latin-ext` covers Turkish glyphs), with platform-native fallbacks. `servora-visual-tokens.ts` owns the canonical family string.
+**Direction:** The implemented stack is `'Source Sans 3 Variable', 'Source Sans 3', ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`. The variable font is self-hosted through `@fontsource-variable/source-sans-3` (no CDN; `latin-ext` covers Turkish glyphs), with platform-native fallbacks. `servora-visual-tokens.ts` owns the canonical family string. Source Sans 3 replaced Plus Jakarta Sans on 2026-11-24 (owner choice): Jakarta's wide geometric forms and tight word spacing crowded dense Turkish text. The owner chose Source Sans 3 from a side-by-side render of Inter, IBM Plex Sans and Source Sans 3 on the job-detail guidance screen at 390 px; it is compact and open, so dense lists, numbers and dates stay legible.
 
 **Character:** Clear and contemporary without feeling clinical, technical, or decorative. The family must remain highly legible in Turkish, dense operational lists, form labels, quantities, dates, and status metadata.
 

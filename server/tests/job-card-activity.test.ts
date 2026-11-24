@@ -452,9 +452,35 @@ describe('safe JobCard activity presenter', () => {
       decision,
       reasonCode: 'SCHEDULE_CONFLICT',
       reasonText: 'Onumuzdeki haftaya ziyaret saglanacak',
+      proposedScheduledAt: null,
     });
     // The offer id and any other metadata stay server-side.
     expect(JSON.stringify(result)).not.toMatch(/offer-1|metadata/);
+  });
+
+  it('projects the JOB-012 proposed time with the same reason scope', () => {
+    const record = baseRecord('JOB_ASSIGNMENT_DECLINED', {
+      actorId: 'staff-1',
+      metadata: {
+        offerId: 'offer-1',
+        reasonCode: 'SCHEDULE_CONFLICT',
+        reasonText: 'Aynı saatte başka bir teslimim var.',
+        proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+      },
+    });
+    expect(presentActivity(record, MANAGER_VIEW).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'DECLINED',
+      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonText: 'Aynı saatte başka bir teslimim var.',
+      proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+    });
+    expect(presentActivity(record, { viewer: { id: 'staff-1', role: 'STAFF' } }).details)
+      .toMatchObject({ proposedScheduledAt: '2026-11-25T09:00:00.000Z' });
+    // A malformed instant degrades to null instead of a raw client string.
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_DECLINED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'SCHEDULE_CONFLICT', proposedScheduledAt: 'later' },
+    }), MANAGER_VIEW).details).toMatchObject({ proposedScheduledAt: null });
   });
 
   it.each([
@@ -469,6 +495,7 @@ describe('safe JobCard activity presenter', () => {
       decision: 'DECLINED',
       reasonCode: null,
       reasonText,
+      proposedScheduledAt: null,
     });
   });
 
@@ -480,6 +507,7 @@ describe('safe JobCard activity presenter', () => {
       decision: 'RELEASED',
       reasonCode: 'ON_LEAVE',
       reasonText: null,
+      proposedScheduledAt: null,
     });
     expect(presentActivity(baseRecord('JOB_ASSIGNMENT_RELEASED', {
       metadata: { offerId: 'offer-1', reasonCode: 'ON_LEAVE', reasonText: 7 },
@@ -488,6 +516,7 @@ describe('safe JobCard activity presenter', () => {
       decision: 'RELEASED',
       reasonCode: 'ON_LEAVE',
       reasonText: null,
+      proposedScheduledAt: null,
     });
   });
 
@@ -498,8 +527,12 @@ describe('safe JobCard activity presenter', () => {
     });
     const withReason = {
       kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: 'ON_LEAVE', reasonText: 'Yarın izinliyim',
+      proposedScheduledAt: null,
     };
-    const withoutReason = { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null, reasonText: null };
+    const withoutReason = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null, reasonText: null,
+      proposedScheduledAt: null,
+    };
     expect(presentActivity(record, MANAGER_VIEW).details).toEqual(withReason);
     expect(presentActivity(record, { viewer: { id: 'admin-1', role: 'ADMIN' } }).details).toEqual(withReason);
     expect(presentActivity(record, { viewer: { id: 'staff-1', role: 'STAFF' } }).details).toEqual(withReason);

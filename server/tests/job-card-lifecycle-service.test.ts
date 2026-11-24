@@ -1732,7 +1732,7 @@ describe('Postgres lifecycle transition persistence', () => {
     expect(update.text).toContain("accepted_at = CASE WHEN $10 = 'RELEASE_ASSIGNMENT' THEN NULL");
     expect(update.text).toContain("WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $5");
     expect(update.text).toContain("accepted_by = CASE WHEN $10 = 'RELEASE_ASSIGNMENT' THEN NULL");
-    expect(update.text).toContain("WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $6");
+    expect(update.text).toContain("WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN COALESCE($18::uuid, $6)");
     expect(update.text).not.toContain("planned_at = CASE WHEN $4 = 'PLANNED'");
     expect(update.text).toContain("started_at = CASE WHEN $10 = 'START' THEN COALESCE(started_at, $5) ELSE started_at END");
     expect(update.text).toContain("revision_requested_at = CASE WHEN $10 = 'REQUEST_REVISION'");
@@ -1745,6 +1745,8 @@ describe('Postgres lifecycle transition persistence', () => {
     expect(update.values).toEqual([
       'org-1', 'job-1', 2, 'IN_PROGRESS', time, 'staff-1', null, null, null, 'START',
       null, null, null, null, null, null, null,
+      // JOB-012: acceptedBy, has-schedule flag, scheduledAt, scheduledEndsAt.
+      null, false, null, null,
     ]);
   });
 });

@@ -69,6 +69,12 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
     secured,
     h.reofferAssignment,
   );
+  // JOB-012: management confirms the time a declined/released answer proposed.
+  app.post<{ Params: { id: string } }>(
+    '/:id/assignment-offers/accept-proposal',
+    secured,
+    h.acceptAssignmentProposal,
+  );
   // Static two-segment path: never collides with '/:id'.
   app.get('/assignment-offers/needs-action', secured, h.listAssignmentOffersNeedingAction);
   app.post<{ Params: { id: string } }>('/:id/start', secured, h.start);
