@@ -9,6 +9,7 @@ import {
 import { ResultState } from '../ui/antd/ResultState';
 import type { SignalGlyphName } from '../ui/signal-icons';
 import {
+  assignmentReasonLabels,
   historicalJobStatusLabels,
   isKnownJobCardActivityEvent,
   jobActivityLabel,
@@ -159,6 +160,16 @@ function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'SALE_ITEM') return details.productName + ' · ' + (details.previousQuantity && details.operation === 'UPDATED' ? details.previousQuantity + ' ürün → ' : '') + details.quantity + ' ürün';
   if (details.kind === 'SALE_DELIVERY') return `${details.itemCount} ürün satırıyla planlı teslim işi açıldı`;
   if (details.kind === 'NOTE') return 'Not geçmişe eklendi';
+  if (details.kind === 'ASSIGNMENT_DECISION') {
+    // The event label already says declined/released; the detail adds the
+    // recorded reason and the Staff member's own words.
+    const reasonLabel = details.reasonCode === null ? null : assignmentReasonLabels[details.reasonCode];
+    const reasonText = details.reasonText?.trim();
+    return [
+      reasonLabel,
+      reasonText ? `“${reasonText}”` : null,
+    ].filter(Boolean).join(' · ');
+  }
   if (details.kind === 'MEETING_DETAILS') return details.changedFields
     .map((field) => meetingFieldLabels[field]).join(', ');
   return '';

@@ -3672,6 +3672,33 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-size: 0.75rem;
   font-weight: 650;
 }
+/* JOB-010 recovery: a closed assignment offer keeps its next step visible.
+   Tonal Delay Amber callout (no nested bordered box), never the cancelled red. */
+.assignment-offer-recovery {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  margin: 0 0 0.85rem;
+  padding: 0.85rem 0.95rem;
+  border: 0;
+  background: var(--warning-wash);
+}
+.assignment-offer-recovery-headline {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+.assignment-offer-recovery .job-row-facts {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+.assignment-offer-recovery-actions-label {
+  margin: 0;
+  color: var(--ink);
+}
+.assignment-offer-recovery .form-help {
+  margin: 0;
+}
 .workflow-responsibility-submission,
 .revision-loop-facts,
 .completed-job-facts {

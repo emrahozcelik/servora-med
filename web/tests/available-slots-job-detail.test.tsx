@@ -227,6 +227,9 @@ describe('JobDetail joint slot edit', () => {
         acceptanceDueAt: '2026-08-15T10:00:00.000Z',
         urgentReason: null,
         assignee: { id: user.id, name: user.name },
+        closedAt: '2026-08-15T09:30:00.000Z',
+        closeReason: null,
+        closeText: null,
       },
     };
     await act(async () => root.render(<JobDetailPanel

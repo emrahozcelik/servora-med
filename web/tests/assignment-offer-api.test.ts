@@ -6,6 +6,7 @@ import {
   createProductDelivery,
   declineAssignment,
   getJobCard,
+  listActivity,
   listAssignmentOffersNeedingAction,
   pastStartAcknowledgementPayload,
   patchJobCard,
@@ -26,6 +27,9 @@ const assignmentOffer = {
   acceptanceDueAt: '2026-11-21T12:00:00.000Z',
   urgentReason: 'SHORT_NOTICE',
   assignee: related('s1', 'Ayşe Personel'),
+  closedAt: null,
+  closeReason: null,
+  closeText: null,
 };
 
 function jobCard(overrides: Record<string, unknown> = {}) {
@@ -110,13 +114,31 @@ describe('job detail assignment offer DTO', () => {
       const { urgentReason: _omitted, ...rest } = assignmentOffer;
       return rest;
     })()],
-    ['extra key', { ...assignmentOffer, closeReason: 'REASSIGNED' }],
+    ['unknown close reason', { ...assignmentOffer, closeReason: 'CUSTOMER_CHANGED_MIND' }],
+    ['missing close reason key', (() => {
+      const { closeReason: _omitted, ...rest } = assignmentOffer;
+      return rest;
+    })()],
+    ['non-canonical closed instant', { ...assignmentOffer, closedAt: '2026-11-21T12:00:00Z' }],
     ['non-canonical instant', { ...assignmentOffer, acceptanceDueAt: '2026-11-21T12:00:00Z' }],
     ['loose assignee shape', { ...assignmentOffer, assignee: { id: 's1', name: 'Ayşe', role: 'STAFF' } }],
     ['empty id', { ...assignmentOffer, id: '' }],
   ])('rejects an assignment offer with %s', async (_name, candidate) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: candidate }))));
     await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE', status: 0 });
+  });
+
+  it('parses the closed offer fields a declined offer carries', async () => {
+    const closed = {
+      ...assignmentOffer,
+      state: 'DECLINED',
+      urgentReason: null,
+      closedAt: '2026-11-21T11:20:00.000Z',
+      closeReason: 'SCHEDULE_CONFLICT',
+      closeText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: closed }))));
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ assignmentOffer: closed });
   });
 });
 
@@ -164,6 +186,53 @@ describe('assignment offer needs-action list', () => {
       items: [candidate], total: 1, limit: 25, offset: 0,
     })));
     await expect(listAssignmentOffersNeedingAction()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+});
+
+describe('assignment decision activity details', () => {
+  const activity = (details: unknown) => ({
+    id: 'a1', jobCardId: 'job-1', eventType: 'JOB_ASSIGNMENT_DECLINED',
+    actor: related('s1', 'Ayşe Personel'), details,
+    createdAt: '2026-11-21T11:20:00.000Z',
+  });
+
+  it('parses the decision, the decline reason code and the Staff text', async () => {
+    const decision = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
+      reasonCode: 'SCHEDULE_CONFLICT', reasonText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(decision)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [{ details: decision }] });
+  });
+
+  it('accepts a missing reason and a missing text as null', async () => {
+    const decision = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'RELEASED', reasonCode: null, reasonText: null,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(decision)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [{ details: decision }] });
+  });
+
+  it.each([
+    ['unknown decision', { kind: 'ASSIGNMENT_DECISION', decision: 'ACCEPTED', reasonCode: null, reasonText: null }],
+    ['unknown reason code', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
+      reasonCode: 'CUSTOMER_CHANGED_MIND', reasonText: null,
+    }],
+    ['extra key', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null,
+      reasonText: null, offerId: 'offer-1',
+    }],
+    ['missing reason text key', { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null }],
+  ])('rejects a decision detail with %s', async (_name, details) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(details)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 });
 

@@ -358,6 +358,12 @@ export type AssignmentOffer = {
   acceptanceDueAt: string;
   urgentReason: AssignmentOfferUrgentReason | null;
   assignee: RelatedName;
+  /** When the offer was closed; null while it still waits for an answer. */
+  closedAt: string | null;
+  /** The recorded closer: a Staff answer or a management action. */
+  closeReason: AssignmentOfferCloseReason | null;
+  /** The Staff member's own answer text, when one was written. */
+  closeText: string | null;
 };
 /** JOB-010 release 2a: one open Staff change/termination request of a job. */
 export type JobChangeRequest = {
@@ -512,6 +518,12 @@ export type JobCardActivityDetails =
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
   | { kind: 'NOTE'; noteId: string }
   | { kind: 'MEETING_DETAILS'; changedFields: MeetingDetailField[] }
+  | {
+      kind: 'ASSIGNMENT_DECISION';
+      decision: 'DECLINED' | 'RELEASED';
+      reasonCode: AssignmentReasonCode | null;
+      reasonText: string | null;
+    }
   | { kind: 'NONE' };
 export type JobCardActivity = {
   id: string; jobCardId: string; eventType: string; actor: RelatedName | null;
@@ -881,6 +893,7 @@ function parseAssignmentOffer(value: unknown): AssignmentOffer | null {
   if (value === undefined || value === null) return null;
   const v = exactObject(value, 'assignmentOffer', [
     'id', 'state', 'openedAt', 'acceptanceDueAt', 'urgentReason', 'assignee',
+    'closedAt', 'closeReason', 'closeText',
   ]);
   return {
     id: string(v.id, 'assignmentOffer.id'),
@@ -891,6 +904,11 @@ function parseAssignmentOffer(value: unknown): AssignmentOffer | null {
       ? null
       : oneOf(v.urgentReason, 'assignmentOffer.urgentReason', ASSIGNMENT_OFFER_URGENT_REASONS),
     assignee: exactRelated(v.assignee, 'assignmentOffer.assignee'),
+    closedAt: nullableCanonicalInstant(v.closedAt, 'assignmentOffer.closedAt'),
+    closeReason: v.closeReason === null
+      ? null
+      : oneOf(v.closeReason, 'assignmentOffer.closeReason', ASSIGNMENT_OFFER_CLOSE_REASONS),
+    closeText: nullableString(v.closeText, 'assignmentOffer.closeText'),
   };
 }
 /**
@@ -1284,6 +1302,17 @@ function parseDetails(value: unknown): JobCardActivityDetails {
       }) };
   }
   if (kind === 'NOTE') return { kind, noteId: string(v.noteId, 'noteId') };
+  if (kind === 'ASSIGNMENT_DECISION') {
+    const detail = exactObject(v, 'details', ['kind', 'decision', 'reasonCode', 'reasonText']);
+    return {
+      kind,
+      decision: oneOf(detail.decision, 'decision', ['DECLINED', 'RELEASED'] as const),
+      reasonCode: detail.reasonCode === null
+        ? null
+        : oneOf(detail.reasonCode, 'reasonCode', ASSIGNMENT_REASON_CODES),
+      reasonText: nullableString(detail.reasonText, 'reasonText'),
+    };
+  }
   if (kind === 'MEETING_DETAILS') {
     const detail = exactObject(v, 'details', ['kind', 'changedFields']);
     const changedFields = array(detail.changedFields, 'changedFields').map((field) =>

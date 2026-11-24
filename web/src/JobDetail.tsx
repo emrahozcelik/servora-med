@@ -505,6 +505,11 @@ function JobScheduleEditForm({
     && (job.status === 'NEW' || job.status === 'ACCEPTED');
   const overdueLocked = !managementUser && hasOpenOverdueIncident;
   const scheduleLocked = customerTimeLocked || overdueLocked;
+  // JOB-010: saving a planned time in the acceptance window withdraws the
+  // current offer and opens a new one for the same Staff member.
+  const assignmentOfferHint = managementUser
+    && job.assignmentOffer != null
+    && job.status === 'NEW';
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
@@ -669,6 +674,7 @@ function JobScheduleEditForm({
                 : overdueLocked
                   ? 'job-scheduled-at-lateness-hint'
                   : null,
+              assignmentOfferHint ? 'job-scheduled-at-offer-hint' : null,
             ].filter(Boolean).join(' ') || undefined}
             onChange={(event) => {
               setLocalValue(event.target.value);
@@ -685,6 +691,11 @@ function JobScheduleEditForm({
           {!customerTimeLocked && overdueLocked && (
             <span className="form-help" id="job-scheduled-at-lateness-hint">
               Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.
+            </span>
+          )}
+          {assignmentOfferHint && (
+            <span className="form-help" id="job-scheduled-at-offer-hint" data-schedule-offer-hint="true">
+              Kaydettiğinizde {job.assignee.name} kişisine yeni atama teklifi gider.
             </span>
           )}
           <ScheduleQuickControls
@@ -3376,6 +3387,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     || invalidationMutation.kind === 'reconciling'
     || invalidationMutation.kind === 'retry-ready';
   const invalidationLocked = pending || uncertain || invalidationMutationLocked || saleCorrectionLocked;
+  // JOB-010 recovery: the assignment guidance reuses the one record-edit
+  // reassignment flow the decision panel already offers.
+  const assignmentRecordEdit = presentationFor(detail).recordEditAction;
 
   const recordContent = <>
     {detail.kind === 'SALE' && <SaleDetailsSection details={detail.saleDetails} originPending={saleOriginPending} />}
@@ -3504,6 +3518,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           setTimelineKey((value) => value + 1);
           void refreshTruth();
         }}
+        onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
+          ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
+          : undefined}
       />
     }
     overdueHistory={isManagementUser(user) ? (
