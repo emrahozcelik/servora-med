@@ -23,6 +23,7 @@ import {
   ReportErrorState,
   ReportLoadingState,
   ReportShell,
+  matchingReportPreset,
 } from './report-shell';
 
 const DISCLOSURE = 'Seçilen dönem metrikleri, iş kartlarının rapor anındaki mevcut müşteri bağlantısına göre gruplanır.';
@@ -273,6 +274,7 @@ export function CustomerReport() {
   }
 
   const filtersActive = searchText !== '' || status !== null || customerType !== null;
+  const selectedPreset = matchingReportPreset(state.from, state.to, resolvedTimezone);
   const refreshLabel = refreshedAt && resolvedTimezone
     ? formatRefreshTime(refreshedAt, resolvedTimezone)
     : null;
@@ -300,6 +302,7 @@ export function CustomerReport() {
         onSubmit={submit}
         onPreset={applyPreset}
         presetsDisabled={!resolvedTimezone}
+        selectedPreset={selectedPreset}
         wide
         formClass="report-filters-wide--customer"
       >

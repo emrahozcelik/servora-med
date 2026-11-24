@@ -10,25 +10,9 @@ Reliability, data integrity, operational auditability, mobile usability, and sma
 
 ## 0. Primary Goal
 
-Build Servora-Med as a VPS-ready, browser-based business operations platform.
-
-Core product goals:
-
-* Web-based access from office and field
-* Mobile-friendly browser UI
-* PostgreSQL database
-* Fastify backend
-* React/Vite frontend
-* Role-based access
-* Customer and contact tracking
-* Product catalog
-* Staff profiles
-* JobCard-based Kanban workflow
-* Product delivery tracking
-* Manager approval workflow
-* Activity/audit history
-* Basic reports
-* Backup and restore safety
+Build Servora-Med as a VPS-ready, mobile-friendly, browser-based business
+operations platform on PostgreSQL, Fastify, and React/Vite. Product scope is
+owned by `PRODUCT_REQUIREMENTS.md` (see §4 and §15).
 
 Do not import domain concepts from unrelated legacy systems. Model medical/dental B2B sales only.
 
@@ -70,7 +54,6 @@ Servora-Med should remain a modular monolith until the MVP is stable.
 
 * Do not duplicate state, schemas, constants, permissions, or business logic.
 * Backend domain rules are the source of truth.
-* Frontend must not invent business rules that contradict backend validation.
 * Database constraints should protect critical invariants whenever possible.
 * Reports must be derived from persisted data, not frontend state.
 
@@ -97,6 +80,8 @@ Backend:
 * `handlers.ts` translates HTTP/WebSocket input/output.
 * `service.ts` owns domain behavior and transactions.
 * `types.ts` owns DTOs, row mapping, and module-level types.
+* `policy.ts` (where present) owns pure domain rules; larger modules split
+  services, inputs, and workers into focused files next to these.
 * DB migrations own schema changes.
 
 Frontend:
@@ -195,34 +180,16 @@ modules or generic infrastructure without a current producer/consumer need.
 * Do not rely only on frontend validation for business-critical data.
 * Do not introduce drift between SQL schema, TypeScript row types, and API DTOs.
 * Prefer soft delete or status-based deactivation for business records.
-
-Critical invariants include:
-
-* staff cannot directly complete a manager-approved job
-* completed jobs cannot be edited by normal staff
-* cancelled jobs cannot be silently reactivated
-* product delivery approval requires valid delivery items
-* every critical JobCard transition creates an activity log
-* idempotent actions cannot create duplicate business events
+* Critical invariants and their protection live in `SERVORA_MED_SCHEMA_DRAFT.md`
+  §4–§5; read them before schema, migration, or lifecycle work.
 
 ---
 
 ## 7. Idempotency and Concurrency Rules
 
-Any operation that creates or changes important business state must be idempotent.
-
-Examples:
-
-* JobCard creation
-* status transition
-* approval request
-* manager approval
-* revision request
-* cancellation
-* product delivery item creation
-* activity log creation tied to mutations
-
-Rules:
+Any operation that creates or changes important business state must be
+idempotent. Which commands carry `clientActionId` is owned by
+`SERVORA_MED_API_DRAFT.md`.
 
 * `clientActionId` or equivalent idempotency key must be validated and persisted consistently where needed.
 * Avoid check-then-act races.
@@ -236,12 +203,12 @@ Rules:
 ## 8. Frontend Rules
 
 * Frontend state must reflect backend truth.
-* Do not implement hidden business rules only in React.
+* Do not implement business rules or permission checks only in React. Staff and
+  manager views may differ; the backend enforces both.
 * Every critical action must show loading, success, and error states.
 * Mobile usability is required from the start.
 * Do not assume realtime is always connected.
 * Optimistic UI is allowed only where rollback/reconciliation is safe.
-* Staff and manager views may differ, but permission enforcement must remain backend-owned.
 * Avoid adding large UI frameworks unless explicitly requested.
 
 ### Default visual review workflow
@@ -269,15 +236,14 @@ cd server && npm test -- --run
 cd web && npm run build
 ```
 
-Default CI policy (GitHub Actions, effective 2026-11-03):
+Default CI policy (GitHub Actions):
 
 * Normal feature and bugfix PRs use the existing `.github/workflows/ci.yml`.
   Preserve its server/web/test coverage and `pull_request`, `push: main`, and
   `workflow_dispatch` triggers. Verify successful results for the exact PR head
   and, after an authorized merge, the exact resulting-main SHA.
 * Do not automatically append `[skip ci]` or `[skip actions]` to development
-  commits or merges. Do not rewrite historical commits or rerun old PRs merely
-  because hosted CI is available again.
+  commits or merges.
 * A successful exact-SHA hosted run does not require a duplicate 27-gate Local
   CI run after every merge. Full local CI is an explicitly selected fallback
   when hosted runners are unavailable, or a separately authorized infrastructure
@@ -337,29 +303,12 @@ Local-first CI (when GitHub-hosted runners are unavailable):
   See [docs/operations/local-ci-resource-recovery.md](./docs/operations/local-ci-resource-recovery.md).
 
 * Post-merge resource retirement is a **separate, mandatory closure review**
-  owned by the merge agent. Deletion requires successful resulting-main
-  exact-SHA CI and finalized cleanup/evidence verification. A skipped, failed,
-  or incomplete run never opens this gate. This is not CI-time cleanup or a
-  scheduled cleanup service.
-* Establish quiescence for the entire retirement window, including preventing
-  new CI/test/recovery starts. Inventory the precise Docker daemon, profiles,
-  guests, disks, volumes, host mounts, locks and downstream evidence consumers.
-* Retire only positively identified, quiescent, **disposable Servora-Med-only**
-  environments no longer needed by an authorized task. VM/data-disk deletion
-  also destroys internal volumes and guest files; prove those disposable too.
-  The `colima true` CI profile and individually identified Lima test guests
-  may be retired only on these terms. Never use wildcard deletion, global
-  Docker prune, or infer ownership from a name alone. Unknown, shared, active,
-  intentionally retained, or still-needed resources are **HOLD**, not delete.
-* Never touch production hosts, the canonical checkout, unrelated worktrees,
-  stashes, or other projects' VM/volume data. Preserve acceptance/deploy-needed
-  exact-SHA evidence **as actual files** outside retiring resources, and run
-  the exact-source verifier against the retained bundle before deleting any
-  originals. Manifest hashes without referenced logs/artifacts are insufficient.
-* Record identities, before/after disk space, retained evidence, deletions
-  and HOLD reasons in the final merge report. HOLD means retirement remains
-  deferred, not successfully completed. Follow the runbook's post-merge
-  section; CI's in-run ownership cleanup and broad-cleanup prohibition remain.
+  owned by the merge agent, not CI-time cleanup. Deletion requires successful
+  resulting-main exact-SHA CI; retire only positively identified, quiescent,
+  disposable Servora-Med-only resources, and record everything else as
+  **HOLD** in the merge report. Follow §8 of the
+  [resource recovery runbook](./docs/operations/local-ci-resource-recovery.md),
+  which owns the full procedure.
 
 Use additional commands only when they exist in the touched package:
 
@@ -412,7 +361,6 @@ If tests do not exist yet, create the smallest useful test harness for the touch
 * Do not let docs claim a feature exists if the implementation is still a stub.
 * Document verification commands and results.
 * Keep examples realistic for medical/dental B2B sales and product delivery usage.
-* Do not use unrelated-domain examples in Servora-Med docs.
 
 ---
 
@@ -434,8 +382,6 @@ Notlar / riskler:
 - ...
 ```
 
-Do not claim success without verification.
-
 ---
 
 ## 13. Forbidden Changes Without Explicit Approval
@@ -448,7 +394,6 @@ Do not do these unless the user explicitly asks:
 * Replace the React/Vite frontend.
 * Rewrite the whole app without a plan.
 * Reformat the whole repository.
-* Carry unrelated legacy domain concepts into Servora-Med.
 * Add native mobile app.
 * Add full warehouse module.
 * Add full accounting module.

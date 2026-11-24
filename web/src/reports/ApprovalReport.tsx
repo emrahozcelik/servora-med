@@ -9,6 +9,7 @@ import {
   type OperationalTableColumn,
   type OperationalTableRow,
 } from '../ui/OperationalTable';
+import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { SegmentedDistributionBar } from './report-charts';
 import { formatRefreshTime, formatWaitingDuration } from './report-range';
 import { getApprovalReport } from './reports-api';
@@ -140,29 +141,18 @@ export function ApprovalReport() {
       {!loading && !error && report && (
         <>
           <ApprovalReportView report={report} />
-          <div className="report-pagination">
-            <button
-              type="button"
-              disabled={state.offset === 0}
-              onClick={() => setSearch(approvalSearch({
-                offset: Math.max(0, state.offset - report.limit),
-                canonical: true,
-              }))}
-            >
-              Önceki
-            </button>
-            <span>{report.total} iş</span>
-            <button
-              type="button"
-              disabled={state.offset + report.limit >= report.total}
-              onClick={() => setSearch(approvalSearch({
-                offset: state.offset + report.limit,
-                canonical: true,
-              }))}
-            >
-              Sonraki
-            </button>
-          </div>
+          <ServoraListPagination
+            label="Onay raporu sayfaları"
+            itemName="iş"
+            total={report.total}
+            offset={state.offset}
+            pageSize={report.limit}
+            showSinglePageTotal
+            onOffsetChange={(nextOffset) => setSearch(approvalSearch({
+              offset: nextOffset,
+              canonical: true,
+            }))}
+          />
         </>
       )}
     </ReportShell>

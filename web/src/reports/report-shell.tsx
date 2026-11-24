@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState, IconSegmented, LoadingSkeleton, ResultState } from '../ui/antd';
-import type { ReportDatePreset } from './report-range';
+import { resolveDatePreset, type ReportDatePreset } from './report-range';
 import { reportSectionHref, type ReportRangeContext } from './report-navigation';
 
 export type ReportNavSection = 'summary' | 'staff' | 'customers' | 'deliveries' | 'approvals' | 'salesFollowUp';
@@ -25,6 +25,25 @@ const PRESETS: readonly ReportPresetOption[] = [
   { id: 'last30', label: 'Son 30 gün' },
   { id: 'thisMonth', label: 'Bu ay' },
 ];
+
+/**
+ * The quick preset whose range equals the persisted URL range, or null for a
+ * custom range. Derived from the URL so a reload, back/forward or the default
+ * range still highlights the right preset.
+ */
+export function matchingReportPreset(
+  from: string | null,
+  to: string | null,
+  timezone: string | null,
+  options: readonly ReportPresetOption[] = PRESETS,
+): ReportDatePreset | null {
+  if (!timezone || !from || !to) return null;
+  const match = options.find((preset) => {
+    const range = resolveDatePreset(preset.id, timezone);
+    return range.from === from && range.to === to;
+  });
+  return match?.id ?? null;
+}
 
 export function ReportNavigation({
   current,

@@ -7,6 +7,7 @@ import { resolveHomePath } from './shell/navigation-model';
 import { canAccessRoute } from './shell/route-access';
 import { readStaffPerformanceSearch } from './reports/report-search';
 import type { CurrentUser } from './services/api';
+import { PageHeader } from './ui/PageHeader';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
 import { ResultState } from './ui/antd/ResultState';
 
@@ -376,7 +377,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
   const sourceId = sp.get('source');
   if (!canAccessRoute('followUpCreate', user)) return <ForbiddenView />;
   if (!sourceId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
-    return <main className="workspace"><ResultState status="error" title="Geçersiz takip bağlantısı"
+    return <main className="workspace"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="error" title="Geçersiz takip bağlantısı"
       description="Takip işi oluşturmak için geçerli bir kaynak iş bağlantısı gerekir."
       action={<button className="secondary-button" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>}
     /></main>;

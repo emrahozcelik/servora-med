@@ -69,12 +69,17 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted }: {
 
   return (
     <section
-      className="detail-summary surface-flat"
-      aria-label="Erken başlama izni"
+      className="detail-summary surface-flat early-start-authorization"
+      aria-labelledby="early-start-authorization-title"
       data-early-start-authorization={authorization === null ? 'idle' : 'authorized'}
     >
+      <h2 id="early-start-authorization-title">Erken başlama</h2>
       {authorization === null ? (
         <div>
+          <p className="form-help" data-early-start-authorization-help="true">
+            İzin verirseniz {job.assignee?.name ?? 'sorumlu personel'} işi planlanan zamandan önce
+            başlatabilir. Planlanan zaman ya da sorumlu personel değişirse izin geçersiz olur.
+          </p>
           <button
             className="secondary-button"
             type="button"

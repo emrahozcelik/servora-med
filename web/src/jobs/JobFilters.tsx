@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { CurrentUser } from '../services/api';
 import { FilterSheet, countTruthy } from '../ui/FilterSheet';
+import { useNarrowShell } from '../ui/useResponsive';
 import { ServoraCheckbox } from '../ui/antd';
 import type { JobCardStatusFilter } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
@@ -49,25 +50,6 @@ function JobStatusOptions() {
   </>;
 }
 
-/** Compact filter sheet when shell is not desktop (same 64rem gate as AppShell). */
-function useNarrow() {
-  const desktopQuery = '(min-width: 64rem)';
-  const [narrow, setNarrow] = useState(() => (
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? !window.matchMedia(desktopQuery).matches
-      : false
-  ));
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia(desktopQuery);
-    const onChange = (event: MediaQueryListEvent) => setNarrow(!event.matches);
-    media.addEventListener('change', onChange);
-    setNarrow(!media.matches);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-  return narrow;
-}
-
 export function countActiveJobFilters(filters: JobSearchState): number {
   const membership = jobMembership(filters);
   const statusIsMembership = (membership.kind === 'approval' && filters.status === 'WAITING_APPROVAL')
@@ -97,7 +79,7 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
    * mode region stays rendered but shows an explicit, non-interactive state. */
   boardSupported: boolean;
 }) {
-  const narrow = useNarrow();
+  const narrow = useNarrowShell();
   const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [search, setSearch] = useState(filters.q ?? '');
@@ -315,6 +297,11 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
     );
   }
 
+  // A selected quick-view membership (Onay kuyruğu, Düzeltme, Kapalı) is not a
+  // filter: the same rule as the FilterSheet badge, so clearing never silently
+  // leaves the view the operator chose.
+  const hasAnyDesktopFilter = Boolean(filters.q?.trim()) || activeCount > 0;
+
   return (
     <div className="filter-region">
       <form className="job-filters surface-flat" role="search" data-job-filters="desktop" onSubmit={submit}>
@@ -358,10 +345,17 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
           </div>
           <button className="secondary-button job-search-submit" type="submit">Ara</button>
         </div>
-        <details className="job-filter-disclosure">
-          <summary>Diğer filtreler</summary>
-          {advancedFields}
-        </details>
+        <div className="job-filter-disclosure-row">
+          <details className="job-filter-disclosure">
+            <summary>Diğer filtreler</summary>
+            {advancedFields}
+          </details>
+          {hasAnyDesktopFilter && (
+            <button type="button" className="secondary-button compact-button" onClick={clearSheet}>
+              Filtreleri temizle
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

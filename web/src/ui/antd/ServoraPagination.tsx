@@ -30,12 +30,18 @@ export type ServoraListPaginationProps = Readonly<{
   label: string;
   itemName: string;
   disabled?: boolean;
+  /**
+   * Keep the total visible when every result fits on one page (reports whose
+   * count is part of the answer). Lists that show their rows stay quiet.
+   */
+  showSinglePageTotal?: boolean;
   onOffsetChange: (offset: number) => void;
 }>;
 
 /** Controlled, compact pager; the surrounding screen owns API state and URL filters. */
 export function ServoraListPagination({
-  total, offset, pageSize = DEFAULT_LIST_PAGE_SIZE, label, itemName, disabled = false, onOffsetChange,
+  total, offset, pageSize = DEFAULT_LIST_PAGE_SIZE, label, itemName, disabled = false,
+  showSinglePageTotal = false, onOffsetChange,
 }: ServoraListPaginationProps) {
   const size = listPageSize(pageSize);
   const pageCount = listPageCount(total, size);
@@ -88,7 +94,14 @@ export function ServoraListPagination({
     keyboardActivation.current = true;
     button.click();
   }
-  if (!Number.isSafeInteger(total) || total <= size) return null;
+  if (!Number.isSafeInteger(total) || total <= size) {
+    if (!showSinglePageTotal || !Number.isSafeInteger(total) || total < 1) return null;
+    return (
+      <p className="servora-list-pagination servora-list-pagination__summary">
+        Toplam {total} {itemName}
+      </p>
+    );
+  }
   return (
     <nav ref={navRef} tabIndex={-1} className="servora-list-pagination" aria-label={label} onKeyDownCapture={handleKeyDown}>
       <span className="servora-list-pagination__summary" aria-live="polite">

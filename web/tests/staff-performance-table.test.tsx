@@ -143,7 +143,9 @@ describe('StaffPerformanceTable adapter', () => {
 
     await act(async () => firstRow.click());
     expect(expandButton.getAttribute('aria-expanded')).toBe('false');
-    expect(expandButton.textContent).toBe('Ayrıntı');
+    // Icon-only toggle: no visible word, the name and tooltip carry it.
+    expect(expandButton.textContent).toBe('');
+    expect(expandButton.getAttribute('title')).toBe('Ayrıntıları göster');
 
     await act(async () => expandButton.click());
     expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]')?.getAttribute('aria-expanded')).toBe('true');

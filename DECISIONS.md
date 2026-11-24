@@ -35,7 +35,7 @@ Servora-Med sahada mobil cihaz kullanan personel ile masaüstünde operasyon izl
 
 Servora-Med UI çalışmaları `product` register'ında yürütülecektir.
 
-`impeccable`, UI tasarımı ve değerlendirmesi için birincil kalite çerçevesidir. Ürün bağlamı `PRODUCT.md`, ileride oluşturulacak görsel sistem ise `DESIGN.md` üzerinden yüklenecektir.
+`impeccable`, UI tasarımı ve değerlendirmesi için birincil kalite çerçevesidir. Ürün bağlamı `PRODUCT.md`, görsel sistem ve ortak bileşen kuralları ise `DESIGN.md` üzerinden yüklenir.
 
 Apple Design skill, görsel tema veya birebir Apple görünümü olarak kullanılmayacaktır. Şu etkileşim ilkeleri için seçici bir referanstır:
 
@@ -72,7 +72,8 @@ Kanban sürükle ve bırak özelliği zorunlu olmayacaktır. Aynı durum değiş
 
 ### Consequences
 
-- Mevcut `DESIGN.md` bir pre-implementation seed'dir. İlk görsel UI slice'ı gerçek CSS token ve ortak bileşenleri oluşturduğunda `impeccable document` scan modu çalıştırılmalı; sonraki ekranlara geçmeden renk, tipografi, spacing, elevation, component state ve motion token'ları kesinleştirilmelidir.
+- *(2026-11-24 durum notu)* `DESIGN.md`, `web/src/ui/servora-visual-tokens.ts` ve sahip olunan `web/src/ui/antd/` adaptörleri canlı uygulamaya geçmiştir; aşağıdaki 2026-07-10 tarihî başlangıç notu korunur ancak aktif görsel kaynak artık `DESIGN.md` ve `servora-visual-tokens.ts` dosyalarıdır.
+- Mevcut `DESIGN.md` başlangıçta pre-implementation seed olarak yazılmıştır. İlk görsel UI slice'ı gerçek CSS token ve ortak bileşenleri oluşturduğunda `impeccable document` scan modu çalıştırılmalı; sonraki ekranlara geçmeden renk, tipografi, spacing, elevation, component state ve motion token'ları kesinleştirilmelidir.
 - Yeni ortak bileşenler default, hover, focus, active, disabled, loading ve error durumlarını kapsamalıdır.
 - Apple tarzı spring veya gesture kodu yalnızca kullanıcı doğrudan manipülasyon yaptığında ve standart web davranışı yeterli olmadığında eklenmelidir.
 - Sırf bu tasarım yönü için yeni bir animation dependency eklenmez. İhtiyaç gerçek bir etkileşimle kanıtlanırsa ayrıca değerlendirilir.
@@ -94,7 +95,7 @@ UI çalışmaları şu bağlayıcı öncelik sırasına göre yürütülür:
 
 ### References
 
-- Local UI quality framework: `/Users/emrah/.agents/skills/impeccable/SKILL.md`
+- Local UI quality framework: `impeccable` skill (`DESIGN.md` companion rules)
 - Apple interaction reference: <https://github.com/emilkowalski/skills/blob/main/skills/apple-design/SKILL.md>
 - Product context: `PRODUCT.md`
 

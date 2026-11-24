@@ -17,12 +17,14 @@ import {
   type OperationalTableColumn,
   type OperationalTableRow,
 } from '../ui/OperationalTable';
+import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import {
   ReportDateRangeForm,
   ReportEmptyState,
   ReportErrorState,
   ReportLoadingState,
   ReportShell,
+  matchingReportPreset,
 } from './report-shell';
 
 const purposeLabels = {
@@ -272,8 +274,11 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
     }));
   }
 
+  // Grouping is a view choice, not a filter: only the Staff filter narrows the data.
+  const filtersActive = state.staffUserId !== null;
   const unavailable = state.staffUserId !== null
     && !options.items.some((item) => item.user.id === state.staffUserId);
+  const selectedPreset = matchingReportPreset(state.from, state.to, resolvedTimezone);
   const refreshLabel = refreshedAt && resolvedTimezone
     ? formatRefreshTime(refreshedAt, resolvedTimezone)
     : null;
@@ -295,6 +300,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
         onSubmit={submit}
         onPreset={applyPreset}
         presetsDisabled={!resolvedTimezone}
+        selectedPreset={selectedPreset}
         wide
       >
         <label>
@@ -325,6 +331,13 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
           </select>
         </label>
       </ReportDateRangeForm>
+      {filtersActive && (
+        <div className="report-active-filters">
+          <button type="button" className="secondary-button" onClick={resetFilters}>
+            Filtreleri sıfırla
+          </button>
+        </div>
+      )}
       {options.status === 'error' && (
         <div className="inline-report-error" role="alert">
           Personel seçenekleri yüklenemedi.
@@ -339,23 +352,19 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
       {!loading && !error && report && (
         <>
           <DeliveryReportView report={report} onResetFilters={resetFilters} />
-          <div className="report-pagination">
-            <button
-              type="button"
-              disabled={state.offset === 0}
-              onClick={() => setSearch(deliverySearch({ ...state, offset: Math.max(0, state.offset - 50) }))}
-            >
-              Önceki
-            </button>
-            <span>{report.total} grup</span>
-            <button
-              type="button"
-              disabled={state.offset + report.limit >= report.total}
-              onClick={() => setSearch(deliverySearch({ ...state, offset: state.offset + report.limit }))}
-            >
-              Sonraki
-            </button>
-          </div>
+          <ServoraListPagination
+            label="Teslim raporu sayfaları"
+            itemName="grup"
+            total={report.total}
+            offset={state.offset}
+            pageSize={report.limit}
+            showSinglePageTotal
+            onOffsetChange={(nextOffset) => setSearch(deliverySearch({
+              ...state,
+              offset: nextOffset,
+              canonical: true,
+            }))}
+          />
         </>
       )}
     </ReportShell>

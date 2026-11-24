@@ -157,7 +157,7 @@ import { StatusChip } from './ui/StatusChip';
 import { PageHeader } from './ui/PageHeader';
 import { formatCalendarDay } from './ui/calendar-date';
 import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
-import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
+import { LoadingSkeleton, RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
 import {
   FollowUpBadge,
   FollowUpBreadcrumb,
@@ -3414,10 +3414,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }
 
   if (state.kind === 'loading') {
-    return <main className="job-detail" aria-busy="true"><p>İş detayları yükleniyor</p></main>;
+    return <main className="job-detail"><PageHeader fallbackTitle="İş detayı" /><LoadingSkeleton title="İş detayları yükleniyor" headingLevel={2} rows={6} /></main>;
   }
   if (state.kind === 'error') {
-    return <main className="job-detail"><ResultState status="error" title="İş yüklenemedi" description={state.message} headingLevel={1}
+    return <main className="job-detail"><PageHeader fallbackTitle="İş detayı" /><ResultState status="error" title="İş yüklenemedi" description={state.message}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button> : undefined}
     /></main>;
   }
