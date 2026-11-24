@@ -12,10 +12,14 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const preview = vi.hoisted(() => ({
   evaluation: null as CustomerScheduleEvaluation | null,
+  lastEnabled: undefined as boolean | undefined,
 }));
 
 vi.mock('../src/jobs/useCustomerSchedulePreview', () => ({
-  useCustomerSchedulePreview: () => ({ evaluation: preview.evaluation, previewing: false }),
+  useCustomerSchedulePreview: (inputs: { enabled: boolean }) => {
+    preview.lastEnabled = inputs.enabled;
+    return { evaluation: preview.evaluation, previewing: false };
+  },
 }));
 
 const user: CurrentUser = {
@@ -167,5 +171,112 @@ describe('JobDetail joint slot edit', () => {
       .find((button) => button.textContent?.trim() === 'Planlanan zamanı kaydet') as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('previews the customer schedule for Staff and Manager, but not for a locked Staff time', async () => {
+    // Staff get the server's role-projected evaluation while they may edit.
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    expect(preview.lastEnabled).toBe(true);
+
+    // JOB-010: a Staff-locked customer time has nothing to preview.
+    await act(async () => root.render(<JobDetailPanel
+      job={{ ...job, status: 'ACCEPTED', assignmentOffer: { state: 'ACCEPTED' } as unknown as JobCard['assignmentOffer'] }}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    expect(preview.lastEnabled).toBe(false);
+
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={{ ...user, role: 'MANAGER' }}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    expect(preview.lastEnabled).toBe(true);
+  });
+
+  it('locks Staff schedule edit when assignmentOffer is present in NEW/ACCEPTED and offers change request shortcut', async () => {
+    const onRequestChange = vi.fn();
+    const offeredJob: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      hasOpenOverdueIncident: true,
+      workflowContext: {
+        ...job.workflowContext,
+        allowedActions: ['EDIT_JOB_FIELDS', 'REQUEST_CHANGE'],
+      },
+      assignmentOffer: {
+        id: 'offer-1',
+        state: 'ACCEPTED',
+        openedAt: '2026-08-15T09:00:00.000Z',
+        acceptanceDueAt: '2026-08-15T10:00:00.000Z',
+        urgentReason: null,
+        assignee: { id: user.id, name: user.name },
+      },
+    };
+    await act(async () => root.render(<JobDetailPanel
+      job={offeredJob}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+      onRequestChange={onRequestChange}
+    />));
+    await act(async () => { vi.advanceTimersByTime(300); });
+    await act(async () => { await Promise.resolve(); });
+
+    const input = container.querySelector('#job-scheduled-at') as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(container.textContent).toContain(
+      'Müşteri zamanı yalnızca yönetici tarafından değiştirilebilir. Plan değişikliği için yöneticiye öneri gönderin.',
+    );
+    expect(container.textContent).not.toContain('Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir.');
+    const slot = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slot.disabled).toBe(true);
+    const save = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Planlanan zamanı kaydet') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    const requestBtn = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Değişiklik önerisi gönder') as HTMLButtonElement;
+    expect(requestBtn).toBeTruthy();
+    await act(async () => requestBtn.click());
+    expect(onRequestChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Staff self-created job (assignmentOffer == null) editable', async () => {
+    const selfCreated: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      assignmentOffer: null,
+    };
+    await act(async () => root.render(<JobDetailPanel
+      job={selfCreated}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).disabled).toBe(false);
+    expect(container.textContent).not.toContain('Müşteri zamanı yalnızca yönetici tarafından değiştirilebilir.');
   });
 });

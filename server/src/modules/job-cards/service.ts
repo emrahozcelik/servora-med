@@ -8760,6 +8760,7 @@ export class JobCardService {
       endsAt: effectiveEndsAt,
       timezone,
       horizonDays: FOLLOW_UP_SEARCH_HORIZON_DAYS,
+      notBefore: this.now(),
     });
     if (candidates.length === 0) return { slots: [] };
 

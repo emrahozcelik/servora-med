@@ -44,10 +44,23 @@ export function classifyDevice(signals: DeviceSignals): DeviceCategory {
   return 'GENERIC';
 }
 
-/** Fixed advisory after a successful START whose local capture was unavailable. */
-export function startLocationUnavailableAdvisory(): string {
-  return 'İş başlatıldı ancak konum alınamadı. Yönetici onayına gönderirken konum '
+/**
+ * Advisory after a successful START whose local capture was unavailable.
+ * Zero-arg calls preserve the fixed message; when reason/device are passed,
+ * appends the matching OS/reason troubleshooting guidance.
+ */
+export function startLocationUnavailableAdvisory(input?: {
+  reason?: LocationUnavailableReason | null;
+  device?: DeviceCategory;
+}): string {
+  const base = 'İş başlatıldı ancak konum alınamadı. Yönetici onayına gönderirken konum '
     + 'yeniden denenecek. Konum servislerini açık tutmanız önemlidir.';
+  if (!input) return base;
+  const reasonLine = input.reason ? REASON_GUIDANCE[input.reason] : '';
+  const platformLine = input.device ? PLATFORM_GUIDANCE[input.device] : '';
+  return [base, reasonLine, platformLine]
+    .filter((part) => part.length > 0)
+    .join(' ');
 }
 
 const REASON_GUIDANCE: Record<LocationUnavailableReason, string> = {

@@ -75,11 +75,14 @@ import {
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
 import {
+  CANONICAL_DURATION_MINUTES,
   defaultCorrectionDueLocalValue,
   defaultDeliveredAtLocalValue,
+  defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './jobs/scheduling';
+import { ScheduleQuickControls } from './jobs/ScheduleQuickControls';
 import { hasOriginalSubmissionDeadline, formatCorrectionDueAt } from './jobs/overdue-correction';
 import { apiFieldError } from './jobs/api-field-error';
 import type { RevisionCorrectionDraft } from './jobs/RevisionCorrectionDueField';
@@ -152,6 +155,7 @@ import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 import { PageHeader } from './ui/PageHeader';
+import { formatCalendarDay } from './ui/calendar-date';
 import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
 import {
@@ -264,6 +268,26 @@ function formatScheduledAt(value: string | null): string {
   if (!value) return 'Belirtilmedi';
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
     .format(new Date(value));
+}
+
+function formatScheduledInterval(startIso: string, endIso: string): ReactNode {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const sameLocalDay = start.getFullYear() === end.getFullYear()
+    && start.getMonth() === end.getMonth()
+    && start.getDate() === end.getDate();
+  const endTime = new Intl.DateTimeFormat('tr-TR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(end);
+  const minutes = Math.round((end.valueOf() - start.valueOf()) / 60_000);
+  return (
+    <span>
+      <time dateTime={startIso}>{formatScheduledAt(startIso)}</time>
+      {sameLocalDay ? `–${endTime}` : ` – ${formatScheduledAt(endIso)}`}
+      {minutes > 0 ? ` (${minutes} dk)` : ''}
+    </span>
+  );
 }
 
 /**
@@ -451,6 +475,8 @@ function JobScheduleEditForm({
   pending,
   user,
   deadlineExtensionError = null,
+  scheduleShiftSignal,
+  onRequestChange,
   onSave,
 }: {
   job: JobCard;
@@ -459,6 +485,8 @@ function JobScheduleEditForm({
   user: CurrentUser;
   /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
   deadlineExtensionError?: string | null;
+  scheduleShiftSignal?: number;
+  onRequestChange?: () => void;
   onSave?: (
     scheduledAt: string | null,
     scheduledEndsAt?: string | null,
@@ -472,6 +500,11 @@ function JobScheduleEditForm({
     : 'SALES_MEETING';
   const managementUser = user.role !== 'STAFF';
   const hasOpenOverdueIncident = job.hasOpenOverdueIncident === true;
+  const customerTimeLocked = !managementUser
+    && job.assignmentOffer != null
+    && (job.status === 'NEW' || job.status === 'ACCEPTED');
+  const overdueLocked = !managementUser && hasOpenOverdueIncident;
+  const scheduleLocked = customerTimeLocked || overdueLocked;
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
@@ -489,6 +522,7 @@ function JobScheduleEditForm({
   const submitErrorRef = useRef<HTMLParagraphElement>(null);
   const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}`;
   const lastKey = useRef(canonicalKey);
+  const lastShiftSignalRef = useRef(scheduleShiftSignal ?? 0);
 
   useEffect(() => {
     if (managementUser && hasOpenOverdueIncident) setReasonVisible(true);
@@ -499,6 +533,19 @@ function JobScheduleEditForm({
     setReasonVisible(true);
     setReasonError(deadlineExtensionError);
   }, [deadlineExtensionError]);
+
+  useEffect(() => {
+    if (scheduleShiftSignal === undefined || scheduleShiftSignal <= 0) {
+      lastShiftSignalRef.current = 0;
+      return;
+    }
+    if (scheduleShiftSignal !== lastShiftSignalRef.current) {
+      lastShiftSignalRef.current = scheduleShiftSignal;
+      setLocalValue(defaultScheduledLocalValue(new Date()));
+      setFieldError('');
+      setSubmitError('');
+    }
+  }, [scheduleShiftSignal]);
 
   // OVR-5b visual review: while this form is open the invalid reason field owns
   // focus on its client or server error, then the inline patch error does; the
@@ -514,7 +561,9 @@ function JobScheduleEditForm({
     customerId: job.customerId,
     scheduledLocal: localValue,
     jobCardId: job.id,
-    enabled: job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY',
+    // Staff receive the server's role-projected evaluation; only a locked
+    // planned time has nothing to preview.
+    enabled: !scheduleLocked && (job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY'),
   });
   const availableSlotSearch = useAvailableSlotSearch({
     type: intervalJobType,
@@ -526,9 +575,9 @@ function JobScheduleEditForm({
   });
 
   function useAvailableSlot(slot: AvailableSlot) {
-    // OVR-5 §5.4: Staff cannot move the planned time of a job with open
-    // lateness; the disabled input must not change through the slot list.
-    if (!managementUser && hasOpenOverdueIncident) return;
+    // OVR-5 §5.4 / JOB-010: Staff cannot move a locked planned time; the
+    // disabled input must not change through the slot list.
+    if (scheduleLocked) return;
     setLocalValue(isoInstantToLocalDateTime(slot.startsAt));
     setFieldError('');
     setSubmitError('');
@@ -565,7 +614,7 @@ function JobScheduleEditForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending || !onSave) return;
+    if (pending || !onSave || scheduleLocked) return;
     setSubmitError('');
     if (managementUser && reasonVisible && !reason.trim()) {
       setReasonError('Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.');
@@ -611,11 +660,15 @@ function JobScheduleEditForm({
             type="datetime-local"
             value={localValue}
             required={!scheduleEdit.optional}
-            disabled={pending || (!managementUser && hasOpenOverdueIncident)}
+            disabled={pending || scheduleLocked}
             aria-invalid={fieldError ? true : undefined}
             aria-describedby={[
               fieldError ? 'job-scheduled-at-error' : null,
-              !managementUser && hasOpenOverdueIncident ? 'job-scheduled-at-lateness-hint' : null,
+              customerTimeLocked
+                ? 'job-scheduled-at-customer-time-hint'
+                : overdueLocked
+                  ? 'job-scheduled-at-lateness-hint'
+                  : null,
             ].filter(Boolean).join(' ') || undefined}
             onChange={(event) => {
               setLocalValue(event.target.value);
@@ -624,11 +677,35 @@ function JobScheduleEditForm({
             }}
           />
           {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
-          {!managementUser && hasOpenOverdueIncident && (
+          {customerTimeLocked && (
+            <span className="form-help" id="job-scheduled-at-customer-time-hint">
+              Müşteri zamanı yalnızca yönetici tarafından değiştirilebilir. Plan değişikliği için yöneticiye öneri gönderin.
+            </span>
+          )}
+          {!customerTimeLocked && overdueLocked && (
             <span className="form-help" id="job-scheduled-at-lateness-hint">
               Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.
             </span>
           )}
+          <ScheduleQuickControls
+            value={localValue}
+            durationMinutes={(() => {
+              if (job.scheduledAt && job.scheduledEndsAt) {
+                const startMs = Date.parse(job.scheduledAt);
+                const endMs = Date.parse(job.scheduledEndsAt);
+                if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs > startMs) {
+                  return Math.round((endMs - startMs) / 60_000);
+                }
+              }
+              return CANONICAL_DURATION_MINUTES[job.type] ?? null;
+            })()}
+            disabled={pending || scheduleLocked}
+            onSelect={(next) => {
+              setLocalValue(next);
+              setFieldError('');
+              setSubmitError('');
+            }}
+          />
         </div>
         {managementUser && reasonVisible && (
           <div className="field-group">
@@ -683,13 +760,27 @@ function JobScheduleEditForm({
         {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
         <AvailableSlotsNotice
           {...availableSlotSearch}
+          selectedStartLocal={localValue}
           onSelect={useAvailableSlot}
-          disabled={!managementUser && hasOpenOverdueIncident}
+          disabled={scheduleLocked}
         />
         {submitError && <p ref={submitErrorRef} className="field-error" role="alert" tabIndex={-1}>{submitError}</p>}
         <div className="review-buttons">
+          {scheduleLocked
+            && job.workflowContext.allowedActions.includes('REQUEST_CHANGE')
+            && job.changeRequest == null
+            && onRequestChange && (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={pending}
+              onClick={onRequestChange}
+            >
+              Değişiklik önerisi gönder
+            </button>
+          )}
           <button className="secondary-button" type="submit"
-            disabled={pending || !onSave || (!managementUser && hasOpenOverdueIncident)}>
+            disabled={pending || !onSave || scheduleLocked}>
             {pending ? 'Kaydediliyor…' : 'Planlanan zamanı kaydet'}
           </button>
         </div>
@@ -701,8 +792,9 @@ function JobScheduleEditForm({
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
+  onSaveAllDeliveredAtNow, scheduleShiftSignal, onRequestChange,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
+  pendingLabel, pendingCommand, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
   deadlineExtensionError = null, pairGuidance, pairManagedCommand = null,
@@ -712,6 +804,7 @@ export function JobDetailPanel({
   user: CurrentUser;
   pending: boolean;
   pendingLabel?: string;
+  pendingCommand?: LifecycleCommand | null;
   message: string;
   messageIsError?: boolean;
   feedbackRef?: Ref<HTMLDivElement>;
@@ -726,6 +819,9 @@ export function JobDetailPanel({
     deadlineChange?: DeadlineChangeOptions,
   ) => Promise<void> | void;
   onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
+  onSaveAllDeliveredAtNow?: () => Promise<void> | void;
+  scheduleShiftSignal?: number;
+  onRequestChange?: () => void;
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
   realtimeStaleNotice?: ReactNode;
@@ -787,9 +883,11 @@ export function JobDetailPanel({
             ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
             : null} (bitiş saati eksik)
         </span>
-      : job.scheduledAt
-        ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
-        : 'Belirtilmedi';
+      : scheduleShape === 'VALID' && job.scheduledAt && job.scheduledEndsAt
+        ? formatScheduledInterval(job.scheduledAt, job.scheduledEndsAt)
+        : job.scheduledAt
+          ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
+          : 'Belirtilmedi';
   const descriptionItems: RecordDescriptionItem[] = [
     { key: 'status', label: 'Durum', content: <StatusChip status={job.status} /> },
     { key: 'assignee', label: 'Sorumlu personel', content: job.assignee.name },
@@ -814,7 +912,7 @@ export function JobDetailPanel({
     }] : []),
     ...(job.type === 'SALES_MEETING' || job.type === 'SALE' ? [] : [{
       key: 'due-date', label: 'Son tarih',
-      content: job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi',
+      content: job.dueDate ? <time dateTime={job.dueDate}>{formatCalendarDay(job.dueDate)}</time> : 'Belirtilmedi',
     }]),
     ...(job.correctionDueAt ? [{
       key: 'correction-due-at',
@@ -878,6 +976,7 @@ export function JobDetailPanel({
       recordEditAction={presentation.recordEditAction}
       pending={localMutationPending}
       pendingLabel={pendingLabel}
+      pendingCommand={pendingCommand}
       startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
       submitLocationCaptureEnabled={job.workflowContext.submitLocationCaptureEnabled}
       startScheduleBlockedReason={startScheduleBlockedReason(job)}
@@ -1040,6 +1139,8 @@ export function JobDetailPanel({
               pending={localMutationPending}
               user={user}
               deadlineExtensionError={deadlineExtensionError}
+              scheduleShiftSignal={scheduleShiftSignal}
+              onRequestChange={onRequestChange}
               onSave={onSaveSchedule}
             />
           )}
@@ -1051,6 +1152,17 @@ export function JobDetailPanel({
               data-job-detail-block="delivery"
             >
               <h2 id="delivery-lines-title">Teslim bilgileri</h2>
+              {canEditDelivery && items.length > 1
+                && items.some((entry) => entry.deliveredAt === null) && (
+                <button
+                  className="secondary-button compact-button delivery-bulk-action"
+                  type="button"
+                  disabled={localMutationPending || !onSaveAllDeliveredAtNow}
+                  onClick={() => { void onSaveAllDeliveredAtNow?.(); }}
+                >
+                  {localMutationPending ? 'Kaydediliyor…' : 'Boş kalemlere şimdiki saati uygula'}
+                </button>
+              )}
               <ul className="delivery-lines-list">
                 {items.map((entry) => (
                   <li key={entry.id} className="delivery-line-item">
@@ -1331,8 +1443,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }, [setRouteRuntimeLabel, state]);
   const reassignmentSync = useReassignmentConversationSync(jobId);
   const [pending, setPending] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<LifecycleCommand | null>(null);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
   const [submitPendingPhase, setSubmitPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
+  const [changeRequestSignal, setChangeRequestSignal] = useState(0);
+  const [scheduleShiftSignal, setScheduleShiftSignal] = useState(0);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
@@ -1379,10 +1494,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [pastStartAck, setPastStartAck] = useState<{
     title: string;
     description: string;
-    run: (acknowledgement: PastStartAcknowledgement) => Promise<boolean>;
+    run: (acknowledgement: PastStartAcknowledgement) => Promise<{ ok: true } | { ok: false; error: string }>;
+    onShiftToFuture?: () => void;
   } | null>(null);
   const [pastStartAckPending, setPastStartAckPending] = useState(false);
+  const [pastStartAckError, setPastStartAckError] = useState('');
   const pastStartAckOpenerRef = useRef<HTMLElement | null>(null);
+  const lastSavePatchErrorRef = useRef('');
   const [followUp, setFollowUp] = useState<{
     draft: FollowUpDraft | null;
     origin: FollowUpProposalOrigin | null;
@@ -1586,6 +1704,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       mutationOwner.current = null;
       mutationInFlight.current = false;
       setPending(false);
+      setPendingCommand(null);
       setStartPendingPhase(null);
       setSubmitPendingPhase(null);
     }
@@ -1615,6 +1734,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setRealtimeReloadPending(false);
     setEditing(false);
     setPending(false);
+    setPendingCommand(null);
     setMessage('');
     setMessageIsError(false);
     setMeetingSubmissionError(null);
@@ -1626,6 +1746,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setFollowUpLoadError(null);
     setStartPendingPhase(null);
     setSubmitPendingPhase(null);
+    setChangeRequestSignal(0);
+    setScheduleShiftSignal(0);
+    setPastStartAck(null);
+    setPastStartAckPending(false);
+    setPastStartAckError('');
   }, [jobId]);
 
   useEffect(() => {
@@ -2004,7 +2129,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     if (!owner) return;
     const operationJobId = jobId;
     mutationEpoch.current += 1;
-    setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
+    setPending(true); setPendingCommand(command); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     setPairGuidance(null);
     const retained = lifecycleAttempt.current;
     const input = retained?.input ?? { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
@@ -2134,7 +2259,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       // Slice-2 DIFFERENT distance advisory, everything else stays ordinary.
       const localCapture = attempt.input.locationCapture;
       if (command === 'START' && localCapture?.outcome === 'unavailable') {
-        setMessage(startLocationUnavailableAdvisory());
+        setMessage(startLocationUnavailableAdvisory({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        }));
       } else if (command === 'SUBMIT_FOR_APPROVAL' && localCapture?.outcome === 'unavailable') {
         setMessage(submitLocationUnavailableGuidance({
           reason: localCapture.reason,
@@ -2417,11 +2545,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   function openPastStartAcknowledgement(request: {
     title: string;
     description: string;
-    run: (acknowledgement: PastStartAcknowledgement) => Promise<boolean>;
+    run: (acknowledgement: PastStartAcknowledgement) => Promise<{ ok: true } | { ok: false; error: string }>;
+    onShiftToFuture?: () => void;
   }) {
     pastStartAckOpenerRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+    setPastStartAckError('');
     setPastStartAck(request);
   }
   async function saveJobPatch(
@@ -2441,6 +2571,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     if (!owner) return false;
     const operationJobId = jobId;
     mutationEpoch.current += 1;
+    lastSavePatchErrorRef.current = '';
     setPending(true); setMessage(''); setMessageIsError(false);
     setDeadlineExtensionError(null);
     try {
@@ -2473,23 +2604,30 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         openPastStartAcknowledgement({
           title: 'Başlangıç saati geçti',
           description: 'Planlanan başlangıç saati geçti. Değişikliği kaydetmek için müşterinin güncel durumunu onaylayın.',
-          // The drawer expects a boolean; a form-owned failure must not reject
-          // its promise (the page feedback already carries the message).
           run: async (next) => {
+            lastSavePatchErrorRef.current = '';
             try {
-              return await saveJobPatch(input, successMessage, next, errorOwner);
-            } catch {
-              return false;
+              const ok = await saveJobPatch(input, successMessage, next, errorOwner);
+              return ok
+                ? { ok: true }
+                : { ok: false, error: lastSavePatchErrorRef.current || 'İş güncellenemedi.' };
+            } catch (err) {
+              return {
+                ok: false,
+                error: assignmentWindowErrorMessage(err, 'İş güncellenemedi.'),
+              };
             }
           },
         });
         return false;
       }
+      let resolvedError: string;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
         if (!(await refreshTruth())) return false;
         setEditing(false);
         if (!(await requestRealtimeDrain())) return false;
-        setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+        resolvedError = 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.';
+        setMessage(resolvedError);
       } else {
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
@@ -2500,14 +2638,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           // surface the server field error on the reason field.
           setDeadlineExtensionError(deadlineFieldError(caught));
         }
-        setMessage(assignmentWindowErrorMessage(caught, 'İş güncellenemedi.'));
+        resolvedError = assignmentWindowErrorMessage(caught, 'İş güncellenemedi.');
+        setMessage(resolvedError);
       }
+      lastSavePatchErrorRef.current = resolvedError;
       setMessageIsError(true);
       if (errorOwner === 'form'
         && !(caught instanceof ApiError && caught.code === 'VERSION_CONFLICT')) {
         // Only a version conflict closes the editor; for every other failure the
         // open form owns the message and the focus.
-        throw new Error(assignmentWindowErrorMessage(caught, 'İş güncellenemedi.'));
+        throw new Error(resolvedError);
       }
       setFeedbackFocusRequest((value) => value + 1);
       return false;
@@ -2586,10 +2726,20 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           run: async (next) => {
             try {
               await saveSchedule(scheduledAt, scheduledEndsAt, overrideReason, deadlineChange, next);
-              return true;
-            } catch {
-              return false;
+              return { ok: true };
+            } catch (err) {
+              return {
+                ok: false,
+                error: assignmentWindowErrorMessage(err, 'Planlanan zaman kaydedilemedi.'),
+              };
             }
+          },
+          onShiftToFuture: () => {
+            setPastStartAck(null);
+            setPastStartAckError('');
+            setMessage('');
+            setMessageIsError(false);
+            setScheduleShiftSignal((value) => value + 1);
           },
         });
         throw new ApiError(
@@ -2644,7 +2794,6 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
       setMessage('Gerçekleşen teslim zamanı kaydedildi.');
-      setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
@@ -2669,6 +2818,67 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       throw caught instanceof Error
         ? caught
         : new Error('Gerçekleşen teslim zamanı kaydedilemedi.');
+    } finally {
+      endMutationOperation(owner);
+    }
+  }
+  async function saveAllDeliveredAtNow() {
+    if (state.kind !== 'ready' || state.detail.kind !== 'PRODUCT_DELIVERY'
+      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
+      return;
+    }
+    // Only lines without a recorded time: an existing delivered time is
+    // evidence and is never overwritten by a bulk shortcut.
+    const entries = state.detail.deliveryItems.filter((entry) => entry.deliveredAt === null);
+    if (entries.length === 0) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
+    const deliveredAt = localDateTimeToIso(defaultDeliveredAtLocalValue());
+    mutationEpoch.current += 1;
+    setPending(true); setMessage(''); setMessageIsError(false);
+    let expectedVersion = state.detail.job.version;
+    let savedCount = 0;
+    try {
+      for (const entry of entries) {
+        const updated = await patchDeliveryItem(operationJobId, entry.id, {
+          expectedVersion,
+          deliveredAt,
+        });
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+        expectedVersion = updated.jobCardVersion;
+        savedCount += 1;
+      }
+      if (!(await refreshTruth())) return;
+      if (!(await requestRealtimeDrain())) return;
+      setTimelineKey((value) => value + 1);
+      setMessage(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
+      onChanged();
+    } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      try {
+        if (!(await refreshTruth())) return;
+        if (!(await requestRealtimeDrain())) return;
+      } catch {
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+        setRealtimeStale(true);
+      }
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      if (savedCount > 0) {
+        setTimelineKey((value) => value + 1);
+        onChanged();
+      }
+      const errorText = caught instanceof ApiError && caught.code === 'VERSION_CONFLICT'
+        ? 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.'
+        : caught instanceof ApiError
+          ? caught.message
+          : 'Gerçekleşen teslim zamanı kaydedilemedi.';
+      setMessage(
+        savedCount > 0
+          ? `${savedCount}/${entries.length} kalem kaydedildi; sonraki adımda hata oluştu: ${errorText}`
+          : errorText,
+      );
+      setMessageIsError(true);
     } finally {
       endMutationOperation(owner);
     }
@@ -3225,20 +3435,23 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     <CustomerCompletenessAction job={detail.job} user={user} disabled={invalidationLocked} />
   </>;
 
+  const activePendingLabel = startPendingPhase === 'capturing'
+    ? 'Konum alınıyor…'
+    : startPendingPhase === 'submitting'
+      ? 'İş başlatılıyor…'
+      : submitPendingPhase === 'capturing'
+        ? 'Konum alınıyor…'
+        : submitPendingPhase === 'submitting'
+          ? 'Kontrole gönderiliyor…'
+          : undefined;
+
   return <JobDetailPanel
     job={detail.job}
     items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []}
     user={user}
     pending={pending || saleCorrectionLocked}
-    pendingLabel={startPendingPhase === 'capturing'
-      ? 'Konum alınıyor…'
-      : startPendingPhase === 'submitting'
-        ? 'İş başlatılıyor…'
-        : submitPendingPhase === 'capturing'
-          ? 'Konum alınıyor…'
-          : submitPendingPhase === 'submitting'
-            ? 'Kontrole gönderiliyor…'
-            : undefined}
+    pendingLabel={activePendingLabel}
+    pendingCommand={pendingCommand}
     message={message}
     messageIsError={messageIsError}
     feedbackRef={feedbackRef}
@@ -3275,6 +3488,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         disabled={invalidationLocked}
+        openRequestSignal={changeRequestSignal}
         onChanged={() => {
           setTimelineKey((value) => value + 1);
           void refreshTruth();
@@ -3301,7 +3515,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       openRecordEditDialog(action, trigger);
     }}
     onSaveSchedule={saveSchedule}
+    scheduleShiftSignal={scheduleShiftSignal}
+    onRequestChange={() => setChangeRequestSignal((value) => value + 1)}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
+    onSaveAllDeliveredAtNow={detail.kind === 'PRODUCT_DELIVERY' ? saveAllDeliveredAtNow : undefined}
     deadlineExtensionError={deadlineExtensionError}
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
@@ -3367,6 +3584,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     {dialog && <JobWorkflowDialog
       dialog={dialog}
       pending={pending}
+      pendingLabel={activePendingLabel}
       uncertain={uncertain}
       loadingFollowUp={followUpLoading}
       followUpLoadError={followUpLoadError}
@@ -3473,16 +3691,35 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       title={pastStartAck?.title ?? 'Başlangıç saati geçti'}
       description={pastStartAck?.description ?? ''}
       pending={pastStartAckPending}
+      error={pastStartAckError}
+      onShiftToFuture={pastStartAck?.onShiftToFuture}
       returnFocusRef={pastStartAckOpenerRef}
-      onDismiss={() => { if (!pastStartAckPending) setPastStartAck(null); }}
+      onDismiss={() => {
+        if (!pastStartAckPending) {
+          setPastStartAck(null);
+          setPastStartAckError('');
+        }
+      }}
       onConfirm={(acknowledgement) => {
         const request = pastStartAck;
         if (!request) return;
         setPastStartAckPending(true);
-        void request.run(acknowledgement).finally(() => {
-          setPastStartAckPending(false);
-          setPastStartAck(null);
-        });
+        setPastStartAckError('');
+        void (async () => {
+          try {
+            const result = await request.run(acknowledgement);
+            if (result.ok) {
+              setPastStartAck(null);
+              setPastStartAckError('');
+            } else {
+              setPastStartAckError(result.error);
+            }
+          } catch (err) {
+            setPastStartAckError(err instanceof Error ? err.message : 'İşlem tamamlanamadı.');
+          } finally {
+            setPastStartAckPending(false);
+          }
+        })();
       }}
     />
     <ReassignmentSyncPrompt

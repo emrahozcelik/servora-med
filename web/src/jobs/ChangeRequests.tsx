@@ -40,9 +40,10 @@ function formatInstant(value: string): string {
  * with the existing commands. The action is offered only when the server
  * reports `REQUEST_CHANGE`, and the open request is shown as a status line.
  */
-export function StaffChangeRequestAction({ job, disabled = false, onSubmitted }: {
+export function StaffChangeRequestAction({ job, disabled = false, openRequestSignal, onSubmitted }: {
   job: JobCard;
   disabled?: boolean;
+  openRequestSignal?: number;
   onSubmitted?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -55,6 +56,7 @@ export function StaffChangeRequestAction({ job, disabled = false, onSubmitted }:
   // canonical `changeRequest` replaces it as soon as it arrives.
   const [submittedReason, setSubmittedReason] = useState<ChangeRequestReasonCode | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const lastOpenSignalRef = useRef(0);
 
   useEffect(() => { setSubmittedReason(null); }, [job.id, job.version]);
 
@@ -63,6 +65,20 @@ export function StaffChangeRequestAction({ job, disabled = false, onSubmitted }:
   const showAction = canRequest
     && (openRequest === null || openRequest === undefined)
     && submittedReason === null;
+
+  useEffect(() => {
+    if (openRequestSignal === undefined || openRequestSignal <= 0) {
+      lastOpenSignalRef.current = 0;
+      return;
+    }
+    if (openRequestSignal !== lastOpenSignalRef.current) {
+      lastOpenSignalRef.current = openRequestSignal;
+      if (showAction && !disabled) {
+        setOpen(true);
+      }
+    }
+  }, [openRequestSignal, showAction, disabled]);
+
   const openReason = openRequest?.reasonCode ?? submittedReason;
   if (!showAction && openReason === null) return null;
 
@@ -465,16 +481,24 @@ export function ManagementChangeRequestPanel({ job, disabled = false, onResolved
 }
 
 /** Role-aware job-detail surface; each branch renders nothing when inapplicable. */
-export function ChangeRequestSection({ job, user, disabled = false, onChanged }: {
+export function ChangeRequestSection({ job, user, disabled = false, openRequestSignal, onChanged }: {
   job: JobCard;
   user: CurrentUser;
   disabled?: boolean;
+  openRequestSignal?: number;
   onChanged?: () => void;
 }) {
   if (isManagementUser(user)) {
     return <ManagementChangeRequestPanel job={job} disabled={disabled} onResolved={onChanged} />;
   }
-  return <StaffChangeRequestAction job={job} disabled={disabled} onSubmitted={onChanged} />;
+  return (
+    <StaffChangeRequestAction
+      job={job}
+      disabled={disabled}
+      openRequestSignal={openRequestSignal}
+      onSubmitted={onChanged}
+    />
+  );
 }
 
 type OpenChangeRequestListState =

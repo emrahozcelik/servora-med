@@ -16,6 +16,7 @@ import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import type { AvailableSlot } from './jobs/jobs-api';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
+import { ScheduleQuickControls } from './jobs/ScheduleQuickControls';
 import { assignmentWindowErrorMessage } from './jobs/assignment-window-errors';
 import {
   defaultScheduledLocalValue,
@@ -67,6 +68,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [ackError, setAckError] = useState('');
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
+  const activeStaffIds = useRef(new Set<string>());
+  const responsibleStaffId = useRef<string | null>(null);
+  const assigneeModified = useRef(false);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   // An authoritative conflict belongs to the submitted form state; once the
@@ -80,7 +84,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     type: 'SALES_MEETING',
     customerId: customerId || null,
     scheduledLocal,
-    enabled: customerReady && engagementKind !== '',
+    enabled: user.role !== 'STAFF' && customerReady && engagementKind !== '',
   });
   const availableSlotSearch = useAvailableSlotSearch({
     type: 'SALES_MEETING',
@@ -89,12 +93,24 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     scheduledStartLocal: scheduledLocal,
     jobCardId: null,
     enabled: user.capabilities?.calendar === true
-      && customerReady
-      && engagementKind !== '',
+      && customerReady,
   });
 
   function useAvailableSlot(slot: AvailableSlot) {
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
+  }
+
+  function handleCustomerResolved(customer: CustomerSummary | null) {
+    const responsibleId = customer?.assignedStaffUserId ?? null;
+    responsibleStaffId.current = responsibleId;
+    if (
+      user.role !== 'STAFF'
+      && !assigneeModified.current
+      && responsibleId
+      && activeStaffIds.current.has(responsibleId)
+    ) {
+      setAssignedTo(responsibleId);
+    }
   }
 
   function addCreatedCustomer(customer: Customer) {
@@ -108,8 +124,23 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   async function loadActiveStaff() {
     setStaffState('loading');
     try {
-      setStaff((await listStaff('active')).filter((item) => item.user.isActive)); setStaffState('ready');
-    } catch { setStaff([]); setStaffState('error'); }
+      const profiles = (await listStaff('active')).filter((item) => item.user.isActive);
+      activeStaffIds.current = new Set(profiles.map((item) => item.user.id));
+      setStaff(profiles);
+      setStaffState('ready');
+      if (
+        user.role !== 'STAFF'
+        && !assigneeModified.current
+        && responsibleStaffId.current
+        && activeStaffIds.current.has(responsibleStaffId.current)
+      ) {
+        setAssignedTo(responsibleStaffId.current);
+      }
+    } catch {
+      activeStaffIds.current = new Set();
+      setStaff([]);
+      setStaffState('error');
+    }
   }
   useEffect(() => { if (user.role !== 'STAFF') void loadActiveStaff(); }, [user.id, user.role]);
 
@@ -216,6 +247,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
             id="meeting-customer"
             value={customerId}
             onChange={setCustomerId}
+            onCustomerResolved={handleCustomerResolved}
             pinnedCustomer={pinnedCustomer}
             onReadyChange={setCustomerReady}
             clearValueWhenMissing
@@ -259,7 +291,10 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}
             aria-invalid={fieldErrors.assignedTo ? true : undefined}
             aria-describedby={fieldErrors.assignedTo ? 'meeting-assignee-error' : undefined}
-            onChange={(event) => setAssignedTo(event.target.value)}>
+            onChange={(event) => {
+              assigneeModified.current = true;
+              setAssignedTo(event.target.value);
+            }}>
             <option value="">Seçin</option>{staff.map((item) => <option key={item.user.id} value={item.user.id}>{item.user.name}</option>)}</select>
           {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
           {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
@@ -269,6 +304,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
             aria-invalid={fieldErrors.scheduledAt ? true : undefined}
             aria-describedby={fieldErrors.scheduledAt ? 'meeting-scheduled-at-error' : undefined}
             onChange={(event) => setScheduledLocal(event.target.value)} />
+          <ScheduleQuickControls
+            value={scheduledLocal}
+            durationMinutes={60}
+            disabled={pending || ambiguous}
+            onSelect={setScheduledLocal}
+          />
           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
         </div>
       <CustomerScheduleNotice
@@ -278,6 +319,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <AvailableSlotsNotice
         {...availableSlotSearch}
+        selectedStartLocal={scheduledLocal}
         onSelect={useAvailableSlot}
       />
       </section>
@@ -308,6 +350,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       description="Planlanan görüşme zamanı geçti. Kaydetmek için müşterinin güncel durumunu onaylayın."
       pending={ackPending}
       error={ackError}
+      onShiftToFuture={() => {
+        setScheduledLocal(defaultScheduledLocalValue(new Date()));
+        setAckRequest(null);
+        setAckError('');
+        setError('');
+      }}
       onDismiss={() => { if (!ackPending) { setAckRequest(null); setAckError(''); } }}
       onConfirm={(acknowledgement) => { void confirmAcknowledgement(acknowledgement); }}
     />

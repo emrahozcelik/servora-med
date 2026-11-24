@@ -2,11 +2,20 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { buildContextState } from '../shell/context-return';
 
-import { patchJobCard } from '../jobs/jobs-api';
-import type { AvailableSlot } from '../jobs/jobs-api';
+import {
+  patchJobCard,
+  pastStartAcknowledgementPayload,
+  type AvailableSlot,
+  type PastStartAcknowledgement,
+} from '../jobs/jobs-api';
 import { AvailableSlotsNotice } from '../jobs/AvailableSlotsNotice';
+import {
+  PastStartAcknowledgementDrawer,
+  isPastStartAcknowledgementRequired,
+} from '../jobs/PastStartAcknowledgementDrawer';
+import { assignmentWindowErrorMessage } from '../jobs/assignment-window-errors';
 import { isDefinitiveMutationError } from '../jobs/mutation-attempt-error';
-import { shiftInterval } from '../jobs/scheduling';
+import { defaultScheduledLocalValue, shiftInterval } from '../jobs/scheduling';
 import { useAvailableSlotSearch } from '../jobs/useAvailableSlotSearch';
 import { useReassignmentConversationSync } from '../jobs/useReassignmentConversationSync';
 import { ReassignmentSyncPrompt } from '../jobs/ReassignmentSyncPrompt';
@@ -14,7 +23,7 @@ import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { ApiError, CurrentUser } from '../services/api';
 import { markNotificationsReadByEntity } from '../services/notifications-api';
-import { intervalIntersectsLocalDay } from './calendar-date';
+import { intervalIntersectsLocalDay, localDayKey } from './calendar-date';
 import {
   cancelManualEvent,
   createManualEvent,
@@ -47,6 +56,16 @@ const localInput = (instant: string) => {
   return new Date(d.valueOf() - off).toISOString().slice(0, 16);
 };
 const instant = (value: string) => new Date(value).toISOString();
+
+function formatAgendaDateTime(value: string): string {
+  return new Date(value).toLocaleString('tr-TR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 /** Monday of the week containing `d`. */
 function mondayOf(d: Date): Date {
@@ -98,10 +117,17 @@ type Draft = {
 };
 
 function drawerTitle(event: CalendarEvent | null): string {
-  if (!event) return 'Manuel plan ekle';
+  if (!event) return 'Kişisel plan ekle';
   if (event.source === 'JOB') return 'İş zamanını güncelle';
   return 'Planı düzenle';
 }
+
+export type PastStartAckRequest = {
+  title: string;
+  description: string;
+  run: (acknowledgement: PastStartAcknowledgement) => Promise<{ ok: true } | { ok: false; error: string }>;
+  shiftStartToFuture?: () => void;
+};
 
 /**
  * One logical manual mutation owns one id AND its exact request payload.
@@ -147,14 +173,17 @@ export function EventForm({
   user,
   assignees,
   event,
+  defaultDate,
   defaultAssigneeId,
   onSaved,
   onClose,
   onReassignmentOffer,
+  onPastStartRequired,
 }: {
   user: CurrentUser;
   assignees: CalendarAssignee[];
   event: CalendarEvent | null;
+  defaultDate?: Date;
   defaultAssigneeId: string;
   onSaved: () => void;
   onClose: () => void;
@@ -163,6 +192,7 @@ export function EventForm({
     oldAssignee: { id: string | null; name: string | null };
     newAssignee: { id: string | null; name: string | null };
   }) => void;
+  onPastStartRequired?: (request: PastStartAckRequest) => void;
 }) {
   const initialAssignee = event?.assignedUser.id ?? defaultAssigneeId;
   const isGeneralTaskJob = event?.source === 'JOB' && event.jobType === 'GENERAL_TASK';
@@ -173,15 +203,26 @@ export function EventForm({
   const now = new Date();
   now.setMinutes(Math.ceil(now.getMinutes() / 30) * 30, 0, 0);
   const defaultEnd = new Date(now.valueOf() + 60 * 60_000);
+  const todayKey = localDayKey(new Date());
+  const defaultDateKey = defaultDate ? localDayKey(defaultDate) : todayKey;
+  const seedFromSelectedDate = !event && defaultDateKey !== todayKey;
 
   const [draft, setDraft] = useState<Draft>({
     assignedUserId: initialAssignee,
     title: event?.title ?? '',
     description: event?.source === 'MANUAL' ? event.description ?? '' : '',
-    startsAt: event ? localInput(event.startsAt) : localInput(now.toISOString()),
+    startsAt: event
+      ? localInput(event.startsAt)
+      : seedFromSelectedDate
+        ? `${defaultDateKey}T09:00`
+        : localInput(now.toISOString()),
     endsAt: event?.endsAt
       ? localInput(event.endsAt)
-      : isGeneralTaskJob ? '' : localInput(defaultEnd.toISOString()),
+      : isGeneralTaskJob
+        ? ''
+        : seedFromSelectedDate
+          ? `${defaultDateKey}T10:00`
+          : localInput(defaultEnd.toISOString()),
   });
   const [error, setError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Array<Record<string, unknown>>>([]);
@@ -329,22 +370,61 @@ export function EventForm({
           onSaved();
         }
       } else {
-        const patched = await patchJobCard(event.jobCardId, {
+        const jobCardId = event.jobCardId;
+        const payload = {
           expectedVersion: event.version,
           assignedTo: draft.assignedUserId,
           scheduledAt: instant(draft.startsAt),
-        });
-        if (
-          patched.assignmentTransitionId
-          && draft.assignedUserId !== initialAssignee
-        ) {
-          onReassignmentOffer?.({
-            transitionId: patched.assignmentTransitionId,
-            oldAssignee: { id: initialAssignee, name: event.assignedUser.name },
-            newAssignee: { id: draft.assignedUserId, name: patched.assignee.name },
+        };
+        const oldAssigneeName = event.assignedUser.name;
+        const runJobPatch = async (acknowledgement?: PastStartAcknowledgement) => {
+          const patched = await patchJobCard(jobCardId, {
+            ...payload,
+            ...pastStartAcknowledgementPayload(acknowledgement),
           });
+          if (
+            patched.assignmentTransitionId
+            && payload.assignedTo !== initialAssignee
+          ) {
+            onReassignmentOffer?.({
+              transitionId: patched.assignmentTransitionId,
+              oldAssignee: { id: initialAssignee, name: oldAssigneeName },
+              newAssignee: { id: payload.assignedTo, name: patched.assignee.name },
+            });
+          }
+          onSaved();
+        };
+        try {
+          await runJobPatch();
+        } catch (caught) {
+          if (isPastStartAcknowledgementRequired(caught) && onPastStartRequired) {
+            onPastStartRequired({
+              title: 'Geçmiş başlangıç onayı',
+              description: 'Planlanan başlangıç saati geçti. Değişikliği kaydetmek için müşterinin güncel durumunu onaylayın.',
+              run: async (acknowledgement) => {
+                try {
+                  await runJobPatch(acknowledgement);
+                  return { ok: true };
+                } catch (retryCaught) {
+                  return {
+                    ok: false,
+                    error: assignmentWindowErrorMessage(
+                      retryCaught,
+                      describeManualMutationError(retryCaught).message,
+                    ),
+                  };
+                }
+              },
+              shiftStartToFuture: () => {
+                handleStartChange(defaultScheduledLocalValue(new Date()));
+                setError(null);
+                setConflicts([]);
+              },
+            });
+            return;
+          }
+          throw caught;
         }
-        onSaved();
       }
     } catch (caught) {
       // Only the JOB path (which owns no frozen attempt) reaches this catch;
@@ -393,13 +473,14 @@ export function EventForm({
       </div>
       <AvailableSlotsNotice
         {...availableSlotSearch}
+        selectedStartLocal={draft.startsAt}
         onSelect={useAvailableSlot}
       />
       </fieldset>
       {error && <div className="form-error" role="alert"><p>{error}</p>
         {conflicts.map((c) => (
           <p key={String(c.id)}>
-            {String(c.title)} · {new Date(String(c.startsAt)).toLocaleString('tr-TR')}
+            {String(c.title)} · {formatAgendaDateTime(String(c.startsAt))}
           </p>
         ))}
       </div>}
@@ -505,9 +586,9 @@ export function EventItem({
     await runCancelAttempt(attempt);
   }
 
-  const sourceLabel = event.source === 'JOB' ? 'İŞ' : 'KİŞİSEL PLAN';
+  const sourceLabel = event.source === 'JOB' ? 'İŞ' : 'Kişisel plan';
   const followUpContext = event.source === 'JOB' ? event.followUpContext : null;
-  const timeText = new Date(event.startsAt).toLocaleString('tr-TR')
+  const timeText = formatAgendaDateTime(event.startsAt)
     + (event.endsAt
       ? ` – ${new Date(event.endsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
       : '');
@@ -563,9 +644,9 @@ export function EventItem({
           <p>{event.assignedUser.name}</p>
           {followUpContext && (
             <dl className="calendar-follow-up-context">
-              {followUpContext.sourcePlannedAt && <div><dt>Planlanan tarih</dt><dd>{new Date(followUpContext.sourcePlannedAt).toLocaleString('tr-TR')}</dd></div>}
-              {followUpContext.sourceOccurredAt && <div><dt>Gerçekleşme tarihi</dt><dd>{new Date(followUpContext.sourceOccurredAt).toLocaleString('tr-TR')}</dd></div>}
-              <div><dt>Tamamlanma tarihi</dt><dd>{new Date(followUpContext.sourceCompletedAt).toLocaleString('tr-TR')}</dd></div>
+              {followUpContext.sourcePlannedAt && <div><dt>Planlanan tarih</dt><dd>{formatAgendaDateTime(followUpContext.sourcePlannedAt)}</dd></div>}
+              {followUpContext.sourceOccurredAt && <div><dt>Gerçekleşme tarihi</dt><dd>{formatAgendaDateTime(followUpContext.sourceOccurredAt)}</dd></div>}
+              <div><dt>Tamamlanma tarihi</dt><dd>{formatAgendaDateTime(followUpContext.sourceCompletedAt)}</dd></div>
             </dl>
           )}
           {error && <p className="form-error" role="alert">{error}</p>}
@@ -611,6 +692,11 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<CalendarEvent | null | 'new'>(null);
+  const [pastStartAck, setPastStartAck] = useState<PastStartAckRequest | null>(null);
+  const [pastStartAckPending, setPastStartAckPending] = useState(false);
+  const [pastStartAckError, setPastStartAckError] = useState('');
+  const pastStartAckOpenerRef = useRef<HTMLElement | null>(null);
+  const wasDoubleDrawerRef = useRef(false);
   const reassignmentSync = useReassignmentConversationSync(
     editing !== null && editing !== 'new' && editing.source === 'JOB'
       ? editing.jobCardId
@@ -619,6 +705,17 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   // Whichever control opened the new-plan drawer (page button or desktop
   // topbar) receives focus back when it closes.
   const newPlanOpenerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (editing !== null && pastStartAck !== null) {
+      wasDoubleDrawerRef.current = true;
+      return;
+    }
+    if (editing === null && pastStartAck === null && wasDoubleDrawerRef.current) {
+      wasDoubleDrawerRef.current = false;
+      document.body.style.overflow = '';
+    }
+  }, [editing, pastStartAck]);
 
   const range = useMemo(() => visibleMonthRange(month), [month]);
   const compact = useCompact();
@@ -705,7 +802,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
             disabled={user.role !== 'STAFF' && assignees.length === 0}
             onClick={(event) => openNewPlan(event.currentTarget)}
           >
-            Manuel plan ekle
+            Kişisel plan ekle
           </button>
         )}
       />
@@ -793,19 +890,76 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
       <ResponsiveFormDrawer
         open={editing !== null}
         title={drawerTitle(editing === 'new' ? null : editing)}
-        onDismiss={() => setEditing(null)}
+        dismissDisabled={pastStartAck !== null}
+        onDismiss={() => {
+          if (pastStartAck !== null) return;
+          setEditing(null);
+        }}
         returnFocusRef={editing === 'new' ? newPlanOpenerRef : undefined}
       >
         <EventForm
           user={user}
           assignees={assignees}
           event={editing === 'new' ? null : editing}
+          defaultDate={editing === 'new' ? selectedDate : undefined}
           defaultAssigneeId={assignedTo || assignees[0]?.id || user.id}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); void refresh(); }}
+          onClose={() => {
+            if (pastStartAck !== null) return;
+            setEditing(null);
+          }}
+          onSaved={() => {
+            setPastStartAck(null);
+            setPastStartAckError('');
+            setEditing(null);
+            void refresh();
+          }}
           onReassignmentOffer={(params) => { void reassignmentSync.offerSync(params); }}
+          onPastStartRequired={(request) => {
+            pastStartAckOpenerRef.current = document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
+            setPastStartAckError('');
+            setPastStartAck(request);
+          }}
         />
       </ResponsiveFormDrawer>
+      <PastStartAcknowledgementDrawer
+        open={pastStartAck !== null}
+        title={pastStartAck?.title ?? 'Geçmiş başlangıç onayı'}
+        description={pastStartAck?.description ?? ''}
+        pending={pastStartAckPending}
+        error={pastStartAckError}
+        onShiftToFuture={pastStartAck?.shiftStartToFuture
+          ? () => {
+              if (pastStartAckPending) return;
+              pastStartAck.shiftStartToFuture?.();
+              setPastStartAck(null);
+              setPastStartAckError('');
+            }
+          : undefined}
+        returnFocusRef={pastStartAckOpenerRef}
+        onDismiss={() => {
+          if (pastStartAckPending) return;
+          setPastStartAck(null);
+          setPastStartAckError('');
+        }}
+        onConfirm={(acknowledgement) => {
+          const request = pastStartAck;
+          if (!request || pastStartAckPending) return;
+          setPastStartAckPending(true);
+          setPastStartAckError('');
+          void request.run(acknowledgement).then((result) => {
+            if (result.ok) {
+              setPastStartAck(null);
+              setPastStartAckError('');
+            } else {
+              setPastStartAckError(result.error);
+            }
+          }).finally(() => {
+            setPastStartAckPending(false);
+          });
+        }}
+      />
 
       <p className="calendar-help"><Link to={paths.docs}>Takvim kullanım yardımını aç</Link></p>
     </main>

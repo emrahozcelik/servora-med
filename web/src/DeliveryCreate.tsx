@@ -18,6 +18,7 @@ import {
   type PastStartAcknowledgement,
 } from './jobs/jobs-api';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
+import { ScheduleQuickControls } from './jobs/ScheduleQuickControls';
 import { assignmentWindowErrorMessage } from './jobs/assignment-window-errors';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
@@ -143,7 +144,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     type: 'PRODUCT_DELIVERY',
     customerId: customerId || null,
     scheduledLocal,
-    enabled: customerReady,
+    enabled: user.role !== 'STAFF' && customerReady,
   });
   const availableSlotSearch = useAvailableSlotSearch({
     type: 'PRODUCT_DELIVERY',
@@ -390,7 +391,13 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
           </select></div>
       <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
-          value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+          value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} />
+        <ScheduleQuickControls
+          value={scheduledLocal}
+          durationMinutes={30}
+          disabled={semanticInputsDisabled}
+          onSelect={setScheduledLocal}
+        /></div>
       </div>
       <CustomerScheduleNotice
         evaluation={evaluation}
@@ -399,6 +406,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <AvailableSlotsNotice
         {...availableSlotSearch}
+        selectedStartLocal={scheduledLocal}
         onSelect={useAvailableSlot}
       />
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
@@ -422,6 +430,12 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       description="Planlanan teslim zamanı geçti. Teslimi kaydetmek için müşterinin güncel durumunu onaylayın."
       pending={ackPending}
       error={ackError}
+      onShiftToFuture={() => {
+        setScheduledLocal(defaultScheduledLocalValue(new Date()));
+        setAckRequest(null);
+        setAckError('');
+        setError('');
+      }}
       onDismiss={() => { if (!ackPending) { setAckRequest(null); setAckError(''); } }}
       onConfirm={(acknowledgement) => { void confirmAcknowledgement(acknowledgement); }}
     />

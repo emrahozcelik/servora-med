@@ -3585,3 +3585,36 @@ management decision list.
   meeting was submitted by management.
 - The Staff summary and completion-performance aggregate remain paired under
   the Reports service invariant; both use the same assignment rule.
+
+## JOB-011 — Same-day suggestions in the available-slot search
+
+- **Date:** 2026-11-24
+- **Status:** Accepted by the owner in the PR #500 review ("önerilerini
+  onaylıyorum", 2026-11-24). Extends the joint available-slot search; JOB-008's
+  automatic follow-up window is unchanged.
+
+### Context
+
+The advisory available-slot search only offered the same wall-clock time on the
+following days. Field feedback: when the chosen time is busy, the first useful
+alternative is usually later the same day.
+
+### Decision
+
+1. The search first offers same-day candidates on a 30-minute grid inside
+   organization-local **08:00–19:00** (start at or after 08:00, end at or
+   before 19:00), then the existing same-wall-clock candidates for the
+   following days. A candidate that touches the organization-local Sunday is
+   never offered (WORKING-DAY V1).
+2. No candidate may start at or before the server request time, for the same
+   day or any later day, even when the requested start is already in the past.
+3. Suggestions stay advisory. Booking validation, conflicts, past-start
+   acknowledgement and human-chosen times outside the window are unchanged;
+   only the suggestion list is bounded.
+
+### Consequences
+
+- The slot list can be longer; the web keeps showing the first six with an
+  expand control.
+- Implemented in `server/src/modules/job-cards/available-slots.ts`
+  (`generateAvailableSlotCandidates`, `notBefore` from the service clock).

@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AvailableSlotsNotice } from '../src/jobs/AvailableSlotsNotice';
+import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const styles = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
@@ -34,8 +35,11 @@ describe('AvailableSlotsNotice', () => {
       onSelect={onSelect}
     />));
 
-    expect(container.textContent).toContain('Ortak uygun saatler');
+    expect(container.textContent).toContain('Personel için uygun saatler');
     expect(container.textContent).not.toContain('müşteri');
+    expect(container.querySelector('[role="group"]')?.getAttribute('aria-label')).toBe(
+      'Personel için uygun saat seçenekleri',
+    );
     const button = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
     expect(button).toBeTruthy();
     expect(button.type).toBe('button');
@@ -157,5 +161,66 @@ describe('AvailableSlotsNotice', () => {
     expect(styles).toMatch(/\.available-slot-option--selected\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
     expect(styles).toMatch(/@media\s*\(max-width:\s*56rem\)[\s\S]*\.available-slots-list[^}]*grid-template-columns:\s*repeat\(2,/s);
     expect(styles).toMatch(/@media\s*\(max-width:\s*40rem\)[\s\S]*\.available-slots-list[^}]*grid-template-columns:\s*1fr/s);
+  });
+
+  it('uses staff-centric searching and empty copy and reflects controlled selectedStartLocal pressed state', async () => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => root.render(<AvailableSlotsNotice
+      searched={false}
+      searching
+      slots={[]}
+      error={null}
+      featureDisabled={false}
+      onSelect={() => {}}
+    />));
+    expect(container.querySelector('#available-slots-heading')?.textContent).toBe('Personel için uygun saatler');
+    expect(container.textContent).toContain('Atanan personel için uygun saatler aranıyor…');
+
+    await act(async () => root.render(<AvailableSlotsNotice
+      searched
+      searching={false}
+      slots={[]}
+      error={null}
+      featureDisabled={false}
+      onSelect={() => {}}
+    />));
+    expect(container.textContent).toContain('Bu aralık için uygun saat bulunamadı.');
+
+    const slots = [
+      { startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' },
+      { startsAt: '2026-08-18T12:30:00.000Z', endsAt: '2026-08-18T13:30:00.000Z' },
+    ];
+    await act(async () => root.render(<AvailableSlotsNotice
+      searched
+      searching={false}
+      slots={slots}
+      error={null}
+      featureDisabled={false}
+      selectedStartLocal={isoInstantToLocalDateTime(slots[1]!.startsAt)}
+      onSelect={() => {}}
+    />));
+
+    let buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button[data-available-slot]'));
+    expect(buttons[0]?.getAttribute('aria-pressed')).toBe('false');
+    expect(buttons[0]?.classList.contains('available-slot-option--selected')).toBe(false);
+    expect(buttons[1]?.getAttribute('aria-pressed')).toBe('true');
+    expect(buttons[1]?.classList.contains('available-slot-option--selected')).toBe(true);
+
+    await act(async () => root.render(<AvailableSlotsNotice
+      searched
+      searching={false}
+      slots={slots}
+      error={null}
+      featureDisabled={false}
+      selectedStartLocal="2026-08-19T09:00"
+      onSelect={() => {}}
+    />));
+
+    buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button[data-available-slot]'));
+    expect(buttons[0]?.getAttribute('aria-pressed')).toBe('false');
+    expect(buttons[1]?.getAttribute('aria-pressed')).toBe('false');
   });
 });

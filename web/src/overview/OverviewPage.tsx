@@ -332,6 +332,10 @@ export function OverviewPage({
           <section className="overview-section" aria-labelledby="work-type-dist-title">
             <h2 id="work-type-dist-title">İş dağılımı</h2>
             <OperationalCard title="Türlere göre iş dağılımı">
+              {/* Counts are JobCards created in the overview period (reports module). */}
+              <p className="overview-distribution-period">
+                Bu dönemde oluşturulan işler · {formatOverviewDate(overview.range.from, timeZone)} – {formatOverviewDate(overview.range.to, timeZone)}
+              </p>
               <ul className="overview-distribution-list">
                 {overview.workTypeDistribution.map((item) => (
                   <li key={item.type}>

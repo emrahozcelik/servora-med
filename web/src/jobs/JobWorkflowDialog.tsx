@@ -44,6 +44,7 @@ export type JobWorkflowDialogKind =
 export function JobWorkflowDialog(props: {
   dialog: JobWorkflowDialogKind;
   pending: boolean;
+  pendingLabel?: string;
   uncertain?: boolean;
   onClose: () => void;
   onConfirm: (reason: string) => void;
@@ -86,7 +87,7 @@ export function JobWorkflowDialog(props: {
   restoreFocusEnabledRef?: RefObject<boolean>;
 }): ReactNode {
   const {
-    dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
+    dialog, pending, pendingLabel, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
     assignmentReason, revisionCorrection, returnFocusRef, restoreFocusEnabledRef,
     pairNote, pairDetails = [], saleDelivery,
     loadingFollowUp = false, followUpLoadError = null, confirmBlocked = false, validatePrelude,
@@ -225,6 +226,7 @@ export function JobWorkflowDialog(props: {
       maxLength={2000}
       required={dialog.kind !== 'approve'}
       pending={pending}
+      pendingLabel={pendingLabel}
       confirmDisabled={loadingFollowUp || confirmBlocked}
       inputsDisabled={uncertain}
       destructive={dialog.kind === 'cancel' || dialog.kind === 'decline' || dialog.kind === 'release'}
