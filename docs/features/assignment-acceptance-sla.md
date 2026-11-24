@@ -308,6 +308,12 @@ reschedule. This prevents a Staff member from being charged with OVR-2
 `LATE_START` for accepting on time, and gives the new commitment its own
 schedule revision.
 
+The job detail management already reads carries the latest offer's
+`closedAt`, `closeReason` and `closeText`, and the `JOB_ASSIGNMENT_DECLINED` /
+`JOB_ASSIGNMENT_RELEASED` activity row carries the same reason as an
+`ASSIGNMENT_DECISION` detail, so recovery does not depend on the "needs
+action" list row alone.
+
 ### 9. Concurrency, idempotency and versioning
 
 - Every offer change happens under the JobCard row lock, following the
@@ -768,9 +774,11 @@ candidate, under the JobCard lock:
 ### Reads
 
 - Job detail: `assignmentOffer: { id, state, acceptanceDueAt, openedAt,
-  urgentReason, assignee: { id, name } } | null` — the latest offer, visible to
-  management and the assignee. An `OPEN` offer past its deadline is presented
-  with `state: 'EXPIRED'`.
+  urgentReason, assignee: { id, name }, closedAt, closeReason, closeText } | null`
+  — the latest offer, visible to management and the assignee, with its persisted
+  close instant, reason code and text (`null` while `OPEN` and on a read-time
+  `EXPIRED`). An `OPEN` offer past its deadline is presented with
+  `state: 'EXPIRED'`.
 - `GET /api/job-cards/assignment-offers/needs-action?limit&offset`
   (management only): jobs still `NEW` whose latest offer is `DECLINED`,
   `RELEASED`, `EXPIRED`, `WITHDRAWN`/`PLANNED_WINDOW_PASSED`, or `OPEN` with an

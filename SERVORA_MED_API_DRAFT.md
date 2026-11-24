@@ -1463,9 +1463,17 @@ With `LATENESS_ALERTS_ENABLED=true` the worker writes one activity per delivery
 sent only Monday–Saturday 08:00–21:00 organization time; outside that window they wait.
 
 The job detail exposes the latest offer as
-`assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name } } | null`
-(management and assignee); an `OPEN` offer past its deadline is presented with
-`state: EXPIRED`. With the flag on, `allowedCommands` in the window are
+`assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name },
+closedAt, closeReason, closeText } | null` (management and assignee). `closedAt` is the
+persisted close instant (`null` while `OPEN`). `closeReason` is the persisted close reason
+code — a decline/release code (`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`,
+`MISSING_STOCK_OR_EQUIPMENT`, `OTHER`) for `DECLINED`/`RELEASED`, a withdraw code
+(`REASSIGNED`, `RESCHEDULED`, `CANCELLED`, `INVALIDATED`, `OFFBOARDING_TRANSFER`,
+`PLANNED_WINDOW_PASSED`) for `WITHDRAWN`, and `null` for `ACCEPTED` and for an `EXPIRED`
+close without a reason; `closeText` is the Staff member's own text. An `OPEN` offer past
+its deadline is presented with `state: EXPIRED` and all three close members `null`,
+because that presentation is not a persisted close. With the flag on, `allowedCommands`
+in the window are
 `ACCEPT_ASSIGNMENT` + `DECLINE_ASSIGNMENT` in `NEW`, and `START` + `RELEASE_ASSIGNMENT` in
 `ACCEPTED`; Staff never receive `CANCEL` for any JobCard type or status.
 
@@ -1487,6 +1495,14 @@ notification is transported by an activity-backed realtime event, so
 A re-offer that supersedes an overdue `OPEN` offer writes the
 `JOB_ASSIGNMENT_OFFER_EXPIRED` activity without the `job.acceptance_expired`
 notifications, because the acting manager is already handling the recovery.
+
+The `JOB_ASSIGNMENT_DECLINED` and `JOB_ASSIGNMENT_RELEASED` activity rows project
+`details: { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED' | 'RELEASED', reasonCode,
+reasonText }`. `reasonCode` is read from metadata and must be one of
+`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`;
+`reasonText` is the trimmed non-empty text. An unknown or missing code, and a blank
+text, project as `null`; both answers write `reasonCode` / `reasonText` into the same
+metadata as `offerId`. Every other offer activity keeps `details: { kind: 'NONE' }`.
 
 ### Submit requirements
 

@@ -176,6 +176,15 @@ export type JobAssignmentOfferView = {
   openedAt: string;
   urgentReason: JobAssignmentOfferUrgentReason | null;
   assignee: { id: string; name: string | null };
+  /** The persisted close instant; null while `OPEN`. */
+  closedAt: string | null;
+  /**
+   * The persisted close reason code: a decline/release code for `DECLINED` /
+   * `RELEASED`, a withdraw code for `WITHDRAWN`, null for `ACCEPTED` and for
+   * an `EXPIRED` close without a reason.
+   */
+  closeReason: string | null;
+  closeText: string | null;
 };
 
 /** Latest offer fact carried by the list/board/follow-up projections. */
@@ -1219,6 +1228,16 @@ export type JobCardActivityDetails =
     }
   | { kind: 'NOTE'; noteId: string }
   | { kind: 'MEETING_DETAILS'; changedFields: MeetingDetailField[] }
+  | {
+      /**
+       * JOB-010 §5: the Staff member's own decline/release reason, so management
+       * can act on it. Only the allowlisted code and trimmed text are projected.
+       */
+      kind: 'ASSIGNMENT_DECISION';
+      decision: 'DECLINED' | 'RELEASED';
+      reasonCode: JobAssignmentOfferDeclineReasonCode | null;
+      reasonText: string | null;
+    }
   | { kind: 'NONE' };
 
 export type JobCardActivityDto = {
