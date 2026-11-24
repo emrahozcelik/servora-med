@@ -89,6 +89,16 @@ describe('Requirements checklist visual parity (Staff & Manager)', () => {
     expect(host.querySelector('.workflow-requirement-invalid .workflow-requirement-state')?.textContent).toBe('Geçersiz');
   });
 
+  it('renders submitted copy for RequirementsChecklist when submitted is true', () => {
+    const html = renderToStaticMarkup(<RequirementsChecklist requirements={requirements} submitted />);
+    const host = document.createElement('div');
+    host.innerHTML = html;
+
+    expect(host.querySelector('#workflow-requirements-title')?.textContent).toBe('Gönderilen kayıt özeti');
+    expect(host.querySelector('.workflow-requirements-help')?.textContent)
+      .toBe('İş yönetici kontrolünde; kayıtlar kontrol sonuçlanana kadar salt okunurdur.');
+  });
+
   it('reuses RequirementsList inside Manager JobApprovalReviewPanel with matching state markup', () => {
     const html = renderToStaticMarkup(
       <JobApprovalReviewPanel job={baseJob} lifecycle={lifecycle} requirements={requirements} />,
@@ -96,6 +106,7 @@ describe('Requirements checklist visual parity (Staff & Manager)', () => {
     const host = document.createElement('div');
     host.innerHTML = html;
 
+    expect(host.querySelector('#approval-review-title')?.textContent).toBe('Yönetici kontrolü özeti');
     const list = host.querySelector('ul.workflow-requirements-list.approval-review-requirements');
     expect(list).not.toBeNull();
     expect(list?.querySelectorAll('.workflow-requirement')).toHaveLength(4);

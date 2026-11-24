@@ -140,7 +140,7 @@ describe('structured JobCard list', () => {
       allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
     }), manager);
     expect(html).toContain('Yönetici kontrolünü aç');
-    expect(html).toContain('Düzeltme kararını aç');
+    expect(html).not.toContain('Düzeltme kararını aç');
     expect(html).not.toContain('Onaylamak için aç');
     expect(html).not.toContain('Düzeltme istemek için aç');
     expect(html).not.toContain('Kontrolden geri çek');
@@ -148,11 +148,37 @@ describe('structured JobCard list', () => {
     expect(html).not.toContain('Tüm iş detaylarını aç');
     expect(html).toContain('data-job-command="APPROVE"');
     expect(html).toContain('data-job-command-priority="primary"');
-    expect(html).toContain('data-job-command="REQUEST_REVISION"');
-    expect(html).toContain('data-job-command-priority="secondary"');
-    // Only the owned primary command uses primary fill; REQUEST_REVISION stays secondary.
+    expect(html).not.toContain('data-job-command="REQUEST_REVISION"');
     expect(html).toMatch(/class="[^"]*primary-button[^"]*"[^>]*data-job-command="APPROVE"/);
-    expect(html).toMatch(/class="[^"]*secondary-button[^"]*"[^>]*data-job-command="REQUEST_REVISION"/);
+
+    const revisionOnlyHtml = renderListJob(listJob({
+      status: 'WAITING_APPROVAL',
+      allowedCommands: ['REQUEST_REVISION', 'CANCEL'],
+    }), manager);
+    expect(revisionOnlyHtml).toContain('Düzeltme kararını aç');
+    expect(revisionOnlyHtml).toContain('data-job-command="REQUEST_REVISION"');
+    expect(revisionOnlyHtml).toContain('data-job-command-priority="secondary"');
+    expect(revisionOnlyHtml).toMatch(/class="[^"]*secondary-button[^"]*"[^>]*data-job-command="REQUEST_REVISION"/);
+  });
+
+  it('offers ACCEPT_ASSIGNMENT quick action only to assigned Staff on NEW rows', () => {
+    const staffHtml = renderListJob(listJob({
+      status: 'NEW',
+      assignee: { id: staff.id, name: staff.name },
+      allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+    }), staff);
+    expect(staffHtml).toContain('Kabul etmek için aç');
+    expect(staffHtml).toContain('data-job-command="ACCEPT_ASSIGNMENT"');
+    expect(staffHtml).toContain('data-job-command-priority="primary"');
+    expect(staffHtml).toMatch(/class="[^"]*primary-button[^"]*"[^>]*data-job-command="ACCEPT_ASSIGNMENT"/);
+
+    const managerHtml = renderListJob(listJob({
+      status: 'NEW',
+      assignee: { id: staff.id, name: staff.name },
+      allowedCommands: ['CANCEL'],
+    }), manager);
+    expect(managerHtml).not.toContain('Kabul etmek için aç');
+    expect(managerHtml).not.toContain('data-job-command="ACCEPT_ASSIGNMENT"');
   });
 
   it.each([
@@ -675,7 +701,7 @@ describe('routed JobCard workspace', () => {
     expect(router.state.location.pathname).toBe('/jobs');
   });
 
-  it('shows primary and labelled secondary open controls without expand for management review', async () => {
+  it('shows a single clear primary open control without expand for management review', async () => {
     const command = vi.fn();
     const load = vi.fn().mockResolvedValue(page([item]));
     const router = createMemoryRouter([{
@@ -684,14 +710,36 @@ describe('routed JobCard workspace', () => {
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain('Yönetici kontrolünü aç');
-    expect(container.textContent).toContain('Düzeltme kararını aç');
+    expect(container.textContent).not.toContain('Düzeltme kararını aç');
     expect(container.textContent).not.toContain('Kontrolden geri çek');
     expect(container.textContent).not.toContain('Özeti aç');
     await act(async () => (
-      Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Düzeltme kararını aç') as HTMLButtonElement
+      Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yönetici kontrolünü aç') as HTMLButtonElement
     ).click());
     expect(command).toHaveBeenCalledWith({
-      name: 'REQUEST_REVISION', jobId: 'job-1', expectedVersion: 7,
+      name: 'APPROVE', jobId: 'job-1', expectedVersion: 7,
+    });
+    expect(router.state.location.pathname).toBe('/jobs');
+  });
+
+  it('emits ACCEPT_ASSIGNMENT when assigned Staff clicks the NEW quick action button', async () => {
+    const command = vi.fn();
+    const load = vi.fn().mockResolvedValue(page([{
+      ...item,
+      status: 'NEW',
+      allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+    }]));
+    const router = createMemoryRouter([{
+      path: '/jobs', element: <JobWorkspace user={staff} load={load} onCommand={command} />,
+    }], { initialEntries: ['/jobs'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    const acceptButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kabul etmek için aç') as HTMLButtonElement;
+    expect(acceptButton).toBeDefined();
+    await act(async () => acceptButton.click());
+    expect(command).toHaveBeenCalledWith({
+      name: 'ACCEPT_ASSIGNMENT', jobId: 'job-1', expectedVersion: 7,
     });
     expect(router.state.location.pathname).toBe('/jobs');
   });

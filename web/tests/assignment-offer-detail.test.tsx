@@ -389,6 +389,15 @@ describe('decline and release dialogs', () => {
 
     await act(async () => buttonByText(host, 'Görevi reddet')!.click());
     expect(dialog()).not.toBeNull();
+    const fieldset = dialog()?.querySelector('fieldset.assignment-reason-section');
+    const legend = fieldset?.querySelector('legend');
+    const label = fieldset?.querySelector('label[for="assignment-reason-code"]');
+    expect(legend?.classList.contains('sr-only')).toBe(true);
+    expect(legend?.textContent).toBe('Atama yanıt nedeni');
+    expect(label?.textContent).toBe('Neden');
+    const visibleNedenLabels = Array.from(fieldset?.querySelectorAll('legend, label') ?? [])
+      .filter((element) => !element.classList.contains('sr-only') && element.textContent?.trim() === 'Neden');
+    expect(visibleNedenLabels).toHaveLength(1);
     expect(dialog()?.querySelector('#assignment-reason-code')).not.toBeNull();
     expect(dialog()?.querySelector('textarea')?.getAttribute('required')).not.toBeNull();
 

@@ -376,7 +376,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
           <div className="form-actions">
             <button className="secondary-button compact-button" type="button" disabled={contactCreatePending}
               onClick={() => { setCreatingContact(false); setContactCreateError(''); }}>Vazgeç</button>
-            <button className="primary-button compact-button" type="button" disabled={contactCreatePending}
+            <button className="secondary-button compact-button" type="button" disabled={contactCreatePending}
               onClick={() => { void submitNewContact(); }}>
               {contactCreatePending ? 'Ekleniyor…' : 'İlgili kişiyi ekle'}
             </button>

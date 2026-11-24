@@ -14,7 +14,7 @@
  *  - the revision/attention state renders Delay Amber with text and never Ant's
  *    error status,
  *  - manager lateness history is a collapsed disclosure below the record
- *    details on mobile and stays expanded above the workflow on desktop,
+ *    details on mobile and above the workflow on desktop,
  *  - desktop keeps the horizontal five-step stepper and the rail decision group.
  *
  * Usage: node scripts/job-detail-mobile-priority-geometry.mjs
@@ -343,7 +343,10 @@ try {
       }
     }
     if (fixtureCase === 'manager-late-history') {
-      invariant(m.historyDisclosure === null, 'manager-late-history@1440: history collapsed on desktop');
+      invariant(
+        m.historyDisclosure !== null && !m.historyDisclosure.open,
+        'manager-late-history@1440: history is not a collapsed disclosure on desktop',
+      );
       invariant(m.historyTop !== null && m.lifecycleTop !== null && m.historyTop < m.lifecycleTop,
         `manager-late-history@1440: lateness history (${m.historyTop}) is not above the workflow (${m.lifecycleTop})`);
     }

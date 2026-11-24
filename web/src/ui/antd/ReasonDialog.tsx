@@ -36,6 +36,8 @@ export type ReasonDialogProps = {
   inputsDisabled?: boolean;
   destructive?: boolean;
   prelude?: ReactNode;
+  validatePrelude?: () => string | null;
+  confirmDisabled?: boolean;
   /** Optional focus target for content that is loaded after the dialog opens. */
   initialFocusRef?: RefObject<HTMLElement | null>;
   initialFocusReady?: boolean;
@@ -66,6 +68,8 @@ export function ReasonDialog({
   inputsDisabled = false,
   destructive = false,
   prelude,
+  validatePrelude,
+  confirmDisabled = false,
   initialFocusRef,
   initialFocusReady = false,
   onConfirm,
@@ -144,7 +148,12 @@ export function ReasonDialog({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
+    if (pending || confirmDisabled) return;
+    const preludeError = validatePrelude?.();
+    if (preludeError) {
+      setError('');
+      return;
+    }
     if (required) {
       const normalized = reason.trim();
       if (!normalized) {
@@ -169,8 +178,9 @@ export function ReasonDialog({
     onConfirm(normalized);
   }
 
-  // Only pending locks the confirm button; empty reason is validated on submit.
-  const confirmDisabled = pending;
+  const descriptionParagraphs = typeof description === 'string' && description.includes('\n')
+    ? description.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
+    : null;
 
   return (
     <div className="dialog-backdrop product-dialog-backdrop">
@@ -185,7 +195,13 @@ export function ReasonDialog({
         onKeyDown={handleKeyDown}
       >
         <h2 id={titleId}>{title}</h2>
-        <p id={descriptionId}>{description}</p>
+        {descriptionParagraphs ? (
+          <div id={descriptionId} className="reason-dialog-description">
+            {descriptionParagraphs.map((line, i) => <p key={i}>{line}</p>)}
+          </div>
+        ) : (
+          <p id={descriptionId}>{description}</p>
+        )}
         {details.length > 0 && (
           <ul id={detailsId} className="workflow-dialog-details">
             {details.map((entry) => <li key={entry}>{entry}</li>)}
@@ -238,7 +254,7 @@ export function ReasonDialog({
             <button
               className={destructive ? 'destructive-button compact-button' : 'primary-button compact-button'}
               type="submit"
-              disabled={confirmDisabled}
+              disabled={pending || Boolean(confirmDisabled)}
             >
               {pending ? pendingLabel : confirmLabel}
             </button>

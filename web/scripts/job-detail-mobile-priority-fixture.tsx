@@ -266,7 +266,7 @@ createRoot(root).render(
         ? undefined
         : <OverdueIncidentHistorySection
           jobId={current.job.id}
-          collapsible={!window.matchMedia('(min-width: 64rem)').matches}
+          collapsible
         />}
     />
   </ServoraAntProvider>,

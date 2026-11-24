@@ -23,6 +23,7 @@ export type JobCommandIntent = {
 };
 
 const openLabels: Partial<Record<LifecycleCommand, string>> = {
+  ACCEPT_ASSIGNMENT: 'Kabul etmek için aç',
   START: 'İşi başlatmak için aç',
   SUBMIT_FOR_APPROVAL: 'Kontrole göndermek için aç',
   RESUME: 'Düzeltmeye başlamak için aç',
@@ -31,6 +32,7 @@ const openLabels: Partial<Record<LifecycleCommand, string>> = {
 };
 
 const OPEN_COMMAND_ORDER = [
+  'ACCEPT_ASSIGNMENT',
   'START',
   'SUBMIT_FOR_APPROVAL',
   'RESUME',
@@ -41,7 +43,7 @@ const OPEN_COMMAND_ORDER = [
 function preferredPrimaryCommand(status: JobCardListItem['status']): LifecycleCommand | null {
   switch (status) {
     case 'NEW':
-      return null;
+      return 'ACCEPT_ASSIGNMENT';
     case 'ACCEPTED':
       return 'START';
     case 'IN_PROGRESS':
@@ -80,8 +82,13 @@ function listOpenCommands(user: CurrentUser, job: JobCardListItem): LifecycleCom
     job.allowedCommands.includes(command)
     && isLifecycleCommandVisible(user, job.status, job.assignee.id, command)
   ));
-  if (!primary) return [...presentable];
-  return [primary, ...presentable.filter((command) => command !== primary)];
+  const deduped = job.status === 'WAITING_APPROVAL'
+    && presentable.includes('APPROVE')
+    && presentable.includes('REQUEST_REVISION')
+    ? presentable.filter((command) => command !== 'REQUEST_REVISION')
+    : presentable;
+  if (!primary) return [...deduped];
+  return [primary, ...deduped.filter((command) => command !== primary)];
 }
 
 function typeLabel(job: JobCardListItem): string {

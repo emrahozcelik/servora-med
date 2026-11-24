@@ -53,6 +53,8 @@ describe('JobCard operational notes', () => {
     ));
     await act(async () => {});
     expect(host.textContent).toContain('Notlar');
+    expect(host.querySelector('.timeline-order-note')?.textContent).toBe('Kronolojik sıra (en eski not üstte)');
+    expect(host.querySelector('button[type="submit"]')?.className).toBe('secondary-button compact-button');
     expect(host.textContent).toContain('İş notu');
     expect(host.textContent).toContain('Henüz iş notu yok');
     expect(host.textContent).not.toContain('iş durumunu değiştirmez');
@@ -233,7 +235,7 @@ describe('JobCard operational notes', () => {
     const contexts = [
       ['SUBMIT_FOR_APPROVAL', 'Tamamlanma sonucu'],
       ['APPROVE', 'Yönetici onayı'],
-      ['REQUEST_REVISION', 'Revizyon isteği'],
+      ['REQUEST_REVISION', 'Düzeltme notu'],
       ['CANCEL', 'İptal'],
     ] as const;
     const load = vi.fn().mockResolvedValue({
@@ -282,7 +284,7 @@ describe('JobCard operational notes', () => {
       items: [legacy], limit: 25, nextCursor: null,
     });
     await renderNotes({ load });
-    expect(host.textContent).toContain('Legacy kimlik');
+    expect(host.textContent).toContain('Eski kayıt');
     expect(host.textContent).toContain('Aşama kaydı mevcut değil');
   });
 

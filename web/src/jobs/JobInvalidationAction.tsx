@@ -183,7 +183,7 @@ export function JobInvalidationAction({
     >
       <div className="job-invalidation-heading">
         <div>
-          <h2 id="job-invalidation-title">Yönetici işlemleri</h2>
+          <h2 id="job-invalidation-title">Kaydı geçersiz kıl</h2>
           <p>Bu kayıt operasyonel akıştan çıkarılır ve yeniden açılamaz.</p>
         </div>
         <button
@@ -267,7 +267,7 @@ export function JobInvalidationAction({
         <ConfirmationAction
           open
           title="İş kaydını geçersiz kılmak üzeresiniz"
-          description="Bu işlem JobCard'ı silmez. Kayıt normal iş akışından ve operasyonel raporlardan çıkarılır. Geçmiş, notlar ve denetim kayıtları korunur."
+          description="Bu işlem iş kaydını silmez. Kayıt normal iş akışından ve operasyonel raporlardan çıkarılır. Geçmiş, notlar ve denetim kayıtları korunur."
           details={[
             `Kayıt: ${job.title}`,
             `Müşteri: ${job.customer?.name ?? 'Müşteri belirtilmemiş'}`,
