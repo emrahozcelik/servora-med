@@ -6,6 +6,7 @@ import { ApiError } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { LoadingSkeleton, ResultState } from '../ui/antd';
+import { JobAttentionPanel } from './JobAttentionPanel';
 import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
@@ -245,6 +246,11 @@ function JobWorkspaceContent({ user, notice = '', onCommand, load = listJobCards
 
   const hasFilters = Boolean(filters.q || filters.type || filters.assignedTo || filters.customerId || filters.priority
     || filters.dueAfter || filters.dueBefore || filters.status !== 'active' || filters.overdue || filters.followUp === 'only');
+  // The management intervention panel belongs to the active-work membership
+  // only; other quick views keep their own meaning ("Düzeltme istenenler"
+  // stays the manager-requested revision lane).
+  const showAttentionPanel = membership.kind === 'active'
+    && (user.role === 'MANAGER' || user.role === 'ADMIN');
 
   const quickViews: Array<{
     key: string;
@@ -353,6 +359,7 @@ function JobWorkspaceContent({ user, notice = '', onCommand, load = listJobCards
         {modeNotice}
       </p>
     )}
+    {showAttentionPanel && <JobAttentionPanel user={user} />}
     {showBoard
       ? (boardState.kind === 'loading'
         ? (

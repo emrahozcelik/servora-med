@@ -1,0 +1,160 @@
+/* Jobs page "Müdahale gerekenler" panel. It reuses the server-owned overview
+   lists and stays on the Delay Amber attention tone: icon, visible reason text
+   and the count carry the meaning, never colour alone. */
+.job-attention {
+  min-width: 0;
+  margin-block: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-raised);
+  background: var(--warning-wash);
+}
+
+.job-attention-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.job-attention-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0.05rem 0.55rem;
+  border-radius: var(--radius-chip);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.job-attention-disclosure {
+  min-width: 0;
+}
+
+.job-attention-summary {
+  min-height: var(--control-height);
+  padding-block: 0.35rem;
+  cursor: pointer;
+}
+
+.job-attention-summary .job-attention-title {
+  margin-bottom: 0;
+}
+
+.job-attention-summary:focus-visible {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: 3px;
+}
+
+.job-attention-disclosure[open] .job-attention-summary {
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-warning);
+}
+
+.job-attention-body {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.job-attention-error {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+
+.job-attention-error p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.job-attention-group {
+  min-width: 0;
+}
+
+.job-attention-group-title {
+  margin: 0 0 0.25rem;
+  color: var(--warning);
+  font-size: 0.875rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.job-attention-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job-attention-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
+  padding-block: 0.35rem;
+  border-top: 1px solid var(--rule);
+}
+
+.job-attention-row:first-child {
+  border-top: 0;
+}
+
+.job-attention-row-icon {
+  margin-top: 0.85rem;
+  color: var(--warning);
+}
+
+.job-attention-row-content {
+  min-width: 0;
+}
+
+.job-attention-row-title {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  color: var(--accent-hover);
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.job-attention-row-title:hover {
+  text-decoration: underline;
+}
+
+.job-attention-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.4rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.job-attention-reason {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.job-attention-overview-link {
+  margin: 0;
+}
+
+.job-attention-overview-link a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  color: var(--accent-hover);
+  font-weight: 700;
+}
