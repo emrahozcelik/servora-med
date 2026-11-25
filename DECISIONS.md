@@ -287,14 +287,17 @@ vertical when expanded, and the compact summary is the mobile default.
   adapter; no new dependency or motion system is introduced.
 - The mobile create entry (UI-004 bottom-navigation `Yeni iş`), `NewJobMenu`,
   `AppShell` and shell surfaces are outside this decision.
-- *(2026-11-25)* The first position of the strip spends about 45 CSS px of the
-  narrow first screen in the densest state (open lateness signal plus the
-  responsibility and command panels). A typical delivery job keeps the strict
-  first-screen guarantee; the open-lateness stress state keeps its primary
-  command inside the 844 px viewport but below the sticky top-bar allowance.
-  The rendered geometry runner
-  (`web/scripts/job-detail-mobile-priority-geometry.mjs`) records that difference
-  explicitly instead of dropping the check.
+- *(2026-11-25)* First-screen guarantee is measured against the real mobile
+  shell, not the raw viewport: the in-flow sticky top bar and the fixed bottom
+  navigation are both `3.75rem`, so at 390×844 the visible content band ends at
+  y=784. A typical delivery job keeps its primary command fully inside that
+  band. The open-lateness stress state (open lateness signal plus the
+  responsibility and command panels) does not: its primary command starts near
+  y=833, under the fixed bottom navigation. That case is a recorded, bounded
+  exception in
+  `web/scripts/job-detail-mobile-priority-geometry.mjs` (`firstScreen` evidence
+  per case); the runner asserts it stays off-screen *and* cannot regress past its
+  recorded budget, instead of claiming visibility.
 - Visual evidence follows UI-003; geometry checks must prove that the primary
   command and the first job record are inside the first viewport at 390×844.
 

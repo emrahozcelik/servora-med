@@ -7,8 +7,9 @@
  * mobile shell spacing (0.5rem top padding, first-child top margin removed), so
  * the measurements reflect the merged shell contract:
  *
- *  - at 390×844 the primary command of a Staff IN_PROGRESS job and of a Manager
- *    WAITING_APPROVAL job is fully inside the first viewport,
+ *  - at 390×844 the primary command of a typical job is fully inside the first
+ *    screen band, which excludes both the in-flow sticky top bar (3.75rem) and
+ *    the fixed bottom navigation (3.75rem),
  *  - the lifecycle strip sits directly below the heading on both viewports; on
  *    narrow shells the compact five-marker summary comes first and the
  *    responsibility panel with its primary commands follows it,
@@ -19,6 +20,9 @@
  *  - manager lateness history is a collapsed disclosure below the record
  *    details on mobile and above the workflow on desktop,
  *  - desktop keeps the horizontal five-step stepper and the rail decision group.
+ *
+ * The open-lateness stress case is recorded as a bounded exception (see
+ * OPEN_LATENESS_CASE); the rows include its real viewport position.
  *
  * Usage: node scripts/job-detail-mobile-priority-geometry.mjs
  * Env: SERVORA_CHROME_PATH overrides the Chromium executable.
@@ -53,15 +57,22 @@ const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
 const MOBILE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
 const MIN_TARGET_PX = 44;
-// The fixture reproduces the composed mobile shell spacing above; only the
-// sticky mobile top bar (4.5rem) still sits above the page at 390x844.
-const SHELL_CHROME_ALLOWANCE = 72;
+// Real 390x844 shell chrome (web/src/styles.css): the sticky mobile top bar is
+// `min-height: 3.75rem` (60px, in flow) and the fixed bottom navigation is also
+// `min-height: 3.75rem` (60px, overlaying the page, border-box). The fixture
+// mounts the panel at y=0 without either bar, so the visible first-screen band
+// ends at 844 - 60 (bottom nav) - 60 (top bar) = 724 in fixture coordinates.
+const TOP_BAR_HEIGHT = 60;
+const BOTTOM_NAV_HEIGHT = 60;
+const FIRST_SCREEN_LIMIT = MOBILE.height - BOTTOM_NAV_HEIGHT - TOP_BAR_HEIGHT;
 // Owner decision 2026-11-25 moved the lifecycle strip above the responsibility
-// panel. That strip is the only vertical cost this ordering adds, and the
-// open-lateness stress case (`staff-late`) now spends it: its primary command
-// stays inside the 844px viewport but below the shell-chrome allowance until the
-// spacing follow-up reclaims it. The baseline cases keep the strict allowance.
+// panel. The open-lateness stress case (`staff-late`) cannot fit the strip, the
+// open lateness warning, the responsibility panel and the command group above
+// the fixed bottom navigation at 390x844: with both bars its primary command
+// starts near y=833 and is not on the first screen. It stays a recorded budget
+// so the case cannot get worse; baseline jobs keep the strict limit above.
 const OPEN_LATENESS_CASE = 'staff-late';
+const OPEN_LATENESS_PRIMARY_BOTTOM_BUDGET = 817;
 const captureDir = process.env.JOB_DETAIL_PRIORITY_CAPTURE_DIR;
 
 const failures = [];
@@ -261,22 +272,52 @@ try {
   for (const fixtureCase of ['staff-in-progress', 'manager-waiting', 'revision', 'manager-late-history', 'staff-late']) {
     const { page, errors } = await openCase(browser, url, fixtureCase, MOBILE);
     const m = await measure(page);
-    rows.push({ case: fixtureCase, layout: 'mobile', ...m });
+    const firstScreen = {
+      topBar: TOP_BAR_HEIGHT,
+      bottomNav: BOTTOM_NAV_HEIGHT,
+      // The fixture has no shell chrome, so its y=0 is the content start below
+      // the sticky top bar and the visible band ends at FIRST_SCREEN_LIMIT.
+      visibleTop: TOP_BAR_HEIGHT,
+      visibleBottom: MOBILE.height - BOTTOM_NAV_HEIGHT,
+      limitInFixture: FIRST_SCREEN_LIMIT,
+      primaryViewportTop: m.primary ? Math.round((m.primary.top + TOP_BAR_HEIGHT) * 10) / 10 : null,
+      primaryViewportBottom: m.primary ? Math.round((m.primary.bottom + TOP_BAR_HEIGHT) * 10) / 10 : null,
+      primaryFullyVisible: m.primary
+        ? m.primary.bottom + TOP_BAR_HEIGHT <= MOBILE.height - BOTTOM_NAV_HEIGHT
+        : null,
+    };
+    rows.push({ case: fixtureCase, layout: 'mobile', ...m, firstScreen });
     await capture(page, `mobile-${fixtureCase}`);
 
     invariant(errors.length === 0, `${fixtureCase}@390: page errors ${errors.join(' | ')}`);
     invariant(m.pageOverflow <= 1, `${fixtureCase}@390: page overflow ${m.pageOverflow}px`);
     invariant(m.primary !== null, `${fixtureCase}@390: no primary command rendered`);
     if (m.primary) {
-      const firstScreenLimit = fixtureCase === OPEN_LATENESS_CASE
-        ? m.viewport.height
-        : m.viewport.height - SHELL_CHROME_ALLOWANCE;
       invariant(m.primary.top >= 0, `${fixtureCase}@390: primary command starts above the viewport (${m.primary.top})`);
-      invariant(
-        m.primary.bottom <= firstScreenLimit,
-        `${fixtureCase}@390: primary command bottom ${m.primary.bottom} is below the first screen `
-          + `(${firstScreenLimit} usable px)`,
-      );
+      if (fixtureCase === OPEN_LATENESS_CASE) {
+        // Documented UI-005 exception: not on the first screen, but must not
+        // regress past the recorded budget.
+        invariant(
+          m.primary.bottom <= OPEN_LATENESS_PRIMARY_BOTTOM_BUDGET,
+          `${fixtureCase}@390: primary command bottom ${m.primary.bottom} exceeds the recorded `
+            + `first-screen exception budget ${OPEN_LATENESS_PRIMARY_BOTTOM_BUDGET}`,
+        );
+        invariant(
+          firstScreen.primaryFullyVisible === false,
+          `${fixtureCase}@390: the exception no longer applies; move it back to the strict first-screen check`,
+        );
+      } else {
+        invariant(
+          m.primary.bottom <= FIRST_SCREEN_LIMIT,
+          `${fixtureCase}@390: primary command bottom ${m.primary.bottom} is below the visible first `
+            + `screen band (${FIRST_SCREEN_LIMIT} fixture px = y<=${MOBILE.height - BOTTOM_NAV_HEIGHT} in the viewport)`,
+        );
+        invariant(
+          firstScreen.primaryFullyVisible === true,
+          `${fixtureCase}@390: primary command viewport bottom ${firstScreen.primaryViewportBottom} `
+            + `is under the fixed bottom navigation (${MOBILE.height - BOTTOM_NAV_HEIGHT})`,
+        );
+      }
       invariant(m.primary.height >= MIN_TARGET_PX, `${fixtureCase}@390: primary target height ${m.primary.height}px`);
     }
     invariant(

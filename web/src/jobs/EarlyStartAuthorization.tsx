@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ApiError, type CurrentUser } from '../services/api';
 import {
@@ -45,6 +45,11 @@ export function canGrantEarlyStartAuthorization(
  * The idle state is one compact row so the panel reads as a schedule detail:
  * the help text and the confirm action appear only after the manager asks for
  * them (owner decision 2026-11-25).
+ *
+ * Eligibility is re-checked against the clock at save time: the manager can
+ * open the confirmation before the planned start and submit it after. Starting
+ * is allowed from the planned time on, so that write would authorize nothing;
+ * the action reports the expiry instead of posting.
  */
 export function EarlyStartAuthorizationSection({ job, user, onGranted, now = new Date() }: {
   job: JobCard;
@@ -57,16 +62,33 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, now = new
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [revealed, setRevealed] = useState(false);
+  const [expired, setExpired] = useState(false);
+  const expiredRef = useRef<HTMLParagraphElement>(null);
   // A new job version means the canonical truth changed (the grant landed, or
   // a later reschedule/reassignment voided it): drop the local success state
   // so the button is never left disabled behind a stale message.
-  useEffect(() => { setDone(false); setError(null); setRevealed(false); }, [job.id, job.version]);
+  useEffect(() => {
+    setDone(false);
+    setError(null);
+    setRevealed(false);
+    setExpired(false);
+  }, [job.id, job.version]);
+  // The confirm control unmounts when the offer expires, so keep keyboard
+  // context on the announced status line instead of dropping focus to <body>.
+  useEffect(() => { if (expired) expiredRef.current?.focus(); }, [expired]);
 
   const authorization = job.earlyStartAuthorization ?? null;
   const canGrant = canGrantEarlyStartAuthorization(job, user, now);
-  if (authorization === null && !canGrant) return null;
+  if (authorization === null && !canGrant && !expired) return null;
 
   const grant = async () => {
+    // Save-time clock check (see the component note). Uses the real clock, not
+    // the render-time `now` prop, so a form opened just before the planned
+    // start cannot post after it passed.
+    if (!canGrantEarlyStartAuthorization(job, user, new Date())) {
+      setExpired(true);
+      return;
+    }
     setGranting(true);
     setError(null);
     try {
@@ -91,44 +113,56 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, now = new
     >
       <h2 id="early-start-authorization-title">Erken başlama</h2>
       {authorization === null ? (
-        <div className="early-start-authorization-body">
-          <div className="early-start-authorization-row">
-            <p className="early-start-authorization-status" data-early-start-authorization-status="idle">
-              İzin verilmedi
-            </p>
-            <button
-              className="secondary-button"
-              type="button"
-              aria-expanded={revealed}
-              aria-controls="early-start-authorization-detail"
-              data-early-start-authorization-reveal="true"
-              onClick={() => setRevealed((value) => !value)}
-            >
-              Erken başlamaya izin ver
-            </button>
-          </div>
-          <div
-            className="early-start-authorization-detail"
-            id="early-start-authorization-detail"
-            hidden={!revealed}
+        expired ? (
+          <p
+            ref={expiredRef}
+            className="early-start-authorization-status"
+            role="status"
+            tabIndex={-1}
+            data-early-start-authorization-status="expired"
           >
-            <p className="form-help" data-early-start-authorization-help="true">
-              İzin verirseniz {job.assignee?.name ?? 'sorumlu personel'} işi planlanan zamandan önce
-              başlatabilir. Planlanan zaman ya da sorumlu personel değişirse izin geçersiz olur.
-            </p>
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={granting || done}
-              data-early-start-authorization-action="true"
-              onClick={() => void grant()}
+            Planlanan başlangıç zamanı geçti; erken başlama izni artık gerekmiyor.
+          </p>
+        ) : (
+          <div className="early-start-authorization-body">
+            <div className="early-start-authorization-row">
+              <p className="early-start-authorization-status" data-early-start-authorization-status="idle">
+                İzin verilmedi
+              </p>
+              <button
+                className="secondary-button"
+                type="button"
+                aria-expanded={revealed}
+                aria-controls="early-start-authorization-detail"
+                data-early-start-authorization-reveal="true"
+                onClick={() => setRevealed((value) => !value)}
+              >
+                Erken başlamaya izin ver
+              </button>
+            </div>
+            <div
+              className="early-start-authorization-detail"
+              id="early-start-authorization-detail"
+              hidden={!revealed}
             >
-              {granting ? 'Kaydediliyor…' : 'Erken başlama iznini kaydet'}
-            </button>
-            {error && <p role="alert">{error}</p>}
-            {done && !error && <p role="status">Erken başlama izni kaydedildi.</p>}
+              <p className="form-help" data-early-start-authorization-help="true">
+                İzin verirseniz {job.assignee?.name ?? 'sorumlu personel'} işi planlanan zamandan önce
+                başlatabilir. Planlanan zaman ya da sorumlu personel değişirse izin geçersiz olur.
+              </p>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={granting || done}
+                data-early-start-authorization-action="true"
+                onClick={() => void grant()}
+              >
+                {granting ? 'Kaydediliyor…' : 'Erken başlama iznini kaydet'}
+              </button>
+              {error && <p role="alert">{error}</p>}
+              {done && !error && <p role="status">Erken başlama izni kaydedildi.</p>}
+            </div>
           </div>
-        </div>
+        )
       ) : (
         <p role="status">
           Erken başlama izni: {authorization.grantedBy.name ?? 'Yönetici'},{' '}

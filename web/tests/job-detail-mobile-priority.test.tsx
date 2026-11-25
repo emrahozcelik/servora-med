@@ -118,6 +118,7 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
   });
 
   async function render(job: JobCard, user: CurrentUser, extra: {
+    message?: string;
     overdueHistory?: ReactNode;
     invalidationAction?: ReactNode;
     notes?: ReactNode;
@@ -131,7 +132,7 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
           items={[]}
           user={user}
           pending={false}
-          message=""
+          message={extra.message ?? ''}
           onCommand={() => {}}
           overdueHistory={extra.overdueHistory}
           invalidationAction={extra.invalidationAction}
@@ -148,9 +149,44 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     return host.querySelector(`[data-job-detail-section="${name}"]`);
   }
 
+  /** Direct children of <main>, in DOM order, with their section name. */
+  function topLevelSections(): string[] {
+    const main = host.querySelector('main.job-detail');
+    expect(main, 'main.job-detail').not.toBeNull();
+    return Array.from(main!.children)
+      .map((element) => element.getAttribute('data-job-detail-section'))
+      .filter((name): name is string => name !== null);
+  }
+
   function precedes(earlier: Element, later: Element) {
     return Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
   }
+
+  it('keeps the lifecycle strip as the immediate section after the heading, before feedback', async () => {
+    function expectStripImmediatelyAfterHeading() {
+      // The owner decision puts the strip directly below the heading, so no
+      // feedback/notice/warning surface may intervene — not just "after it".
+      expect(section('heading')!.nextElementSibling).toBe(section('lifecycle'));
+      expect(topLevelSections().slice(0, 3)).toEqual(['heading', 'lifecycle', 'feedback']);
+    }
+    // matchMedia stubs do not emit changes, so each viewport gets a fresh mount.
+    async function remount() {
+      await act(async () => root.unmount());
+      host.remove();
+      host = document.createElement('div');
+      document.body.append(host);
+      root = createRoot(host);
+    }
+
+    setViewport(true);
+    await render(staffInProgress, staff, { message: 'İş kontrole gönderildi.' });
+    expectStripImmediatelyAfterHeading();
+
+    await remount();
+    setViewport(false);
+    await render(staffInProgress, staff, { message: 'İş kontrole gönderildi.' });
+    expectStripImmediatelyAfterHeading();
+  });
 
   it('puts the compact lifecycle strip directly below the heading, then the staff primary command', async () => {
     setViewport(true);

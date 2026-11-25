@@ -53,8 +53,19 @@ function buttonByText(container: HTMLElement, text: string) {
 
 describe('EarlyStartAuthorizationSection', () => {
   let root: Root; let container: HTMLDivElement;
-  beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+  beforeEach(() => {
+    // The save-time eligibility check reads the real clock; pin it so the grant
+    // tests are deterministic (the fixture job is planned for 11:00Z).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
 
   function render(target: JobCard, user: CurrentUser, onGranted = vi.fn(), now = NOW) {
     return act(async () => root.render(
@@ -112,6 +123,35 @@ describe('EarlyStartAuthorizationSection', () => {
       await render(target, manager);
       expect(container.textContent).toBe('');
     }
+  });
+
+  it('does not post when the planned start passes while the confirmation is open', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return json({ jobCardId: 'job-1', authorizationId: 'auth-1', grantedAt: '2026-07-20T08:00:00.000Z' });
+    }));
+    const onGranted = vi.fn();
+    // Offer rendered while the planned 11:00Z start is still ahead.
+    vi.setSystemTime(new Date('2026-07-20T10:59:59.000Z'));
+    await render(job, manager, onGranted, new Date('2026-07-20T10:59:59.000Z'));
+    await act(async () => buttonByText(container, 'Erken başlamaya izin ver')!.click());
+    expect(buttonByText(container, 'Erken başlama iznini kaydet')).toBeDefined();
+
+    // The manager confirms after the planned start has passed.
+    vi.setSystemTime(new Date('2026-07-20T11:00:01.000Z'));
+    await act(async () => buttonByText(container, 'Erken başlama iznini kaydet')!.click());
+    await settleTwice();
+
+    expect(requests).toHaveLength(0);
+    expect(onGranted).not.toHaveBeenCalled();
+    const expired = container.querySelector('[data-early-start-authorization-status="expired"]')!;
+    expect(expired.getAttribute('role')).toBe('status');
+    expect(expired.textContent).toContain('Planlanan başlangıç zamanı geçti');
+    expect(buttonByText(container, 'Erken başlamaya izin ver')).toBeUndefined();
+    // The confirm control unmounts, so keyboard focus lands on the announced
+    // status line instead of being dropped to <body>.
+    expect(document.activeElement).toBe(expired);
   });
 
   it('hides the grant offer when the planned start is not in the future', async () => {
