@@ -225,6 +225,12 @@ async function openSurface(path, role, viewport, scenario = 'baseline') {
       if (pathname === `/api/users/${otherManagerId}`) return send(managedManager);
       if (pathname === '/api/users') return send([managedManager]);
       if (pathname === '/api/job-cards') return send(pageOf([job], requestUrl));
+      // Management intervention panel lists on the jobs page (empty: panel renders nothing).
+      if (pathname === '/api/job-cards/change-requests/open'
+        || pathname === '/api/job-cards/assignment-offers/needs-action'
+        || pathname === '/api/job-cards/pending-acceptance/past-start') {
+        return send(pageOf([], requestUrl));
+      }
       if (pathname === '/api/calendar/assignees') {
         return send({ items: [{ id: staffId, name: staffMember.name }, { id: managerId, name: 'Deniz Örnek' }] });
       }
