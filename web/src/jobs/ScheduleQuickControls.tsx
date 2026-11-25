@@ -1,3 +1,4 @@
+import { useHorizontalOverflow } from '../ui/useHorizontalOverflow';
 import {
   buildQuickSchedulePresets,
   formatPlannedDurationPreview,
@@ -28,6 +29,7 @@ export function ScheduleQuickControls({
   showSundayHint = true,
 }: ScheduleQuickControlsProps) {
   const presets = buildQuickSchedulePresets();
+  const { ref: chipsRef, overflow } = useHorizontalOverflow<HTMLDivElement>(presets.length);
   const preview = value && durationMinutes != null && durationMinutes > 0
     ? formatPlannedDurationPreview(value, durationMinutes)
     : null;
@@ -41,21 +43,28 @@ export function ScheduleQuickControls({
   return (
     <>
       {presets.length > 0 && (
-        <div className="schedule-quick-chips" role="group" aria-label="Hızlı zaman seçenekleri">
-          {presets.map((preset) => (
-            <button
-              key={preset.value}
-              type="button"
-              className="schedule-quick-chip"
-              disabled={disabled}
-              aria-pressed={value === preset.value}
-              onClick={() => {
-                if (!disabled) onSelect(preset.value);
-              }}
-            >
-              {preset.label}
-            </button>
-          ))}
+        <div className="schedule-quick-chips-shell" data-overflow={overflow ? 'true' : 'false'}>
+          <div
+            ref={chipsRef}
+            className="schedule-quick-chips"
+            role="group"
+            aria-label="Hızlı zaman seçenekleri"
+          >
+            {presets.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className="schedule-quick-chip"
+                disabled={disabled}
+                aria-pressed={value === preset.value}
+                onClick={() => {
+                  if (!disabled) onSelect(preset.value);
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {preview && (

@@ -127,11 +127,18 @@ function recoveryHeadline(offer: AssignmentOffer): string {
 }
 
 /** Moves the reader to the existing planned-time editor; no new route. */
+export const SCHEDULE_EDITOR_OPEN_EVENT = 'servora:schedule-editor-open';
+
 export function focusScheduleEditor(): void {
   const target = document.getElementById('job-scheduled-at');
-  if (target === null) return;
-  target.scrollIntoView({ block: 'center' });
-  target.focus({ preventScroll: true });
+  if (target !== null) {
+    target.scrollIntoView({ block: 'center' });
+    target.focus({ preventScroll: true });
+    return;
+  }
+  // The schedule editor is collapsed by default; the page opens it and moves
+  // focus once the field is rendered.
+  document.dispatchEvent(new CustomEvent(SCHEDULE_EDITOR_OPEN_EVENT));
 }
 
 /** JOB-010 release 2b decline/release draft; validated in JobDetail. */

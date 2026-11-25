@@ -132,6 +132,7 @@ import { ChangeRequestSection } from './jobs/ChangeRequests';
 import {
   AssignmentOfferSection,
   EMPTY_ASSIGNMENT_REASON,
+  SCHEDULE_EDITOR_OPEN_EVENT,
   type AssignmentReasonDraft,
 } from './jobs/AssignmentOffer';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
@@ -287,6 +288,34 @@ function formatScheduledInterval(startIso: string, endIso: string): ReactNode {
     <span>
       <time dateTime={startIso}>{formatScheduledAt(startIso)}</time>
       {sameLocalDay ? `–${endTime}` : ` – ${formatScheduledAt(endIso)}`}
+      {minutes > 0 ? ` (${minutes} dk)` : ''}
+    </span>
+  );
+}
+
+/** Compact planned-time summary: `Per 26 Kas · 13:00–13:30 (30 dk)`. */
+function formatScheduleSummaryValue(job: JobCard): ReactNode {
+  if (!job.scheduledAt) return 'Planlanmadı';
+  const startDisplay = formatWheelDisplay(
+    'datetime',
+    isoInstantToLocalDateTime(job.scheduledAt),
+  );
+  if (!job.scheduledEndsAt) {
+    return <time dateTime={job.scheduledAt}>{startDisplay}</time>;
+  }
+  const start = new Date(job.scheduledAt);
+  const end = new Date(job.scheduledEndsAt);
+  const sameLocalDay = start.getFullYear() === end.getFullYear()
+    && start.getMonth() === end.getMonth()
+    && start.getDate() === end.getDate();
+  const endDisplay = sameLocalDay
+    ? new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(end)
+    : formatWheelDisplay('datetime', isoInstantToLocalDateTime(job.scheduledEndsAt));
+  const minutes = Math.round((end.valueOf() - start.valueOf()) / 60_000);
+  return (
+    <span>
+      <time dateTime={job.scheduledAt}>{startDisplay}</time>
+      {`–${endDisplay}`}
       {minutes > 0 ? ` (${minutes} dk)` : ''}
     </span>
   );
@@ -515,6 +544,8 @@ function JobScheduleEditForm({
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
+  const [editing, setEditing] = useState(false);
+  const [focusRequest, setFocusRequest] = useState(0);
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
   // OVR-5 §5.4: the reason surface appears with open lateness, or after the
@@ -548,11 +579,31 @@ function JobScheduleEditForm({
     }
     if (scheduleShiftSignal !== lastShiftSignalRef.current) {
       lastShiftSignalRef.current = scheduleShiftSignal;
+      setEditing(true);
       setLocalValue(defaultScheduledLocalValue(new Date()));
       setFieldError('');
       setSubmitError('');
     }
   }, [scheduleShiftSignal]);
+
+  // Change-request and assignment-offer "new time" guidance opens this editor
+  // even while it is collapsed.
+  useEffect(() => {
+    const open = () => {
+      setEditing(true);
+      setFocusRequest((value) => value + 1);
+    };
+    document.addEventListener(SCHEDULE_EDITOR_OPEN_EVENT, open);
+    return () => document.removeEventListener(SCHEDULE_EDITOR_OPEN_EVENT, open);
+  }, []);
+
+  useEffect(() => {
+    if (!editing || focusRequest === 0) return;
+    const target = document.getElementById('job-scheduled-at');
+    if (!target) return;
+    target.scrollIntoView?.({ block: 'center' });
+    target.focus({ preventScroll: true });
+  }, [editing, focusRequest]);
 
   // OVR-5b visual review: while this form is open the invalid reason field owns
   // focus on its client or server error, then the inline patch error does; the
@@ -603,9 +654,12 @@ function JobScheduleEditForm({
 
   const deadlineChanged = localValue.trim()
     !== (job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+  // OVR-5 §5.4: the reason only matters when the planned time actually moves
+  // and the job carries open lateness (or the server demanded it on submit).
+  const reasonFieldVisible = managementUser && reasonVisible && deadlineChanged;
 
   function deadlineChangeOptions(): DeadlineChangeOptions | undefined {
-    const trimmedReason = managementUser && reasonVisible ? reason.trim() : '';
+    const trimmedReason = reasonFieldVisible ? reason.trim() : '';
     const resolution = managementUser && resolveChangeRequest && deadlineChanged && job.changeRequest
       ? {
           changeRequestId: job.changeRequest.id,
@@ -623,7 +677,7 @@ function JobScheduleEditForm({
     event.preventDefault();
     if (pending || !onSave || scheduleLocked) return;
     setSubmitError('');
-    if (managementUser && reasonVisible && !reason.trim()) {
+    if (reasonFieldVisible && !reason.trim()) {
       setReasonError('Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.');
       return;
     }
@@ -651,6 +705,44 @@ function JobScheduleEditForm({
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
     }
+  }
+
+  function cancelEdit() {
+    setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+    setFieldError('');
+    setSubmitError('');
+    setReason('');
+    setReasonError('');
+    setResolveChangeRequest(true);
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <section
+        className="job-schedule-edit job-schedule-edit--summary surface-flat"
+        aria-labelledby="job-schedule-summary-label"
+        data-job-schedule-summary="true"
+      >
+        <div className="job-schedule-summary">
+          <div className="job-schedule-summary-text">
+            <h2 id="job-schedule-summary-label" className="job-schedule-summary-label">
+              {scheduleEdit.label}
+            </h2>
+            <span className="job-schedule-summary-value">
+              {formatScheduleSummaryValue(job)}
+            </span>
+          </div>
+          <button
+            className="secondary-button job-schedule-summary-change"
+            type="button"
+            onClick={() => setEditing(true)}
+          >
+            Değiştir
+          </button>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -718,14 +810,14 @@ function JobScheduleEditForm({
             }}
           />
         </div>
-        {managementUser && reasonVisible && (
+        {reasonFieldVisible && (
           <div className="field-group">
             <label htmlFor="job-schedule-extension-reason">Tarih değişikliği gerekçesi</label>
             <textarea
               ref={reasonRef}
               id="job-schedule-extension-reason"
               name="deadlineExtensionReason"
-              rows={3}
+              rows={2}
               value={reason}
               maxLength={500}
               disabled={pending}
@@ -790,9 +882,12 @@ function JobScheduleEditForm({
               Değişiklik önerisi gönder
             </button>
           )}
-          <button className="secondary-button" type="submit"
+          <button className="primary-button" type="submit"
             disabled={pending || !onSave || scheduleLocked}>
             {pending ? 'Kaydediliyor…' : 'Planlanan zamanı kaydet'}
+          </button>
+          <button className="secondary-button" type="button" disabled={pending} onClick={cancelEdit}>
+            Vazgeç
           </button>
         </div>
       </form>

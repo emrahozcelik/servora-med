@@ -158,6 +158,7 @@ function ReportRangeFields({
           onChange={setFromValue}
           invalid={Boolean(filterError)}
           aria-describedby={describedBy}
+          ariaLabel="Başlangıç"
         />
       </label>
       <label>
@@ -170,6 +171,7 @@ function ReportRangeFields({
           onChange={setToValue}
           invalid={Boolean(filterError)}
           aria-describedby={describedBy}
+          ariaLabel="Bitiş"
         />
       </label>
     </>

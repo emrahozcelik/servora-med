@@ -363,6 +363,12 @@ describe('UXB-002: General Task edit + reassignment reachability', () => {
 
     const editForm = host.querySelector('.general-task-edit-form');
     expect(editForm?.querySelector('[name="scheduledAt"]')).toBeNull();
+    expect(host.querySelector('[data-job-schedule-summary="true"]')).not.toBeNull();
+    expect(buttonByName(host, 'Değiştir')).not.toBeNull();
+    await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
     expect(inputByName(host, 'scheduledAt')).not.toBeNull();
     expect(host.textContent).toContain('Planlanan zamanı düzenle');
   });

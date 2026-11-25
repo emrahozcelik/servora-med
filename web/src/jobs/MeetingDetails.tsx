@@ -297,6 +297,9 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       role={error ? 'alert' : 'status'} tabIndex={-1}>{error || feedback}</div>}
     <form className="meeting-result-form" onSubmit={submit} noValidate><fieldset disabled={mutationPending || ambiguous}>
       <div className="field-group">
+        <label htmlFor="meeting-actual-at">
+          Gerçekleşme zamanı{meetingOptional ? ' (isteğe bağlı)' : ''}
+        </label>
         <div className="meeting-actual-at-row">
           <WheelDateTimeField
             mode="datetime"
@@ -311,7 +314,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
               meetingOptional && 'meeting-time-optional-help',
               fieldErrors.meetingAt && 'meeting-actual-at-error',
             )}
-            label={`Gerçekleşme zamanı${meetingOptional ? ' (isteğe bağlı)' : ''}`}
+            ariaLabel={`Gerçekleşme zamanı${meetingOptional ? ' (isteğe bağlı)' : ''}`}
           />
           <button
             className="secondary-button compact-button"

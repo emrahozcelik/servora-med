@@ -33,6 +33,8 @@ export type WheelDateTimeFieldProps = {
   /** Minute granularity of the mobile minute wheel. Defaults to 5. */
   minuteStep?: number;
   label?: string;
+  /** Accessible name for an external visible label (compact trigger). */
+  ariaLabel?: string;
   /** Hint/error wiring, identical to the native attribute. */
   'aria-describedby'?: string;
   /** The rendered interactive control (native input or compact trigger). */
@@ -283,6 +285,7 @@ export function WheelDateTimeField({
   invalid,
   minuteStep,
   label,
+  ariaLabel,
   'aria-describedby': describedBy,
   controlRef,
 }: WheelDateTimeFieldProps) {
@@ -360,7 +363,7 @@ export function WheelDateTimeField({
   }
 
   const display = formatWheelDisplay(mode, value) || (value ? value : '');
-  const labelText = label ?? MODE_TITLE[mode];
+  const labelText = ariaLabel ?? label ?? MODE_TITLE[mode];
   const describedByIds = [describedBy, validationError ? errorId : undefined]
     .filter(Boolean)
     .join(' ') || undefined;

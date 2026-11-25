@@ -449,13 +449,28 @@ use the owned Ant Design boundary in later implementation PRs.
   invalidation (`INVALIDATED` / `Geçersiz`) are not green completions. Banner shows actor,
   time, reason, and frozen source phase (plus restoration cue where applicable); completed
   state (`COMPLETED` / `Tamamlandı`) uses Confirmed Green only for true success.
-- **Planning & scheduling surfaces**: job creation and schedule-edit forms pair native
-  `datetime-local` inputs with `ScheduleQuickControls` (quick non-Sunday presets, planned
-  interval/duration preview, and non-blocking Sunday/past-start `status` hints) plus
-  same-day/horizon `AvailableSlotsNotice` that preserves the chosen slot selection.
-  Unacknowledged past-start submissions recover in-flow through `PastStartAcknowledgementDrawer`
-  with an optional shortcut to shift forward to the next open working slot. Calendar unifies
-  manual plans under **Kişisel plan** (concise `Plan` chip in desktop month cells to prevent
+- **Planning & scheduling surfaces**: every date and time control is the shared
+  `WheelDateTimeField` (native input on desktop, wheel sheet on compact). Job detail
+  presents the planned time as one compact summary row (the owning label plus
+  `Per 26 Kas · 13:00–13:30 (30 dk)`) with a secondary 44px `Değiştir` action; the
+  editor opens only on request, from the change-request/assignment "new time"
+  guidance (with focus), or from the past-start "shift forward" path. Editing keeps
+  the wheel field, one horizontally scrolling scroll-snap row of quick presets with
+  a right-edge overflow affordance, planned interval/duration preview, and running
+  Sunday/past-start `status` hints. `Personel için uygun saatler` becomes a compact
+  horizontal day strip: a `Per 26 Kas` label followed by 44px start-time chips
+  whose accessible name carries the full interval (`26 Kasım Perşembe 10:00–10:30`);
+  `Daha fazla göster` is a compact text button at the end of the strip. Selecting a
+  chip commits the same value as the slot list did. The reason textarea
+  (`Tarih değişikliği gerekçesi`, `rows=2` with the 500-character hint) appears only
+  once the value differs from the saved one and the job carries open lateness (or
+  the server demands it on submit). The action row is primary
+  `Planlanan zamanı kaydet` plus secondary `Vazgeç`, which restores the saved value
+  and collapses the editor. Desktop keeps the same structure; preset and slot
+  strips may wrap instead of scrolling there. Unacknowledged past-start submissions
+  recover in-flow through `PastStartAcknowledgementDrawer` with an optional shortcut
+  to shift forward to the next open working slot. Calendar unifies manual plans
+  under **Kişisel plan** (concise `Plan` chip in desktop month cells to prevent
   1024px clipping; `Yeni plan` in the desktop top bar via `page-create-action.tsx`).
 - **Compact workflow summary** (list/board): ordinal phase string such as
   `3 / 5 · Uygulanıyor` with optional attention flag. Secondary to the technical status
