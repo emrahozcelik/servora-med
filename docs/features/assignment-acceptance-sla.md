@@ -850,6 +850,30 @@ candidate, under the JobCard lock:
   dialog when needed; overview section "Müdahale gereken atamalar"; Turkish
   copy for every new code. The web never computes deadlines.
 
+#### Jobs page intervention panel
+
+The Jobs page ("Aktif işler" membership, MANAGER/ADMIN only) repeats the
+overview's server-owned intervention lists under one "Müdahale gerekenler"
+heading: open Staff change/termination requests ("Personel önerileri"), offers
+needing a management answer ("Müdahale gereken atamalar") and unaccepted
+past-start jobs ("Kabul bekleyen işler"). Each group shows at most three compact
+rows with the reason label, assignee and relevant time, plus a link to the
+overview when a group's total exceeds the preview. An offer the server marks
+urgent keeps its urgent reason (for example "Başlangıç geçti") and the
+customer-time risk wording, so an `OPEN` offer is never reduced to a calm
+"Yanıt bekliyor". A failed read keeps the groups that loaded and shows an inline
+"Müdahale gerekenler yüklenemedi" error with "Tekrar dene"; it never looks like
+an empty panel. Below 64rem the panel is a native disclosure that starts closed
+so the first job row keeps the UI-005 first-screen budget; its summary carries
+the heading, count and an inline chevron, and the viewer's open/closed choice is
+remembered on the device in `localStorage` under
+`servora.jobs.attentionPanel.open` (unavailable storage falls back to closed).
+Desktop always shows the panel expanded. While the disclosure is closed, a
+failure and its "Tekrar dene" action stay directly below the summary, so the
+error is never hidden. These are reads of the existing lists — no new endpoint
+or business rule — and the "Düzeltme istenenler" quick view remains the
+manager-requested revision membership, unchanged.
+
 ### Ownership for parallel work
 
 | Worker | Owns |

@@ -3,7 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 
 import { JobWorkspace } from '../src/jobs/JobWorkspace';
-import type { JobCardBoard, JobCardListItem } from '../src/jobs/jobs-api';
+import type { JobAttentionLoaders } from '../src/jobs/JobAttentionPanel';
+import type {
+  AssignmentOfferNeedingActionItem,
+  JobCardBoard,
+  JobCardListItem,
+  OpenChangeRequestItem,
+  UnacceptedPastStartItem,
+} from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
 import { MobileTopBar } from '../src/shell/MobileTopBar';
 
@@ -44,6 +51,96 @@ const board: JobCardBoard = {
     },
   },
   closedCounts: { COMPLETED: 4, CANCELLED: 1 },
+};
+
+/** Deterministic management intervention data: no fixture request leaves the page. */
+const attentionChangeRequests: OpenChangeRequestItem[] = [
+  {
+    changeRequestId: 'cr-fixture-1',
+    jobCardId: 'job-fixture',
+    jobTitle: 'ABC Klinik ürün teslimi',
+    jobType: 'PRODUCT_DELIVERY',
+    jobStatus: 'WAITING_APPROVAL',
+    reasonCode: 'CUSTOMER_POSTPONED',
+    reasonText: 'Müşteri kliniği bugün kapalı.',
+    requestedAt: '2026-09-21T07:30:00.000Z',
+    requestedBy: { id: 'staff-fixture', name: 'Ayşe Personel' },
+    customer: { id: 'customer-fixture', name: 'ABC Klinik' },
+    jobPath: '/jobs/job-fixture',
+  },
+  {
+    changeRequestId: 'cr-fixture-2',
+    jobCardId: 'job-fixture',
+    jobTitle: 'ABC Klinik ürün teslimi',
+    jobType: 'PRODUCT_DELIVERY',
+    jobStatus: 'ACCEPTED',
+    reasonCode: 'MISSING_STOCK_OR_EQUIPMENT',
+    reasonText: 'Numune stoğu tamamlanmadı.',
+    requestedAt: '2026-09-21T08:15:00.000Z',
+    requestedBy: { id: 'staff-fixture', name: 'Ayşe Personel' },
+    customer: { id: 'customer-fixture', name: 'ABC Klinik' },
+    jobPath: '/jobs/job-fixture',
+  },
+];
+
+const attentionOffers: AssignmentOfferNeedingActionItem[] = [
+  {
+    jobCardId: 'job-fixture',
+    jobTitle: 'ABC Klinik ürün teslimi',
+    jobType: 'PRODUCT_DELIVERY',
+    offerId: 'offer-fixture-1',
+    state: 'DECLINED',
+    closeReason: 'SCHEDULE_CONFLICT',
+    closeText: 'Aynı saatte başka teslim var.',
+    acceptanceDueAt: '2026-09-22T09:00:00.000Z',
+    urgentReason: null,
+    scheduledAt: '2026-09-22T10:00:00.000Z',
+    proposedScheduledAt: null,
+    assignee: { id: 'staff-fixture', name: 'Ayşe Personel' },
+    customer: { id: 'customer-fixture', name: 'ABC Klinik' },
+    jobPath: '/jobs/job-fixture',
+  },
+  {
+    jobCardId: 'job-fixture',
+    jobTitle: 'ABC Klinik ürün teslimi',
+    jobType: 'PRODUCT_DELIVERY',
+    offerId: 'offer-fixture-2',
+    state: 'OPEN',
+    closeReason: null,
+    closeText: null,
+    acceptanceDueAt: '2026-09-21T09:30:00.000Z',
+    urgentReason: 'START_PASSED',
+    scheduledAt: '2026-09-21T09:00:00.000Z',
+    proposedScheduledAt: null,
+    assignee: { id: 'staff-fixture', name: 'Ayşe Personel' },
+    customer: { id: 'customer-fixture', name: 'ABC Klinik' },
+    jobPath: '/jobs/job-fixture',
+  },
+];
+
+const attentionUnaccepted: UnacceptedPastStartItem[] = [
+  {
+    jobCardId: 'job-fixture',
+    title: 'ABC Klinik ürün teslimi',
+    type: 'PRODUCT_DELIVERY',
+    jobPath: '/jobs/job-fixture',
+    assignee: { id: 'staff-fixture', name: 'Ayşe Personel', active: true },
+    scheduledAt: '2026-09-21T06:00:00.000Z',
+    elapsedSeconds: 5400,
+    hasOpenChangeRequest: false,
+  },
+];
+
+const attentionLoaders: JobAttentionLoaders = {
+  loadChangeRequests: async () => ({
+    items: attentionChangeRequests, total: attentionChangeRequests.length, limit: 3, offset: 0,
+  }),
+  loadAssignmentOffers: async () => ({
+    items: attentionOffers, total: attentionOffers.length, limit: 3, offset: 0,
+  }),
+  loadUnacceptedPastStart: async () => ({
+    items: attentionUnaccepted, total: attentionUnaccepted.length, limit: 3, offset: 0,
+  }),
 };
 
 const entries: Record<string, string> = {
@@ -95,6 +192,7 @@ function Shell() {
           user={user}
           load={async () => ({ items: [item], total: 1, limit: 25, offset: 0 })}
           loadBoard={async () => board}
+          attentionLoaders={attentionLoaders}
         />
       </div>
       {!desktop && (
