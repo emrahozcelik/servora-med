@@ -128,6 +128,33 @@ describe('min/max clamping', () => {
     })).toEqual({ date: '2026-11-25', hour: 10, minute: 5 });
   });
 
+  it('composes the confirmed value with a single clamp', () => {
+    expect(wheel.composeWheelValue(
+      'datetime',
+      { date: '2026-11-25', hour: 7, minute: 50 },
+      '2026-11-25T09:43',
+      '2026-11-27T18:00',
+    )).toBe('2026-11-25T09:43');
+    expect(wheel.composeWheelValue(
+      'datetime',
+      { date: '2026-11-26', hour: 10, minute: 30 },
+      '2026-11-25T09:43',
+      '2026-11-27T18:00',
+    )).toBe('2026-11-26T10:30');
+    expect(wheel.composeWheelValue(
+      'time',
+      { date: '', hour: 12, minute: 0 },
+      '22:00',
+      '02:00',
+    )).toBe('22:00');
+    expect(wheel.composeWheelValue(
+      'date',
+      { date: '2026-11-25', hour: 0, minute: 0 },
+      '2026-11-26',
+      undefined,
+    )).toBe('2026-11-26');
+  });
+
   it('compares time-only bounds by clock time', () => {
     const bounds = wheel.parseWheelBounds('time', '09:00', '18:00');
     expect(wheel.isWithinWheelBounds({ date: '', hour: 8, minute: 59 }, bounds)).toBe(false);

@@ -259,6 +259,21 @@ export function clampWheelSelection(
   return selection;
 }
 
+/**
+ * Final value for a confirmed wheel interaction. The raw column parts are
+ * clamped once here, so a boundary clamp (for example a day switch that moves
+ * the time to `min`) can never be overwritten by another wheel's stale value.
+ */
+export function composeWheelValue(
+  mode: WheelMode,
+  parts: WheelSelection,
+  min?: string,
+  max?: string,
+): string {
+  const bounds = parseWheelBounds(mode, min, max);
+  return formatWheelValue(mode, clampWheelSelection(parts, bounds));
+}
+
 /** "Now" as a wheel selection; clock modes round the minute up to `step`. */
 export function nowWheelSelection(
   mode: WheelMode,

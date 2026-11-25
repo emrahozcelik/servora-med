@@ -32,6 +32,10 @@
   border-color: var(--border-control-hover);
 }
 
+.wheel-field-trigger[aria-invalid='true'] {
+  border-color: var(--border-error);
+}
+
 .wheel-field-trigger:disabled {
   background: var(--canvas);
 }

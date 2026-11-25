@@ -6,8 +6,8 @@ import { WheelColumn } from './WheelColumn';
 import {
   applyWheelColumnChange,
   buildWheelColumns,
+  composeWheelValue,
   formatWheelDisplay,
-  formatWheelValue,
   initialWheelSelection,
   type WheelColumnKey,
   type WheelContext,
@@ -44,6 +44,12 @@ const MODE_TITLE: Record<WheelMode, string> = {
   datetime: 'Tarih ve saat',
   date: 'Tarih',
   time: 'Saat',
+};
+
+const MODE_REQUIRED_MESSAGE: Record<WheelMode, string> = {
+  datetime: 'Tarih ve saat seçin.',
+  date: 'Tarih seçin.',
+  time: 'Saat seçin.',
 };
 
 const MODE_CLOSE_LABEL: Record<WheelMode, string> = {
@@ -93,7 +99,7 @@ type WheelSheetProps = {
   returnFocusRef: RefObject<HTMLButtonElement | null>;
   onCancel: () => void;
   onClear: () => void;
-  onCommit: (selection: WheelSelection) => void;
+  onCommit: (value: string) => void;
 };
 
 type WheelResolver = () => string | null;
@@ -168,15 +174,19 @@ function WheelSheet({
   const columns = buildWheelColumns(mode, draft, context);
 
   function commitDraft(): void {
-    let next = draft;
+    // Flush every wheel's current center synchronously, then apply min/max once.
+    // Applying each column with its own bounds would let a stale minute wheel
+    // overwrite the hour/minute a day clamp had just produced.
+    const rawContext: WheelContext = { ...context, min: undefined, max: undefined };
+    let candidate = draft;
     for (const column of columns) {
       const resolve = resolverFor[column.key].current;
       const centered = resolve?.();
       if (centered !== null && centered !== undefined) {
-        next = applyWheelColumnChange(mode, next, column.key, centered, context);
+        candidate = applyWheelColumnChange(mode, candidate, column.key, centered, rawContext);
       }
     }
-    onCommit(next);
+    onCommit(composeWheelValue(mode, candidate, min, max));
   }
 
   return (
@@ -248,13 +258,32 @@ export function WheelDateTimeField({
 }: WheelDateTimeFieldProps) {
   const compact = useCompact();
   const [open, setOpen] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const errorId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const proxyRef = useRef<HTMLInputElement>(null);
+  const requiredMessage = MODE_REQUIRED_MESSAGE[mode];
 
   // Leaving compact mode swaps the trigger for the native input; a sheet left
   // open across that switch must not reappear on the way back.
   useEffect(() => {
     if (!compact) setOpen(false);
   }, [compact]);
+
+  // The clipped carrier owns native validation, so its `invalid` event is the
+  // only signal a compact form gets. Suppress the browser's off-screen bubble,
+  // surface the message on the visible trigger and move focus there.
+  useEffect(() => {
+    const proxy = proxyRef.current;
+    if (!proxy) return;
+    function onInvalid(event: Event) {
+      event.preventDefault();
+      setValidationError(requiredMessage);
+      triggerRef.current?.focus();
+    }
+    proxy.addEventListener('invalid', onInvalid);
+    return () => proxy.removeEventListener('invalid', onInvalid);
+  }, [compact, requiredMessage]);
 
   if (!compact) {
     return (
@@ -271,7 +300,10 @@ export function WheelDateTimeField({
           disabled={disabled}
           aria-describedby={describedBy}
           className="form-control"
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            setValidationError(null);
+            onChange(event.target.value);
+          }}
         />
       </>
     );
@@ -279,6 +311,9 @@ export function WheelDateTimeField({
 
   const display = formatWheelDisplay(mode, value) || (value ? value : '');
   const labelText = label ?? MODE_TITLE[mode];
+  const describedByIds = [describedBy, validationError ? errorId : undefined]
+    .filter(Boolean)
+    .join(' ') || undefined;
 
   return (
     <>
@@ -291,7 +326,8 @@ export function WheelDateTimeField({
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-describedby={describedBy}
+        aria-invalid={validationError ? true : undefined}
+        aria-describedby={describedByIds}
         aria-label={`${labelText}${required ? ' (zorunlu)' : ''}: ${display || 'Seçin'}`}
         onClick={() => { if (!disabled) setOpen(true); }}
       >
@@ -307,6 +343,7 @@ export function WheelDateTimeField({
         replaces without exposing a second control to assistive technology.
       */}
       <input
+        ref={proxyRef}
         type={MODE_INPUT_TYPE[mode]}
         name={name}
         value={value}
@@ -319,6 +356,9 @@ export function WheelDateTimeField({
         className="wheel-field-proxy"
         onChange={() => {}}
       />
+      {validationError && (
+        <p id={errorId} className="field-error" role="alert">{validationError}</p>
+      )}
       {open && (
         <WheelSheet
           mode={mode}
@@ -331,11 +371,13 @@ export function WheelDateTimeField({
           returnFocusRef={triggerRef}
           onCancel={() => setOpen(false)}
           onClear={() => {
+            setValidationError(null);
             onChange('');
             setOpen(false);
           }}
-          onCommit={(selection) => {
-            onChange(formatWheelValue(mode, selection));
+          onCommit={(next) => {
+            setValidationError(null);
+            onChange(next);
             setOpen(false);
           }}
         />

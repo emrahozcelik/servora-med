@@ -451,6 +451,114 @@ describe('compact wheel sheet', () => {
     expect(onChange).toHaveBeenCalledWith('2020-01-01T10:00');
   });
 
+  it('clamps a fast day change in one pass (the old minute cannot win)', async () => {
+    resizeTo(390);
+    await renderField({
+      mode: 'datetime',
+      id: 'scheduled',
+      name: 'scheduledAt',
+      value: '2026-11-26T07:50',
+      min: '2026-11-25T09:43',
+      max: '2026-11-27T18:00',
+    });
+    await click(trigger());
+    const dayScroller = document.querySelector<HTMLElement>(
+      '[data-wheel-column="Gün"] .wheel-column-scroller',
+    );
+    expect(dayScroller).not.toBeNull();
+    await act(async () => { dayScroller!.scrollTop = 0; });
+
+    await click(action('Tamam'));
+    expect(onChange).toHaveBeenCalledWith('2026-11-25T09:43');
+  });
+
+  it('commits the same clamped value after the day scroll settles', async () => {
+    vi.useFakeTimers();
+    resizeTo(390);
+    await renderField({
+      mode: 'datetime',
+      id: 'scheduled',
+      name: 'scheduledAt',
+      value: '2026-11-26T07:50',
+      min: '2026-11-25T09:43',
+      max: '2026-11-27T18:00',
+    });
+    await click(trigger());
+    const dayScroller = document.querySelector<HTMLElement>(
+      '[data-wheel-column="Gün"] .wheel-column-scroller',
+    );
+    expect(dayScroller).not.toBeNull();
+    await act(async () => {
+      dayScroller!.scrollTop = 0;
+      dayScroller!.dispatchEvent(new Event('scroll', { bubbles: true }));
+      vi.advanceTimersByTime(200);
+    });
+
+    await click(action('Tamam'));
+    expect(onChange).toHaveBeenLastCalledWith('2026-11-25T09:43');
+  });
+
+  it('shows a visible required error and focuses the trigger on submit', async () => {
+    resizeTo(390);
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="datetime"
+            id="scheduled"
+            name="when"
+            value=""
+            required
+            onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    const form = container.querySelector('form');
+    expect(form).not.toBeNull();
+    expect(trigger().getAttribute('aria-invalid')).toBeNull();
+
+    await act(async () => { form!.requestSubmit(); });
+
+    const error = container.querySelector('.field-error');
+    const proxy = container.querySelector<HTMLInputElement>('.wheel-field-proxy');
+    expect(error?.textContent).toBe('Tarih ve saat seçin.');
+    expect(trigger().getAttribute('aria-invalid')).toBe('true');
+    expect(trigger().getAttribute('aria-describedby')).toBe(error?.id);
+    expect(document.activeElement).toBe(trigger());
+    expect(document.activeElement).not.toBe(proxy);
+    expect(proxy?.tabIndex).toBe(-1);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('clears the required error when Tamam commits a value', async () => {
+    resizeTo(390);
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="datetime"
+            id="scheduled"
+            name="when"
+            value=""
+            required
+            onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    await act(async () => { container.querySelector('form')!.requestSubmit(); });
+    expect(container.querySelector('.field-error')).not.toBeNull();
+
+    await click(trigger());
+    await click(action('Tamam'));
+
+    expect(onChange).toHaveBeenCalled();
+    expect(container.querySelector('.field-error')).toBeNull();
+    expect(trigger().getAttribute('aria-invalid')).toBeNull();
+    expect(trigger().getAttribute('aria-describedby')).toBeNull();
+  });
+
   it('does not open while disabled', async () => {
     resizeTo(390);
     await renderField({
