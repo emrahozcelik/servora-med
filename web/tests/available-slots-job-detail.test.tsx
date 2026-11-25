@@ -12,11 +12,13 @@ import type { CurrentUser } from '../src/services/api';
 import type { AvailableSlot, CustomerScheduleEvaluation, JobCard } from '../src/jobs/jobs-api';
 import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 import { formatWheelDisplay } from '../src/ui/wheel-datetime';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const styles = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
 
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }
@@ -87,11 +89,6 @@ describe('JobDetail joint slot edit', () => {
     vi.useFakeTimers();
     resizeTo(1024);
     preview.evaluation = null;
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
       slots: [{ startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' }],
     })));

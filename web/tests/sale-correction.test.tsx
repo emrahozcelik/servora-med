@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SaleCorrectionSection } from '../src/jobs/SaleCorrection';
 import type { SaleDetails } from '../src/jobs/sale-api';
+import { stubMatchMedia } from './helpers/match-media';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../src/services/products-api', () => ({ listProducts: vi.fn() }));
 vi.mock('../src/services/crm-api', () => ({ listContacts: vi.fn().mockResolvedValue({items:[],total:0,limit:20,offset:0}) }));
@@ -11,7 +12,7 @@ vi.mock('../src/jobs/sale-api', () => ({ correctSale: vi.fn() }));
 const details: SaleDetails = {jobCardId:'sale',jobCardVersion:2,soldAt:'2026-10-15T08:00:00.000Z',saleContact:null,
  sourceVisit:{access:'RESTRICTED',kind:'SALE_FROM_VISIT'},items:[{id:'line',productId:'product',name:'Tarihsel pasif ürün',sku:'OLD',brand:'Eski marka',model:null,unit:'ml',quantity:'5'}]};
 let host:HTMLDivElement; let root:ReturnType<typeof createRoot>;
-function resizeTo(width:number){Object.defineProperty(window,'innerWidth',{writable:true,configurable:true,value:width});window.dispatchEvent(new Event('resize'));}
+function resizeTo(width:number){stubMatchMedia({narrow:width<1024});Object.defineProperty(window,'innerWidth',{writable:true,configurable:true,value:width});window.dispatchEvent(new Event('resize'));}
 beforeEach(()=>{resizeTo(1024);host=document.createElement('div');document.body.append(host);root=createRoot(host);});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.clearAllMocks();});
 it('edits the sold time through the compact wheel trigger',async()=>{

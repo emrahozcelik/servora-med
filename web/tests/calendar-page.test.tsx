@@ -8,6 +8,7 @@ import { CalendarPage } from '../src/calendar/CalendarPage';
 import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 import { ApiError } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 
 const calendarApi = vi.hoisted(() => ({
   listCalendar: vi.fn(),
@@ -97,6 +98,7 @@ function setReactValue(element: HTMLInputElement | HTMLTextAreaElement, value: s
 
 /** Set viewport width and trigger resize. */
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', {
     writable: true, configurable: true, value: width,
   });

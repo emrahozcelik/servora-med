@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WheelDateTimeField, type WheelDateTimeFieldProps } from '../src/ui/WheelDateTimeField';
+import { stubMatchMedia } from './helpers/match-media';
 import {
   isWithinWheelBounds,
   parseWheelBounds,
@@ -18,6 +19,7 @@ let root: Root;
 let onChange: ReturnType<typeof vi.fn>;
 
 function resizeTo(width: number): void {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }
@@ -135,6 +137,7 @@ describe('desktop native input', () => {
     await renderField({ mode: 'date', id: 'due', value: '2026-11-26' });
     expect(container.querySelector('input')?.hasAttribute('name')).toBe(false);
 
+    await act(async () => root.render(null));
     resizeTo(390);
     await renderField({ mode: 'date', id: 'due', value: '2026-11-26' });
     expect(trigger().hasAttribute('name')).toBe(false);
@@ -143,6 +146,19 @@ describe('desktop native input', () => {
 });
 
 describe('compact wheel sheet', () => {
+  it('follows the 64rem shell media query instead of the viewport pixel width', async () => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1100 });
+    stubMatchMedia({ narrow: true });
+    await renderField({ mode: 'date', id: 'due', name: 'dueDate', value: '2026-11-26' });
+    expect(container.querySelector('.wheel-field-trigger')).not.toBeNull();
+    expect(container.querySelector('input')?.className).toContain('wheel-field-proxy');
+
+    await act(async () => root.render(null));
+    stubMatchMedia({ narrow: false });
+    await renderField({ mode: 'date', id: 'due', name: 'dueDate', value: '2026-11-26' });
+    expect(container.querySelector('.wheel-field-trigger')).toBeNull();
+    expect(container.querySelector('input')?.type).toBe('date');
+  });
   it('shows the formatted value and opens the sheet from the trigger', async () => {
     resizeTo(390);
     await renderField({

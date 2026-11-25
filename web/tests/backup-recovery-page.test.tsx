@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BackupRecoveryPage } from '../src/settings/BackupRecoveryPage';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -31,6 +32,7 @@ function response(body: unknown, status = 200) {
 }
 
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }

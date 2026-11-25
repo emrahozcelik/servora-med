@@ -15,9 +15,9 @@ export function useResponsiveViewport(): number {
   );
 }
 
-/** Compact mode (mobile/tablet): below the desktop 64rem shell gate. */
+/** Compact mode (mobile): viewport < 640px. Reactive across resize. */
 export function useCompact(): boolean {
-  return useResponsiveViewport() < 1024;
+  return useResponsiveViewport() < 640;
 }
 
 /** Compact filter sheet when shell is below the desktop 64rem gate. */

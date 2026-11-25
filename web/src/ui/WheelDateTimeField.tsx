@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type R
 
 import { restoreFocus, trapTabKey } from './antd/overlay-focus';
 import { lockBodyScroll } from './scroll-lock';
-import { useCompact } from './useResponsive';
+import { useNarrowShell } from './useResponsive';
 import { WheelColumn } from './WheelColumn';
 import {
   applyWheelColumnChange,
@@ -290,7 +290,7 @@ export function WheelDateTimeField({
   'aria-describedby': describedBy,
   controlRef,
 }: WheelDateTimeFieldProps) {
-  const compact = useCompact();
+  const compact = useNarrowShell();
   const [open, setOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const errorId = useId();

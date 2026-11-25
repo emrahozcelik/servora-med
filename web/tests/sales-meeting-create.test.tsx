@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 import { setCustomerPhone } from './helpers/customer-phone';
 import {
   customerOptionTitles,
@@ -88,6 +89,7 @@ function deferred<T>() {
 }
 
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }
@@ -101,11 +103,6 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     vi.clearAllMocks();
     resizeTo(1024);
     scheduling.isoInstantToLocalDateTime.mockImplementation(() => '2026-08-10T09:30');
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),

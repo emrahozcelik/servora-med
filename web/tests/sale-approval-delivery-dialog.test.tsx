@@ -11,6 +11,7 @@ import type {
 import type { SaleDetails } from '../src/jobs/sale-api';
 import { defaultDeliveryScheduledLocal } from '../src/jobs/sale-approval-delivery';
 import { parseSaleDetails } from '../src/jobs/sale-api';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -275,6 +276,7 @@ describe('SALE-002 S3 approval delivery section', () => {
   }
 
   it('renders and commits the compact wheel trigger for the delivery time', async () => {
+    stubMatchMedia({ narrow: true });
     resizeTo(390);
     await openVisitApproval(pairScenario());
     const trigger = section().querySelector<HTMLButtonElement>('.wheel-field-trigger')!;
@@ -290,6 +292,7 @@ describe('SALE-002 S3 approval delivery section', () => {
       .find((button) => button.textContent === 'Tamam')!;
     await act(async () => ok.click());
     expect(trigger.textContent).not.toBe(before);
+    stubMatchMedia();
     resizeTo(1024);
   });
   const independentScenario = (extra: Partial<Scenario> = {}): Scenario => ({

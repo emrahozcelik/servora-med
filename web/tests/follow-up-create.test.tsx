@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FollowUpCreatePage } from '../src/jobs/FollowUpCreatePage';
+import { stubMatchMedia } from './helpers/match-media';
 import { CUSTOMERLESS_FOLLOW_UP_EXPLANATION } from '../src/jobs/follow-up-presentation';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { JobCard } from '../src/jobs/jobs-api';
@@ -139,6 +140,7 @@ async function flush() {
 }
 
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }
@@ -155,11 +157,6 @@ describe('Follow-up create page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resizeTo(1024);
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),
@@ -901,11 +898,6 @@ describe('Follow-up create ambiguous attempt contract', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resizeTo(1024);
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `fu-action-${++action}`),

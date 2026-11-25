@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WeeklyReportCreateScreen } from '../src/WeeklyReportCreate';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -83,6 +84,7 @@ async function flush() {
 }
 
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }
@@ -99,11 +101,6 @@ describe('Weekly report create screen', () => {
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),
     });
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     people.listStaff.mockResolvedValue([AYSE, MEHMET, ZEYNEP]);
     weeklyApi.getWeeklyReportReference.mockResolvedValue(REFERENCE);
     weeklyApi.createWeeklyReport.mockResolvedValue({

@@ -10,6 +10,7 @@ import { AssignmentReasonSection, EMPTY_ASSIGNMENT_REASON } from '../src/jobs/As
 import { FollowUpCancelContinuitySection } from '../src/jobs/FollowUpCancelContinuitySection';
 import { RevisionCorrectionDueField } from '../src/jobs/RevisionCorrectionDueField';
 import { ReportDateRangeForm } from '../src/reports/report-shell';
+import { stubMatchMedia } from './helpers/match-media';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -27,6 +28,7 @@ function sourceFiles(directory: string): string[] {
 }
 
 function resizeTo(width: number): void {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }

@@ -6,6 +6,7 @@ import { SaleCreateScreen } from '../src/SaleCreate';
 import * as api from '../src/jobs/sale-api';
 import { ApiError } from '../src/services/api';
 import { listProducts, type Product } from '../src/services/products-api';
+import { stubMatchMedia } from './helpers/match-media';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const realtime = vi.hoisted(() => ({ invalidate: () => {} }));
 vi.mock('../src/realtime/RealtimeProvider', () => ({useRealtimeInvalidation: (_keys: string[], callback: () => void) => { realtime.invalidate = callback; }}));
@@ -18,9 +19,9 @@ const context = { sourceVisitId: 'visit', sourceVersion: 3, eligible: true, bloc
 const product = (id:string): Product => ({id,organizationId:'org',name:'Ürün '+id,sku:id,brand:'Dental',model:null,unit:'ml',category:null,referencePrice:null,isActive:true,version:1,createdAt:'',updatedAt:''});
 let host:HTMLDivElement; let root:ReturnType<typeof createRoot>;
 const cancelled=vi.fn(),created=vi.fn();
-function resizeTo(width:number){Object.defineProperty(window,'innerWidth',{writable:true,configurable:true,value:width});window.dispatchEvent(new Event('resize'));}
+function resizeTo(width:number){stubMatchMedia({narrow:width<1024});Object.defineProperty(window,'innerWidth',{writable:true,configurable:true,value:width});window.dispatchEvent(new Event('resize'));}
 beforeEach(()=>{
- vi.stubGlobal('matchMedia',vi.fn().mockReturnValue({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn(),addListener:vi.fn(),removeListener:vi.fn()}));
+ resizeTo(1024);
  resizeTo(1024);
  host=document.createElement('div');document.body.append(host);root=createRoot(host);
  vi.mocked(api.getSaleCreateContext).mockResolvedValue(context);

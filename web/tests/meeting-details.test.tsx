@@ -7,6 +7,7 @@ import { meetingLocalValue, MeetingDetailsSection } from '../src/jobs/MeetingDet
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import { workflowContext } from './fixtures/job-workflow';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let uuidSeq = 0;
@@ -29,6 +30,7 @@ function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
 async function settle() { await act(async () => { await Promise.resolve(); }); }
 
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }

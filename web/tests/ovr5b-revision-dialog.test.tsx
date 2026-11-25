@@ -8,6 +8,7 @@ import type { JobCard, JobLifecycleFacts, JobWorkflowContext } from '../src/jobs
 import { addMinutesLocal, defaultCorrectionDueLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 import { workflowContext } from './fixtures/job-workflow';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -102,11 +103,7 @@ describe('OVR-5 revision correction deadline dialog', () => {
   let root: Root;
 
   beforeEach(() => {
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    stubMatchMedia();
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);

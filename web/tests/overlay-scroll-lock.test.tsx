@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ResponsiveDrawer } from '../src/ui/antd/ResponsiveDrawer';
 import { WheelDateTimeField } from '../src/ui/WheelDateTimeField';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -37,6 +38,7 @@ function wheelTrigger(): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  stubMatchMedia({ narrow: true });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 390 });
   document.body.style.overflow = '';
   container = document.createElement('div');

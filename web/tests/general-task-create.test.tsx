@@ -10,15 +10,11 @@ import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import { setCustomerPhone } from './helpers/customer-phone';
 import {
-  clearCustomerSelection,
-  customerOptionTitles,
-  openCustomerSearchDropdown,
-  pickCustomerByName,
-  searchCustomer,
-  selectCustomerOption,
-  settleCustomerSearch,
-  stubMatchMedia,
+  clearCustomerSelection, customerOptionTitles, openCustomerSearchDropdown,
+  pickCustomerByName, searchCustomer, selectCustomerOption, settleCustomerSearch,
+  stubMatchMedia as stubHarnessMatchMedia,
 } from './customer-search-select-harness';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let uuidSeq = 0;
@@ -89,6 +85,7 @@ function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
 }
 
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
   window.dispatchEvent(new Event('resize'));
 }
@@ -98,7 +95,7 @@ describe('General Task quick create', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resizeTo(1024);
-    stubMatchMedia();
+    stubHarnessMatchMedia();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `action-${++uuidSeq}`) });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);

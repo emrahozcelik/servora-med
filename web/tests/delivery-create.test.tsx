@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DeliveryCreateView, buildProductDeliveryRequest, createProductDelivery } from '../src/DeliveryCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 
 const user: CurrentUser = {
   id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'a@example.com',
@@ -17,6 +18,7 @@ const user: CurrentUser = {
 
 describe('Product Delivery creation', () => {
   it('uses the compact wheel trigger and commits the planned delivery time', async () => {
+    stubMatchMedia({ narrow: true });
     Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 390 });
     window.dispatchEvent(new Event('resize'));
     const container = document.createElement('div');
@@ -43,6 +45,7 @@ describe('Product Delivery creation', () => {
     } finally {
       await act(async () => root.unmount());
       container.remove();
+      stubMatchMedia();
       Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1024 });
     }
   });
