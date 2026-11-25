@@ -14,6 +14,7 @@ import type {
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 beforeEach(() => {
+  resizeTo(1024);
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
     matches: false, media: '', onchange: null,
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
@@ -31,6 +32,11 @@ const draft: FollowUpDraft = {
   assignedTo: 's1',
   followUpInstructions: 'Takip: Kontrol görüşmesi',
 };
+
+function resizeTo(width: number) {
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
 
 
 /**
@@ -69,6 +75,24 @@ function renderSection(props: Partial<Parameters<typeof FollowUpProposalSection>
 }
 
 describe('FollowUpProposalSection', () => {
+  it('renders and commits the compact wheel trigger for the follow-up time', async () => {
+    resizeTo(390);
+    const { host, onChange } = renderSection({ mode: 'manager' });
+    const trigger = host.querySelector<HTMLButtonElement>('#follow-up-proposal-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    await act(async () => trigger.click());
+    const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(onChange).toHaveBeenCalled();
+    expect(onChange.mock.calls.at(-1)?.[0].scheduledAt).not.toBe(draft.scheduledAt);
+    expect(document.body.style.overflow).toBe('');
+  });
   it('shows the ÖNERİLEN badge and the suggested summary in the staff flow', () => {
     const { host } = renderSection({
       evaluation: {

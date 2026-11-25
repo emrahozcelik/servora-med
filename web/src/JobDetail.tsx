@@ -545,7 +545,9 @@ function JobScheduleEditForm({
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
   const [editing, setEditing] = useState(false);
-  const [focusRequest, setFocusRequest] = useState(0);
+  /** Focus is restored only after the target branch has rendered. */
+  const [focusTarget, setFocusTarget] = useState<'editor' | 'summary' | null>(null);
+  const changeButtonRef = useRef<HTMLButtonElement>(null);
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
   // OVR-5 §5.4: the reason surface appears with open lateness, or after the
@@ -560,7 +562,7 @@ function JobScheduleEditForm({
   const submitErrorRef = useRef<HTMLParagraphElement>(null);
   const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}:${job.changeRequest?.id ?? ''}`;
   const lastKey = useRef(canonicalKey);
-  const lastShiftSignalRef = useRef(scheduleShiftSignal ?? 0);
+  const lastShiftSignalRef = useRef(0);
 
   useEffect(() => {
     if (managementUser && hasOpenOverdueIncident) setReasonVisible(true);
@@ -591,19 +593,25 @@ function JobScheduleEditForm({
   useEffect(() => {
     const open = () => {
       setEditing(true);
-      setFocusRequest((value) => value + 1);
+      setFocusTarget('editor');
     };
     document.addEventListener(SCHEDULE_EDITOR_OPEN_EVENT, open);
     return () => document.removeEventListener(SCHEDULE_EDITOR_OPEN_EVENT, open);
   }, []);
 
   useEffect(() => {
-    if (!editing || focusRequest === 0) return;
-    const target = document.getElementById('job-scheduled-at');
-    if (!target) return;
-    target.scrollIntoView?.({ block: 'center' });
-    target.focus({ preventScroll: true });
-  }, [editing, focusRequest]);
+    if (focusTarget === 'editor' && editing) {
+      const target = document.getElementById('job-scheduled-at');
+      target?.scrollIntoView?.({ block: 'center' });
+      target?.focus({ preventScroll: true });
+      setFocusTarget(null);
+      return;
+    }
+    if (focusTarget === 'summary' && !editing) {
+      changeButtonRef.current?.focus();
+      setFocusTarget(null);
+    }
+  }, [editing, focusTarget]);
 
   // OVR-5b visual review: while this form is open the invalid reason field owns
   // focus on its client or server error, then the inline patch error does; the
@@ -715,6 +723,7 @@ function JobScheduleEditForm({
     setReasonError('');
     setResolveChangeRequest(true);
     setEditing(false);
+    setFocusTarget('summary');
   }
 
   if (!editing) {
@@ -734,9 +743,13 @@ function JobScheduleEditForm({
             </span>
           </div>
           <button
+            ref={changeButtonRef}
             className="secondary-button job-schedule-summary-change"
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              setEditing(true);
+              setFocusTarget('editor');
+            }}
           >
             Değiştir
           </button>

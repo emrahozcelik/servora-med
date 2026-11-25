@@ -18,8 +18,10 @@ const context = { sourceVisitId: 'visit', sourceVersion: 3, eligible: true, bloc
 const product = (id:string): Product => ({id,organizationId:'org',name:'Ürün '+id,sku:id,brand:'Dental',model:null,unit:'ml',category:null,referencePrice:null,isActive:true,version:1,createdAt:'',updatedAt:''});
 let host:HTMLDivElement; let root:ReturnType<typeof createRoot>;
 const cancelled=vi.fn(),created=vi.fn();
+function resizeTo(width:number){Object.defineProperty(window,'innerWidth',{writable:true,configurable:true,value:width});window.dispatchEvent(new Event('resize'));}
 beforeEach(()=>{
  vi.stubGlobal('matchMedia',vi.fn().mockReturnValue({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn(),addListener:vi.fn(),removeListener:vi.fn()}));
+ resizeTo(1024);
  host=document.createElement('div');document.body.append(host);root=createRoot(host);
  vi.mocked(api.getSaleCreateContext).mockResolvedValue(context);
  vi.mocked(listProducts).mockResolvedValue({items:[product('p1'),product('p2')],total:2,limit:6,offset:0});
@@ -32,6 +34,21 @@ async function add(id:string){await input('.product-select input[type="search"]'
 async function submit(){await act(async()=>{host.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});}
 
 describe('SaleCreate',()=>{
+ it('uses the compact wheel trigger and commits without adding a form name',async()=>{
+  resizeTo(390);
+  await render();
+  const trigger=host.querySelector<HTMLButtonElement>('#sale-sold-at')!;
+  expect(trigger.tagName).toBe('BUTTON');
+  expect(trigger.hasAttribute('name')).toBe(false);
+  const before=trigger.textContent;
+  await act(async()=>trigger.click());
+  const hour=document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+  await act(async()=>{hour.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));});
+  const ok=[...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')].find((b)=>b.textContent==='Tamam')!;
+  await act(async()=>ok.click());
+  expect(trigger.textContent).not.toBe(before);
+  expect(document.body.style.overflow).toBe('');
+ });
  it('loads a deep link through server context and shows immutable identity and distinct contacts',async()=>{
   await render();expect(api.getSaleCreateContext).toHaveBeenCalledWith('visit');
   expect(host.textContent).toContain('Dental Klinik');expect(host.textContent).toContain('Planlanan Doktor');expect(host.textContent).toContain('Görüşülen Doktor');

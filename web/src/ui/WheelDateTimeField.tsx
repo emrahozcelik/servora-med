@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import { restoreFocus, trapTabKey } from './antd/overlay-focus';
+import { lockBodyScroll } from './scroll-lock';
 import { useCompact } from './useResponsive';
 import { WheelColumn } from './WheelColumn';
 import {
@@ -20,7 +21,8 @@ import './wheel-picker.css';
 export type WheelDateTimeFieldProps = {
   mode: WheelMode;
   id: string;
-  name: string;
+  /** Native form name; omitted exactly when the replaced input had no name. */
+  name?: string;
   /** Native value contract: `YYYY-MM-DDTHH:mm`, `YYYY-MM-DD`, `HH:mm` or `''`. */
   value: string;
   onChange: (next: string) => void;
@@ -171,11 +173,10 @@ function WheelSheet({
   useEffect(() => {
     const panel = panelRef.current;
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseScrollLock = lockBodyScroll();
     panel?.querySelector<HTMLElement>('[role="spinbutton"]')?.focus();
     return () => {
-      document.body.style.overflow = previousOverflow;
+      releaseScrollLock();
       restoreFocus(returnFocusRef, openerRef.current);
     };
   }, [returnFocusRef]);

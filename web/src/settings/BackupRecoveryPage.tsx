@@ -409,7 +409,6 @@ function ScheduleSection({
             <WheelDateTimeField
               mode="time"
               id="backup-schedule-time"
-              name="scheduleTimeLocal"
               value={draft.scheduleTimeLocal}
               onChange={(value) => setDraft((current) => ({ ...current, scheduleTimeLocal: value }))}
               disabled={pending}

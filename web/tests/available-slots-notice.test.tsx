@@ -88,7 +88,10 @@ describe('AvailableSlotsNotice', () => {
     expect(buttons[1]?.textContent).toBe(formatTime('2026-08-18T12:30:00.000Z'));
     expect(buttons[0]?.getAttribute('aria-label')).toContain(expectedFirstTime);
     expect(buttons[1]?.getAttribute('aria-label')).toContain(expectedSecondTime);
-    expect(buttons[0]?.getAttribute('aria-label')).toContain('17 Ağustos Pazartesi');
+    const longDate = new Intl.DateTimeFormat('tr-TR', {
+      weekday: 'long', day: 'numeric', month: 'long',
+    }).format(new Date('2026-08-17T10:00:00.000Z'));
+    expect(buttons[0]?.getAttribute('aria-label')).toContain(longDate);
   });
 
   it('reveals more candidates without fetching and keeps the selected option explicit', async () => {
@@ -165,6 +168,7 @@ describe('AvailableSlotsNotice', () => {
     expect(styles).toMatch(/\.available-slot-chip\s*\{[^}]*white-space:\s*nowrap/s);
     expect(styles).toMatch(/\.available-slot-option--selected\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
     expect(styles).toMatch(/@media\s*\(min-width:\s*64rem\)[\s\S]*\.available-slots-strip[^}]*flex-wrap:\s*wrap/s);
+    expect(styles).toMatch(/@media\s*\(min-width:\s*64rem\)[\s\S]*\.available-slots-day[^}]*flex:\s*0 1 auto[^}]*max-width:\s*100%/s);
     expect(styles).toMatch(/\.available-slots-toggle\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
   });
 

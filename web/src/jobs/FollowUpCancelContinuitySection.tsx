@@ -69,7 +69,6 @@ export function FollowUpCancelContinuitySection(props: FollowUpCancelContinuityS
           <WheelDateTimeField
             mode="datetime"
             id="follow-up-cancel-scheduled-at"
-            name="followUpCancelScheduledAt"
             value={draft.scheduledLocal}
             onChange={(value) => onChange({ scheduledLocal: value })}
             required

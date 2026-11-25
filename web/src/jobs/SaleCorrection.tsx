@@ -103,7 +103,6 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
         <WheelDateTimeField
           mode="datetime"
           id={id + '-sold'}
-          name="soldAt"
           value={soldLocal}
           onChange={setSoldLocal}
           label="Gerçekleşen satış zamanı"

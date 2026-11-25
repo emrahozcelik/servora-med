@@ -231,7 +231,6 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
                 <WheelDateTimeField
                   mode="datetime"
                   id="task-scheduled-at"
-                  name="scheduledAt"
                   value={scheduledLocal}
                   onChange={setScheduledLocal}
                   label="Planlanan zaman (isteğe bağlı)"

@@ -140,6 +140,34 @@ describe('CalendarPage', () => {
     await act(async () => {});
   }
 
+  it('opens compact wheel triggers for a new manual plan', async () => {
+    resizeTo(390);
+    await render(staff);
+    const newPlan = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Kişisel plan ekle')!;
+    expect(newPlan).toBeTruthy();
+    await act(async () => newPlan.click());
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')!;
+    const start = dialog.querySelector<HTMLButtonElement>('#calendar-event-starts-at')!;
+    const end = dialog.querySelector<HTMLButtonElement>('#calendar-event-ends-at')!;
+    expect(start.tagName).toBe('BUTTON');
+    expect(end.tagName).toBe('BUTTON');
+    expect(start.hasAttribute('name')).toBe(false);
+    expect(end.hasAttribute('name')).toBe(false);
+    const before = start.textContent;
+    await act(async () => start.click());
+    const day = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Gün"]')!;
+    await act(async () => {
+      day.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(start.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('hidden');
+  });
+
   it('queries the visible month range (≤42 days)', async () => {
     await render();
     expect(calendarApi.listCalendar).toHaveBeenCalledTimes(1);

@@ -148,8 +148,8 @@ function ReportRangeFields({
   const describedBy = filterError ? 'report-filter-error' : undefined;
   return (
     <>
-      <label>
-        Başlangıç
+      <div className="report-range-field">
+        <label htmlFor="report-range-from">Başlangıç</label>
         <WheelDateTimeField
           mode="date"
           id="report-range-from"
@@ -160,9 +160,9 @@ function ReportRangeFields({
           aria-describedby={describedBy}
           ariaLabel="Başlangıç"
         />
-      </label>
-      <label>
-        Bitiş
+      </div>
+      <div className="report-range-field">
+        <label htmlFor="report-range-to">Bitiş</label>
         <WheelDateTimeField
           mode="date"
           id="report-range-to"
@@ -173,7 +173,7 @@ function ReportRangeFields({
           aria-describedby={describedBy}
           ariaLabel="Bitiş"
         />
-      </label>
+      </div>
     </>
   );
 }

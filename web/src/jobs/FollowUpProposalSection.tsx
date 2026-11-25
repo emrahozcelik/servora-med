@@ -170,7 +170,6 @@ export function FollowUpProposalSection({
               <WheelDateTimeField
                 mode="datetime"
                 id="follow-up-proposal-scheduled-at"
-                name="followUpScheduledAt"
                 value={scheduledLocal}
                 controlRef={initialFocusRef}
                 onChange={(value) => {
@@ -214,7 +213,6 @@ export function FollowUpProposalSection({
               <WheelDateTimeField
                 mode="datetime"
                 id="follow-up-proposal-scheduled-at"
-                name="followUpScheduledAt"
                 value={scheduledLocal}
                 onChange={(value) => {
                   const trimmed = value.trim();
@@ -247,7 +245,6 @@ export function FollowUpProposalSection({
             <WheelDateTimeField
               mode="datetime"
               id="follow-up-proposal-scheduled-at"
-              name="followUpScheduledAt"
               value={scheduledLocal}
               controlRef={mode === 'manager' ? initialFocusRef : undefined}
               onChange={(value) => {
@@ -316,7 +313,6 @@ export function FollowUpProposalSection({
               <WheelDateTimeField
                 mode="date"
                 id="follow-up-proposal-due-date"
-                name="followUpDueDate"
                 value={draft?.dueDate ?? ''}
                 onChange={(value) => onChange({ dueDate: value || null })}
                 label="Son tarih (isteğe bağlı)"

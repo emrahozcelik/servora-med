@@ -465,7 +465,6 @@ export function EventForm({
           <WheelDateTimeField
             mode="datetime"
             id="calendar-event-starts-at"
-            name="startsAt"
             value={draft.startsAt}
             required
             label="Başlangıç"
@@ -477,7 +476,6 @@ export function EventForm({
             <WheelDateTimeField
               mode="datetime"
               id="calendar-event-ends-at"
-              name="endsAt"
               value={draft.endsAt}
               required
               label="Bitiş"
@@ -711,7 +709,6 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   const [pastStartAckPending, setPastStartAckPending] = useState(false);
   const [pastStartAckError, setPastStartAckError] = useState('');
   const pastStartAckOpenerRef = useRef<HTMLElement | null>(null);
-  const wasDoubleDrawerRef = useRef(false);
   const reassignmentSync = useReassignmentConversationSync(
     editing !== null && editing !== 'new' && editing.source === 'JOB'
       ? editing.jobCardId
@@ -720,17 +717,6 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   // Whichever control opened the new-plan drawer (page button or desktop
   // topbar) receives focus back when it closes.
   const newPlanOpenerRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (editing !== null && pastStartAck !== null) {
-      wasDoubleDrawerRef.current = true;
-      return;
-    }
-    if (editing === null && pastStartAck === null && wasDoubleDrawerRef.current) {
-      wasDoubleDrawerRef.current = false;
-      document.body.style.overflow = '';
-    }
-  }, [editing, pastStartAck]);
 
   const range = useMemo(() => visibleMonthRange(month), [month]);
   const compact = useCompact();

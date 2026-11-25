@@ -127,7 +127,6 @@ function VisitSaleCreateScreen({ visitId, user, onCancel, onCreated }: {
           <WheelDateTimeField
             mode="datetime"
             id="sale-sold-at"
-            name="soldAt"
             value={soldLocal}
             onChange={setSoldLocal}
             required
@@ -251,7 +250,6 @@ function StandaloneSaleCreateScreen({ user, onCancel, onCreated }: {
           <WheelDateTimeField
             mode="datetime"
             id="sale-sold-at"
-            name="soldAt"
             value={soldLocal}
             onChange={setSoldLocal}
             required

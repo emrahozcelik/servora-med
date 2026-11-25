@@ -136,13 +136,17 @@ function detailUrlMatches(url: string, id: string) {
 }
 
 
+function resizeTo(width: number) {
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 function buttonByName(host: ParentNode, name: string) {
   return Array.from(host.querySelectorAll('button'))
     .find((button) => button.textContent?.trim() === name) ?? null;
 }
 
-function inputByName(host: ParentNode, name: string) {
-  return host.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`);
+function inputByName(host: ParentNode, name: string) {  return host.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`);
 }
 
 class FakeRealtimeEventSource implements RealtimeEventSource {
@@ -225,6 +229,7 @@ describe('UXB-002: General Task edit + reassignment reachability', () => {
   let root: Root;
 
   beforeEach(() => {
+    resizeTo(1024);
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
       matches: false, media: '', onchange: null,
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
@@ -371,6 +376,27 @@ describe('UXB-002: General Task edit + reassignment reachability', () => {
     });
     expect(inputByName(host, 'scheduledAt')).not.toBeNull();
     expect(host.textContent).toContain('Planlanan zamanı düzenle');
+  });
+
+  it('uses the compact wheel trigger for the task due date', async () => {
+    resizeTo(390);
+    const harness = makeFetch({ card: generalTaskJob(), conversationLookup: 'none' });
+    await renderScreen(managerUser, harness);
+    await openEditForm();
+    const trigger = host.querySelector<HTMLButtonElement>('#general-task-edit-due-date')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const day = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Gün"]')!;
+    await act(async () => {
+      day.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
   });
 
   it('cancel closes the editor without any PATCH', async () => {

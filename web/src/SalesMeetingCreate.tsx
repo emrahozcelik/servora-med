@@ -304,7 +304,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           <WheelDateTimeField
             mode="datetime"
             id="meeting-scheduled-at"
-            name="scheduledAt"
             value={scheduledLocal}
             onChange={setScheduledLocal}
             required

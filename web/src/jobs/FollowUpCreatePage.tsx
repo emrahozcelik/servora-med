@@ -641,7 +641,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
               <WheelDateTimeField
                 mode="datetime"
                 id="follow-up-scheduled-at"
-                name="scheduledAt"
                 value={scheduledLocal}
                 onChange={updateScheduledLocal}
                 required={type !== 'GENERAL_TASK'}
@@ -661,7 +660,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
               <WheelDateTimeField
                 mode="date"
                 id="follow-up-due-date"
-                name="dueDate"
                 value={dueDate}
                 onChange={setDueDate}
                 label="Son tarih (isteğe bağlı)"

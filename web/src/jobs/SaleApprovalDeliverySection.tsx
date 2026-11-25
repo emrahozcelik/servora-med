@@ -281,7 +281,6 @@ export function SaleApprovalDeliverySection(props: SaleApprovalDeliverySectionPr
             <WheelDateTimeField
               mode="datetime"
               id={ids.scheduledAt}
-              name="scheduledAt"
               value={draft.scheduledLocal}
               onChange={(value) => onChange({
                 scheduledLocal: value,

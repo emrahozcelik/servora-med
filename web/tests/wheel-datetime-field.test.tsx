@@ -129,6 +129,17 @@ describe('desktop native input', () => {
     expect(container.querySelector('input')?.type).toBe('time');
     expect(container.querySelector('input')?.value).toBe('10:30');
   });
+
+  it('omits the name attribute when the replaced input had none', async () => {
+    resizeTo(1280);
+    await renderField({ mode: 'date', id: 'due', value: '2026-11-26' });
+    expect(container.querySelector('input')?.hasAttribute('name')).toBe(false);
+
+    resizeTo(390);
+    await renderField({ mode: 'date', id: 'due', value: '2026-11-26' });
+    expect(trigger().hasAttribute('name')).toBe(false);
+    expect(container.querySelector('.wheel-field-proxy')?.hasAttribute('name')).toBe(false);
+  });
 });
 
 describe('compact wheel sheet', () => {

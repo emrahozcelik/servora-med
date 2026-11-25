@@ -90,6 +90,10 @@ describe('date/time field adoption', () => {
 
     const triggers = container.querySelectorAll<HTMLButtonElement>('.wheel-field-trigger');
     expect(triggers).toHaveLength(2);
+    const label = container.querySelector('label[for="report-range-from"]')!;
+    expect(label).not.toBeNull();
+    expect(label.contains(triggers[0]!)).toBe(false);
+    expect(container.querySelector('.wheel-field-proxy')?.getAttribute('name')).toBe('from');
     await act(async () => triggers[0]!.click());
     await commitWheel();
     expect(triggers[0]!.textContent).not.toContain('Seçin');

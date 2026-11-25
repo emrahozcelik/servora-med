@@ -16,6 +16,11 @@ import { formatWheelDisplay } from '../src/ui/wheel-datetime';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const styles = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
 
+function resizeTo(width: number) {
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 const preview = vi.hoisted(() => ({
   evaluation: null as CustomerScheduleEvaluation | null,
   lastEnabled: undefined as boolean | undefined,
@@ -80,6 +85,7 @@ describe('JobDetail joint slot edit', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    resizeTo(1024);
     preview.evaluation = null;
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
       matches: false, media: '', onchange: null,
@@ -330,6 +336,40 @@ describe('JobDetail joint slot edit', () => {
     expect(document.activeElement?.id).toBe('job-scheduled-at');
   });
 
+  it('renders the compact wheel schedule field and commits the chosen time', async () => {
+    resizeTo(390);
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    await openScheduleEditor();
+    const trigger = container.querySelector<HTMLButtonElement>('#job-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = container.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...container.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+
+    const cancel = [...container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Vazgeç')!;
+    await act(async () => cancel.click());
+    expect(document.activeElement?.textContent?.trim()).toBe('Değiştir');
+  });
+
   it('summarises the planned interval in one compact row before editing', async () => {
     await act(async () => root.render(<JobDetailPanel
       job={job}
@@ -368,6 +408,7 @@ describe('JobDetail joint slot edit', () => {
 
     const savedValue = isoInstantToLocalDateTime(job.scheduledAt!);
     await openScheduleEditor();
+    expect(document.activeElement?.id).toBe('job-scheduled-at');
     expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value).toBe(savedValue);
     await setInputValue('#job-scheduled-at', '2026-08-18T09:00');
 
@@ -378,8 +419,24 @@ describe('JobDetail joint slot edit', () => {
 
     expect(container.querySelector('#job-scheduled-at')).toBeNull();
     expect(container.querySelector('[data-job-schedule-summary="true"]')).not.toBeNull();
+    expect(document.activeElement?.textContent?.trim()).toBe('Değiştir');
     await openScheduleEditor();
     expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value).toBe(savedValue);
+  });
+
+  it('processes a positive scheduleShiftSignal on the first render', async () => {
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+      scheduleShiftSignal={1}
+    />));
+    expect(container.querySelector('#job-scheduled-at')).not.toBeNull();
+    expect(container.querySelector('[data-job-schedule-summary="true"]')).toBeNull();
   });
 
   it('groups available slots by day and commits a time chip', async () => {
@@ -388,6 +445,25 @@ describe('JobDetail joint slot edit', () => {
       { startsAt: '2026-08-17T08:30:00.000Z', endsAt: '2026-08-17T09:00:00.000Z' },
       { startsAt: '2026-08-18T10:30:00.000Z', endsAt: '2026-08-18T11:00:00.000Z' },
     ];
+    const weekdayShort = new Intl.DateTimeFormat('tr-TR', { weekday: 'short' });
+    const weekdayLong = new Intl.DateTimeFormat('tr-TR', { weekday: 'long' });
+    const monthShort = new Intl.DateTimeFormat('tr-TR', { month: 'short' });
+    const monthLong = new Intl.DateTimeFormat('tr-TR', { month: 'long' });
+    const dayNumber = new Intl.DateTimeFormat('tr-TR', { day: 'numeric' });
+    const clock = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const dayKey = (iso: string) => isoInstantToLocalDateTime(iso).slice(0, 10);
+    const shortDay = (iso: string) => {
+      const date = new Date(iso);
+      return `${weekdayShort.format(date)} ${dayNumber.format(date)} ${monthShort.format(date)}`;
+    };
+    const longDay = (iso: string) => {
+      const date = new Date(iso);
+      return `${dayNumber.format(date)} ${monthLong.format(date)} ${weekdayLong.format(date)}`;
+    };
+    const expectedDays = [...new Set(slots.map((slot) => dayKey(slot.startsAt)))]
+      .map((key) => shortDay(slots.find((slot) => dayKey(slot.startsAt) === key)!.startsAt));
+    const expectedChips = slots.map((slot) => clock.format(new Date(slot.startsAt)));
+
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ slots })));
     await act(async () => root.render(<JobDetailPanel
       job={job}
@@ -404,11 +480,13 @@ describe('JobDetail joint slot edit', () => {
 
     const dayLabels = [...container.querySelectorAll('.available-slots-day-label')]
       .map((label) => label.textContent);
-    expect(dayLabels).toEqual(['Pzt 17 Ağu', 'Sal 18 Ağu']);
+    expect(dayLabels).toEqual(expectedDays);
     const chips = [...container.querySelectorAll<HTMLButtonElement>('button[data-available-slot]')];
-    expect(chips.map((chip) => chip.textContent)).toEqual(['10:00', '11:30', '13:30']);
-    expect(chips[0]!.getAttribute('aria-label')).toContain('17 Ağustos Pazartesi 10:00–10:30');
-    expect(chips[1]!.getAttribute('aria-label')).toContain('17 Ağustos Pazartesi 11:30–12:00');
+    expect(chips.map((chip) => chip.textContent)).toEqual(expectedChips);
+    const firstTime = `${clock.format(new Date(slots[0]!.startsAt))}–${clock.format(new Date(slots[0]!.endsAt))}`;
+    const secondTime = `${clock.format(new Date(slots[1]!.startsAt))}–${clock.format(new Date(slots[1]!.endsAt))}`;
+    expect(chips[0]!.getAttribute('aria-label')).toContain(`${longDay(slots[0]!.startsAt)} ${firstTime}`);
+    expect(chips[1]!.getAttribute('aria-label')).toContain(`${longDay(slots[1]!.startsAt)} ${secondTime}`);
 
     await act(async () => chips[1]!.click());
     expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value)

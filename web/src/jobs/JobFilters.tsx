@@ -200,7 +200,6 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
         <WheelDateTimeField
           mode="date"
           id="job-due-after"
-          name="dueAfter"
           value={advanced.dueAfter}
           onChange={(value) => setAdvanced({ ...advanced, dueAfter: value })}
           label="Başlangıç tarihi"
@@ -210,7 +209,6 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
         <WheelDateTimeField
           mode="date"
           id="job-due-before"
-          name="dueBefore"
           value={advanced.dueBefore}
           onChange={(value) => setAdvanced({ ...advanced, dueBefore: value })}
           label="Bitiş tarihi"

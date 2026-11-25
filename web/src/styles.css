@@ -389,6 +389,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 @media (min-width: 64rem) {
   .available-slots-strip { flex-wrap: wrap; overflow: visible; }
+  /* A single busy day must wrap its chips inside the detail column instead of
+     widening the page with 20+ 44px targets (verifier round 1). */
+  .available-slots-day { flex: 0 1 auto; max-width: 100%; }
+  .available-slots-day-chips { min-width: 0; }
 }
 .ghost-button { border: 1px solid transparent; color: var(--accent); background: transparent; min-width: 0; }
 .destructive-button {
@@ -513,6 +517,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .report-filters-wide--customer > label:nth-child(n + 3) { grid-row: 2; }
 .report-filters-wide--customer > button { grid-row: 2; }
 .report-filters label { display: grid; gap: 0.4rem; color: var(--muted); font-size: 0.8125rem; font-weight: 700; }
+.report-range-field { display: grid; gap: 0.4rem; min-width: 0; }
+.report-range-field > label { display: block; }
 .report-filters button, .report-filters input, .report-filters select { min-height: var(--control-height); }
 .report-filters input, .report-filters select { min-width: 0; min-height: var(--control-height); padding: 0.72rem 0.85rem; border: 1px solid var(--border-control); border-radius: var(--radius-control); color: var(--ink); background: var(--paper); }
 .report-filters input:hover, .report-filters select:hover { border-color: var(--border-control-hover); }
@@ -3627,6 +3633,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .job-schedule-edit .review-buttons {
   margin-top: 1rem;
+}
+.job-schedule-edit {
+  min-width: 0;
+  max-width: 100%;
+}
+.job-schedule-edit > form {
+  min-width: 0;
 }
 .job-schedule-summary {
   display: flex;

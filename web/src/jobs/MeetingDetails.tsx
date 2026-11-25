@@ -304,7 +304,6 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
           <WheelDateTimeField
             mode="datetime"
             id="meeting-actual-at"
-            name="meetingAt"
             value={meetingAt}
             onChange={setMeetingAt}
             required={!meetingOptional}
