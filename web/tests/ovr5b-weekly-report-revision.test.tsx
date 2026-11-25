@@ -9,6 +9,7 @@ import type { JobCard } from '../src/jobs/jobs-api';
 import type { WeeklyReportDetail as WeeklyReportDetailDto } from '../src/jobs/weekly-report-api';
 import { defaultCorrectionDueLocalValue, localDateTimeToIso } from '../src/jobs/scheduling';
 import { workflowContext as baseWorkflowContext } from './fixtures/job-workflow';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -108,11 +109,7 @@ describe('OVR-5 weekly report revision correction deadline', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    stubMatchMedia();
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);

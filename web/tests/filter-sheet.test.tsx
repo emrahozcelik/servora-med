@@ -29,6 +29,11 @@ function setNarrow(narrow: boolean) {
   })));
 }
 
+function resizeTo(width: number) {
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 describe('filter sheets and active counts', () => {
   let host: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -96,6 +101,55 @@ describe('filter sheets and active counts', () => {
     const payload = onApply.mock.calls.at(-1)?.[0];
     expect(payload).toMatchObject({ q: 'klinik', priority: 'urgent', status: 'active' });
     expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('uses the wheel date trigger at 768px, commits it and keeps the nested scroll lock balanced', async () => {
+    setNarrow(true);
+    resizeTo(768);
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    const onApply = vi.fn();
+    await act(async () => {
+      root!.render(
+        <JobFilters
+          user={manager}
+          filters={{ view: 'list', offset: 0, status: 'active', dueAfter: '2026-11-20' }}
+          onApply={onApply}
+          onClear={() => undefined}
+          onChange={() => undefined}
+          onViewChange={() => {}}
+          boardSupported={false}
+        />,
+      );
+    });
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]');
+    await act(async () => trigger?.click());
+
+    const dueAfter = host.querySelector<HTMLButtonElement>('#job-due-after');
+    expect(dueAfter).not.toBeNull();
+    expect(dueAfter!.tagName).toBe('BUTTON');
+    expect(dueAfter!.hasAttribute('name')).toBe(false);
+    expect(document.body.style.overflow).toBe('hidden');
+
+    await act(async () => dueAfter!.click());
+    const day = document.querySelector<HTMLElement>(
+      '[role="spinbutton"][aria-label="Gün"]',
+    )!;
+    await act(async () => {
+      day.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(dueAfter!.textContent).toContain('21 Kas');
+
+    const apply = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Uygula');
+    await act(async () => apply?.click());
+    expect(onApply).toHaveBeenCalled();
+    expect(onApply.mock.calls.at(-1)?.[0]).toMatchObject({ dueAfter: '2026-11-21' });
+    expect(document.body.style.overflow).toBe('');
+    resizeTo(1024);
   });
 
   it('renders compact search and filters as icon-only 44px targets with badge and names', async () => {

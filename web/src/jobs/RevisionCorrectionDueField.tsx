@@ -4,9 +4,10 @@
  * server `fieldErrors.correctionDueAt` next to the control.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 import { addMinutesLocal, isoInstantToLocalDateTime } from './scheduling';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 export type RevisionCorrectionDraft = {
   /** Device-local `YYYY-MM-DDTHH:mm` for the datetime-local input. */
@@ -34,26 +35,24 @@ export function RevisionCorrectionDueField({
 }) {
   const hintId = 'revision-correction-due-at-hint';
   const errorId = 'revision-correction-due-at-error';
-  const inputRef = useRef<HTMLInputElement>(null);
   // OVR-5b visual review: a server field error moves focus to the picker
   // instead of leaving it on the dialog shell or the submit button.
   useEffect(() => {
-    if (draft.fieldError) inputRef.current?.focus();
+    if (draft.fieldError) document.getElementById('revision-correction-due-at')?.focus();
   }, [draft.fieldError]);
   return (
     <div className="field-group">
-      <label htmlFor="revision-correction-due-at">Düzeltme son tarihi</label>
-      <input
-        ref={inputRef}
+      <WheelDateTimeField
+        mode="datetime"
         id="revision-correction-due-at"
         name="correctionDueAt"
-        type="datetime-local"
         value={draft.value}
+        onChange={(value) => onChange({ value, fieldError: null })}
         required
         disabled={disabled}
-        aria-invalid={draft.fieldError ? true : undefined}
+        invalid={Boolean(draft.fieldError)}
         aria-describedby={draft.fieldError ? `${hintId} ${errorId}` : hintId}
-        onChange={(event) => onChange({ value: event.target.value, fieldError: null })}
+        label="Düzeltme son tarihi"
       />
       <div className="schedule-quick-chips" role="group" aria-label="Hızlı düzeltme süresi seçenekleri">
         {CORRECTION_DUE_PRESETS.map((preset) => (

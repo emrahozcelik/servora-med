@@ -27,6 +27,7 @@ import { listProducts, type Product, type ProductFilters } from './services/prod
 import type { Customer, CustomerSummary } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { PageHeader } from './ui/PageHeader';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import './jobs/job-create.css';
 
 export type DeliveryFormValues = {
@@ -389,9 +390,17 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
           <select id="delivery-purpose" name="deliveryPurpose" required disabled={semanticInputsDisabled} defaultValue="SALE">
             <option value="SALE">Satış</option><option value="SAMPLE">Numune</option><option value="CONSIGNMENT">Konsinye</option><option value="RETURN">İade</option><option value="OTHER">Diğer</option>
           </select></div>
-      <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
-        <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
-          value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} />
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="datetime"
+          id="delivery-scheduled-at"
+          name="scheduledAt"
+          value={scheduledLocal}
+          onChange={setScheduledLocal}
+          required
+          disabled={semanticInputsDisabled}
+          label="Planlanan teslim zamanı"
+        />
         <ScheduleQuickControls
           value={scheduledLocal}
           durationMinutes={30}

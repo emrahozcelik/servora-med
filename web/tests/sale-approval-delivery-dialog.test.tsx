@@ -11,6 +11,7 @@ import type {
 import type { SaleDetails } from '../src/jobs/sale-api';
 import { defaultDeliveryScheduledLocal } from '../src/jobs/sale-approval-delivery';
 import { parseSaleDetails } from '../src/jobs/sale-api';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -211,6 +212,7 @@ describe('SALE-002 S3 approval delivery section', () => {
   let root: Root;
 
   beforeEach(() => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1024 });
     vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
       matches: query.includes('min-width'), media: query, onchange: null,
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
@@ -266,6 +268,32 @@ describe('SALE-002 S3 approval delivery section', () => {
 
   const pairScenario = (extra: Partial<Scenario> = {}): Scenario => ({
     main: visitCard(), sale: saleCard(), ...extra,
+  });
+
+  function resizeTo(width: number) {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  it('renders and commits the compact wheel trigger for the delivery time', async () => {
+    stubMatchMedia({ narrow: true });
+    resizeTo(390);
+    await openVisitApproval(pairScenario());
+    const trigger = section().querySelector<HTMLButtonElement>('.wheel-field-trigger')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    stubMatchMedia();
+    resizeTo(1024);
   });
   const independentScenario = (extra: Partial<Scenario> = {}): Scenario => ({
     main: saleCard('WAITING_APPROVAL', { workflowContext: context(['APPROVE', 'REQUEST_REVISION', 'CANCEL']) }),

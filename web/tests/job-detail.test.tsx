@@ -2355,6 +2355,10 @@ describe('Staff JobCard detail', () => {
     await renderRealtimeScreen(accepted, source, fetch);
 
     await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
       buttonByName(host, 'Planlanan zamanı kaydet')?.click();
       await Promise.resolve();
     });
@@ -2800,6 +2804,10 @@ describe('Staff JobCard detail', () => {
       await renderScreen(card);
       expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(true);
       expect(host.querySelector('.job-notes form')).not.toBeNull();
+      await act(async () => {
+        buttonByName(host, 'Değiştir')?.click();
+        await Promise.resolve();
+      });
       expect(host.querySelector('#job-scheduled-at')).not.toBeNull();
       expect(host.querySelector('label[for="job-scheduled-at"]')?.textContent)
         .toContain('Planlanan görüşme zamanı');
@@ -6307,6 +6315,10 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
       const input = document.getElementById('job-scheduled-at') as HTMLInputElement;
       expect(input).not.toBeNull();
       input.value = '2026-07-21T13:00';
@@ -7407,6 +7419,10 @@ describe('Staff JobCard detail', () => {
     };
     await renderScreen(lockedOffered);
 
+    await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
     const requestBtn = buttonByName(host, 'Değişiklik önerisi gönder');
     expect(requestBtn).not.toBeNull();
     await act(async () => requestBtn!.click());

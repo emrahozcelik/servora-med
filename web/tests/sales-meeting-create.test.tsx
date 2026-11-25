@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 import { setCustomerPhone } from './helpers/customer-phone';
 import {
   customerOptionTitles,
@@ -87,6 +88,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 describe('Sales Meeting create page (AAP create-time parity)', () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -94,12 +101,8 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resizeTo(1024);
     scheduling.isoInstantToLocalDateTime.mockImplementation(() => '2026-08-10T09:30');
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),
@@ -133,6 +136,25 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     </MemoryRouter>));
     await flush();
   }
+
+  it('renders and commits the compact wheel trigger without a form name', async () => {
+    resizeTo(390);
+    await render(staffUser);
+    const trigger = host.querySelector<HTMLButtonElement>('#meeting-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+  });
 
   function selectedCustomerLabel() {
     const select = host.querySelector('#meeting-customer')?.closest('.ant-select');

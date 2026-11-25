@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FollowUpCreatePage } from '../src/jobs/FollowUpCreatePage';
+import { stubMatchMedia } from './helpers/match-media';
 import { CUSTOMERLESS_FOLLOW_UP_EXPLANATION } from '../src/jobs/follow-up-presentation';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { JobCard } from '../src/jobs/jobs-api';
@@ -138,6 +139,12 @@ async function flush() {
   await act(async () => { await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 async function waitForAvailableSlotSearch() {
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); await Promise.resolve(); });
 }
@@ -149,11 +156,7 @@ describe('Follow-up create page', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    resizeTo(1024);
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),
@@ -199,6 +202,25 @@ describe('Follow-up create page', () => {
       onCancel={() => {}} onCreated={onCreated} />));
     await flush();
   }
+
+  it('renders and commits the compact wheel trigger for the planned follow-up time', async () => {
+    resizeTo(390);
+    await render();
+    const trigger = host.querySelector<HTMLButtonElement>('#follow-up-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+  });
 
   it('does not load or expose an operational form to Staff', async () => {
     await render(staffUser);
@@ -875,11 +897,7 @@ describe('Follow-up create ambiguous attempt contract', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    resizeTo(1024);
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `fu-action-${++action}`),

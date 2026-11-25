@@ -10,15 +10,11 @@ import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import { setCustomerPhone } from './helpers/customer-phone';
 import {
-  clearCustomerSelection,
-  customerOptionTitles,
-  openCustomerSearchDropdown,
-  pickCustomerByName,
-  searchCustomer,
-  selectCustomerOption,
-  settleCustomerSearch,
-  stubMatchMedia,
+  clearCustomerSelection, customerOptionTitles, openCustomerSearchDropdown,
+  pickCustomerByName, searchCustomer, selectCustomerOption, settleCustomerSearch,
+  stubMatchMedia as stubHarnessMatchMedia,
 } from './customer-search-select-harness';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let uuidSeq = 0;
@@ -88,11 +84,18 @@ function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
   element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
 }
 
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 describe('General Task quick create', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.clearAllMocks();
-    stubMatchMedia();
+    resizeTo(1024);
+    stubHarnessMatchMedia();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `action-${++uuidSeq}`) });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
@@ -147,6 +150,26 @@ describe('General Task quick create', () => {
       customerId: null, contactId: null,
     });
     expect(onCreated).toHaveBeenCalledWith('job-task-1');
+  });
+
+  it('renders and commits the compact wheel trigger without adding a form name', async () => {
+    resizeTo(390);
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+
+    const trigger = container.querySelector<HTMLButtonElement>('#task-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    expect(trigger.textContent).toContain('Seçin');
+    await act(async () => trigger.click());
+    const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toContain('Seçin');
+    expect(document.body.style.overflow).toBe('');
   });
 
   it('submits scheduledAt null by default and supports quick schedule chips', async () => {

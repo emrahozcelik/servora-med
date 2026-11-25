@@ -88,6 +88,8 @@ import { apiFieldError } from './jobs/api-field-error';
 import type { RevisionCorrectionDraft } from './jobs/RevisionCorrectionDueField';
 import { hasValidPlannedIntervalForStart, plannedIntervalShape } from './jobs/job-schedule-integrity';
 import { ResultState } from './ui/antd/ResultState';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
+import { formatWheelDisplay } from './ui/wheel-datetime';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
 import { JobDecisionPanel } from './jobs/JobDecisionPanel';
 import {
@@ -130,6 +132,7 @@ import { ChangeRequestSection } from './jobs/ChangeRequests';
 import {
   AssignmentOfferSection,
   EMPTY_ASSIGNMENT_REASON,
+  SCHEDULE_EDITOR_OPEN_EVENT,
   type AssignmentReasonDraft,
 } from './jobs/AssignmentOffer';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
@@ -290,6 +293,36 @@ function formatScheduledInterval(startIso: string, endIso: string): ReactNode {
   );
 }
 
+/** Compact planned-time summary: `Per 26 Kas · 13:00–13:30 (30 dk)`. */
+function formatScheduleSummaryValue(job: JobCard): ReactNode {
+  if (!job.scheduledAt) return 'Planlanmadı';
+  const startDisplay = formatWheelDisplay(
+    'datetime',
+    isoInstantToLocalDateTime(job.scheduledAt),
+  );
+  if (!job.scheduledEndsAt) {
+    return <time dateTime={job.scheduledAt}>{startDisplay}</time>;
+  }
+  const start = new Date(job.scheduledAt);
+  const end = new Date(job.scheduledEndsAt);
+  const sameLocalDay = start.getFullYear() === end.getFullYear()
+    && start.getMonth() === end.getMonth()
+    && start.getDate() === end.getDate();
+  const endDisplay = sameLocalDay
+    ? new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(end)
+    : formatWheelDisplay('datetime', isoInstantToLocalDateTime(job.scheduledEndsAt));
+  const minutes = Math.round((end.valueOf() - start.valueOf()) / 60_000);
+  return (
+    <span>
+      <time dateTime={job.scheduledAt}>{startDisplay}</time>
+      {`–${endDisplay}`}
+      {minutes > 0 && (
+        <>{' '}<span className="job-schedule-summary-duration">({minutes} dk)</span></>
+      )}
+    </span>
+  );
+}
+
 /**
  * Advisory SCHED-3 reason for the assigned STAFF viewer's START control.
  * Computed from raw canonical JobCard fields only. The backend remains
@@ -431,21 +464,21 @@ function DeliveryItemActualTimeForm({
           : 'Teslim zamanı kaydedilmedi'}
       </p>
       <div className="field-group">
-        <label htmlFor={fieldId}>Gerçekleşen teslim zamanı</label>
-        <input
+        <WheelDateTimeField
+          mode="datetime"
           id={fieldId}
           name="deliveredAt"
-          type="datetime-local"
           value={localValue}
-          required
-          disabled={pending}
-          aria-invalid={fieldError ? true : undefined}
-          aria-describedby={fieldError ? `${fieldId}-error` : undefined}
-          onChange={(event) => {
-            setLocalValue(event.target.value);
+          onChange={(value) => {
+            setLocalValue(value);
             setFieldError('');
             setSubmitError('');
           }}
+          required
+          disabled={pending}
+          invalid={Boolean(fieldError)}
+          aria-describedby={fieldError ? `${fieldId}-error` : undefined}
+          label="Gerçekleşen teslim zamanı"
         />
         {fieldError && <span id={`${fieldId}-error`} className="field-error">{fieldError}</span>}
       </div>
@@ -513,6 +546,10 @@ function JobScheduleEditForm({
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
+  const [editing, setEditing] = useState(false);
+  /** Focus is restored only after the target branch has rendered. */
+  const [focusTarget, setFocusTarget] = useState<'editor' | 'summary' | null>(null);
+  const changeButtonRef = useRef<HTMLButtonElement>(null);
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
   // OVR-5 §5.4: the reason surface appears with open lateness, or after the
@@ -527,7 +564,7 @@ function JobScheduleEditForm({
   const submitErrorRef = useRef<HTMLParagraphElement>(null);
   const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}:${job.changeRequest?.id ?? ''}`;
   const lastKey = useRef(canonicalKey);
-  const lastShiftSignalRef = useRef(scheduleShiftSignal ?? 0);
+  const lastShiftSignalRef = useRef(0);
 
   useEffect(() => {
     if (managementUser && hasOpenOverdueIncident) setReasonVisible(true);
@@ -546,11 +583,51 @@ function JobScheduleEditForm({
     }
     if (scheduleShiftSignal !== lastShiftSignalRef.current) {
       lastShiftSignalRef.current = scheduleShiftSignal;
+      setEditing(true);
       setLocalValue(defaultScheduledLocalValue(new Date()));
       setFieldError('');
       setSubmitError('');
     }
   }, [scheduleShiftSignal]);
+
+  // Change-request and assignment-offer "new time" guidance opens this editor
+  // even while it is collapsed.
+  useEffect(() => {
+    const open = () => {
+      setEditing(true);
+      setFocusTarget('editor');
+    };
+    document.addEventListener(SCHEDULE_EDITOR_OPEN_EVENT, open);
+    return () => document.removeEventListener(SCHEDULE_EDITOR_OPEN_EVENT, open);
+  }, []);
+
+  useEffect(() => {
+    if (focusTarget === 'editor' && editing) {
+      const target = document.getElementById('job-scheduled-at');
+      const targetDisabled = target === null
+        || target.matches(':disabled')
+        || target.getAttribute('aria-disabled') === 'true';
+      if (!targetDisabled) {
+        target.scrollIntoView?.({ block: 'center' });
+        target.focus({ preventScroll: true });
+      } else {
+        // A locked planned time cannot take focus. Land on the enabled
+        // change-request action, or the editor heading when there is none.
+        const requestChange = document.getElementById('job-schedule-request-change');
+        const fallback = requestChange !== null && !requestChange.matches(':disabled')
+          ? requestChange
+          : document.getElementById('job-schedule-edit-title');
+        fallback?.scrollIntoView?.({ block: 'center' });
+        fallback?.focus({ preventScroll: true });
+      }
+      setFocusTarget(null);
+      return;
+    }
+    if (focusTarget === 'summary' && !editing) {
+      changeButtonRef.current?.focus();
+      setFocusTarget(null);
+    }
+  }, [editing, focusTarget]);
 
   // OVR-5b visual review: while this form is open the invalid reason field owns
   // focus on its client or server error, then the inline patch error does; the
@@ -601,9 +678,12 @@ function JobScheduleEditForm({
 
   const deadlineChanged = localValue.trim()
     !== (job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+  // OVR-5 §5.4: the reason only matters when the planned time actually moves
+  // and the job carries open lateness (or the server demanded it on submit).
+  const reasonFieldVisible = managementUser && reasonVisible && deadlineChanged;
 
   function deadlineChangeOptions(): DeadlineChangeOptions | undefined {
-    const trimmedReason = managementUser && reasonVisible ? reason.trim() : '';
+    const trimmedReason = reasonFieldVisible ? reason.trim() : '';
     const resolution = managementUser && resolveChangeRequest && deadlineChanged && job.changeRequest
       ? {
           changeRequestId: job.changeRequest.id,
@@ -621,7 +701,7 @@ function JobScheduleEditForm({
     event.preventDefault();
     if (pending || !onSave || scheduleLocked) return;
     setSubmitError('');
-    if (managementUser && reasonVisible && !reason.trim()) {
+    if (reasonFieldVisible && !reason.trim()) {
       setReasonError('Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.');
       return;
     }
@@ -651,22 +731,67 @@ function JobScheduleEditForm({
     }
   }
 
+  function cancelEdit() {
+    setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+    setFieldError('');
+    setSubmitError('');
+    setReason('');
+    setReasonError('');
+    setResolveChangeRequest(true);
+    setEditing(false);
+    setFocusTarget('summary');
+  }
+
+  if (!editing) {
+    return (
+      <section
+        className="job-schedule-edit job-schedule-edit--summary surface-flat"
+        aria-labelledby="job-schedule-summary-label"
+        data-job-schedule-summary="true"
+      >
+        <div className="job-schedule-summary">
+          <div className="job-schedule-summary-text">
+            <h2 id="job-schedule-summary-label" className="job-schedule-summary-label">
+              {scheduleEdit.label}
+            </h2>
+            <span className="job-schedule-summary-value">
+              {formatScheduleSummaryValue(job)}
+            </span>
+          </div>
+          <button
+            ref={changeButtonRef}
+            className="secondary-button job-schedule-summary-change"
+            type="button"
+            onClick={() => {
+              setEditing(true);
+              setFocusTarget('editor');
+            }}
+          >
+            Değiştir
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="job-schedule-edit surface-flat" aria-labelledby="job-schedule-edit-title">
-      <h2 id="job-schedule-edit-title">Planlanan zamanı düzenle</h2>
+      <h2 id="job-schedule-edit-title" tabIndex={-1}>Planlanan zamanı düzenle</h2>
       <form onSubmit={submit} noValidate>
         <div className="field-group">
-          <label htmlFor="job-scheduled-at">
-            {scheduleEdit.label}{scheduleEdit.optional ? ' (isteğe bağlı)' : ''}
-          </label>
-          <input
+          <WheelDateTimeField
+            mode="datetime"
             id="job-scheduled-at"
             name="scheduledAt"
-            type="datetime-local"
             value={localValue}
+            onChange={(value) => {
+              setLocalValue(value);
+              setFieldError('');
+              setSubmitError('');
+            }}
             required={!scheduleEdit.optional}
             disabled={pending || scheduleLocked}
-            aria-invalid={fieldError ? true : undefined}
+            invalid={Boolean(fieldError)}
             aria-describedby={[
               fieldError ? 'job-scheduled-at-error' : null,
               customerTimeLocked
@@ -676,11 +801,7 @@ function JobScheduleEditForm({
                   : null,
               assignmentOfferHint ? 'job-scheduled-at-offer-hint' : null,
             ].filter(Boolean).join(' ') || undefined}
-            onChange={(event) => {
-              setLocalValue(event.target.value);
-              setFieldError('');
-              setSubmitError('');
-            }}
+            label={`${scheduleEdit.label}${scheduleEdit.optional ? ' (isteğe bağlı)' : ''}`}
           />
           {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
           {customerTimeLocked && (
@@ -718,14 +839,14 @@ function JobScheduleEditForm({
             }}
           />
         </div>
-        {managementUser && reasonVisible && (
+        {reasonFieldVisible && (
           <div className="field-group">
             <label htmlFor="job-schedule-extension-reason">Tarih değişikliği gerekçesi</label>
             <textarea
               ref={reasonRef}
               id="job-schedule-extension-reason"
               name="deadlineExtensionReason"
-              rows={3}
+              rows={2}
               value={reason}
               maxLength={500}
               disabled={pending}
@@ -782,6 +903,7 @@ function JobScheduleEditForm({
             && job.changeRequest == null
             && onRequestChange && (
             <button
+              id="job-schedule-request-change"
               className="secondary-button"
               type="button"
               disabled={pending}
@@ -790,9 +912,12 @@ function JobScheduleEditForm({
               Değişiklik önerisi gönder
             </button>
           )}
-          <button className="secondary-button" type="submit"
+          <button className="primary-button" type="submit"
             disabled={pending || !onSave || scheduleLocked}>
             {pending ? 'Kaydediliyor…' : 'Planlanan zamanı kaydet'}
+          </button>
+          <button className="secondary-button" type="button" disabled={pending} onClick={cancelEdit}>
+            Vazgeç
           </button>
         </div>
       </form>

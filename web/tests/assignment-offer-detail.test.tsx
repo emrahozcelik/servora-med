@@ -135,6 +135,13 @@ function buttonByText(host: ParentNode, name: string) {
     .find((button) => button.textContent?.trim() === name) ?? null;
 }
 
+async function openScheduleEditor(host: ParentNode) {
+  await act(async () => {
+    buttonByText(host, 'Değiştir')?.click();
+    await Promise.resolve();
+  });
+}
+
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const prototype = element instanceof HTMLTextAreaElement
     ? HTMLTextAreaElement.prototype
@@ -1133,6 +1140,7 @@ describe('past-start acknowledgement retry on the schedule edit', () => {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await openScheduleEditor(host);
 
     const hint = host.querySelector('[data-schedule-offer-hint="true"]');
     expect(hint?.textContent)
@@ -1170,6 +1178,7 @@ describe('past-start acknowledgement retry on the schedule edit', () => {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await openScheduleEditor(host);
 
     const input = host.querySelector('#job-scheduled-at') as HTMLInputElement;
     expect(input).not.toBeNull();
@@ -1231,6 +1240,7 @@ describe('past-start acknowledgement retry on the schedule edit', () => {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await openScheduleEditor(host);
 
     const input = host.querySelector('#job-scheduled-at') as HTMLInputElement;
     await act(async () => setNativeValue(input, '2026-11-21T15:30'));

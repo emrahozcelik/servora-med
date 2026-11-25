@@ -1,14 +1,27 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailPanel } from '../src/JobDetail';
+import { focusScheduleEditor } from '../src/jobs/AssignmentOffer';
 import type { CurrentUser } from '../src/services/api';
-import type { CustomerScheduleEvaluation, JobCard } from '../src/jobs/jobs-api';
+import type { AvailableSlot, CustomerScheduleEvaluation, JobCard } from '../src/jobs/jobs-api';
 import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
+import { formatWheelDisplay } from '../src/ui/wheel-datetime';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+const styles = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
+
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
 
 const preview = vi.hoisted(() => ({
   evaluation: null as CustomerScheduleEvaluation | null,
@@ -56,14 +69,26 @@ describe('JobDetail joint slot edit', () => {
   let root: Root;
   let container: HTMLDivElement;
 
+  async function openScheduleEditor(): Promise<void> {
+    const change = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Değiştir');
+    expect(change).toBeTruthy();
+    await act(async () => change!.click());
+  }
+
+  async function setInputValue(selector: string, value: string): Promise<void> {
+    const field = container.querySelector(selector) as HTMLInputElement;
+    expect(field).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, value);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
+    resizeTo(1024);
     preview.evaluation = null;
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
       slots: [{ startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' }],
     })));
@@ -92,6 +117,7 @@ describe('JobDetail joint slot edit', () => {
       onSaveSchedule={onSave}
     />));
     expect(container.querySelector('#job-scheduled-ends-at')).toBeNull();
+    await openScheduleEditor();
     await act(async () => { vi.advanceTimersByTime(300); });
     await act(async () => { await Promise.resolve(); });
     const button = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
@@ -133,6 +159,7 @@ describe('JobDetail joint slot edit', () => {
 
     expect(container.querySelector('.customer-schedule-notice')).toBeNull();
     expect(container.querySelector('.customer-schedule-notice button')).toBeNull();
+    await openScheduleEditor();
     await act(async () => (container.querySelector('.job-schedule-edit form') as HTMLFormElement).requestSubmit());
     expect(onSave).toHaveBeenCalledWith(
       '2026-08-16T10:00:00.000Z',
@@ -155,6 +182,7 @@ describe('JobDetail joint slot edit', () => {
       onSaveSchedule={onSave}
     />));
 
+    await openScheduleEditor();
     const input = container.querySelector('#job-scheduled-at') as HTMLInputElement;
     expect(input.disabled).toBe(true);
     const before = input.value;
@@ -248,6 +276,7 @@ describe('JobDetail joint slot edit', () => {
     await act(async () => { vi.advanceTimersByTime(300); });
     await act(async () => { await Promise.resolve(); });
 
+    await openScheduleEditor();
     const input = container.querySelector('#job-scheduled-at') as HTMLInputElement;
     expect(input.disabled).toBe(true);
     expect(container.textContent).toContain(
@@ -282,7 +311,274 @@ describe('JobDetail joint slot edit', () => {
       onCommand={() => {}}
       onSaveSchedule={vi.fn()}
     />));
+    await openScheduleEditor();
     expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).disabled).toBe(false);
     expect(container.textContent).not.toContain('Müşteri zamanı yalnızca yönetici tarafından değiştirilebilir.');
+  });
+
+  it('opens the collapsed editor from the new-time guidance and focuses the field', async () => {
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    expect(container.querySelector('#job-scheduled-at')).toBeNull();
+
+    await act(async () => { focusScheduleEditor(); });
+    expect(container.querySelector('#job-scheduled-at')).not.toBeNull();
+    expect(document.activeElement?.id).toBe('job-scheduled-at');
+  });
+
+  it.each([1024, 390])(
+    'moves focus to the enabled change-request action when a locked editor opens at %ipx',
+    async (width) => {
+      resizeTo(width);
+      const onRequestChange = vi.fn();
+      const locked: JobCard = {
+        ...job,
+        hasOpenOverdueIncident: true,
+        workflowContext: {
+          ...job.workflowContext,
+          allowedActions: ['EDIT_JOB_FIELDS', 'REQUEST_CHANGE'],
+        },
+      };
+      await act(async () => root.render(<JobDetailPanel
+        job={locked}
+        items={[]}
+        user={user}
+        pending={false}
+        message=""
+        onCommand={() => {}}
+        onSaveSchedule={vi.fn()}
+        onRequestChange={onRequestChange}
+      />));
+      await openScheduleEditor();
+      const request = container.querySelector<HTMLButtonElement>('#job-schedule-request-change')!;
+      expect(request).not.toBeNull();
+      expect(request.disabled).toBe(false);
+      expect(document.activeElement).toBe(request);
+    },
+  );
+
+  it.each([1024, 390])(
+    'falls back to the editor heading when a locked editor has no change action at %ipx',
+    async (width) => {
+      resizeTo(width);
+      const locked: JobCard = { ...job, hasOpenOverdueIncident: true };
+      await act(async () => root.render(<JobDetailPanel
+        job={locked}
+        items={[]}
+        user={user}
+        pending={false}
+        message=""
+        onCommand={() => {}}
+        onSaveSchedule={vi.fn()}
+      />));
+      await openScheduleEditor();
+      expect(document.activeElement?.id).toBe('job-schedule-edit-title');
+    },
+  );
+
+  it('renders the compact wheel schedule field and commits the chosen time', async () => {
+    resizeTo(390);
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    await openScheduleEditor();
+    const trigger = container.querySelector<HTMLButtonElement>('#job-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = container.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...container.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+
+    const cancel = [...container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Vazgeç')!;
+    await act(async () => cancel.click());
+    expect(document.activeElement?.textContent?.trim()).toBe('Değiştir');
+  });
+
+  it('summarises the planned interval in one compact row before editing', async () => {
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+
+    const summary = container.querySelector('[data-job-schedule-summary="true"]');
+    expect(summary).not.toBeNull();
+    expect(summary!.textContent).toContain('Planlanan görüşme zamanı');
+    expect(summary!.textContent).toContain(
+      formatWheelDisplay('datetime', isoInstantToLocalDateTime(job.scheduledAt!)),
+    );
+    expect(summary!.textContent).toContain('(60 dk)');
+    expect(container.querySelector('#job-scheduled-at')).toBeNull();
+    expect(container.querySelector('form')).toBeNull();
+    const change = Array.from(summary!.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Değiştir');
+    expect(change).toBeTruthy();
+  });
+
+  it('opens with Değiştir and Vazgeç restores the saved value and collapses', async () => {
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+
+    const savedValue = isoInstantToLocalDateTime(job.scheduledAt!);
+    await openScheduleEditor();
+    expect(document.activeElement?.id).toBe('job-scheduled-at');
+    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value).toBe(savedValue);
+    await setInputValue('#job-scheduled-at', '2026-08-18T09:00');
+
+    const cancel = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Vazgeç') as HTMLButtonElement;
+    expect(cancel).toBeTruthy();
+    await act(async () => cancel.click());
+
+    expect(container.querySelector('#job-scheduled-at')).toBeNull();
+    expect(container.querySelector('[data-job-schedule-summary="true"]')).not.toBeNull();
+    expect(document.activeElement?.textContent?.trim()).toBe('Değiştir');
+    await openScheduleEditor();
+    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value).toBe(savedValue);
+  });
+
+  it('processes a positive scheduleShiftSignal on the first render', async () => {
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+      scheduleShiftSignal={1}
+    />));
+    expect(container.querySelector('#job-scheduled-at')).not.toBeNull();
+    expect(container.querySelector('[data-job-schedule-summary="true"]')).toBeNull();
+  });
+
+  it('groups available slots by day and commits a time chip', async () => {
+    const slots: AvailableSlot[] = [
+      { startsAt: '2026-08-17T07:00:00.000Z', endsAt: '2026-08-17T07:30:00.000Z' },
+      { startsAt: '2026-08-17T08:30:00.000Z', endsAt: '2026-08-17T09:00:00.000Z' },
+      { startsAt: '2026-08-18T10:30:00.000Z', endsAt: '2026-08-18T11:00:00.000Z' },
+    ];
+    const weekdayShort = new Intl.DateTimeFormat('tr-TR', { weekday: 'short' });
+    const weekdayLong = new Intl.DateTimeFormat('tr-TR', { weekday: 'long' });
+    const monthShort = new Intl.DateTimeFormat('tr-TR', { month: 'short' });
+    const monthLong = new Intl.DateTimeFormat('tr-TR', { month: 'long' });
+    const dayNumber = new Intl.DateTimeFormat('tr-TR', { day: 'numeric' });
+    const clock = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const dayKey = (iso: string) => isoInstantToLocalDateTime(iso).slice(0, 10);
+    const shortDay = (iso: string) => {
+      const date = new Date(iso);
+      return `${weekdayShort.format(date)} ${dayNumber.format(date)} ${monthShort.format(date)}`;
+    };
+    const longDay = (iso: string) => {
+      const date = new Date(iso);
+      return `${dayNumber.format(date)} ${monthLong.format(date)} ${weekdayLong.format(date)}`;
+    };
+    const expectedDays = [...new Set(slots.map((slot) => dayKey(slot.startsAt)))]
+      .map((key) => shortDay(slots.find((slot) => dayKey(slot.startsAt) === key)!.startsAt));
+    const expectedChips = slots.map((slot) => clock.format(new Date(slot.startsAt)));
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ slots })));
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={user}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    await openScheduleEditor();
+    await act(async () => { vi.advanceTimersByTime(300); });
+    await act(async () => { await Promise.resolve(); });
+
+    const dayLabels = [...container.querySelectorAll('.available-slots-day-label')]
+      .map((label) => label.textContent);
+    expect(dayLabels).toEqual(expectedDays);
+    const chips = [...container.querySelectorAll<HTMLButtonElement>('button[data-available-slot]')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(expectedChips);
+    const firstTime = `${clock.format(new Date(slots[0]!.startsAt))}–${clock.format(new Date(slots[0]!.endsAt))}`;
+    const secondTime = `${clock.format(new Date(slots[1]!.startsAt))}–${clock.format(new Date(slots[1]!.endsAt))}`;
+    expect(chips[0]!.getAttribute('aria-label')).toContain(`${longDay(slots[0]!.startsAt)} ${firstTime}`);
+    expect(chips[1]!.getAttribute('aria-label')).toContain(`${longDay(slots[1]!.startsAt)} ${secondTime}`);
+
+    await act(async () => chips[1]!.click());
+    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value)
+      .toBe(isoInstantToLocalDateTime(slots[1]!.startsAt));
+    expect(chips[1]!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('shows the schedule reason only once a lateness-open deadline actually changes', async () => {
+    const manager: CurrentUser = {
+      ...user,
+      role: 'MANAGER',
+      capabilities: { overviewDashboard: true, calendar: true, messaging: true },
+    };
+    const latenessJob: JobCard = { ...job, hasOpenOverdueIncident: true };
+    await act(async () => root.render(<JobDetailPanel
+      job={latenessJob}
+      items={[]}
+      user={manager}
+      pending={false}
+      message=""
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn()}
+    />));
+    await openScheduleEditor();
+    expect(container.querySelector('#job-schedule-extension-reason')).toBeNull();
+
+    await setInputValue('#job-scheduled-at', '2026-08-18T09:00');
+    const reason = container.querySelector<HTMLTextAreaElement>('#job-schedule-extension-reason');
+    expect(reason).not.toBeNull();
+    expect(reason!.rows).toBe(2);
+    expect(container.textContent).toContain('En fazla 500 karakter.');
+
+    await act(async () => (container.querySelector('.job-schedule-edit form') as HTMLFormElement).requestSubmit());
+    expect(container.textContent).toContain(
+      'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.',
+    );
+    expect(document.activeElement).toBe(reason);
+  });
+
+  it('keeps the compact schedule structure in the stylesheet contract', () => {
+    expect(styles).toMatch(/\.job-schedule-summary\s*\{[^}]*display:\s*flex/s);
+    expect(styles).toMatch(/\.job-schedule-summary-change\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
+    expect(styles).toMatch(/@media\s*\(width < 64rem\)[\s\S]*\.schedule-quick-chips\s*\{[^}]*flex-wrap:\s*nowrap[\s\S]*scroll-snap-type:\s*x/s);
+    expect(styles).toMatch(/\.available-slots-strip\s*\{[^}]*scroll-snap-type:\s*x/s);
+    expect(styles).toMatch(/\.available-slot-chip\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
+    expect(styles).toMatch(/\.job-schedule-summary-change\s*\{[^}]*min-width:\s*0/s);
   });
 });

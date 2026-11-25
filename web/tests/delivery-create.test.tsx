@@ -1,4 +1,7 @@
 /** @vitest-environment jsdom */
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DeliveryCreateView, buildProductDeliveryRequest, createProductDelivery } from '../src/DeliveryCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 
 const user: CurrentUser = {
   id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'a@example.com',
@@ -13,6 +17,39 @@ const user: CurrentUser = {
 };
 
 describe('Product Delivery creation', () => {
+  it('uses the compact wheel trigger and commits the planned delivery time', async () => {
+    stubMatchMedia({ narrow: true });
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 390 });
+    window.dispatchEvent(new Event('resize'));
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(
+        <MemoryRouter><DeliveryCreateView user={user} onCancel={() => {}} onCreated={() => {}} /></MemoryRouter>,
+      ));
+      const trigger = container.querySelector<HTMLButtonElement>('#delivery-scheduled-at')!;
+      expect(trigger.tagName).toBe('BUTTON');
+      expect(trigger.hasAttribute('name')).toBe(false);
+      const before = trigger.textContent;
+      await act(async () => trigger.click());
+      const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+      await act(async () => {
+        hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      });
+      const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+        .find((button) => button.textContent === 'Tamam')!;
+      await act(async () => ok.click());
+      expect(trigger.textContent).not.toBe(before);
+      expect(document.body.style.overflow).toBe('');
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      stubMatchMedia();
+      Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1024 });
+    }
+  });
+
   it('uses one atomic request for multiple selected delivery items', async () => {
     const createDelivery = vi.fn().mockResolvedValue({ jobCardId: 'job-1', version: 4 });
     const values = {

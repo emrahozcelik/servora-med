@@ -297,6 +297,10 @@ Desktop list rows stay flat when list/table scanning is better; Card is not mand
 
 Text inputs, selects, and textareas share `--border-control` / `--border-control-hover` / `--focus`, `--radius-control`, `--control-height`, padding (`0.72rem 0.85rem` for inputs/textareas; `0 0.85rem` for selects), hover/focus/disabled/error states, and optional hint (`aria-describedby`). Static short option lists (including filter toolbars, calendar assignee filter, report dropdowns, and duplicate resolution reason selects) use native `<select>` under this shared FormControl CSS contract; async or searchable large datasets use the owned `ServoraSelect` adapter.
 
+### Date and time input (mobile wheel)
+
+`WheelDateTimeField` (`web/src/ui/WheelDateTimeField.tsx`) is the shared date/time control for every application screen that collects a date, time, or date-time: job creation, calendar plans, sales, delivery, follow-up, assignment proposals, correction deadlines, filters, reports, settings and job detail. Each field keeps its previous id and, where the replaced input had one, its name, label, `required`/`disabled`, `aria-describedby`, and native value contract in every mode: `YYYY-MM-DDTHH:mm` (datetime), `YYYY-MM-DD` (date), `HH:mm` (time), or `''`. Desktop (`useNarrowShell()` false, the 64rem shell gate) renders the unchanged native `<input type="datetime-local|date|time">`, so a form swaps its input without changing state handling. Compact viewports (below the 64rem shell gate) render a field-styled 44px trigger that shows the value in Turkish (`Çar 26 Kas · 10:30`) or `Seçin`, and open a bottom sheet of 44px scroll-snap wheels: day (`Bugün`, `Yarın`, then weekday labels) / hour / minute for datetime, day / month / year for date, and hour / minute for time. `Tamam` commits through `onChange`; `Vazgeç`, the backdrop and Escape discard the draft. The committed value uses one `resolveSelection` rule for both the settled wheel path and a fast confirmation: wheel centers are flushed synchronously, the combination is kept when it is inside `min`/`max`, otherwise it moves to the nearest bound exactly. An off-grid bound minute is offered in its hour's minute wheel and keeps that hour selectable, so `09:43` or `09:58` can be chosen and confirmed. An empty value starts at now rounded up to the next `minuteStep` value inside its hour; `min`/`max` clamp the initial selection and disable out-of-range wheel entries. A time range may wrap midnight (`22:00–02:00`), and the day wheel renders the whole explicit `min`/`max` range so `Home`/`End` reach the real bounds. Optional fields expose `Temizle`, which commits `''`; required fields do not. On compact viewports a visually clipped native input with the same `type`/`value`/`min`/`max`/`required` (and the same `name` when the replaced input had one) keeps `FormData` and constraint validation identical to the input it replaces, and its `invalid` event shows the reason under the trigger (`En erken: …` / `En geç: …` for range errors, the mode's `… seçin.` message for a missing required value) with `aria-invalid` + `aria-describedby`; only the first invalid field in a submit takes focus. Each wheel is one focusable `spinbutton` (ArrowUp/ArrowDown, PageUp/PageDown, Home/End) and scrolling respects `prefers-reduced-motion`. The sheet owns its title + `Vazgeç`/`Tamam` footer and reuses the shared overlay focus-trap/restore helpers; it is neither a filter sheet nor a form drawer.
+
 ### Filter Bars, Search & Pagination
 
 - List and report toolbars wrap filters inside `.filter-region` and prefer `.surface-flat` (`var(--canvas)` + `--rule` border, no card-on-card shadow) with a desktop reset action (`Filtreleri temizle` / `Filtreleri sıfırla` / `Temizle`) whenever non-default filters are active. On viewports below `64rem`, high-density list filters collapse into `FilterSheet` while keeping primary search accessible. There the compact toolbar renders the search submit and the `FilterSheet` trigger as icon-only 44 × 44 controls (shared `search` / `filter` glyphs in `ui/signal-icons.tsx`) named `Ara` and `Filtreler` (or `Filtreler, N etkin`), with the active filter count also shown as a small badge; desktop keeps the worded `Ara` submit. A selected quick-view membership (Onay kuyruğu, Düzeltme, Kapalı) and a report grouping are view choices, not filters, so they never show the reset action. Report date presets highlight from the URL range, so a reload or the default range keeps the right preset pressed.
@@ -445,13 +449,28 @@ use the owned Ant Design boundary in later implementation PRs.
   invalidation (`INVALIDATED` / `Geçersiz`) are not green completions. Banner shows actor,
   time, reason, and frozen source phase (plus restoration cue where applicable); completed
   state (`COMPLETED` / `Tamamlandı`) uses Confirmed Green only for true success.
-- **Planning & scheduling surfaces**: job creation and schedule-edit forms pair native
-  `datetime-local` inputs with `ScheduleQuickControls` (quick non-Sunday presets, planned
-  interval/duration preview, and non-blocking Sunday/past-start `status` hints) plus
-  same-day/horizon `AvailableSlotsNotice` that preserves the chosen slot selection.
-  Unacknowledged past-start submissions recover in-flow through `PastStartAcknowledgementDrawer`
-  with an optional shortcut to shift forward to the next open working slot. Calendar unifies
-  manual plans under **Kişisel plan** (concise `Plan` chip in desktop month cells to prevent
+- **Planning & scheduling surfaces**: every date and time control is the shared
+  `WheelDateTimeField` (native input on desktop, wheel sheet on compact). Job detail
+  presents the planned time as one compact summary row (the owning label plus
+  `Per 26 Kas · 13:00–13:30 (30 dk)`) with a secondary 44px `Değiştir` action; the
+  editor opens only on request, from the change-request/assignment "new time"
+  guidance (with focus), or from the past-start "shift forward" path. Editing keeps
+  the wheel field, one horizontally scrolling scroll-snap row of quick presets with
+  a right-edge overflow affordance, planned interval/duration preview, and running
+  Sunday/past-start `status` hints. `Personel için uygun saatler` becomes a compact
+  horizontal day strip: a `Per 26 Kas` label followed by 44px start-time chips
+  whose accessible name carries the full interval (`26 Kasım Perşembe 10:00–10:30`);
+  `Daha fazla göster` is a compact text button at the end of the strip. Selecting a
+  chip commits the same value as the slot list did. The reason textarea
+  (`Tarih değişikliği gerekçesi`, `rows=2` with the 500-character hint) appears only
+  once the value differs from the saved one and the job carries open lateness (or
+  the server demands it on submit). The action row is primary
+  `Planlanan zamanı kaydet` plus secondary `Vazgeç`, which restores the saved value
+  and collapses the editor. Desktop keeps the same structure; preset and slot
+  strips may wrap instead of scrolling there. Unacknowledged past-start submissions
+  recover in-flow through `PastStartAcknowledgementDrawer` with an optional shortcut
+  to shift forward to the next open working slot. Calendar unifies manual plans
+  under **Kişisel plan** (concise `Plan` chip in desktop month cells to prevent
   1024px clipping; `Yeni plan` in the desktop top bar via `page-create-action.tsx`).
 - **Compact workflow summary** (list/board): ordinal phase string such as
   `3 / 5 · Uygulanıyor` with optional attention flag. Secondary to the technical status

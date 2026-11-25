@@ -13,6 +13,7 @@ import {
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { PageHeader } from './ui/PageHeader';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import './jobs/job-create.css';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
@@ -226,9 +227,14 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
               {fieldErrors.assignedTo && <span id="task-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}
             </div>}
 
-              <div className="field-group"><label htmlFor="task-scheduled-at">Planlanan zaman (isteğe bağlı)</label>
-                <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
-                  onChange={(event) => setScheduledLocal(event.target.value)} />
+              <div className="field-group">
+                <WheelDateTimeField
+                  mode="datetime"
+                  id="task-scheduled-at"
+                  value={scheduledLocal}
+                  onChange={setScheduledLocal}
+                  label="Planlanan zaman (isteğe bağlı)"
+                />
                 <ScheduleQuickControls
                   value={scheduledLocal}
                   disabled={pending || ambiguous}

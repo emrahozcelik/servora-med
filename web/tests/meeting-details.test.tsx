@@ -7,6 +7,7 @@ import { meetingLocalValue, MeetingDetailsSection } from '../src/jobs/MeetingDet
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import { workflowContext } from './fixtures/job-workflow';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let uuidSeq = 0;
@@ -28,11 +29,37 @@ function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
 }
 async function settle() { await act(async () => { await Promise.resolve(); }); }
 
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 describe('MeetingDetailsSection', () => {
   let root: Root; let container: HTMLDivElement;
-  beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  beforeEach(() => { resizeTo(1024); container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `save-${++uuidSeq}`) }); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); });
+
+  it('renders and commits the compact wheel trigger for the meeting time', async () => {
+    resizeTo(390);
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details}
+      user={user} mutationPending={false} onSave={vi.fn()} />));
+    const trigger = container.querySelector<HTMLButtonElement>('#meeting-actual-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = container.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...container.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+  });
 
   it('defaults a null meeting time once to the current local minute', async () => {
     vi.useFakeTimers();

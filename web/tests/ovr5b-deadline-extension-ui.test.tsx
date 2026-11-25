@@ -13,6 +13,7 @@ import type {
 import type { CurrentUser } from '../src/services/api';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { workflowContext } from './fixtures/job-workflow';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -138,11 +139,7 @@ describe('OVR-5 deadline extension UI', () => {
   let root: Root;
 
   beforeEach(() => {
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    stubMatchMedia();
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
@@ -179,6 +176,13 @@ describe('OVR-5 deadline extension UI', () => {
     });
   }
 
+  async function openScheduleEditor() {
+    await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+  }
+
   async function setInput(selector: string, value: string) {
     const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
     if (!field) throw new Error(`field ${selector} not found`);
@@ -210,6 +214,7 @@ describe('OVR-5 deadline extension UI', () => {
   it('disables Staff deadline fields and points to the change request', async () => {
     const harness = makeFetch({ card: generalTask({ hasOpenOverdueIncident: true }) });
     await render(staffUser, harness);
+    await openScheduleEditor();
 
     const scheduleInput = host.querySelector<HTMLInputElement>('#job-scheduled-at')!;
     expect(scheduleInput).not.toBeNull();
@@ -409,10 +414,12 @@ describe('OVR-5 deadline extension UI', () => {
       card: generalTask({ hasOpenOverdueIncident: true, changeRequest: openRequest }),
     });
     await render(managerUser, harness);
+    await openScheduleEditor();
 
-    expect(host.querySelector('#job-schedule-extension-reason')).not.toBeNull();
+    expect(host.querySelector('#job-schedule-extension-reason')).toBeNull();
     await setInput('#job-scheduled-at', '2026-11-25T09:00');
     await settle();
+    expect(host.querySelector('#job-schedule-extension-reason')).not.toBeNull();
     const checkbox = host.querySelector<HTMLInputElement>('#job-schedule-resolve-change-request')!;
     expect(checkbox).not.toBeNull();
     expect(checkbox.checked).toBe(true);
@@ -439,6 +446,7 @@ describe('OVR-5 deadline extension UI', () => {
       }),
     });
     await render(managerUser, harness);
+    await openScheduleEditor();
 
     expect(host.querySelector('#job-schedule-resolve-change-request')).toBeNull();
     await setInput('#job-scheduled-at', '');
@@ -461,6 +469,7 @@ describe('OVR-5 deadline extension UI', () => {
       card: generalTask({ scheduledAt: '2026-11-20T09:00:00.000Z', changeRequest: openRequest }),
     });
     await render(managerUser, harness);
+    await openScheduleEditor();
 
     // Unchanged interval: no closure is offered and none is sent.
     expect(host.querySelector('#job-schedule-resolve-change-request')).toBeNull();
@@ -545,6 +554,11 @@ describe('OVR-5 deadline extension UI', () => {
   it('focuses the schedule reason field on its required client error', async () => {
     const harness = makeFetch({ card: generalTask({ hasOpenOverdueIncident: true }) });
     await render(managerUser, harness);
+    await openScheduleEditor();
+
+    expect(host.querySelector('#job-schedule-extension-reason')).toBeNull();
+    await setInput('#job-scheduled-at', '2026-11-25T09:00');
+    await settle();
 
     const reason = host.querySelector<HTMLTextAreaElement>('#job-schedule-extension-reason')!;
     expect(reason).not.toBeNull();
@@ -575,6 +589,7 @@ describe('OVR-5 deadline extension UI', () => {
       }, 400),
     });
     await render(managerUser, harness);
+    await openScheduleEditor();
 
     expect(host.querySelector('#job-schedule-extension-reason')).toBeNull();
     await setInput('#job-scheduled-at', '2026-11-25T09:00');
@@ -596,6 +611,9 @@ describe('OVR-5 deadline extension UI', () => {
       }, 409),
     });
     await render(managerUser, harness);
+    await openScheduleEditor();
+    await setInput('#job-scheduled-at', '2026-11-25T09:00');
+    await settle();
 
     const reason = host.querySelector<HTMLTextAreaElement>('#job-schedule-extension-reason')!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')

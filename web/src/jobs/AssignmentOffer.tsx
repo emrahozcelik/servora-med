@@ -7,6 +7,7 @@ import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
 import { OperationalCard } from '../ui/antd/OperationalCard';
 import { ResultState } from '../ui/antd/ResultState';
 import { ServoraListPagination } from '../ui/antd/ServoraPagination';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './PastStartAcknowledgementDrawer';
@@ -126,11 +127,18 @@ function recoveryHeadline(offer: AssignmentOffer): string {
 }
 
 /** Moves the reader to the existing planned-time editor; no new route. */
+export const SCHEDULE_EDITOR_OPEN_EVENT = 'servora:schedule-editor-open';
+
 export function focusScheduleEditor(): void {
   const target = document.getElementById('job-scheduled-at');
-  if (target === null) return;
-  target.scrollIntoView({ block: 'center' });
-  target.focus({ preventScroll: true });
+  if (target !== null) {
+    target.scrollIntoView({ block: 'center' });
+    target.focus({ preventScroll: true });
+    return;
+  }
+  // The schedule editor is collapsed by default; the page opens it and moves
+  // focus once the field is rendered.
+  document.dispatchEvent(new CustomEvent(SCHEDULE_EDITOR_OPEN_EVENT));
 }
 
 /** JOB-010 release 2b decline/release draft; validated in JobDetail. */
@@ -187,19 +195,19 @@ export function AssignmentReasonSection({
       </div>
       {draft.code === 'SCHEDULE_CONFLICT' && (
         <div className="field-group" data-assignment-proposal-field="true">
-          <label htmlFor="assignment-proposed-at">Önerdiğiniz zaman</label>
-          <input
+          <WheelDateTimeField
+            mode="datetime"
             id="assignment-proposed-at"
             name="proposedScheduledAt"
-            type="datetime-local"
             value={draft.proposedScheduledLocal}
+            onChange={(value) => onChange({ proposedScheduledLocal: value })}
             required
-            aria-invalid={scheduleError ? true : undefined}
+            invalid={Boolean(scheduleError)}
             aria-describedby={[
               'assignment-proposed-at-help',
               scheduleError ? 'assignment-proposed-at-error' : null,
             ].filter(Boolean).join(' ')}
-            onChange={(event) => onChange({ proposedScheduledLocal: event.target.value })}
+            label="Önerdiğiniz zaman"
           />
           <p className="form-help" id="assignment-proposed-at-help">
             Yönetici onaylarsa iş bu zamana taşınır ve sizin için kabul edilmiş olur.
