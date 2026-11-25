@@ -299,7 +299,7 @@ Text inputs, selects, and textareas share `--border-control` / `--border-control
 
 ### Filter Bars, Search & Pagination
 
-- List and report toolbars wrap filters inside `.filter-region` and prefer `.surface-flat` (`var(--canvas)` + `--rule` border, no card-on-card shadow) with a desktop reset action (`Filtreleri temizle` / `Filtreleri sıfırla` / `Temizle`) whenever non-default filters are active. On viewports below `64rem`, high-density list filters collapse into `FilterSheet` while keeping primary search accessible. A selected quick-view membership (Onay kuyruğu, Düzeltme, Kapalı) and a report grouping are view choices, not filters, so they never show the reset action. Report date presets highlight from the URL range, so a reload or the default range keeps the right preset pressed.
+- List and report toolbars wrap filters inside `.filter-region` and prefer `.surface-flat` (`var(--canvas)` + `--rule` border, no card-on-card shadow) with a desktop reset action (`Filtreleri temizle` / `Filtreleri sıfırla` / `Temizle`) whenever non-default filters are active. On viewports below `64rem`, high-density list filters collapse into `FilterSheet` while keeping primary search accessible. There the compact toolbar renders the search submit and the `FilterSheet` trigger as icon-only 44 × 44 controls (shared `search` / `filter` glyphs in `ui/signal-icons.tsx`) named `Ara` and `Filtreler` (or `Filtreler, N etkin`), with the active filter count also shown as a small badge; desktop keeps the worded `Ara` submit. A selected quick-view membership (Onay kuyruğu, Düzeltme, Kapalı) and a report grouping are view choices, not filters, so they never show the reset action. Report date presets highlight from the URL range, so a reload or the default range keeps the right preset pressed.
 - Fixed-page offset lists standardize on `ServoraListPagination` (`Sayfa X / Y · Toplam N <öğe>`), hiding automatically on single-page results (reports whose count is part of the answer keep `Toplam N <öğe>` via `showSinglePageTotal`) and preserving keyboard focus across page transitions. Cursor-based continuation streams (duplicate pair scan, job notes, older messages, notifications, append-mode staff lateness) intentionally keep explicit cursor buttons rather than total-page counters.
 - Expandable table rows use an icon-only chevron toggle (44px, `aria-expanded`, record-specific accessible name and a tooltip) instead of a repeated word in every row; mobile cards keep a worded `Ayrıntıları göster` disclosure.
 
@@ -415,11 +415,18 @@ use the owned Ant Design boundary in later implementation PRs.
   fall back to compact vertical without horizontal page scroll. Mobile: a one-line
   compact summary (`3 / 5 · Uygulanıyor`) that expands into the full vertical stepper
   through a native disclosure (UI-005).
-- **Mobile job detail order** (UI-005, below 1024px): title and status chips →
-  responsibility panel with its primary command(s) → compact lifecycle summary →
-  requirements, record details, notes and history. Manager-only lateness history is a
+- **Mobile job detail order** (UI-005, below 1024px, owner decision 2026-11-25): title and
+  status chips → compact lifecycle strip → responsibility panel with its primary command(s) →
+  requirements, record details, notes and history. The strip is the job card's signature
+  header: one row of five phase markers joined by a line plus `3 / 5 · Uygulanıyor`, expanding
+  into the full vertical stepper; an attention phase reads `Dikkat gerekiyor` in Delay Amber. Manager-only lateness history is a
   collapsed disclosure below the workflow; the open lateness signal keeps its place.
   Desktop keeps the stepper above the record and the decision group in the work rail.
+- **Early-start authorization**: lives with the schedule it describes (after the schedule edit
+  form, or after the record facts). Idle is one row, `İzin verilmedi` plus a secondary
+  `Erken başlamaya izin ver` disclosure that reveals the help text and the confirm action; a
+  granted authorization is a single status line. The offer is hidden when the job has no
+  planned start or its planned start is not in the future.
 - **Responsibility panel**: calm Surface grouping that states who should act next and what
   consequence follows the primary command. Management intervention outside review stays
   secondary even when allowed.

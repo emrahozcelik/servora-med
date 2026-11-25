@@ -100,6 +100,10 @@ button is introduced.
     No revocation or earliest-instant field in V1.
   - With a valid authorization, `START` is allowed any time before the
     tolerance boundary.
+  - Job detail presentation (2026-11-25): the grant surface sits next to the
+    schedule, not at the top of the page, and the UI hides the grant offer
+    when `scheduledAt` is missing or not in the future. Server eligibility
+    above is unchanged.
   - A "valid reschedule" means a new planned time set by whoever may change it:
     management for jobs in the window (§4); Staff too for jobs outside it,
     where JOB-006 §5 still applies. The tolerance then follows the new time.
