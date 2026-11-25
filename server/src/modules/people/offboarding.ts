@@ -8,6 +8,7 @@ import {
   canonicalScheduledEnd,
   JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL,
 } from '../job-cards/job-card-duration.js';
+import { findStaffOccupancyConflicts } from '../job-cards/occupancy.js';
 import { isTerminalJobStatus } from '../job-cards/policy.js';
 import {
   decideAssignmentOfferOpen,
@@ -246,6 +247,11 @@ export class PostgresStaffOffboardingService {
      * reassignment.
      */
     private readonly assignmentWindow: Readonly<{ enabled: boolean }> = { enabled: false },
+    /**
+     * Staff occupancy is core and always counts jobs; manual calendar events
+     * count only when the calendar module is enabled.
+     */
+    private readonly calendar: Readonly<{ enabled: boolean }> = { enabled: false },
   ) {}
 
   async preview(actor: SafeUser, targetUserId: string): Promise<StaffOffboardingPlan> {
@@ -980,23 +986,15 @@ export class PostgresStaffOffboardingService {
     scheduledEndsAt: string | null,
   ) {
     if (!scheduledAt || !scheduledEndsAt) return;
-    const conflict = await client.query(
-      `SELECT 1
-          FROM calendar_events e
-         WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
-           AND e.starts_at < $4 AND $3 < e.ends_at
-        UNION ALL
-        SELECT 1
-          FROM job_cards j
-         WHERE j.organization_id = $1 AND j.assigned_to = $2
-           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
-           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-           AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-           AND j.id <> $5 AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-        LIMIT 1`,
-      [organizationId, replacementUserId, scheduledAt, scheduledEndsAt, jobCardId],
-    );
-    if (conflict.rows.length > 0) {
+    const conflicts = await findStaffOccupancyConflicts(client, {
+      organizationId,
+      assignedUserId: replacementUserId,
+      startsAt: scheduledAt,
+      endsAt: scheduledEndsAt,
+      excludeJobCardId: jobCardId,
+      includeCalendarEvents: this.calendar.enabled,
+    }, 1);
+    if (conflicts.length > 0) {
       throw new AppError('CALENDAR_CONFLICT', 409, 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.');
     }
   }

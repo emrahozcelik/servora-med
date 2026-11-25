@@ -653,7 +653,7 @@ function JobScheduleEditForm({
     assignedTo: job.assignedTo,
     scheduledStartLocal: localValue,
     jobCardId: job.id,
-    enabled: user.capabilities?.calendar === true && intervalJob,
+    enabled: intervalJob,
   });
 
   function useAvailableSlot(slot: AvailableSlot) {

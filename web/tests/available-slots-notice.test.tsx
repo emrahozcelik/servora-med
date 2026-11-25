@@ -198,6 +198,17 @@ describe('AvailableSlotsNotice', () => {
     />));
     expect(container.textContent).toContain('Bu aralık için uygun saat bulunamadı.');
 
+    await act(async () => root.render(<AvailableSlotsNotice
+      searched
+      searching={false}
+      slots={[]}
+      error={new Error('not found')}
+      featureDisabled
+      onSelect={() => {}}
+    />));
+    expect(container.textContent).toContain('Uygun saat araması şu anda kullanılamıyor.');
+    expect(container.textContent).not.toContain('Takvim');
+
     const slots = [
       { startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' },
       { startsAt: '2026-08-18T12:30:00.000Z', endsAt: '2026-08-18T13:30:00.000Z' },

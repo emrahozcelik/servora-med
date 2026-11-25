@@ -155,6 +155,8 @@ class SchedulingMemoryRepository implements JobCardRepository {
         if (!input.startsAt || !input.endsAt) return;
         const conflict = this.calendarEvents.find((event) =>
           event.assignedUserId === input.assignedUserId
+          // SCH-001: manual events occupy only while the calendar module is on.
+          && (event.source !== 'MANUAL' || input.includeCalendarEvents)
           && Date.parse(event.startsAt) < Date.parse(input.endsAt!)
           && Date.parse(input.startsAt!) < Date.parse(event.endsAt));
         if (conflict) {
@@ -877,13 +879,19 @@ describe('create-time assignee availability parity (AAP)', () => {
     expect(repository.jobs).toHaveLength(1);
   });
 
-  it('AAP-15: CALENDAR_ENABLED=false preserves disabled-calendar semantics → no availability rejection', async () => {
+  it('AAP-15 (SCH-001): CALENDAR_ENABLED=false still rejects an overlapping job but ignores manual events', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.calendarEvents = [
       { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
     ];
     const disabled = new JobCardService(repository, () => now, undefined, undefined, undefined,
       { enabled: false, reminderLeadMinutes: 30 });
+    await expect(disabled.create(manager, meetingInput()))
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z', source: 'MANUAL' },
+    ];
     const created = await disabled.create(manager, meetingInput());
     expect(created.type).toBe('SALES_MEETING');
   });

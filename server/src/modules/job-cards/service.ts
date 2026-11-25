@@ -1911,8 +1911,7 @@ export class JobCardService {
           assignedTo: input.assignedTo,
           engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
         });
-        if (this.calendar.enabled
-          && (input.type === 'SALES_MEETING' || input.type === 'PRODUCT_DELIVERY')
+        if ((input.type === 'SALES_MEETING' || input.type === 'PRODUCT_DELIVERY')
           && input.scheduledAt && canonicalEnd) {
           await transaction.assertCalendarAvailability({
             organizationId: actor.organizationId,
@@ -1920,6 +1919,7 @@ export class JobCardService {
             assignedUserId: input.assignedTo,
             startsAt: input.scheduledAt,
             endsAt: canonicalEnd,
+            includeCalendarEvents: this.calendar.enabled,
           });
         }
         const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
@@ -2838,15 +2838,14 @@ export class JobCardService {
     // Inactive customer: only the delivery is blocked, but it rolls the whole
     // approval back (one transaction), so nothing is partially approved.
     await this.validateJobReferences(tx, actor.organizationId, sale.customerId, null);
-    if (this.calendar.enabled) {
-      await tx.assertCalendarAvailability({
-        organizationId: actor.organizationId,
-        jobCardId: null,
-        assignedUserId: assigneeId,
-        startsAt: delivery.scheduledAt,
-        endsAt: delivery.scheduledEndsAt,
-      });
-    }
+    await tx.assertCalendarAvailability({
+      organizationId: actor.organizationId,
+      jobCardId: null,
+      assignedUserId: assigneeId,
+      startsAt: delivery.scheduledAt,
+      endsAt: delivery.scheduledEndsAt,
+      includeCalendarEvents: this.calendar.enabled,
+    });
     // A sale is BUSINESS by its schema CHECK, so its delivery is BUSINESS and
     // eligibility is asserted against the BUSINESS scope (as the plain create).
     const businessScope: JobDeliveryScope = { dataClass: 'BUSINESS', demoDatasetId: null };
@@ -2971,15 +2970,14 @@ export class JobCardService {
           await this.validateJobReferences(transaction, actor.organizationId, input.customerId, null);
           // WORKING-DAY contract reconciliation: a human PRODUCT_DELIVERY write
           // may land on the organization-local Sunday; no working-day guard.
-          if (this.calendar.enabled) {
-            await transaction.assertCalendarAvailability({
-              organizationId: actor.organizationId,
-              jobCardId: null,
-              assignedUserId: input.assignedTo,
-              startsAt: input.scheduledAt,
-              endsAt: canonicalEnd,
-            });
-          }
+          await transaction.assertCalendarAvailability({
+            organizationId: actor.organizationId,
+            jobCardId: null,
+            assignedUserId: input.assignedTo,
+            startsAt: input.scheduledAt,
+            endsAt: canonicalEnd,
+            includeCalendarEvents: this.calendar.enabled,
+          });
 
           // A human PRODUCT_DELIVERY create always creates a BUSINESS JobCard
           // today (no DEMO dataset is ever supplied here), so eligibility is
@@ -3366,7 +3364,7 @@ export class JobCardService {
       proposedAt: input.scheduledAt === null ? null : new Date(input.scheduledAt),
       scheduledEndsAt, assignedTo: input.assignedTo, engagementKind: input.engagementKind,
     });
-    if (this.calendar.enabled && input.scheduledAt !== null && scheduledEndsAt !== null) {
+    if (input.scheduledAt !== null && scheduledEndsAt !== null) {
       try {
         await transaction.assertCalendarAvailability({
           organizationId: actor.organizationId,
@@ -3374,6 +3372,7 @@ export class JobCardService {
           assignedUserId: input.assignedTo,
           startsAt: input.scheduledAt,
           endsAt: scheduledEndsAt,
+          includeCalendarEvents: this.calendar.enabled,
         });
       } catch (caught) {
         if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
@@ -3853,7 +3852,7 @@ export class JobCardService {
       const snapshotEffectiveScheduleMutation = snapshotScheduleChanged
         || snapshotNeedsIntervalRepair;
       const snapshotNeedsAssigneeLock = snapshotAssigneeChanged
-        || (this.calendar.enabled && snapshotIsCalendarIntervalJob && snapshotEffectiveScheduleMutation);
+        || (snapshotIsCalendarIntervalJob && snapshotEffectiveScheduleMutation);
       const lockedAssignees = snapshotNeedsAssigneeLock
         ? await this.lockUsersInOrder(
           transaction,
@@ -3985,8 +3984,7 @@ export class JobCardService {
           });
         }
       }
-      const needsCalendarAssigneeLock = this.calendar.enabled
-        && isCalendarIntervalJob
+      const needsCalendarAssigneeLock = isCalendarIntervalJob
         && (scheduleChanged || assigneeChanged);
       if (fields.assignedTo !== undefined && assigneeChanged) {
         const assignee = lockedAssignees.get(fields.assignedTo);
@@ -4167,13 +4165,14 @@ export class JobCardService {
             scheduledEndsAt: nextScheduledEndsAt,
           })
         : null;
-      if (this.calendar.enabled && isCalendarIntervalJob && (scheduleChanged || assigneeChanged)) {
+      if (isCalendarIntervalJob && (scheduleChanged || assigneeChanged)) {
         await transaction.assertCalendarAvailability({
           organizationId: actor.organizationId,
           jobCardId,
           assignedUserId: fields.assignedTo ?? job.assignedTo,
           startsAt: nextScheduledAt,
           endsAt: nextScheduledEndsAt,
+          includeCalendarEvents: this.calendar.enabled,
         });
       }
 
@@ -5735,15 +5734,14 @@ export class JobCardService {
         if (interval === null) throw notAvailable();
         // The same occupancy reader a management reschedule uses, excluding
         // this job: a conflict writes nothing.
-        if (this.calendar.enabled) {
-          await tx.assertCalendarAvailability({
-            organizationId: actor.organizationId,
-            jobCardId,
-            assignedUserId: job.assignedTo,
-            startsAt: interval.startsAt.toISOString(),
-            endsAt: interval.endsAt.toISOString(),
-          });
-        }
+        await tx.assertCalendarAvailability({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assignedUserId: job.assignedTo,
+          startsAt: interval.startsAt.toISOString(),
+          endsAt: interval.endsAt.toISOString(),
+          includeCalendarEvents: this.calendar.enabled,
+        });
         const realtimeEvents: RealtimeEventRecord[] = [];
         // Effect 1: the confirmed interval, exactly as a management reschedule
         // does — version +1 and the acceptance recorded for the proposer.
@@ -7325,13 +7323,14 @@ export class JobCardService {
           && definition.assignmentReason?.proposedScheduledAt
           ? assignmentProposedInterval(job, definition.assignmentReason.proposedScheduledAt)
           : null;
-        if (assignmentProposal !== null && this.calendar.enabled) {
+        if (assignmentProposal !== null) {
           await tx.assertCalendarAvailability({
             organizationId: actor.organizationId,
             jobCardId,
             assignedUserId: job.assignedTo,
             startsAt: assignmentProposal.startsAt.toISOString(),
             endsAt: assignmentProposal.endsAt.toISOString(),
+            includeCalendarEvents: this.calendar.enabled,
           });
         }
         // OVR-5b §3: the stored correction deadline of a revision episode is
@@ -8896,6 +8895,7 @@ export class JobCardService {
       firstCandidate.startsAt,
       new Date(horizonAt.valueOf() + durationMs),
       job.id,
+      this.calendar.enabled,
     );
     const blockers = assigneeIntervals.map((interval) => ({
       startsAt: new Date(interval.startsAt),
@@ -9056,9 +9056,6 @@ export class JobCardService {
     actor: JobCardActor,
     input: AvailableSlotsInput,
   ): Promise<AvailableSlotsResponse> {
-    if (!this.calendar.enabled) {
-      throw new AppError('NOT_FOUND', 404, 'Takvim özelliği etkin değil.');
-    }
     assertCreateAssignmentRequest(actor, input.assignedTo);
     const startsAt = new Date(isoInstant(input.scheduledAt, 'scheduledAt'));
     const canonicalEnd = canonicalScheduledEnd(input.type, input.scheduledAt);
@@ -9136,6 +9133,7 @@ export class JobCardService {
       new Date(startsAt.valueOf() - MAX_TZ_OFFSET_MS),
       new Date(lastCandidate.endsAt.valueOf() + MAX_TZ_OFFSET_MS),
       excludeJobId ?? null,
+      this.calendar.enabled,
     );
     const available = filterAvailableSlotCandidates(
       candidates,

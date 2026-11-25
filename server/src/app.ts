@@ -324,6 +324,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
             dependencies.realtimeService,
             undefined,
             { enabled: config.assignmentWindow?.enabled === true },
+            { enabled: config.capabilities?.calendar ?? false },
           )
           : undefined,
       });

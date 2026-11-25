@@ -187,6 +187,10 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       const minQuantityJob = await service.createProductDelivery(manager, {
         ...input,
         clientActionId: 'postgres-min-quantity',
+        // SCH-001: the shared Staff already holds the 10:00 delivery, so each
+        // extra delivery gets its own non-overlapping slot.
+        scheduledAt: '2026-08-18T12:00:00.000Z',
+        scheduledEndsAt: '2026-08-18T12:30:00.000Z',
         items: [{ productId: productIds[0]!, quantity: 1 }],
       });
       expect((await pool.query<{ quantity: string }>(
@@ -196,6 +200,10 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       const maxQuantityJob = await service.createProductDelivery(manager, {
         ...input,
         clientActionId: 'postgres-max-quantity',
+        // SCH-001: the shared Staff already holds the 10:00 delivery, so each
+        // extra delivery gets its own non-overlapping slot.
+        scheduledAt: '2026-08-18T13:00:00.000Z',
+        scheduledEndsAt: '2026-08-18T13:30:00.000Z',
         items: [{ productId: productIds[0]!, quantity: 999_999_999 }],
       });
       expect((await pool.query<{ quantity: string }>(
@@ -287,6 +295,10 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       await expect(service.createProductDelivery(manager, {
         ...input,
         clientActionId: 'postgres-demo-product',
+        // SCH-001: occupancy is checked before product eligibility, so this
+        // request uses a free slot to keep asserting PRODUCT_NOT_FOUND.
+        scheduledAt: '2026-08-18T14:00:00.000Z',
+        scheduledEndsAt: '2026-08-18T14:30:00.000Z',
         items: [{ productId: demoProductId, quantity: 1 }],
       })).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND', statusCode: 404 });
       expect((await pool.query<{ count: string }>(

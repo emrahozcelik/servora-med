@@ -93,8 +93,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     assignedTo: user.role === 'STAFF' ? user.id : assignedTo || null,
     scheduledStartLocal: scheduledLocal,
     jobCardId: null,
-    enabled: user.capabilities?.calendar === true
-      && customerReady,
+    enabled: customerReady,
   });
 
   function useAvailableSlot(slot: AvailableSlot) {

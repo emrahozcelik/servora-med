@@ -162,6 +162,12 @@ async function insertJob(
 ) {
   const id = input.id ?? randomUUID();
   const status = input.status ?? 'ACCEPTED';
+  // SCH-001: only on-site jobs (SALES_MEETING / PRODUCT_DELIVERY) carry a
+  // planned end and occupy Staff; the application never gives a GENERAL_TASK
+  // an end. A fixture with an interval therefore defaults to an on-site type.
+  const type = input.type ?? (input.scheduledEndsAt ? 'SALES_MEETING' : 'GENERAL_TASK');
+  const engagementKind = input.engagementKind
+    ?? (type === 'SALES_MEETING' ? 'CUSTOMER_VISIT' : null);
   const fields = {
     startedAt: ['IN_PROGRESS', 'WAITING_APPROVAL', 'COMPLETED'].includes(status) ? at : null,
     acceptedAt: status === 'ACCEPTED' ? at : null,
@@ -201,7 +207,7 @@ async function insertJob(
        $18, $19, $20, $21, $22, $23, $24, $25, $26,
        $27, $28, $29, $30, $31, $32, $33
      )`,
-    [id, input.organizationId, input.type ?? 'GENERAL_TASK', status, 'Test Job', input.customerId ?? null,
+    [id, input.organizationId, type, status, 'Test Job', input.customerId ?? null,
       input.assignedTo, input.createdBy, input.scheduledAt ?? null, input.scheduledEndsAt ?? null,
       fields.startedAt, fields.acceptedAt, fields.acceptedBy, fields.staffCompletedAt,
       fields.staffCompletedBy, fields.managerApprovedAt, fields.managerApprovedBy,
@@ -209,7 +215,7 @@ async function insertJob(
       fields.invalidatedBy, fields.invalidationReasonCode, fields.revisionRequestedAt,
       fields.revisionRequestedBy, fields.revisionReason, fields.followUpAt, fields.followUpType,
       null, fields.followUpInstructions, fields.followUpOrigin,
-      fields.followUpBy, input.engagementKind ?? null],
+      fields.followUpBy, engagementKind],
   );
   // Raw legacy fixtures need the same authoritative baseline snapshots as
   // migration 043; never invent ownership or schedule history before baseline.
@@ -355,7 +361,10 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
         scheduledAt: new Date('2026-09-10T10:30:00.000Z'),
         scheduledEndsAt: new Date('2026-09-10T11:30:00.000Z'),
       });
-      const service = new PostgresStaffOffboardingService(pool);
+      // SCH-001: manual events occupy only while the calendar module is on.
+      const service = new PostgresStaffOffboardingService(
+        pool, undefined, undefined, { enabled: false }, { enabled: true },
+      );
       const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
       const plan = await service.preview(adminUser, target.id);
       const input = {
@@ -1418,7 +1427,12 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
             }
           },
           after: (query, result) => {
-            if (!query.text.includes('SELECT e.starts_at, e.ends_at')
+            // SCH-001: the shared occupancy reader (occupancy.ts) replaced the
+            // slot-search query's own SQL text. Match the shared statement in
+            // its interval-listing form only (its ORDER BY), not the conflict
+            // check that uses the same statement text.
+            if (!query.text.includes("SELECT 'MANUAL'::text AS source, e.id, e.title, e.starts_at, e.ends_at")
+              || !query.text.includes('ORDER BY starts_at ASC, ends_at ASC')
               || !query.text.includes('FROM calendar_events e')
               || !query.text.includes('FROM job_cards j')
               || !queryIncludesUserId(query.values, replacement.id)) return;
