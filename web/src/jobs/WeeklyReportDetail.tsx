@@ -833,7 +833,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     },
   ];
 
-  // DOM/keyboard order mirrors JobDetail: heading → feedback → lifecycle →
+  // DOM/keyboard order mirrors JobDetail (UI-005): heading → lifecycle → feedback →
   // revision|terminal|responsibility → facts → content → management review →
   // actions → timeline.
   return <main className="job-detail" data-weekly-report-detail="true">
@@ -845,6 +845,14 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       <div className="detail-heading-meta" data-job-detail-meta="true">
         <StatusChip status={loadedJob.status} />
       </div>
+    </div>
+    <div data-job-detail-section="lifecycle">
+      <WorkflowSteps
+        items={presentation.phaseItems.map((item) => ({
+          key: item.phase, label: item.label, state: item.state,
+        }))}
+        currentKey={presentation.currentPhase}
+      />
     </div>
       {actionError && <div
         className="detail-feedback detail-feedback-error"
@@ -862,14 +870,6 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       >
         {actionNotice}
       </div>}
-    <div data-job-detail-section="lifecycle">
-      <WorkflowSteps
-        items={presentation.phaseItems.map((item) => ({
-          key: item.phase, label: item.label, state: item.state,
-        }))}
-        currentKey={presentation.currentPhase}
-      />
-    </div>
     {presentation.revisionLoop && (
       <div data-job-detail-section="revision">
         <RevisionLoopPanel loop={presentation.revisionLoop} />

@@ -79,8 +79,10 @@ describe('filter sheets and active counts', () => {
         />,
       );
     });
-    expect(host.textContent).toContain('Filtreler');
-    const trigger = Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Filtreler'));
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]')?.getAttribute('aria-label'))
+      .toBe('Filtreler');
+    expect(host.querySelector('.job-search-submit')?.getAttribute('aria-label')).toBe('Ara');
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]');
     await act(async () => trigger?.click());
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
     const priority = host.querySelector('#job-priority') as HTMLSelectElement;
@@ -94,6 +96,69 @@ describe('filter sheets and active counts', () => {
     const payload = onApply.mock.calls.at(-1)?.[0];
     expect(payload).toMatchObject({ q: 'klinik', priority: 'urgent', status: 'active' });
     expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('renders compact search and filters as icon-only 44px targets with badge and names', async () => {
+    setNarrow(true);
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        <JobFilters
+          user={manager}
+          filters={{ view: 'list', offset: 0, status: 'active', priority: 'urgent' }}
+          onApply={() => undefined}
+          onClear={() => undefined}
+          onChange={() => undefined}
+          onViewChange={() => {}}
+          boardSupported={false}
+        />,
+      );
+    });
+
+    const submit = host.querySelector<HTMLButtonElement>('button.job-search-submit')!;
+    expect(submit.getAttribute('aria-label')).toBe('Ara');
+    expect(submit.getAttribute('title')).toBe('Ara');
+    expect(submit.textContent?.trim()).toBe('');
+    expect(submit.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+
+    const trigger = host.querySelector<HTMLButtonElement>('button.filter-sheet-trigger')!;
+    expect(trigger.getAttribute('aria-label')).toBe('Filtreler, 1 etkin');
+    expect(trigger.getAttribute('title')).toBe('Filtreler, 1 etkin');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(trigger.textContent?.trim()).toBe('1');
+    const badge = trigger.querySelector<HTMLElement>('[data-filter-badge="true"]')!;
+    expect(badge.textContent).toBe('1');
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
+    expect(trigger.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+
+    await act(async () => trigger.click());
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('keeps the worded desktop jobs submit and has no compact trigger', async () => {
+    setNarrow(false);
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        <JobFilters
+          user={manager}
+          filters={{ view: 'list', offset: 0, status: 'active', priority: 'urgent' }}
+          onApply={() => undefined}
+          onClear={() => undefined}
+          onChange={() => undefined}
+          onViewChange={() => {}}
+          boardSupported={false}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-job-filters="desktop"]')).not.toBeNull();
+    expect(host.querySelector('.job-search-submit')?.textContent).toBe('Ara');
+    expect(host.querySelector('.filter-sheet-trigger')).toBeNull();
+    expect(host.querySelector('[data-filter-badge="true"]')).toBeNull();
   });
 
   it('applies the compact sheet follow-up checkbox through the same AntD control', async () => {
@@ -117,7 +182,7 @@ describe('filter sheets and active counts', () => {
         />,
       );
     });
-    const trigger = Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Filtreler'));
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]');
     await act(async () => trigger?.click());
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
     const checkbox = host.querySelector<HTMLInputElement>('#job-follow-up')!;
@@ -134,7 +199,7 @@ describe('filter sheets and active counts', () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull();
 
     // Clear filters resets the checkbox draft back to unchecked.
-    const triggerAgain = Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Filtreler'));
+    const triggerAgain = host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]');
     await act(async () => triggerAgain?.click());
     const clear = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Temizle');
     await act(async () => clear?.click());
@@ -164,7 +229,7 @@ describe('filter sheets and active counts', () => {
     // competes with the first record (DECISIONS.md UI-005).
     expect(host.querySelector('[aria-label="İş görünümü"]')).toBeNull();
     expect(host.querySelector('#job-search')).not.toBeNull();
-    const trigger = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Filtreler');
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]');
     await act(async () => trigger?.click());
     const dialog = host.querySelector('[role="dialog"]')!;
     expect(dialog).not.toBeNull();
@@ -197,7 +262,7 @@ describe('filter sheets and active counts', () => {
         />,
       );
     });
-    const trigger = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Filtreler');
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]');
     await act(async () => trigger?.click());
     const status = host.querySelector<HTMLSelectElement>('#job-status-sheet')!;
     await act(async () => {
@@ -229,8 +294,7 @@ describe('filter sheets and active counts', () => {
         />,
       );
     });
-    const trigger = Array.from(host.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Filtreler');
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="Filtreler"]');
     await act(async () => trigger?.click());
     const labels = Array.from(host.querySelectorAll<HTMLOptionElement>('#job-status-sheet option'))
       .map((option) => [option.value, option.textContent]);

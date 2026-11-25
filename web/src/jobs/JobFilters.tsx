@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { CurrentUser } from '../services/api';
 import { FilterSheet, countTruthy } from '../ui/FilterSheet';
+import { SignalGlyph } from '../ui/signal-icons';
 import { useNarrowShell } from '../ui/useResponsive';
 import { ServoraCheckbox } from '../ui/antd';
 import type { JobCardStatusFilter } from './jobs-api';
@@ -87,6 +88,9 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
   const [draftStatus, setDraftStatus] = useState(filters.status ?? 'active');
   const [errors, setErrors] = useState<DraftErrors>({});
   const activeCount = countActiveJobFilters(filters);
+  // The compact trigger is icon-only, so the active-filter count moves from the
+  // visible label into the accessible name plus a small visible badge.
+  const filterTriggerLabel = activeCount > 0 ? `Filtreler, ${activeCount} etkin` : 'Filtreler';
 
   useEffect(() => setSearch(filters.q ?? ''), [filters.q]);
   useEffect(() => {
@@ -254,15 +258,26 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
                   onChange={(event) => setSearch(event.target.value)}
                 />
               </div>
-              <button className="secondary-button job-search-submit" type="submit">Ara</button>
+              <button className="secondary-button job-search-submit" type="submit"
+                aria-label="Ara" title="Ara">
+                <SignalGlyph name="search" size={18} />
+              </button>
               <button
                 ref={filterTriggerRef}
                 type="button"
                 className="secondary-button filter-sheet-trigger"
                 aria-expanded={sheetOpen}
+                aria-label={filterTriggerLabel}
+                title={filterTriggerLabel}
+                data-filter-count={activeCount}
                 onClick={openSheet}
               >
-                {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
+                <SignalGlyph name="filter" size={18} />
+                {activeCount > 0 && (
+                  <span className="filter-sheet-trigger-count" aria-hidden="true" data-filter-badge="true">
+                    {activeCount}
+                  </span>
+                )}
               </button>
             </div>
           </form>

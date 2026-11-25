@@ -21,6 +21,7 @@ import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
+import { SignalGlyph } from './ui/signal-icons';
 import { useNarrowShell } from './ui/useResponsive';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset, normalizeListOffset } from './ui/pagination';
 import { ServoraListPagination } from './ui/antd/ServoraPagination';
@@ -187,9 +188,17 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
             type="button"
             className="secondary-button filter-sheet-trigger"
             aria-expanded={sheetOpen}
+            aria-label={activeCount > 0 ? `Filtreler, ${activeCount} etkin` : 'Filtreler'}
+            title={activeCount > 0 ? `Filtreler, ${activeCount} etkin` : 'Filtreler'}
+            data-filter-count={activeCount}
             onClick={openSheet}
           >
-            {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
+            <SignalGlyph name="filter" size={18} />
+            {activeCount > 0 && (
+              <span className="filter-sheet-trigger-count" aria-hidden="true" data-filter-badge="true">
+                {activeCount}
+              </span>
+            )}
           </button>
         </form>
         <FilterSheet

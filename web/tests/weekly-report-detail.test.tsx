@@ -596,6 +596,10 @@ describe('WeeklyReportDetail', () => {
     click(buttonByText('İşi başlat'));
     await flush();
     expect(jobsApi.startJobCard).toHaveBeenCalledTimes(1);
+    // UI-005: the lifecycle strip stays directly under the heading; feedback follows it.
+    const sectionOrder = [...host.querySelectorAll('[data-job-detail-section]')]
+      .map((element) => element.getAttribute('data-job-detail-section'));
+    expect(sectionOrder.slice(0, 3)).toEqual(['heading', 'lifecycle', 'feedback']);
     const firstInput = jobsApi.startJobCard.mock.calls[0]![1];
     jobsApi.startJobCard.mockResolvedValueOnce(makeJob({ status: 'IN_PROGRESS' }));
     click(buttonByText('Özgün işlemi tekrar dene'));

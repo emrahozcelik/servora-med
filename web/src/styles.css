@@ -1169,6 +1169,36 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .job-search-controls .job-filter-search { min-width: 0; }
 .job-search-controls .job-filter-search input { width: 100%; min-width: 0; }
+/* Compact list toolbars are icon-only: search submit and the filter-sheet
+   trigger stay 44x44 targets and carry their Turkish label in the accessible
+   name (owner decision 2026-11-25). Desktop keeps the text buttons. */
+.job-filter-compact-bar .job-search-submit,
+.job-filter-compact-bar .filter-sheet-trigger,
+.customer-filter-compact-bar .filter-sheet-trigger {
+  position: relative;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+}
+.filter-sheet-trigger-count {
+  position: absolute;
+  inset-block-start: -0.25rem;
+  inset-inline-end: -0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding-inline: 0.2rem;
+  border-radius: 999px;
+  color: var(--paper);
+  background: var(--accent-hover);
+  font-size: 0.75rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
 .job-filters--compact.surface,
 .job-filters--compact.surface-flat,
 .customer-filters--compact.surface,
@@ -1220,9 +1250,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-row-mobile-primary { display: none; position: relative; z-index: 1; }
 
 @media (max-width: 56rem) {
-  .customer-filter-compact-bar .filter-sheet-trigger {
-    width: 100%;
-  }
   .structured-job-row.job-list-card {
     display: grid;
     grid-template-columns: 1fr;
@@ -1812,7 +1839,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .report-filters-wide--customer {
     grid-template-columns: 1fr;
   }
-  .report-filters-wide--customer > label,
+  .report-filters-wide--customer > label:nth-child(n + 3),
   .report-filters-wide--customer > button {
     grid-row: auto;
   }
@@ -2876,6 +2903,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .meeting-details { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 .meeting-details h2 { margin-top: 0; overflow-wrap: anywhere; }
 .meeting-result-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+/* Actual meeting time: the datetime input and "Şimdi" form one row with a real
+   gap and wrap to two rows when the input cannot keep its 12rem base width. */
+.meeting-actual-at-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.meeting-actual-at-row input { flex: 1 1 12rem; min-width: 0; }
+.meeting-actual-at-row .secondary-button { flex: 0 0 auto; margin-top: 0; }
 .calendar-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .field-guidance { display: block; color: var(--ink); font-weight: 650; line-height: 1.45; }
 .field-label { display: block; margin-bottom: 0.4rem; font-weight: 650; }
@@ -3096,29 +3134,79 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .servora-workflow-steps .servora-ant-steps { min-width: 0; }
 .servora-workflow-steps.servora-workflow-steps--compact {
-  padding: 0.3rem 0.85rem;
-  margin-bottom: 1rem;
+  padding: 0.1rem 0.85rem;
+  margin-bottom: 0.55rem;
 }
 .servora-workflow-steps-disclosure { min-width: 0; }
 /* Native <details> summary keeps the list-item marker as the disclosure
-   affordance; the row itself is the >=44px touch target (UI-005). */
+   affordance; the row itself is the >=44px touch target (UI-005). The compact
+   row carries markers + ordinal phase only: the current/attention state word
+   stays in the expanded stepper and in the always-present ordered list. */
 .servora-workflow-steps-summary {
   min-height: var(--control-height);
-  padding: 0.5rem 0.15rem;
+  padding: 0.4rem 0.15rem;
   cursor: pointer;
   font-weight: 700;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 .servora-workflow-steps-summary-phase strong { font-variant-numeric: tabular-nums; }
-.servora-workflow-steps-summary-state {
-  margin-inline-start: 0.4rem;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 650;
+/* Compact phase strip: five 15px markers joined by a 2px line. One row with the
+   ordinal text; the summary stays the >=44px disclosure target (UI-005). */
+.servora-workflow-stages {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-end: 0.5rem;
+  vertical-align: middle;
 }
-.servora-workflow-steps-summary--attention,
-.servora-workflow-steps-summary--attention .servora-workflow-steps-summary-state {
+.servora-workflow-stage {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  box-sizing: border-box;
+  border: 2px solid var(--rule);
+  border-radius: 50%;
+  color: var(--paper);
+  background: var(--paper);
+}
+.servora-workflow-stage:not(:last-child) { margin-inline-end: 0.55rem; }
+.servora-workflow-stage:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 100%;
+  width: 0.55rem;
+  height: 2px;
+  background: var(--rule);
+  transform: translateY(-50%);
+}
+.servora-workflow-stage--complete {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+.servora-workflow-stage-glyph { display: block; }
+/* Current phase is a ring, not a filled dot; the ordinal text and the expanded
+   stepper carry the worded state. */
+.servora-workflow-stage--current {
+  border-color: var(--accent-hover);
+  border-width: 3px;
+  background: var(--paper);
+}
+.servora-workflow-stage--skipped { border-style: dashed; }
+.servora-workflow-stage--attention {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.servora-workflow-stage-attention-glyph {
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.servora-workflow-steps-summary--attention {
   color: var(--warning);
 }
 .servora-workflow-steps-disclosure[open] .servora-workflow-steps-summary {
@@ -3316,11 +3404,35 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   padding: 1rem 1.1rem;
   box-shadow: none;
 }
-/* Stacked job-detail panels (early start, Staff request, assignment offer)
-   keep a visible gap so two panels never read as one box. */
+/* Stacked job-detail panels (Staff request, assignment offer) keep a visible gap
+   so two panels never read as one box. Early start lives inside the main column
+   next to the schedule, where the grid gap owns its spacing. */
 .job-detail > .detail-summary.surface-flat { margin-block: 0.75rem; }
 .early-start-authorization h2 { margin: 0 0 0.35rem; font-size: 1rem; }
 .early-start-authorization .form-help { margin: 0 0 0.75rem; }
+/* Compact idle row: short status line plus the reveal button. The help text and
+   confirm action only mount inside the disclosure (owner decision 2026-11-25). */
+.early-start-authorization-body { display: grid; gap: 0.6rem; }
+.early-start-authorization-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+.early-start-authorization-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.early-start-authorization-row > .secondary-button { flex: 0 0 auto; margin-top: 0; }
+.early-start-authorization-detail { min-width: 0; }
+.early-start-authorization-detail[hidden] { display: none; }
+/* The panel now sits next to the schedule it describes, so it uses the tighter
+   detail-panel rhythm instead of the stacked-banner padding. */
+.job-detail-main .early-start-authorization { padding: 0.75rem 0.85rem; }
 .meeting-details .detail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem 2rem; }
 .meeting-details .detail-summary > div { display: grid; gap: 0.25rem; }
 .detail-summary dt, .delivery-lines dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
@@ -3397,6 +3509,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .detail-action.surface-flat {
   border-top: 0;
   margin-top: 1.5rem;
+}
+/* Below the 64rem gate the decision panel is a direct child of .job-detail (it
+   leaves the work rail), so it must not touch the surface that follows the
+   command group (owner spacing audit 2026-11-25). Desktop keeps the rail gap. */
+.job-detail > [data-job-detail-section="actions"] > .detail-action.surface-flat {
+  margin-bottom: 1.25rem;
 }
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
 .detail-action > p:first-of-type { margin-top: 0; }
@@ -3487,7 +3605,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .schedule-quick-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 .schedule-quick-chip {
@@ -3877,7 +3995,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .detail-section-heading span, .detail-empty { color: var(--muted); font-size: 0.8rem; }
 .detail-section-heading span { overflow-wrap: anywhere; }
 .job-notes form { max-width: 38rem; }
-.job-notes form .primary-button { margin-top: 1.25rem; }
+/* The submit control is a secondary compact button, not a .primary-button: keep
+   the separation from the note textarea on the button itself. */
+.job-notes form > button[type="submit"] { margin-top: 1.25rem; }
 .job-note-list { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
 .job-note-list li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
 .job-note-body { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -4270,7 +4390,7 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .product-filters {
     grid-template-columns: 1fr;
   }
-  .report-filters-wide--customer > label,
+  .report-filters-wide--customer > label:nth-child(n + 3),
   .report-filters-wide--customer > button {
     grid-row: auto;
   }
@@ -4390,6 +4510,24 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .report-section-heading { align-items: flex-start; flex-direction: column; }
   .report-table th, .report-table td { padding-inline: 0.25rem; }
   .report-filters, .report-filters-wide { grid-template-columns: 1fr; }
+  /* Customer report filters: Başlangıç/Bitiş share a row, the search field spans
+     the full row, Durum/Tür share the next one, and Uygula is full width. The
+     nth-child reset repeats the base selector so its grid-row: 2 placement cannot
+     force implicit columns and a clipped date input at 390px. */
+  .report-filters-wide--customer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .report-filters-wide--customer > label:nth-child(n + 3) {
+    grid-row: auto;
+  }
+  .report-filters-wide--customer > label:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .report-filters-wide--customer > button {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    width: 100%;
+  }
   .report-filters button { width: 100%; }
   .report-customer-row { grid-template-columns: 1fr; }
   .report-customer-metrics { grid-template-columns: 1fr; }
@@ -4470,6 +4608,13 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .record-commands button { width: 100%; }
   .conflict-actions { align-items: stretch; flex-direction: column; }
   .conflict-actions button { width: 100%; }
+}
+
+/* A native date input needs roughly 9.5rem to keep its value and picker glyph;
+   below this width the two-column customer filter row would clip them, so the
+   row stacks to one column (the 390px audit keeps the two-column layout). */
+@media (max-width: 24rem) {
+  .report-filters-wide--customer { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 64rem) {

@@ -61,7 +61,15 @@ describe('responsive layout CSS contracts (PR B)', () => {
       /\.servora-workflow-step-state-icon\s*\{[^}]*color:\s*var\(--warning\)/s,
     );
     expect(css).toMatch(
-      /\.servora-workflow-steps-summary--attention \.servora-workflow-steps-summary-state\s*\{[^}]*color:\s*var\(--warning\)/s,
+      /\.servora-workflow-steps-summary--attention\s*\{[^}]*color:\s*var\(--warning\)/s,
+    );
+    // The compact strip's attention phase is the amber marker with its own
+    // glyph, not a muted trailing state word.
+    expect(css).toMatch(
+      /\.servora-workflow-stage--attention\s*\{[^}]*background:\s*var\(--warning-soft\)/s,
+    );
+    expect(css).toMatch(
+      /\.servora-workflow-stage--attention\s*\{[^}]*color:\s*var\(--warning\)/s,
     );
     // The owned attention icon is the amber marker; the primary-blue numeric
     // icon never renders for that step.
