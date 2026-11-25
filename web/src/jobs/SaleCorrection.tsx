@@ -6,6 +6,7 @@ import { correctSale, type SaleContact, type SaleCorrection, type SaleDetails } 
 import { isDefinitiveMutationError } from './mutation-attempt-error';
 import { isoInstantToLocalDateTime, localDateTimeToIso } from './scheduling';
 import { loadSaleProducts, saleCount } from './sale-form';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 /** One parent-versioned correction at a time, with an exact in-memory retry intent. */
 export function SaleCorrectionSection({ details, customerId, disabled, onLockChange, onChanged }: {
@@ -98,8 +99,15 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     <h2 id={id + '-title'}>Satış kaydını düzelt</h2>
     {message && <div ref={messageRef} className="detail-feedback" role="status" tabIndex={-1}>{message}</div>}
     <fieldset disabled={locked}>
-      <div className="field-group"><label htmlFor={id + '-sold'}>Gerçekleşen satış zamanı</label>
-        <input id={id + '-sold'} type="datetime-local" value={soldLocal} onChange={(e) => setSoldLocal(e.target.value)} />
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="datetime"
+          id={id + '-sold'}
+          name="soldAt"
+          value={soldLocal}
+          onChange={setSoldLocal}
+          label="Gerçekleşen satış zamanı"
+        />
         <p className="form-help">Cihazınızın yerel saat dilimi: {Intl.DateTimeFormat().resolvedOptions().timeZone}</p></div>
       <SaleContactSelect customerId={customerId} selected={contact} onChange={setContact} disabled={locked} />
       <button type="button" className="secondary-button" onClick={saveDetails}>Satış bilgilerini kaydet</button>

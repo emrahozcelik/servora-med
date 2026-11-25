@@ -5,6 +5,7 @@ import { FilterSheet, countTruthy } from '../ui/FilterSheet';
 import { SignalGlyph } from '../ui/signal-icons';
 import { useNarrowShell } from '../ui/useResponsive';
 import { ServoraCheckbox } from '../ui/antd';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import type { JobCardStatusFilter } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
 import { activeWorkflowStatusOptions } from './job-status-presentation';
@@ -195,10 +196,26 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
           aria-describedby={errors.customerId ? 'job-customer-error' : undefined}
           onChange={(event) => setAdvanced({ ...advanced, customerId: event.target.value.trim() })} />
         {errors.customerId && <p className="field-error" id="job-customer-error" role="alert">{errors.customerId}</p>}</div>
-      <div className="field-group"><label htmlFor="job-due-after">Başlangıç tarihi</label>
-        <input id="job-due-after" type="date" value={advanced.dueAfter} onChange={(event) => setAdvanced({ ...advanced, dueAfter: event.target.value })} /></div>
-      <div className="field-group"><label htmlFor="job-due-before">Bitiş tarihi</label>
-        <input id="job-due-before" type="date" value={advanced.dueBefore} onChange={(event) => setAdvanced({ ...advanced, dueBefore: event.target.value })} /></div>
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="date"
+          id="job-due-after"
+          name="dueAfter"
+          value={advanced.dueAfter}
+          onChange={(value) => setAdvanced({ ...advanced, dueAfter: value })}
+          label="Başlangıç tarihi"
+        />
+      </div>
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="date"
+          id="job-due-before"
+          name="dueBefore"
+          value={advanced.dueBefore}
+          onChange={(value) => setAdvanced({ ...advanced, dueBefore: value })}
+          label="Bitiş tarihi"
+        />
+      </div>
       <div className="job-filter-checkbox">
         <ServoraCheckbox
           id="job-follow-up"

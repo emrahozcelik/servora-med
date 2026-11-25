@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, type CurrentUser } from '../services/api';
 import { listStaff, type StaffProfile } from '../services/people-api';
 import { LoadingSkeleton, RecordDescriptions, ResultState } from '../ui/antd';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { counterState } from '../ui/counter-policy';
 import { ProgressiveCounter } from '../ui/ProgressiveCounter';
 import { JOB_CARD_ENGAGEMENT_LABELS, jobTypeLabels, DELIVERY_PURPOSE_LABELS } from './job-labels';
@@ -636,11 +637,18 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
             <p>Zamanı belirleyin ve personelin uygun saatlerini gözden geçirin.</p>
           </div>
           <div className="task-field-pair">
-            <div className="field-group"><label htmlFor="follow-up-scheduled-at">Planlanan zaman{type === 'GENERAL_TASK' ? ' (isteğe bağlı)' : ''}</label>
-              <input id="follow-up-scheduled-at" type="datetime-local" required={type !== 'GENERAL_TASK'} value={scheduledLocal}
-                aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+            <div className="field-group">
+              <WheelDateTimeField
+                mode="datetime"
+                id="follow-up-scheduled-at"
+                name="scheduledAt"
+                value={scheduledLocal}
+                onChange={updateScheduledLocal}
+                required={type !== 'GENERAL_TASK'}
+                invalid={Boolean(fieldErrors.scheduledAt)}
                 aria-describedby={fieldErrors.scheduledAt ? 'follow-up-scheduled-at-error' : undefined}
-                onChange={(event) => updateScheduledLocal(event.target.value)} />
+                label={`Planlanan zaman${type === 'GENERAL_TASK' ? ' (isteğe bağlı)' : ''}`}
+              />
               <ScheduleQuickControls
                 value={scheduledLocal}
                 durationMinutes={CANONICAL_DURATION_MINUTES?.[type] ?? null}
@@ -649,8 +657,15 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
               />
               {fieldErrors.scheduledAt && <span id="follow-up-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}
             </div>
-            {type !== 'SALES_MEETING' && <div className="field-group"><label htmlFor="follow-up-due-date">Son tarih (isteğe bağlı)</label>
-              <input id="follow-up-due-date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            {type !== 'SALES_MEETING' && <div className="field-group">
+              <WheelDateTimeField
+                mode="date"
+                id="follow-up-due-date"
+                name="dueDate"
+                value={dueDate}
+                onChange={setDueDate}
+                label="Son tarih (isteğe bağlı)"
+              />
             </div>}
           </div>
           {suggestionFeedback && <p className="field-status" role="status">{suggestionFeedback}</p>}

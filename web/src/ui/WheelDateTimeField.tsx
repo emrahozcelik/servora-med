@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import { restoreFocus, trapTabKey } from './antd/overlay-focus';
 import { useCompact } from './useResponsive';
@@ -28,11 +28,15 @@ export type WheelDateTimeFieldProps = {
   max?: string;
   required?: boolean;
   disabled?: boolean;
+  /** Server/page-owned error state, mirrored to `aria-invalid` on both branches. */
+  invalid?: boolean;
   /** Minute granularity of the mobile minute wheel. Defaults to 5. */
   minuteStep?: number;
   label?: string;
   /** Hint/error wiring, identical to the native attribute. */
   'aria-describedby'?: string;
+  /** The rendered interactive control (native input or compact trigger). */
+  controlRef?: RefObject<HTMLElement | null>;
 };
 
 const MODE_INPUT_TYPE: Record<WheelMode, 'datetime-local' | 'date' | 'time'> = {
@@ -276,9 +280,11 @@ export function WheelDateTimeField({
   max,
   required,
   disabled,
+  invalid,
   minuteStep,
   label,
   'aria-describedby': describedBy,
+  controlRef,
 }: WheelDateTimeFieldProps) {
   const compact = useCompact();
   const [open, setOpen] = useState(false);
@@ -287,6 +293,13 @@ export function WheelDateTimeField({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const proxyRef = useRef<HTMLInputElement>(null);
   const requiredMessage = MODE_REQUIRED_MESSAGE[mode];
+  const setTriggerNode = useCallback((node: HTMLButtonElement | null) => {
+    triggerRef.current = node;
+    if (controlRef) controlRef.current = node;
+  }, [controlRef]);
+  const setInputNode = useCallback((node: HTMLInputElement | null) => {
+    if (controlRef) controlRef.current = node;
+  }, [controlRef]);
 
   // Leaving compact mode swaps the trigger for the native input; a sheet left
   // open across that switch must not reappear on the way back.
@@ -333,8 +346,10 @@ export function WheelDateTimeField({
           max={max}
           required={required}
           disabled={disabled}
+          aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           className="form-control"
+          ref={setInputNode}
           onChange={(event) => {
             setValidationError(null);
             onChange(event.target.value);
@@ -354,14 +369,14 @@ export function WheelDateTimeField({
     <>
       {label && <label htmlFor={id} className="wheel-field-label">{label}</label>}
       <button
-        ref={triggerRef}
+        ref={setTriggerNode}
         type="button"
         id={id}
         className="wheel-field-trigger"
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-invalid={validationError ? true : undefined}
+        aria-invalid={validationError || invalid ? true : undefined}
         aria-describedby={describedByIds}
         aria-label={`${labelText}${required ? ' (zorunlu)' : ''}: ${display || 'Seçin'}`}
         onClick={() => { if (!disabled) setOpen(true); }}

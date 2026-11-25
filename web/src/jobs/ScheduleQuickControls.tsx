@@ -16,8 +16,8 @@ export type ScheduleQuickControlsProps = {
 
 /**
  * Reusable quick-preset chips, live canonical duration preview, and calm
- * non-blocking advisory hints (Sunday / past-start) paired with a standard
- * `<input type="datetime-local">` control.
+ * non-blocking advisory hints (Sunday / past-start) paired with the shared
+ * `WheelDateTimeField` control.
  */
 export function ScheduleQuickControls({
   value,

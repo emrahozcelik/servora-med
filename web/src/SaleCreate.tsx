@@ -13,6 +13,7 @@ import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { SaleContactSelect } from './jobs/SaleContactSelect';
 import { PageHeader } from './ui/PageHeader';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import { RecordDescriptions } from './ui/antd';
 import { loadSaleProducts, saleCount } from './jobs/sale-form';
 import { paths } from './paths';
@@ -122,7 +123,16 @@ function VisitSaleCreateScreen({ visitId, user, onCancel, onCreated }: {
       <fieldset disabled={locked}>
         <div className="field-group"><label htmlFor="sale-title">Başlık</label><input id="sale-title" maxLength={255} value={title} onChange={(e) => setTitle(e.target.value)} required /></div>
         <SaleContactSelect customerId={context.customer.id} selected={contact} onChange={setContact} disabled={locked} />
-        <div className="field-group"><label htmlFor="sale-sold-at">Gerçekleşen satış zamanı</label><input id="sale-sold-at" type="datetime-local" value={soldLocal} onChange={(e) => setSoldLocal(e.target.value)} required />
+        <div className="field-group">
+          <WheelDateTimeField
+            mode="datetime"
+            id="sale-sold-at"
+            name="soldAt"
+            value={soldLocal}
+            onChange={setSoldLocal}
+            required
+            label="Gerçekleşen satış zamanı"
+          />
           <p className="form-help">Cihazınızın yerel saat dilimi: {Intl.DateTimeFormat().resolvedOptions().timeZone}</p></div>
         <ProductSelect load={loadSaleProducts} disabled={locked} selectedProducts={products.map((row) => row.product)}
           onAdd={(product) => { if (products.length >= 25) { setError('En fazla 25 farklı ürün seçebilirsiniz.'); return; }
@@ -237,8 +247,16 @@ function StandaloneSaleCreateScreen({ user, onCancel, onCreated }: {
         {customer
           ? <SaleContactSelect key={customer.id} customerId={customer.id} selected={contact} onChange={setContact} disabled={locked} />
           : <p className="form-help">Satışta görüşülen kişiyi seçmek için önce müşteri seçin.</p>}
-        <div className="field-group"><label htmlFor="sale-sold-at">Gerçekleşen satış zamanı</label>
-          <input id="sale-sold-at" type="datetime-local" value={soldLocal} onChange={(event) => setSoldLocal(event.target.value)} required />
+        <div className="field-group">
+          <WheelDateTimeField
+            mode="datetime"
+            id="sale-sold-at"
+            name="soldAt"
+            value={soldLocal}
+            onChange={setSoldLocal}
+            required
+            label="Gerçekleşen satış zamanı"
+          />
           <p className="form-help">Cihazınızın yerel saat dilimi: {Intl.DateTimeFormat().resolvedOptions().timeZone}</p></div>
         <ProductSelect load={loadSaleProducts} disabled={locked || !customer} selectedProducts={products.map((row) => row.product)}
           onAdd={(product) => { if (products.length >= 25) { setError('En fazla 25 farklı ürün seçebilirsiniz.'); return; }

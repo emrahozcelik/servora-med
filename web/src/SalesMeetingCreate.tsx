@@ -29,6 +29,7 @@ import { listStaff, type StaffProfile } from './services/people-api';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { PageHeader } from './ui/PageHeader';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import './jobs/job-create.css';
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -299,11 +300,18 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
           {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
           {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
-        <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>
-          <input id="meeting-scheduled-at" type="datetime-local" required value={scheduledLocal}
-            aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+        <div className="field-group">
+          <WheelDateTimeField
+            mode="datetime"
+            id="meeting-scheduled-at"
+            name="scheduledAt"
+            value={scheduledLocal}
+            onChange={setScheduledLocal}
+            required
+            invalid={Boolean(fieldErrors.scheduledAt)}
             aria-describedby={fieldErrors.scheduledAt ? 'meeting-scheduled-at-error' : undefined}
-            onChange={(event) => setScheduledLocal(event.target.value)} />
+            label="Planlanan görüşme zamanı"
+          />
           <ScheduleQuickControls
             value={scheduledLocal}
             durationMinutes={60}

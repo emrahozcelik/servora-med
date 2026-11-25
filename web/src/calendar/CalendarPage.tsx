@@ -21,6 +21,7 @@ import { useReassignmentConversationSync } from '../jobs/useReassignmentConversa
 import { ReassignmentSyncPrompt } from '../jobs/ReassignmentSyncPrompt';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import type { ApiError, CurrentUser } from '../services/api';
 import { markNotificationsReadByEntity } from '../services/notifications-api';
 import { intervalIntersectsLocalDay, localDayKey } from './calendar-date';
@@ -460,15 +461,29 @@ export function EventForm({
         </>
       )}
       <div className="calendar-form-times">
-        <label className="field-group"><span className="field-label">Başlangıç</span>
-          <input required type="datetime-local" value={draft.startsAt}
-            onChange={(e) => handleStartChange(e.target.value)} />
-        </label>
+        <div className="field-group">
+          <WheelDateTimeField
+            mode="datetime"
+            id="calendar-event-starts-at"
+            name="startsAt"
+            value={draft.startsAt}
+            required
+            label="Başlangıç"
+            onChange={(value) => handleStartChange(value)}
+          />
+        </div>
         {event?.source !== 'JOB' && (
-          <label className="field-group"><span className="field-label">Bitiş</span>
-            <input required type="datetime-local" value={draft.endsAt}
-              onChange={(e) => setDraft({ ...draft, endsAt: e.target.value })} />
-          </label>
+          <div className="field-group">
+            <WheelDateTimeField
+              mode="datetime"
+              id="calendar-event-ends-at"
+              name="endsAt"
+              value={draft.endsAt}
+              required
+              label="Bitiş"
+              onChange={(value) => setDraft({ ...draft, endsAt: value })}
+            />
+          </div>
         )}
       </div>
       <AvailableSlotsNotice

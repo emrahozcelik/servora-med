@@ -88,6 +88,8 @@ import { apiFieldError } from './jobs/api-field-error';
 import type { RevisionCorrectionDraft } from './jobs/RevisionCorrectionDueField';
 import { hasValidPlannedIntervalForStart, plannedIntervalShape } from './jobs/job-schedule-integrity';
 import { ResultState } from './ui/antd/ResultState';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
+import { formatWheelDisplay } from './ui/wheel-datetime';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
 import { JobDecisionPanel } from './jobs/JobDecisionPanel';
 import {
@@ -431,21 +433,21 @@ function DeliveryItemActualTimeForm({
           : 'Teslim zamanı kaydedilmedi'}
       </p>
       <div className="field-group">
-        <label htmlFor={fieldId}>Gerçekleşen teslim zamanı</label>
-        <input
+        <WheelDateTimeField
+          mode="datetime"
           id={fieldId}
           name="deliveredAt"
-          type="datetime-local"
           value={localValue}
-          required
-          disabled={pending}
-          aria-invalid={fieldError ? true : undefined}
-          aria-describedby={fieldError ? `${fieldId}-error` : undefined}
-          onChange={(event) => {
-            setLocalValue(event.target.value);
+          onChange={(value) => {
+            setLocalValue(value);
             setFieldError('');
             setSubmitError('');
           }}
+          required
+          disabled={pending}
+          invalid={Boolean(fieldError)}
+          aria-describedby={fieldError ? `${fieldId}-error` : undefined}
+          label="Gerçekleşen teslim zamanı"
         />
         {fieldError && <span id={`${fieldId}-error`} className="field-error">{fieldError}</span>}
       </div>
@@ -656,17 +658,19 @@ function JobScheduleEditForm({
       <h2 id="job-schedule-edit-title">Planlanan zamanı düzenle</h2>
       <form onSubmit={submit} noValidate>
         <div className="field-group">
-          <label htmlFor="job-scheduled-at">
-            {scheduleEdit.label}{scheduleEdit.optional ? ' (isteğe bağlı)' : ''}
-          </label>
-          <input
+          <WheelDateTimeField
+            mode="datetime"
             id="job-scheduled-at"
             name="scheduledAt"
-            type="datetime-local"
             value={localValue}
+            onChange={(value) => {
+              setLocalValue(value);
+              setFieldError('');
+              setSubmitError('');
+            }}
             required={!scheduleEdit.optional}
             disabled={pending || scheduleLocked}
-            aria-invalid={fieldError ? true : undefined}
+            invalid={Boolean(fieldError)}
             aria-describedby={[
               fieldError ? 'job-scheduled-at-error' : null,
               customerTimeLocked
@@ -676,11 +680,7 @@ function JobScheduleEditForm({
                   : null,
               assignmentOfferHint ? 'job-scheduled-at-offer-hint' : null,
             ].filter(Boolean).join(' ') || undefined}
-            onChange={(event) => {
-              setLocalValue(event.target.value);
-              setFieldError('');
-              setSubmitError('');
-            }}
+            label={`${scheduleEdit.label}${scheduleEdit.optional ? ' (isteğe bağlı)' : ''}`}
           />
           {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
           {customerTimeLocked && (

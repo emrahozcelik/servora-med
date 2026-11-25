@@ -1,7 +1,8 @@
-import { useEffect, useRef, type FormEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
 import { PageHeader } from '../ui/PageHeader';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { EmptyState, IconSegmented, LoadingSkeleton, ResultState } from '../ui/antd';
 import { resolveDatePreset, type ReportDatePreset } from './report-range';
 import { reportSectionHref, type ReportRangeContext } from './report-navigation';
@@ -128,6 +129,53 @@ export function ReportLoadingState({ title }: { title: string }) {
   return <LoadingSkeleton title={title} headingLevel={1} rows={3} />;
 }
 
+/**
+ * The submitted native inputs become controlled wheel fields. The hidden
+ * native carrier keeps `from`/`to` in `FormData`, and the form's `key` remount
+ * resets this state whenever the persisted range changes.
+ */
+function ReportRangeFields({
+  from,
+  to,
+  filterError,
+}: {
+  from: string;
+  to: string;
+  filterError: string;
+}) {
+  const [fromValue, setFromValue] = useState(from);
+  const [toValue, setToValue] = useState(to);
+  const describedBy = filterError ? 'report-filter-error' : undefined;
+  return (
+    <>
+      <label>
+        Başlangıç
+        <WheelDateTimeField
+          mode="date"
+          id="report-range-from"
+          name="from"
+          value={fromValue}
+          onChange={setFromValue}
+          invalid={Boolean(filterError)}
+          aria-describedby={describedBy}
+        />
+      </label>
+      <label>
+        Bitiş
+        <WheelDateTimeField
+          mode="date"
+          id="report-range-to"
+          name="to"
+          value={toValue}
+          onChange={setToValue}
+          invalid={Boolean(filterError)}
+          aria-describedby={describedBy}
+        />
+      </label>
+    </>
+  );
+}
+
 export function ReportDateRangeForm({
   formKey,
   from,
@@ -222,26 +270,7 @@ export function ReportDateRangeForm({
           onSubmit={onSubmit}
           noValidate
         >
-          <label>
-            Başlangıç
-            <input
-              name="from"
-              type="date"
-              defaultValue={from}
-              aria-invalid={filterError ? true : undefined}
-              aria-describedby={filterError ? 'report-filter-error' : undefined}
-            />
-          </label>
-          <label>
-            Bitiş
-            <input
-              name="to"
-              type="date"
-              defaultValue={to}
-              aria-invalid={filterError ? true : undefined}
-              aria-describedby={filterError ? 'report-filter-error' : undefined}
-            />
-          </label>
+          <ReportRangeFields from={from} to={to} filterError={filterError} />
           {children}
           <button type="submit" className="secondary-button">Uygula</button>
         </form>

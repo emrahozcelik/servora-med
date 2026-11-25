@@ -14,6 +14,7 @@ import {
   type RelatedName,
 } from './jobs-api';
 import { priorityChipLabels } from '../ui/PriorityChip';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 export type FollowUpDraft = {
   scheduledAt: string;
@@ -166,19 +167,18 @@ export function FollowUpProposalSection({
         <>
           {allowExplicitSchedule && draft !== null && (
             <div className="field-group follow-up-explicit-schedule">
-              <label htmlFor="follow-up-proposal-scheduled-at">Takip tarihi ve saati</label>
-              <input
-                ref={initialFocusRef
-                  ? (node) => { initialFocusRef.current = node; }
-                  : undefined}
+              <WheelDateTimeField
+                mode="datetime"
                 id="follow-up-proposal-scheduled-at"
-                type="datetime-local"
+                name="followUpScheduledAt"
                 value={scheduledLocal}
-                onChange={(event) => {
-                  const value = event.target.value.trim();
-                  if (!value) return;
-                  onChange({ scheduledAt: localDateTimeToIso(value) });
+                controlRef={initialFocusRef}
+                onChange={(value) => {
+                  const trimmed = value.trim();
+                  if (!trimmed) return;
+                  onChange({ scheduledAt: localDateTimeToIso(trimmed) });
                 }}
+                label="Takip tarihi ve saati"
               />
               <p className="form-help">Saat dilimi: {timeZone}</p>
             </div>
@@ -211,16 +211,17 @@ export function FollowUpProposalSection({
                 : undefined}
             >Tarih ve saati değiştir</summary>
             <div className="field-group">
-              <label htmlFor="follow-up-proposal-scheduled-at">Takip tarihi ve saati</label>
-              <input
+              <WheelDateTimeField
+                mode="datetime"
                 id="follow-up-proposal-scheduled-at"
-                type="datetime-local"
+                name="followUpScheduledAt"
                 value={scheduledLocal}
-                onChange={(event) => {
-                  const value = event.target.value.trim();
-                  if (!value) return;
-                  onChange({ scheduledAt: localDateTimeToIso(value) });
+                onChange={(value) => {
+                  const trimmed = value.trim();
+                  if (!trimmed) return;
+                  onChange({ scheduledAt: localDateTimeToIso(trimmed) });
                 }}
+                label="Takip tarihi ve saati"
               />
               <p className="form-help">Saat dilimi: {timeZone}</p>
             </div>
@@ -243,19 +244,18 @@ export function FollowUpProposalSection({
       ) : (
         <div className="follow-up-proposal-fields">
           <div className="field-group">
-            <label htmlFor="follow-up-proposal-scheduled-at">Takip tarihi ve saati</label>
-            <input
-              ref={mode === 'manager' && initialFocusRef
-                ? (node) => { initialFocusRef.current = node; }
-                : undefined}
+            <WheelDateTimeField
+              mode="datetime"
               id="follow-up-proposal-scheduled-at"
-              type="datetime-local"
+              name="followUpScheduledAt"
               value={scheduledLocal}
-              onChange={(event) => {
-                const value = event.target.value.trim();
-                if (!value) return;
-                onChange({ scheduledAt: localDateTimeToIso(value) });
+              controlRef={mode === 'manager' ? initialFocusRef : undefined}
+              onChange={(value) => {
+                const trimmed = value.trim();
+                if (!trimmed) return;
+                onChange({ scheduledAt: localDateTimeToIso(trimmed) });
               }}
+              label="Takip tarihi ve saati"
             />
             <p className="form-help">Saat dilimi: {timeZone}</p>
           </div>
@@ -313,12 +313,13 @@ export function FollowUpProposalSection({
           </div>
           {draft?.type !== 'SALES_MEETING' && (
             <div className="field-group">
-              <label htmlFor="follow-up-proposal-due-date">Son tarih (isteğe bağlı)</label>
-              <input
+              <WheelDateTimeField
+                mode="date"
                 id="follow-up-proposal-due-date"
-                type="date"
+                name="followUpDueDate"
                 value={draft?.dueDate ?? ''}
-                onChange={(event) => onChange({ dueDate: event.target.value || null })}
+                onChange={(value) => onChange({ dueDate: value || null })}
+                label="Son tarih (isteğe bağlı)"
               />
             </div>
           )}

@@ -11,6 +11,7 @@ export function useResponsiveViewport(): number {
       return () => window.removeEventListener('resize', callback);
     },
     () => (typeof window !== 'undefined' ? window.innerWidth : 1024),
+    () => 1024,
   );
 }
 

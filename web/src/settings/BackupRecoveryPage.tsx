@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { useSearchParams } from 'react-router-dom';
 
 import { ApiError } from '../services/api';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import {
   getBackup,
   getBackupHealth,
@@ -404,7 +405,18 @@ function ScheduleSection({
           <span><strong>Zamanlanmış yedeklemeleri etkinleştir</strong><small>Worker etkin olduğunda mevcut politika üzerinden çalışır.</small></span>
         </label>
         <div className="backup-form-grid">
-          <div className="field-group"><label htmlFor="backup-schedule-time">Saat</label><input id="backup-schedule-time" type="time" value={draft.scheduleTimeLocal} onChange={(event) => setDraft((current) => ({ ...current, scheduleTimeLocal: event.target.value }))} disabled={pending} required /></div>
+          <div className="field-group">
+            <WheelDateTimeField
+              mode="time"
+              id="backup-schedule-time"
+              name="scheduleTimeLocal"
+              value={draft.scheduleTimeLocal}
+              onChange={(value) => setDraft((current) => ({ ...current, scheduleTimeLocal: value }))}
+              disabled={pending}
+              required
+              label="Saat"
+            />
+          </div>
           <div className="field-group"><label htmlFor="backup-schedule-timezone">Saat dilimi (IANA)</label><input id="backup-schedule-timezone" list="backup-timezone-options" value={draft.timezone} onChange={(event) => setDraft((current) => ({ ...current, timezone: event.target.value }))} disabled={pending} required /><datalist id="backup-timezone-options">{TIMEZONES.map((timezone) => <option key={timezone} value={timezone} />)}</datalist></div>
           <div className="field-group"><label htmlFor="backup-default-scope">Varsayılan kapsam</label><select id="backup-default-scope" value={draft.defaultScope} onChange={(event) => setDraft((current) => ({ ...current, defaultScope: event.target.value as BackupScope }))} disabled={pending}><option value="DATABASE">{SCOPE_LABELS.DATABASE}</option><option value="FULL_DATA">{SCOPE_LABELS.FULL_DATA}</option></select></div>
         </div>

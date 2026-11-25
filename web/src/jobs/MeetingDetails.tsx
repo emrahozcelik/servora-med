@@ -5,6 +5,7 @@ import {
   createEnrichmentContact, getCustomer, getCustomerEnrichmentScope, type Contact,
 } from '../services/crm-api';
 import { PhoneInput } from '../ui/PhoneInput';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import type {
   JobCard, MeetingDetailField, MeetingDetails, MeetingOutcome, PatchMeetingDetailsInput,
   UnsuccessfulVisitReasonCode,
@@ -295,19 +296,23 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     {(feedback || error) && <div ref={feedbackRef} className={`detail-feedback${error ? ' detail-feedback-error' : ''}`}
       role={error ? 'alert' : 'status'} tabIndex={-1}>{error || feedback}</div>}
     <form className="meeting-result-form" onSubmit={submit} noValidate><fieldset disabled={mutationPending || ambiguous}>
-      <div className="field-group"><label htmlFor="meeting-actual-at">
-        Gerçekleşme zamanı{meetingOptional ? ' (isteğe bağlı)' : ''}
-      </label>
+      <div className="field-group">
         <div className="meeting-actual-at-row">
-          <input id="meeting-actual-at" type="datetime-local" value={meetingAt}
+          <WheelDateTimeField
+            mode="datetime"
+            id="meeting-actual-at"
+            name="meetingAt"
+            value={meetingAt}
+            onChange={setMeetingAt}
             required={!meetingOptional}
-            aria-invalid={fieldErrors.meetingAt ? true : undefined}
+            invalid={Boolean(fieldErrors.meetingAt)}
             aria-describedby={describedBy(
               'meeting-timezone-help',
               meetingOptional && 'meeting-time-optional-help',
               fieldErrors.meetingAt && 'meeting-actual-at-error',
             )}
-            onChange={(event) => setMeetingAt(event.target.value)} />
+            label={`Gerçekleşme zamanı${meetingOptional ? ' (isteğe bağlı)' : ''}`}
+          />
           <button
             className="secondary-button compact-button"
             type="button"
