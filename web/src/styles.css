@@ -6893,3 +6893,8 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
     padding-top: 0.25rem;
   }
 }
+
+/* Keep the planned duration "(30 dk)" together in the compact schedule summary. */
+.job-schedule-summary-duration {
+  white-space: nowrap;
+}

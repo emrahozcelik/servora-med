@@ -316,7 +316,9 @@ function formatScheduleSummaryValue(job: JobCard): ReactNode {
     <span>
       <time dateTime={job.scheduledAt}>{startDisplay}</time>
       {`–${endDisplay}`}
-      {minutes > 0 ? ` (${minutes} dk)` : ''}
+      {minutes > 0 && (
+        <>{' '}<span className="job-schedule-summary-duration">({minutes} dk)</span></>
+      )}
     </span>
   );
 }
