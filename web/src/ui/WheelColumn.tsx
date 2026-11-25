@@ -14,6 +14,12 @@ export type WheelColumnProps = {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  /**
+   * Registers a synchronous reader for the option currently centered by the
+   * scroll position. The owning form calls it before committing so a tap on
+   * "Tamam" cannot send the value from before a just-finished scroll.
+   */
+  resolveRef?: { current: (() => string | null) | null };
 };
 
 function clampIndex(index: number, total: number): number {
@@ -94,6 +100,7 @@ export function WheelColumn({
   value,
   onChange,
   disabled = false,
+  resolveRef,
 }: WheelColumnProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -102,6 +109,8 @@ export function WheelColumn({
   const animatingToRef = useRef<number | null>(null);
   const animationRetriesRef = useRef(0);
   const animateNextRef = useRef(false);
+  /** Value chosen by tap/keyboard while the smooth scroll is still moving. */
+  const pendingValueRef = useRef<string | null>(null);
 
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
   const selectedOption = options[selectedIndex];
@@ -140,6 +149,8 @@ export function WheelColumn({
     const index = nearestEnabledIndex(options, rawIndex);
     const option = options[index];
     if (!option) return;
+    // A settled scroll is authoritative from here on.
+    pendingValueRef.current = null;
     if (option.value !== value) {
       onChange(option.value);
       return;
@@ -152,6 +163,24 @@ export function WheelColumn({
 
   useEffect(() => {
     settleRef.current = settle;
+  });
+
+  const readCenteredValue = (): string | null => {
+    if (disabled || allDisabled) return null;
+    if (pendingValueRef.current !== null) return pendingValueRef.current;
+    const scroller = scrollerRef.current;
+    if (!scroller) return null;
+    const rawIndex = clampIndex(Math.round(scroller.scrollTop / ITEM_HEIGHT), options.length);
+    const index = nearestEnabledIndex(options, rawIndex);
+    return options[index]?.value ?? null;
+  };
+
+  useEffect(() => {
+    if (!resolveRef) return;
+    resolveRef.current = readCenteredValue;
+    return () => {
+      resolveRef.current = null;
+    };
   });
 
   useEffect(() => {
@@ -181,12 +210,14 @@ export function WheelColumn({
   function releaseAnimation(): void {
     animatingToRef.current = null;
     animationRetriesRef.current = 0;
+    pendingValueRef.current = null;
     clearSettleTimer();
   }
 
   function selectIndex(index: number): void {
     const option = options[index];
     if (!option || option.disabled) return;
+    pendingValueRef.current = option.value;
     animateNextRef.current = true;
     onChange(option.value);
   }
@@ -243,7 +274,12 @@ export function WheelColumn({
         aria-hidden="true"
         onPointerDown={releaseAnimation}
         onTouchStart={releaseAnimation}
-        onScroll={scheduleSettle}
+        onScroll={() => {
+          // A scroll outside a programmatic animation is user-driven, so the
+          // tapped/keyboard value is no longer the visible center.
+          if (animatingToRef.current === null) pendingValueRef.current = null;
+          scheduleSettle();
+        }}
       >
         {options.map((option, index) => (
           <span

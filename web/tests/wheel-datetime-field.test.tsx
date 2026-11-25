@@ -134,7 +134,8 @@ describe('compact wheel sheet', () => {
       label: 'Planlanan zaman',
     });
 
-    expect(container.querySelector('input')).toBeNull();
+    expect(container.querySelector('.wheel-field-trigger')?.tagName).toBe('BUTTON');
+    expect(container.querySelector('.wheel-field-proxy')).not.toBeNull();
     expect(trigger().textContent).toContain('Per 26 Kas · 10:30');
     expect(trigger().getAttribute('aria-haspopup')).toBe('dialog');
     expect(trigger().getAttribute('aria-expanded')).toBe('false');
@@ -311,6 +312,23 @@ describe('compact wheel sheet', () => {
     expect(onChange).toHaveBeenCalledWith('2026-11-26T11:30');
   });
 
+  it('commits the centered row when Tamam is pressed before the settle timer', async () => {
+    resizeTo(390);
+    await renderField({
+      mode: 'datetime', id: 'scheduled', name: 'scheduledAt', value: '2026-11-26T10:30',
+    });
+    await click(trigger());
+    const scroller = document.querySelector<HTMLElement>(
+      '[data-wheel-column="Saat"] .wheel-column-scroller',
+    );
+    expect(scroller).not.toBeNull();
+    await act(async () => { scroller!.scrollTop = 11 * 44; });
+
+    // No scrollend and no settle timeout: Tamam must read the centered row.
+    await click(action('Tamam'));
+    expect(onChange).toHaveBeenCalledWith('2026-11-26T11:30');
+  });
+
   it('selects a tapped wheel item and centers it', async () => {
     resizeTo(390);
     await renderField({
@@ -326,6 +344,111 @@ describe('compact wheel sheet', () => {
     expect(document.activeElement).toBe(column('Saat'));
     await click(action('Tamam'));
     expect(onChange).toHaveBeenCalledWith('2026-11-26T15:30');
+  });
+
+  it('participates in form data and required validation on mobile', async () => {
+    resizeTo(390);
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="datetime"
+            id="scheduled"
+            name="when"
+            value=""
+            required
+            onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    const form = container.querySelector('form');
+    expect(form).not.toBeNull();
+    expect(new FormData(form!).get('when')).toBe('');
+    expect(form!.checkValidity()).toBe(false);
+
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="datetime"
+            id="scheduled"
+            name="when"
+            value="2026-11-26T10:30"
+            required
+            onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    expect(new FormData(form!).get('when')).toBe('2026-11-26T10:30');
+    expect(form!.checkValidity()).toBe(true);
+    expect(container.querySelector('.wheel-field-proxy')?.getAttribute('type')).toBe('datetime-local');
+    expect(trigger().id).toBe('scheduled');
+    expect(document.querySelectorAll('#scheduled')).toHaveLength(1);
+  });
+
+  it('clears an optional value with Temizle', async () => {
+    resizeTo(390);
+    await renderField({ mode: 'date', id: 'due', name: 'dueDate', value: '2026-11-26' });
+    await click(trigger());
+    const clear = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-header button')]
+      .find((button) => button.textContent === 'Temizle');
+    expect(clear).toBeDefined();
+    await click(clear);
+    expect(onChange).toHaveBeenCalledWith('');
+    expect(dialog()).toBeNull();
+  });
+
+  it('does not offer Temizle on a required field', async () => {
+    resizeTo(390);
+    await renderField({
+      mode: 'date', id: 'due', name: 'dueDate', value: '2026-11-26', required: true,
+    });
+    await click(trigger());
+    const clear = [...document.querySelectorAll('.wheel-sheet-header button')]
+      .some((button) => button.textContent === 'Temizle');
+    expect(clear).toBe(false);
+  });
+
+  it('keeps an enclosing dialog open when Escape closes the picker', async () => {
+    resizeTo(390);
+    const parentKeydown = vi.fn();
+    container.addEventListener('keydown', parentKeydown);
+    await renderField({
+      mode: 'datetime', id: 'scheduled', name: 'scheduledAt', value: '2026-11-26T10:30',
+    });
+    await click(trigger());
+    await press(column('Saat'), 'Escape');
+
+    expect(dialog()).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(parentKeydown).not.toHaveBeenCalled();
+    await act(async () => { await Promise.resolve(); });
+    expect(document.activeElement).toBe(trigger());
+    container.removeEventListener('keydown', parentKeydown);
+  });
+
+  it('moves the day wheel to the true min/max on Home and End', async () => {
+    resizeTo(390);
+    await renderField({
+      mode: 'datetime',
+      id: 'scheduled',
+      name: 'scheduledAt',
+      value: '2026-11-25T10:00',
+      min: '2020-01-01T00:00',
+      max: '2026-11-25T23:59',
+    });
+    await click(trigger());
+    const day = column('Gün');
+    await press(day, 'Home');
+    expect(day.getAttribute('aria-valuetext')).toContain('1 Oca');
+    await press(day, 'End');
+    expect(day.getAttribute('aria-valuetext')).toMatch(/Bugün|25 Kas/);
+    await press(day, 'Home');
+
+    await click(action('Tamam'));
+    expect(onChange).toHaveBeenCalledWith('2020-01-01T10:00');
   });
 
   it('does not open while disabled', async () => {

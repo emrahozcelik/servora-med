@@ -58,8 +58,6 @@ export const DEFAULT_MINUTE_STEP = 5;
 export const DEFAULT_DAYS_BACK = 30;
 export const DEFAULT_DAYS_FORWARD = 365;
 
-const MAX_DAY_OPTIONS = 1500;
-
 const DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIME_PATTERN = /^(\d{2}):(\d{2})(?::(\d{2}))?$/;
@@ -130,10 +128,13 @@ export function minuteGrid(step: number, extraMinute?: number): number[] {
   return minutes;
 }
 
-/** Rounds a minute-of-day up to the next `step` boundary; may roll to 24:00. */
+/** Rounds a minute-of-day up to the next minute-grid value inside its hour. */
 export function roundUpMinutes(minutes: number, step: number): number {
   if (minutes <= 0) return 0;
-  return Math.ceil(minutes / step) * step;
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const roundedMinute = Math.ceil(minute / step) * step;
+  return roundedMinute >= 60 ? (hour + 1) * 60 : hour * 60 + roundedMinute;
 }
 
 /** Parses any supported local value into calendar/time components. */
@@ -214,9 +215,29 @@ export function compareWheelSelections(a: WheelSelection, b: WheelSelection): nu
   return (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute);
 }
 
+/**
+ * A time-only range with `max` before `min` wraps across midnight
+ * (`22:00–02:00`), matching the native time input's validity rule.
+ */
+function hasInvertedTimeRange(bounds: WheelBounds): boolean {
+  const min = bounds.min;
+  const max = bounds.max;
+  return min !== null
+    && max !== null
+    && min.date === ''
+    && max.date === ''
+    && compareWheelSelections(min, max) > 0;
+}
+
 export function isWithinWheelBounds(selection: WheelSelection, bounds: WheelBounds): boolean {
-  if (bounds.min && compareWheelSelections(selection, bounds.min) < 0) return false;
-  if (bounds.max && compareWheelSelections(selection, bounds.max) > 0) return false;
+  const min = bounds.min;
+  const max = bounds.max;
+  if (hasInvertedTimeRange(bounds)) {
+    return compareWheelSelections(selection, min!) >= 0
+      || compareWheelSelections(selection, max!) <= 0;
+  }
+  if (min && compareWheelSelections(selection, min) < 0) return false;
+  if (max && compareWheelSelections(selection, max) > 0) return false;
   return true;
 }
 
@@ -224,6 +245,11 @@ export function clampWheelSelection(
   selection: WheelSelection,
   bounds: WheelBounds,
 ): WheelSelection {
+  if (hasInvertedTimeRange(bounds)) {
+    if (isWithinWheelBounds(selection, bounds)) return selection;
+    // Outside a midnight-wrapping window the next usable value is its start.
+    return { ...bounds.min! };
+  }
   if (bounds.min && compareWheelSelections(selection, bounds.min) < 0) {
     return { ...bounds.min };
   }
@@ -315,23 +341,6 @@ function dayKeyRange(selection: WheelSelection, context: WheelContext): { low: s
   // Keep a stored value visible even when it sits outside the default window.
   if (selection.date && selection.date < low) low = selection.date;
   if (selection.date && selection.date > high) high = selection.date;
-  const span = Math.round(
-    (utcDateFromKey(high).getTime() - utcDateFromKey(low).getTime()) / 86_400_000,
-  ) + 1;
-  if (span > MAX_DAY_OPTIONS) {
-    // Extreme min/max spans are windowed around the selection so the wheel
-    // never renders an unbounded list.
-    const anchor = selection.date || today;
-    const half = Math.floor(MAX_DAY_OPTIONS / 2);
-    low = addCalendarDays(anchor, -half);
-    if (bounds.min && low < bounds.min.date) low = bounds.min.date;
-    high = addCalendarDays(low, MAX_DAY_OPTIONS - 1);
-    if (high > (bounds.max ? bounds.max.date : high)) {
-      high = bounds.max ? bounds.max.date : high;
-      low = addCalendarDays(high, -(MAX_DAY_OPTIONS - 1));
-      if (bounds.min && low < bounds.min.date) low = bounds.min.date;
-    }
-  }
   return { low, high };
 }
 

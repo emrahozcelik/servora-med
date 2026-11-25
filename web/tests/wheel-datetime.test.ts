@@ -71,6 +71,13 @@ describe('minute rounding', () => {
     expect(wheel.roundUpMinutes(0, 5)).toBe(0);
   });
 
+  it('rounds inside the hour grid even when the step does not divide 60', () => {
+    expect(wheel.roundUpMinutes(542, 7)).toBe(547);
+    expect(wheel.roundUpMinutes(58, 7)).toBe(60);
+    expect(wheel.roundUpMinutes(23 * 60 + 58, 7)).toBe(24 * 60);
+    expect(wheel.roundUpMinutes(9 * 60 + 2, 7)).toBe(9 * 60 + 7);
+  });
+
   it('rounds seconds up and rolls over into the next day', () => {
     expect(wheel.nowWheelSelection('datetime', new Date(2026, 10, 25, 10, 2, 30), 5))
       .toEqual({ date: '2026-11-25', hour: 10, minute: 5 });
@@ -85,6 +92,8 @@ describe('minute rounding', () => {
       .toEqual({ date: '2026-11-25', hour: 0, minute: 0 });
     expect(wheel.nowWheelSelection('time', new Date(2026, 10, 25, 10, 2, 30), 15))
       .toEqual({ date: '', hour: 10, minute: 15 });
+    expect(wheel.nowWheelSelection('time', new Date(2026, 10, 25, 9, 2, 0), 7))
+      .toEqual({ date: '', hour: 9, minute: 7 });
   });
 });
 
@@ -125,6 +134,35 @@ describe('min/max clamping', () => {
     expect(wheel.isWithinWheelBounds({ date: '', hour: 9, minute: 0 }, bounds)).toBe(true);
     expect(wheel.isWithinWheelBounds({ date: '', hour: 18, minute: 1 }, bounds)).toBe(false);
   });
+
+  it('keeps a midnight-wrapping time range usable', () => {
+    const bounds = wheel.parseWheelBounds('time', '22:00', '02:00');
+    expect(wheel.isWithinWheelBounds({ date: '', hour: 23, minute: 0 }, bounds)).toBe(true);
+    expect(wheel.isWithinWheelBounds({ date: '', hour: 0, minute: 30 }, bounds)).toBe(true);
+    expect(wheel.isWithinWheelBounds({ date: '', hour: 2, minute: 0 }, bounds)).toBe(true);
+    expect(wheel.isWithinWheelBounds({ date: '', hour: 12, minute: 0 }, bounds)).toBe(false);
+
+    expect(wheel.initialWheelSelection('time', '23:00', {
+      now: NOW, min: '22:00', max: '02:00',
+    })).toEqual({ date: '', hour: 23, minute: 0 });
+
+    const columns = wheel.buildWheelColumns('time', { date: '', hour: 23, minute: 0 }, {
+      now: NOW, min: '22:00', max: '02:00', minuteStep: 5,
+    });
+    const hours = column(columns, 'hour');
+    expect(hours.options.filter((option) => !option.disabled).map((option) => option.value))
+      .toEqual(['0', '1', '2', '22', '23']);
+    expect(hours.options[12]?.disabled).toBe(true);
+
+    const endMinutes = column(
+      wheel.buildWheelColumns('time', { date: '', hour: 2, minute: 0 }, {
+        now: NOW, min: '22:00', max: '02:00', minuteStep: 5,
+      }),
+      'minute',
+    );
+    expect(endMinutes.options.filter((option) => !option.disabled).map((option) => option.value))
+      .toEqual(['0']);
+  });
 });
 
 describe('Turkish day labels', () => {
@@ -163,6 +201,21 @@ describe('Turkish day labels', () => {
     }), 'day');
     expect(days.options.map((option) => option.value))
       .toEqual(['2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27']);
+  });
+
+  it('renders the whole explicit min/max range for Home and End', () => {
+    const days = column(wheel.buildWheelColumns('datetime', {
+      date: '2026-11-25', hour: 10, minute: 0,
+    }, {
+      now: NOW,
+      min: '2020-01-01T00:00',
+      max: '2026-11-25T23:59',
+      minuteStep: 5,
+    }), 'day');
+    expect(days.options[0]?.value).toBe('2020-01-01');
+    expect(days.options[0]?.label).toContain('1 Oca');
+    expect(days.options.at(-1)?.value).toBe('2026-11-25');
+    expect(days.options).toHaveLength(2521);
   });
 });
 

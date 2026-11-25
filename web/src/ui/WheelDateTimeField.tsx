@@ -9,6 +9,7 @@ import {
   formatWheelDisplay,
   formatWheelValue,
   initialWheelSelection,
+  type WheelColumnKey,
   type WheelContext,
   type WheelMode,
   type WheelSelection,
@@ -87,11 +88,15 @@ type WheelSheetProps = {
   value: string;
   min?: string;
   max?: string;
+  required?: boolean;
   minuteStep?: number;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
   onCancel: () => void;
+  onClear: () => void;
   onCommit: (selection: WheelSelection) => void;
 };
+
+type WheelResolver = () => string | null;
 
 function WheelSheet({
   mode,
@@ -99,15 +104,29 @@ function WheelSheet({
   value,
   min,
   max,
+  required,
   minuteStep,
   returnFocusRef,
   onCancel,
+  onClear,
   onCommit,
 }: WheelSheetProps): ReactNode {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const onCancelRef = useRef(onCancel);
+  const dayResolver = useRef<WheelResolver | null>(null);
+  const monthResolver = useRef<WheelResolver | null>(null);
+  const yearResolver = useRef<WheelResolver | null>(null);
+  const hourResolver = useRef<WheelResolver | null>(null);
+  const minuteResolver = useRef<WheelResolver | null>(null);
+  const resolverFor: Record<WheelColumnKey, { current: WheelResolver | null }> = {
+    day: dayResolver,
+    month: monthResolver,
+    year: yearResolver,
+    hour: hourResolver,
+    minute: minuteResolver,
+  };
   const [context] = useState<WheelContext>(() => ({ now: new Date(), min, max, minuteStep }));
   const [draft, setDraft] = useState<WheelSelection>(() => (
     initialWheelSelection(mode, value, context)
@@ -135,6 +154,8 @@ function WheelSheet({
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault();
+        // A picker can sit inside a form drawer; only this sheet dismisses.
+        event.stopPropagation();
         onCancelRef.current();
         return;
       }
@@ -145,6 +166,18 @@ function WheelSheet({
   }, []);
 
   const columns = buildWheelColumns(mode, draft, context);
+
+  function commitDraft(): void {
+    let next = draft;
+    for (const column of columns) {
+      const resolve = resolverFor[column.key].current;
+      const centered = resolve?.();
+      if (centered !== null && centered !== undefined) {
+        next = applyWheelColumnChange(mode, next, column.key, centered, context);
+      }
+    }
+    onCommit(next);
+  }
 
   return (
     <div className="wheel-sheet-root" data-servora-wheel-sheet="true">
@@ -163,6 +196,11 @@ function WheelSheet({
       >
         <div className="wheel-sheet-header">
           <h2 id={titleId}>{title}</h2>
+          {!required && value !== '' && (
+            <button type="button" className="wheel-sheet-clear" onClick={onClear}>
+              Temizle
+            </button>
+          )}
         </div>
         <div className="wheel-sheet-wheels" data-wheel-mode={mode}>
           {columns.map((column) => (
@@ -171,6 +209,7 @@ function WheelSheet({
               label={column.label}
               options={column.options}
               value={column.value}
+              resolveRef={resolverFor[column.key]}
               onChange={(next) => {
                 setDraft((current) => applyWheelColumnChange(
                   mode, current, column.key, next, context,
@@ -181,7 +220,7 @@ function WheelSheet({
         </div>
         <div className="wheel-sheet-actions">
           <button type="button" className="secondary-button" onClick={onCancel}>Vazgeç</button>
-          <button type="button" className="primary-button" onClick={() => onCommit(draft)}>Tamam</button>
+          <button type="button" className="primary-button" onClick={commitDraft}>Tamam</button>
         </div>
       </div>
     </div>
@@ -248,7 +287,6 @@ export function WheelDateTimeField({
         ref={triggerRef}
         type="button"
         id={id}
-        name={name}
         className="wheel-field-trigger"
         disabled={disabled}
         aria-haspopup="dialog"
@@ -262,6 +300,25 @@ export function WheelDateTimeField({
           {display || 'Seçin'}
         </span>
       </button>
+      {/*
+        Form carrier: the visible trigger is a button and cannot submit a value
+        or take part in constraint validation. This clipped native control
+        keeps `FormData` and `required`/`min`/`max` behavior of the input it
+        replaces without exposing a second control to assistive technology.
+      */}
+      <input
+        type={MODE_INPUT_TYPE[mode]}
+        name={name}
+        value={value}
+        min={min}
+        max={max}
+        required={required}
+        disabled={disabled}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="wheel-field-proxy"
+        onChange={() => {}}
+      />
       {open && (
         <WheelSheet
           mode={mode}
@@ -269,9 +326,14 @@ export function WheelDateTimeField({
           value={value}
           min={min}
           max={max}
+          required={required}
           minuteStep={minuteStep}
           returnFocusRef={triggerRef}
           onCancel={() => setOpen(false)}
+          onClear={() => {
+            onChange('');
+            setOpen(false);
+          }}
           onCommit={(selection) => {
             onChange(formatWheelValue(mode, selection));
             setOpen(false);
