@@ -134,6 +134,27 @@ describe('JobDetail joint slot edit', () => {
     );
   });
 
+  it('offers joint slots when the Calendar module is off', async () => {
+    const noCalendarUser: CurrentUser = {
+      ...user,
+      capabilities: { overviewDashboard: true, calendar: false, messaging: true },
+    };
+    await act(async () => root.render(<JobDetailPanel
+      job={job}
+      items={[]}
+      user={noCalendarUser}
+      pending={false}
+      message=""
+      onBack={() => {}}
+      onCommand={() => {}}
+      onSaveSchedule={vi.fn().mockResolvedValue(undefined)}
+    />));
+    await openScheduleEditor();
+    await act(async () => { vi.advanceTimersByTime(300); });
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('button[data-available-slot]')).toBeTruthy();
+  });
+
   it('never blocks the Staff edit on an advisory evaluation', async () => {
     // Frequency insight is management-only: even a WARNING advisory renders
     // no blocking notice for Staff and the save still reaches onSave.

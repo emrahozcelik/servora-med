@@ -266,8 +266,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     assignedTo: assignedTo || null,
     scheduledStartLocal: scheduledLocal,
     jobCardId: null,
-    enabled: user.capabilities?.calendar === true
-      && state.kind === 'ready' && availableSlotType !== null && readySource?.customerId != null,
+    enabled: state.kind === 'ready' && availableSlotType !== null && readySource?.customerId != null,
   });
 
   function updateScheduledLocal(nextValue: string) {

@@ -578,6 +578,20 @@ describe('Follow-up create page', () => {
     expect(host.querySelector('.available-slots-notice')).not.toBeNull();
   });
 
+  it('searches and renders available slots when the Calendar module is off', async () => {
+    await render({
+      ...manager,
+      capabilities: { overviewDashboard: true, calendar: false, messaging: true },
+    });
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await waitForAvailableSlotSearch();
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-2',
+    }));
+    expect(host.querySelector('.available-slots-notice')).not.toBeNull();
+    expect(host.querySelector('[data-available-slot]')).not.toBeNull();
+  });
+
   it('does not search for or render available slots for a General Task follow-up', async () => {
     await render(manager, {
       ...source, type: 'GENERAL_TASK', customerId: null, contactId: null,

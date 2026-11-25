@@ -240,6 +240,33 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
   });
 
+  it('offers a joint slot when the Calendar module is off', async () => {
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [{
+      startsAt: '2026-08-10T06:30:00.000Z',
+      endsAt: '2026-08-10T07:30:00.000Z',
+    }] });
+    scheduling.isoInstantToLocalDateTime.mockImplementation((value: string) => (
+      value.endsWith('06:30:00.000Z') ? '2026-08-10T09:30' : '2026-08-10T10:30'
+    ));
+    await render({
+      ...manager,
+      capabilities: { overviewDashboard: true, calendar: false, messaging: true },
+    });
+    change(host.querySelector('#meeting-engagement-kind') as HTMLSelectElement, 'SALES_MEETING');
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await flush();
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-2',
+    }));
+    const slotButton = host.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slotButton).toBeTruthy();
+    await act(async () => slotButton.click());
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
+  });
+
   it('AAP-22: STAFF sees only the generic conflict message, never conflict details', async () => {
     jobs.createJobCard.mockRejectedValue(new ApiError(
       409, 'CALENDAR_CONFLICT', 'Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.',

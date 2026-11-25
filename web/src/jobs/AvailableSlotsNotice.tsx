@@ -102,7 +102,7 @@ export function AvailableSlotsNotice({
   return <section className="available-slots-notice" aria-live="polite" aria-labelledby="available-slots-heading">
     <h2 id="available-slots-heading">Personel için uygun saatler</h2>
     {searching && <p role="status">Atanan personel için uygun saatler aranıyor…</p>}
-    {!searching && featureDisabled && <p role="status">Takvim uygun saat araması etkin değil.</p>}
+    {!searching && featureDisabled && <p role="status">Uygun saat araması şu anda kullanılamıyor. Formu yine kaydedebilirsiniz.</p>}
     {!searching && !featureDisabled && error && (
       <p role="status">Uygun saatler yüklenemedi. Formu yine kaydedebilirsiniz.</p>
     )}

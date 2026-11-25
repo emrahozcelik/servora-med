@@ -188,6 +188,35 @@ describe('Delivery create CRM defaults', () => {
     expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
   });
 
+  it.each([
+    ['calendar: false', { overviewDashboard: true, calendar: false, messaging: true }],
+    ['no capabilities', undefined],
+  ])('offers and applies a joint slot without the Calendar module (%s)', async (_label, capabilities) => {
+    const noCalendarManager: CurrentUser = { ...manager, capabilities };
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [{
+      startsAt: '2026-08-10T06:30:00.000Z',
+      endsAt: '2026-08-10T07:30:00.000Z',
+    }] });
+    scheduling.isoInstantToLocalDateTime.mockImplementation((value: string) => (
+      value.endsWith('06:30:00.000Z') ? '2026-08-10T09:30' : '2026-08-10T10:30'
+    ));
+    await act(async () => root.render(view(noCalendarManager)));
+    await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await settle();
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'PRODUCT_DELIVERY', customerId: 'customer-a', assignedTo: 'staff-2',
+    }));
+    const slotButton = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slotButton).toBeTruthy();
+    await act(async () => slotButton.click());
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
+  });
+
   it('pre-fills planned delivery time once and preserves a user edit across reference reloads', async () => {
     await act(async () => root.render(view(manager)));
     await settle();
