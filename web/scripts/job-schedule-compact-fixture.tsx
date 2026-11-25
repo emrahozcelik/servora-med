@@ -20,13 +20,23 @@ const manager: CurrentUser = {
   capabilities: { overviewDashboard: true, calendar: true, messaging: true },
 };
 
+/**
+ * The evidence runner pins this instant with `page.clock.setFixedTime`, so every
+ * planned/slot time below is reproducibly in the future or recent past relative
+ * to the same clock on any machine and date.
+ */
+const FIXED_NOW = new Date('2026-11-26T08:00:00.000Z'); // 11:00 Europe/Istanbul
+const DAY_START = new Date(Date.UTC(2026, 10, 26, 0, 0)); // 26 Nov 2026 00:00Z
+const plannedStart = new Date(FIXED_NOW.valueOf() + 2 * 60 * 60_000); // 13:00 local
+const plannedEnd = new Date(plannedStart.valueOf() + 30 * 60_000); // 13:30 local
+
 const job: JobCard = {
   id: 'job-schedule-fixture', organizationId: 'org-1', type: 'SALES_MEETING',
   status: 'ACCEPTED', version: 3, engagementKind: 'SALES_MEETING',
   title: 'Klinik ürün tanıtım görüşmesi', description: null,
   customerId: 'customer-1', contactId: null, assignedTo: manager.id, createdBy: manager.id,
   priority: 'normal', dueDate: null,
-  scheduledAt: '2026-11-26T10:00:00.000Z', scheduledEndsAt: '2026-11-26T10:30:00.000Z',
+  scheduledAt: plannedStart.toISOString(), scheduledEndsAt: plannedEnd.toISOString(),
   assignee: { id: manager.id, name: manager.name },
   customer: { id: 'customer-1', name: 'DentArt Ağız ve Diş Sağlığı' },
   contact: null, followUpContext: null, followUpProposal: null,
@@ -52,13 +62,12 @@ function slot(startsAt: string): AvailableSlot {
   return { startsAt, endsAt: end.toISOString() };
 }
 
-const compactSlots = [
-  '2026-11-26T07:00:00.000Z', '2026-11-26T08:30:00.000Z', '2026-11-26T10:30:00.000Z',
-  '2026-11-27T07:00:00.000Z', '2026-11-27T08:30:00.000Z', '2026-11-27T10:30:00.000Z',
-].map(slot);
+const compactSlots = [0, 1].flatMap((dayOffset) => [7, 8.5, 10.5].map((hour) => slot(
+  new Date(DAY_START.valueOf() + (dayOffset * 24 + hour) * 60 * 60_000).toISOString(),
+)));
 
 const manySlots = Array.from({ length: 21 }, (_, index) => slot(
-  new Date(Date.UTC(2026, 10, 26, 5, 0) + index * 30 * 60_000).toISOString(),
+  new Date(DAY_START.valueOf() + 5 * 60 * 60_000 + index * 30 * 60_000).toISOString(),
 ));
 
 const slots = fixtureCase === 'many' ? manySlots : compactSlots;

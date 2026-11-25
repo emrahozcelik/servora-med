@@ -19,6 +19,14 @@ import { createServer as createViteServer } from 'vite';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');
 const captureDir = process.env.JOB_SCHEDULE_CAPTURE_DIR ?? process.env.FLEET_EVIDENCE_DIR;
+const FIXED_NOW = new Date('2026-11-26T08:00:00.000Z'); // 11:00 Europe/Istanbul
+const LOCALE = 'tr-TR';
+const TIMEZONE = 'Europe/Istanbul';
+const evidenceMeta = {
+  fixedTime: FIXED_NOW.toISOString(),
+  locale: LOCALE,
+  timezone: TIMEZONE,
+};
 const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/><style>${css}</style></head>
 <body><div id="schedule-evidence-root" class="shell-content"></div>
@@ -47,6 +55,12 @@ async function startServer() {
 
 function round(value) {
   return Math.round(value * 10) / 10;
+}
+
+async function newEvidencePage(browser, viewport) {
+  const page = await browser.newPage({ viewport, locale: LOCALE, timezoneId: TIMEZONE });
+  await page.clock.setFixedTime(FIXED_NOW);
+  return page;
 }
 
 async function measure(page) {
@@ -100,7 +114,7 @@ const results = {};
 try {
   if (captureDir) mkdirSync(captureDir, { recursive: true });
 
-  const compactPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const compactPage = await newEvidencePage(browser, { width: 390, height: 844 });
   await compactPage.goto(`${url}?case=compact`, { waitUntil: 'load' });
   await compactPage.waitForSelector('[data-job-schedule-summary="true"]');
   results.compactCollapsed = await measure(compactPage);
@@ -122,7 +136,7 @@ try {
     });
   }
 
-  const desktopPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const desktopPage = await newEvidencePage(browser, { width: 1440, height: 900 });
   await desktopPage.goto(`${url}?case=many`, { waitUntil: 'load' });
   await desktopPage.getByRole('button', { name: 'Değiştir' }).click();
   await desktopPage.waitForFunction(
@@ -139,7 +153,7 @@ try {
     });
   }
 
-  const reflowPage = await browser.newPage({ viewport: { width: 320, height: 844 } });
+  const reflowPage = await newEvidencePage(browser, { width: 320, height: 844 });
   await reflowPage.goto(`${url}?case=compact`, { waitUntil: 'load' });
   await reflowPage.evaluate(() => { document.documentElement.style.fontSize = '32px'; });
   await reflowPage.getByRole('button', { name: 'Değiştir' }).click();
@@ -185,11 +199,11 @@ try {
     `320px 200% text page overflows by ${results.reflow320Zoom200.pageOverflow}px`,
   );
 
-  console.log(JSON.stringify({ sha, results, failures }, null, 2));
+  console.log(JSON.stringify({ sha, ...evidenceMeta, results, failures }, null, 2));
   if (captureDir) {
     writeFileSync(
       resolve(captureDir, 'job-schedule-geometry.json'),
-      `${JSON.stringify({ sha, results, failures }, null, 2)}\n`,
+      `${JSON.stringify({ sha, ...evidenceMeta, results, failures }, null, 2)}\n`,
     );
   }
 } finally {

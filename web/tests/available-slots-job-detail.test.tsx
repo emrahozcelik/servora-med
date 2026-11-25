@@ -336,6 +336,56 @@ describe('JobDetail joint slot edit', () => {
     expect(document.activeElement?.id).toBe('job-scheduled-at');
   });
 
+  it.each([1024, 390])(
+    'moves focus to the enabled change-request action when a locked editor opens at %ipx',
+    async (width) => {
+      resizeTo(width);
+      const onRequestChange = vi.fn();
+      const locked: JobCard = {
+        ...job,
+        hasOpenOverdueIncident: true,
+        workflowContext: {
+          ...job.workflowContext,
+          allowedActions: ['EDIT_JOB_FIELDS', 'REQUEST_CHANGE'],
+        },
+      };
+      await act(async () => root.render(<JobDetailPanel
+        job={locked}
+        items={[]}
+        user={user}
+        pending={false}
+        message=""
+        onCommand={() => {}}
+        onSaveSchedule={vi.fn()}
+        onRequestChange={onRequestChange}
+      />));
+      await openScheduleEditor();
+      const request = container.querySelector<HTMLButtonElement>('#job-schedule-request-change')!;
+      expect(request).not.toBeNull();
+      expect(request.disabled).toBe(false);
+      expect(document.activeElement).toBe(request);
+    },
+  );
+
+  it.each([1024, 390])(
+    'falls back to the editor heading when a locked editor has no change action at %ipx',
+    async (width) => {
+      resizeTo(width);
+      const locked: JobCard = { ...job, hasOpenOverdueIncident: true };
+      await act(async () => root.render(<JobDetailPanel
+        job={locked}
+        items={[]}
+        user={user}
+        pending={false}
+        message=""
+        onCommand={() => {}}
+        onSaveSchedule={vi.fn()}
+      />));
+      await openScheduleEditor();
+      expect(document.activeElement?.id).toBe('job-schedule-edit-title');
+    },
+  );
+
   it('renders the compact wheel schedule field and commits the chosen time', async () => {
     resizeTo(390);
     await act(async () => root.render(<JobDetailPanel

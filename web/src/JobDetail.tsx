@@ -602,8 +602,22 @@ function JobScheduleEditForm({
   useEffect(() => {
     if (focusTarget === 'editor' && editing) {
       const target = document.getElementById('job-scheduled-at');
-      target?.scrollIntoView?.({ block: 'center' });
-      target?.focus({ preventScroll: true });
+      const targetDisabled = target === null
+        || target.matches(':disabled')
+        || target.getAttribute('aria-disabled') === 'true';
+      if (!targetDisabled) {
+        target.scrollIntoView?.({ block: 'center' });
+        target.focus({ preventScroll: true });
+      } else {
+        // A locked planned time cannot take focus. Land on the enabled
+        // change-request action, or the editor heading when there is none.
+        const requestChange = document.getElementById('job-schedule-request-change');
+        const fallback = requestChange !== null && !requestChange.matches(':disabled')
+          ? requestChange
+          : document.getElementById('job-schedule-edit-title');
+        fallback?.scrollIntoView?.({ block: 'center' });
+        fallback?.focus({ preventScroll: true });
+      }
       setFocusTarget(null);
       return;
     }
@@ -760,7 +774,7 @@ function JobScheduleEditForm({
 
   return (
     <section className="job-schedule-edit surface-flat" aria-labelledby="job-schedule-edit-title">
-      <h2 id="job-schedule-edit-title">Planlanan zamanı düzenle</h2>
+      <h2 id="job-schedule-edit-title" tabIndex={-1}>Planlanan zamanı düzenle</h2>
       <form onSubmit={submit} noValidate>
         <div className="field-group">
           <WheelDateTimeField
@@ -887,6 +901,7 @@ function JobScheduleEditForm({
             && job.changeRequest == null
             && onRequestChange && (
             <button
+              id="job-schedule-request-change"
               className="secondary-button"
               type="button"
               disabled={pending}
