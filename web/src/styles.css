@@ -1169,6 +1169,36 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .job-search-controls .job-filter-search { min-width: 0; }
 .job-search-controls .job-filter-search input { width: 100%; min-width: 0; }
+/* Compact list toolbars are icon-only: search submit and the filter-sheet
+   trigger stay 44x44 targets and carry their Turkish label in the accessible
+   name (owner decision 2026-11-25). Desktop keeps the text buttons. */
+.job-filter-compact-bar .job-search-submit,
+.job-filter-compact-bar .filter-sheet-trigger,
+.customer-filter-compact-bar .filter-sheet-trigger {
+  position: relative;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+}
+.filter-sheet-trigger-count {
+  position: absolute;
+  inset-block-start: -0.25rem;
+  inset-inline-end: -0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding-inline: 0.2rem;
+  border-radius: 999px;
+  color: var(--paper);
+  background: var(--accent-hover);
+  font-size: 0.75rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
 .job-filters--compact.surface,
 .job-filters--compact.surface-flat,
 .customer-filters--compact.surface,
@@ -1220,9 +1250,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-row-mobile-primary { display: none; position: relative; z-index: 1; }
 
 @media (max-width: 56rem) {
-  .customer-filter-compact-bar .filter-sheet-trigger {
-    width: 100%;
-  }
   .structured-job-row.job-list-card {
     display: grid;
     grid-template-columns: 1fr;
@@ -3096,29 +3123,79 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .servora-workflow-steps .servora-ant-steps { min-width: 0; }
 .servora-workflow-steps.servora-workflow-steps--compact {
-  padding: 0.3rem 0.85rem;
-  margin-bottom: 1rem;
+  padding: 0.1rem 0.85rem;
+  margin-bottom: 0.55rem;
 }
 .servora-workflow-steps-disclosure { min-width: 0; }
 /* Native <details> summary keeps the list-item marker as the disclosure
-   affordance; the row itself is the >=44px touch target (UI-005). */
+   affordance; the row itself is the >=44px touch target (UI-005). The compact
+   row carries markers + ordinal phase only: the current/attention state word
+   stays in the expanded stepper and in the always-present ordered list. */
 .servora-workflow-steps-summary {
   min-height: var(--control-height);
-  padding: 0.5rem 0.15rem;
+  padding: 0.4rem 0.15rem;
   cursor: pointer;
   font-weight: 700;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 .servora-workflow-steps-summary-phase strong { font-variant-numeric: tabular-nums; }
-.servora-workflow-steps-summary-state {
-  margin-inline-start: 0.4rem;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 650;
+/* Compact phase strip: five 15px markers joined by a 2px line. One row with the
+   ordinal text; the summary stays the >=44px disclosure target (UI-005). */
+.servora-workflow-stages {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-end: 0.5rem;
+  vertical-align: middle;
 }
-.servora-workflow-steps-summary--attention,
-.servora-workflow-steps-summary--attention .servora-workflow-steps-summary-state {
+.servora-workflow-stage {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  box-sizing: border-box;
+  border: 2px solid var(--rule);
+  border-radius: 50%;
+  color: var(--paper);
+  background: var(--paper);
+}
+.servora-workflow-stage:not(:last-child) { margin-inline-end: 0.55rem; }
+.servora-workflow-stage:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 100%;
+  width: 0.55rem;
+  height: 2px;
+  background: var(--rule);
+  transform: translateY(-50%);
+}
+.servora-workflow-stage--complete {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+.servora-workflow-stage-glyph { display: block; }
+/* Current phase is a ring, not a filled dot; the ordinal text and the expanded
+   stepper carry the worded state. */
+.servora-workflow-stage--current {
+  border-color: var(--accent-hover);
+  border-width: 3px;
+  background: var(--paper);
+}
+.servora-workflow-stage--skipped { border-style: dashed; }
+.servora-workflow-stage--attention {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.servora-workflow-stage-attention-glyph {
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.servora-workflow-steps-summary--attention {
   color: var(--warning);
 }
 .servora-workflow-steps-disclosure[open] .servora-workflow-steps-summary {
@@ -3316,11 +3393,35 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   padding: 1rem 1.1rem;
   box-shadow: none;
 }
-/* Stacked job-detail panels (early start, Staff request, assignment offer)
-   keep a visible gap so two panels never read as one box. */
+/* Stacked job-detail panels (Staff request, assignment offer) keep a visible gap
+   so two panels never read as one box. Early start lives inside the main column
+   next to the schedule, where the grid gap owns its spacing. */
 .job-detail > .detail-summary.surface-flat { margin-block: 0.75rem; }
 .early-start-authorization h2 { margin: 0 0 0.35rem; font-size: 1rem; }
 .early-start-authorization .form-help { margin: 0 0 0.75rem; }
+/* Compact idle row: short status line plus the reveal button. The help text and
+   confirm action only mount inside the disclosure (owner decision 2026-11-25). */
+.early-start-authorization-body { display: grid; gap: 0.6rem; }
+.early-start-authorization-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+.early-start-authorization-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.early-start-authorization-row > .secondary-button { flex: 0 0 auto; margin-top: 0; }
+.early-start-authorization-detail { min-width: 0; }
+.early-start-authorization-detail[hidden] { display: none; }
+/* The panel now sits next to the schedule it describes, so it uses the tighter
+   detail-panel rhythm instead of the stacked-banner padding. */
+.job-detail-main .early-start-authorization { padding: 0.75rem 0.85rem; }
 .meeting-details .detail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem 2rem; }
 .meeting-details .detail-summary > div { display: grid; gap: 0.25rem; }
 .detail-summary dt, .delivery-lines dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }

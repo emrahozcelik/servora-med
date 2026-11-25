@@ -1065,10 +1065,11 @@ export function JobDetailPanel({
 
   return (
     <main className="job-detail" data-job-detail="true">
-      {/* DOM/keyboard: heading → feedback → lateness signal → responsibility →
-          primary commands (narrow) → lifecycle → revision|terminal → facts →
-          type content → management review → actions → notes → timeline.
-          Desktop keeps lifecycle → follow-up/revision/terminal → responsibility
+      {/* DOM/keyboard (owner decision 2026-11-25): heading → lifecycle strip →
+          feedback → lateness signal → change request/assignment offer → facts →
+          schedule → early start → type content → management review → actions →
+          notes → timeline. Narrow keeps the responsibility panel and its primary
+          commands directly below the strip; desktop keeps them in the work rail
           (DECISIONS.md UI-005). */}
       <div data-job-detail-section="heading">
         <PageHeader eyebrow={typeLabel} fallbackTitle={job.title} />
@@ -1078,6 +1079,7 @@ export function JobDetailPanel({
         <FollowUpBadge visible={job.followUpContext !== null} />
         </div>
       </div>
+      {lifecycleSection}
       {message && (
         <div
           ref={feedbackRef}
@@ -1102,7 +1104,6 @@ export function JobDetailPanel({
       {realtimeStaleNotice}
       {continuity}
       {submissionLateness}
-      {earlyStart}
       {changeRequest}
       {assignmentOffer}
       {!narrow && overdueHistory}
@@ -1112,19 +1113,18 @@ export function JobDetailPanel({
       {job.followUpProposal?.origin === 'STAFF_ADJUSTED' && job.status === 'WAITING_APPROVAL' && (
         <StaffFollowUpProposalNotice proposal={job.followUpProposal} />
       )}
-      {/* DOM order (mobile, UI-005): heading → feedback → lateness signal →
-          responsibility → primary commands → compact lifecycle → details/history.
-          Desktop keeps lifecycle → follow-up/revision/terminal → responsibility. */}
+      {/* The lifecycle strip sits directly below the heading on both viewports;
+          narrow then leads with the responsibility panel and its primary
+          commands, desktop keeps the revision/terminal context above the work
+          rail (DECISIONS.md UI-005, owner decision 2026-11-25). */}
       {narrow ? (
         <>
           {responsibilitySection}
           {narrowDecisionSection}
-          {lifecycleSection}
           {workflowContextSections}
         </>
       ) : (
         <>
-          {lifecycleSection}
           {workflowContextSections}
           {responsibilitySection}
         </>
@@ -1155,6 +1155,11 @@ export function JobDetailPanel({
               onSave={onSaveSchedule}
             />
           )}
+
+          {/* Early start is about the planned start time, so it follows the
+              schedule section (or the record facts when no schedule edit is
+              offered) instead of leading the page (owner decision 2026-11-25). */}
+          {earlyStart}
 
           {job.type === 'PRODUCT_DELIVERY' && (
             <section

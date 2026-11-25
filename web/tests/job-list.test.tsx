@@ -939,7 +939,7 @@ describe('routed JobCard workspace', () => {
     const router = await mount('/jobs?overdue=true&priority=high', load, manager);
     await act(async () => { await Promise.resolve(); });
     const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent?.startsWith('Filtreler'))!;
+      .find((button) => button.getAttribute('aria-label')?.startsWith('Filtreler'))!;
     await act(async () => trigger.click());
     const clear = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent === 'Temizle')!;

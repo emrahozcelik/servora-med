@@ -235,18 +235,30 @@ attention state owned by Delay Amber.
 **Job detail below 1024px** renders in this order:
 
 1. title and status/priority chips,
-2. the responsibility panel together with its primary command(s),
-3. a compact lifecycle summary — one line such as `3 / 5 · Uygulanıyor` — that
-   expands into the full stepper,
+2. the compact lifecycle strip — five phase markers joined by a line plus the
+   ordinal phase text such as `3 / 5 · Uygulanıyor` — as the card's signature
+   header, directly below the heading,
+3. the responsibility panel together with its primary command(s),
 4. requirements, record details, notes and history.
+
+*(2026-11-25 owner decision)* The lifecycle strip is the first surface below the
+heading on both viewports: the owner reads the assignment-to-execution strip as
+the job card's signature and asked for it "at the very top, right under the
+heading, compact". The strip therefore precedes the responsibility panel and
+every warning/notice surface; the primary command stays in the first screen for
+a typical delivery job. The narrow strip keeps one row (markers plus
+`3 / 5 · Uygulanıyor`); an attention phase shows `Dikkat gerekiyor` in Delay
+Amber instead of the phase name. The expanded stepper and the always-present
+ordered list keep the full phase list and state wording.
 
 Manager-only lateness history becomes a collapsed disclosure below the workflow
 instead of a paragraph list above it. The open lateness signal (deadline,
 elapsed time, reminder action) keeps its place because it is an active
 operational warning, not history.
 
-**Desktop (≥1024px)** keeps the horizontal five-step stepper above the record and
-keeps the decision group in the work rail; its structure does not change.
+**Desktop (≥1024px)** keeps the horizontal five-step stepper directly below the
+heading — the same first position as the narrow strip — and keeps the decision
+group in the work rail; its structure does not otherwise change.
 
 **Attention semantics.** The revision/attention step uses Delay Amber with
 explicit text (`Dikkat gerekiyor`) and an icon. It must never use Critical Red or
@@ -275,6 +287,14 @@ vertical when expanded, and the compact summary is the mobile default.
   adapter; no new dependency or motion system is introduced.
 - The mobile create entry (UI-004 bottom-navigation `Yeni iş`), `NewJobMenu`,
   `AppShell` and shell surfaces are outside this decision.
+- *(2026-11-25)* The first position of the strip spends about 45 CSS px of the
+  narrow first screen in the densest state (open lateness signal plus the
+  responsibility and command panels). A typical delivery job keeps the strict
+  first-screen guarantee; the open-lateness stress state keeps its primary
+  command inside the 844 px viewport but below the sticky top-bar allowance
+  until the follow-up spacing pass reclaims it. The rendered geometry runner
+  (`web/scripts/job-detail-mobile-priority-geometry.mjs`) records that difference
+  explicitly instead of dropping the check.
 - Visual evidence follows UI-003; geometry checks must prove that the primary
   command and the first job record are inside the first viewport at 390×844.
 

@@ -270,6 +270,8 @@ export type SignalGlyphName =
   | 'exclamation'
   | 'edit'
   | 'location'
+  | 'search'
+  | 'filter'
   | 'timeline-success'
   | 'timeline-info'
   | 'timeline-warning'
@@ -309,6 +311,22 @@ const SIGNAL_GLYPHS: Record<SignalGlyphName, ReactNode> = {
     <>
       <path d="M12 21s6-5.7 6-11a6 6 0 1 0-12 0c0 5.3 6 11 6 11z" />
       <circle cx="12" cy="10" r="2.2" />
+    </>
+  ),
+  // List search submit and filter-sheet trigger (compact toolbars only). Both
+  // stay decorative SVG: the button's accessible name carries the Turkish label.
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M15.8 15.8L20.5 20.5" />
+    </>
+  ),
+  filter: (
+    <>
+      <path d="M4 7h7M17 7h3M4 12h3M11 12h9M4 17h7M17 17h3" />
+      <circle cx="15" cy="7" r="2" />
+      <circle cx="9" cy="12" r="2" />
+      <circle cx="15" cy="17" r="2" />
     </>
   ),
   'timeline-success': <path d="M5 12.5l4.2 4.2L19 7" />,
