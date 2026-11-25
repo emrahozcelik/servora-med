@@ -55,15 +55,20 @@ const MODE_REQUIRED_MESSAGE: Record<WheelMode, string> = {
 
 /**
  * `invalid` fires for every failing control during one submit. Only the first
- * one may move focus; the flag is released after the submit task so a later
- * submit can focus again.
+ * one may move focus. The browser can run microtask checkpoints between those
+ * listeners, so the claim is released with a macrotask after the submit.
  */
 let invalidFocusClaimed = false;
+let invalidFocusResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 function claimInvalidFocus(): boolean {
   if (invalidFocusClaimed) return false;
   invalidFocusClaimed = true;
-  queueMicrotask(() => { invalidFocusClaimed = false; });
+  if (invalidFocusResetTimer !== null) clearTimeout(invalidFocusResetTimer);
+  invalidFocusResetTimer = setTimeout(() => {
+    invalidFocusClaimed = false;
+    invalidFocusResetTimer = null;
+  }, 0);
   return true;
 }
 

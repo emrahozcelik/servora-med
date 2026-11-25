@@ -323,6 +323,28 @@ describe('column options', () => {
     expect(minutes.options.find((option) => option.value === '30')?.disabled).toBe(true);
   });
 
+  it('offers an off-grid bound minute in its hour', () => {
+    const minutes = column(wheel.buildWheelColumns('time', {
+      date: '', hour: 9, minute: 50,
+    }, {
+      now: NOW, min: '09:43', max: '18:00', minuteStep: 5,
+    }), 'minute');
+    expect(minutes.options.map((option) => option.value)).toContain('43');
+    expect(minutes.options.find((option) => option.value === '43')?.disabled).toBe(false);
+    expect(minutes.options.filter((option) => !option.disabled).map((option) => option.value))
+      .toEqual(['43', '45', '50', '55']);
+  });
+
+  it('enables an hour when only its off-grid bound minute is valid', () => {
+    const hours = column(wheel.buildWheelColumns('time', {
+      date: '', hour: 10, minute: 30,
+    }, {
+      now: NOW, min: '09:58', max: '18:00', minuteStep: 5,
+    }), 'hour');
+    expect(hours.options[9]?.disabled).toBe(false);
+    expect(hours.options[8]?.disabled).toBe(true);
+  });
+
   it('builds date mode as day / month / year', () => {
     const columns = wheel.buildWheelColumns('date', {
       date: '2026-11-26', hour: 0, minute: 0,

@@ -74,11 +74,13 @@ function trigger(): HTMLButtonElement {
   return element;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
   onChange = vi.fn();
+  // Release any first-invalid focus claim from the previous test.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 });
 
 afterEach(async () => {
@@ -731,6 +733,73 @@ describe('compact wheel sheet', () => {
     expect(container.querySelectorAll('.field-error')).toHaveLength(2);
     expect(document.activeElement).toBe(triggers[0]);
     expect(document.activeElement).not.toBe(triggers[1]);
+  });
+
+  it('offers the off-grid minimum minute in the minute wheel', async () => {
+    resizeTo(390);
+    await renderField({
+      mode: 'time', id: 'at', name: 'scheduleTime',
+      value: '09:50', min: '09:43', max: '18:00',
+    });
+    await click(trigger());
+    const items = [...document.querySelectorAll<HTMLElement>(
+      '[data-wheel-column="Dakika"] .wheel-column-item',
+    )];
+    const bound = items.find((item) => item.textContent === '43');
+    expect(bound).toBeDefined();
+    expect(bound?.getAttribute('data-wheel-disabled')).toBeNull();
+    expect(column('Dakika').getAttribute('aria-valuetext')).toBe('50');
+  });
+
+  it('enables an off-grid bound hour and Home selects its bound minute', async () => {
+    resizeTo(390);
+    await renderField({
+      mode: 'time', id: 'at', name: 'scheduleTime',
+      value: '10:30', min: '09:58', max: '18:00',
+    });
+    await click(trigger());
+    const hour = column('Saat');
+    const hourItems = [...document.querySelectorAll<HTMLElement>(
+      '[data-wheel-column="Saat"] .wheel-column-item',
+    )];
+    expect(hourItems[9]?.getAttribute('data-wheel-disabled')).toBeNull();
+    expect(hourItems[8]?.getAttribute('data-wheel-disabled')).toBe('true');
+
+    await press(hour, 'Home');
+    expect(hour.getAttribute('aria-valuetext')).toBe('09');
+    expect(column('Dakika').getAttribute('aria-valuetext')).toBe('58');
+    await click(action('Tamam'));
+    expect(onChange).toHaveBeenCalledWith('09:58');
+  });
+
+  it('keeps focus on the first invalid field across a microtask checkpoint', async () => {
+    resizeTo(390);
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="date" id="first" name="first" value="" required onChange={onChange}
+          />
+          <WheelDateTimeField
+            mode="date" id="second" name="second" value="" required onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    const first = container.querySelector<HTMLButtonElement>('#first');
+    const second = container.querySelector<HTMLButtonElement>('#second');
+    const proxies = container.querySelectorAll<HTMLInputElement>('.wheel-field-proxy');
+    expect(proxies).toHaveLength(2);
+
+    // A browser may run a microtask checkpoint between the two invalid events.
+    await act(async () => {
+      proxies[0]!.dispatchEvent(new Event('invalid', { cancelable: true }));
+      await Promise.resolve();
+      proxies[1]!.dispatchEvent(new Event('invalid', { cancelable: true }));
+    });
+
+    expect(document.activeElement).toBe(first);
+    expect(document.activeElement).not.toBe(second);
   });
 
   it('does not open while disabled', async () => {

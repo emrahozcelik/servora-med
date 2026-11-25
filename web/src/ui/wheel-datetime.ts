@@ -392,6 +392,38 @@ function buildDatetimeDayOptions(
   return options;
 }
 
+/**
+ * Off-grid `min`/`max` minutes are real selectable values. An hour must offer
+ * its bound minute (and count it as valid) even when the step grid misses it.
+ */
+function boundMinutesForHour(
+  date: string,
+  hour: number,
+  bounds: WheelBounds,
+): number[] {
+  const minutes: number[] = [];
+  for (const bound of [bounds.min, bounds.max]) {
+    if (!bound || bound.hour !== hour) continue;
+    if (date === '' ? bound.date !== '' : bound.date !== date) continue;
+    if (!minutes.includes(bound.minute)) minutes.push(bound.minute);
+  }
+  return minutes;
+}
+
+function minuteValuesForHour(
+  date: string,
+  hour: number,
+  bounds: WheelBounds,
+  step: number,
+  currentMinute?: number,
+): number[] {
+  const values = minuteGrid(step, currentMinute);
+  for (const minute of boundMinutesForHour(date, hour, bounds)) {
+    if (!values.includes(minute)) values.push(minute);
+  }
+  return values.sort((a, b) => a - b);
+}
+
 function buildHourOptions(
   selection: WheelSelection,
   bounds: WheelBounds,
@@ -399,7 +431,13 @@ function buildHourOptions(
 ): WheelOption[] {
   const options: WheelOption[] = [];
   for (let hour = 0; hour < 24; hour += 1) {
-    const enabled = minuteGrid(step, selection.minute).some((minute) => (
+    const enabled = minuteValuesForHour(
+      selection.date,
+      hour,
+      bounds,
+      step,
+      hour === selection.hour ? selection.minute : undefined,
+    ).some((minute) => (
       isWithinWheelBounds({ date: selection.date, hour, minute }, bounds)
     ));
     options.push({ value: String(hour), label: pad2(hour), disabled: !enabled });
@@ -412,7 +450,13 @@ function buildMinuteOptions(
   bounds: WheelBounds,
   step: number,
 ): WheelOption[] {
-  return minuteGrid(step, selection.minute).map((minute) => {
+  return minuteValuesForHour(
+    selection.date,
+    selection.hour,
+    bounds,
+    step,
+    selection.minute,
+  ).map((minute) => {
     const candidate = { date: selection.date, hour: selection.hour, minute };
     return {
       value: String(minute),
