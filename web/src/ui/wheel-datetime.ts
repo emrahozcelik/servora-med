@@ -241,14 +241,30 @@ export function isWithinWheelBounds(selection: WheelSelection, bounds: WheelBoun
   return true;
 }
 
+/** Only the bounds are needed to resolve a selection; `now`/`minuteStep` are not. */
+export type WheelConstraints = {
+  min?: string;
+  max?: string;
+};
+
+function circularMinuteDistance(a: WheelSelection, b: WheelSelection): number {
+  const minutes = 24 * 60;
+  const diff = Math.abs((a.hour * 60 + a.minute) - (b.hour * 60 + b.minute)) % minutes;
+  return Math.min(diff, minutes - diff);
+}
+
 export function clampWheelSelection(
   selection: WheelSelection,
   bounds: WheelBounds,
 ): WheelSelection {
   if (hasInvertedTimeRange(bounds)) {
     if (isWithinWheelBounds(selection, bounds)) return selection;
-    // Outside a midnight-wrapping window the next usable value is its start.
-    return { ...bounds.min! };
+    // The wrapping window has two bounds; use the closer side of midnight.
+    const min = bounds.min!;
+    const max = bounds.max!;
+    return circularMinuteDistance(selection, min) <= circularMinuteDistance(selection, max)
+      ? { ...min }
+      : { ...max };
   }
   if (bounds.min && compareWheelSelections(selection, bounds.min) < 0) {
     return { ...bounds.min };
@@ -260,18 +276,28 @@ export function clampWheelSelection(
 }
 
 /**
- * Final value for a confirmed wheel interaction. The raw column parts are
- * clamped once here, so a boundary clamp (for example a day switch that moves
- * the time to `min`) can never be overwritten by another wheel's stale value.
+ * The one selection rule used by both the settled wheel path and the immediate
+ * confirm path. The combination is kept when it is inside `[min, max]`;
+ * otherwise it moves to the nearest bound, even when that bound sits off the
+ * minute grid. `changedColumn` says which wheel the user moved (calendar day
+ * normalization depends on it); the clamp itself is the same for every column.
  */
-export function composeWheelValue(
+export function resolveSelection(
   mode: WheelMode,
   parts: WheelSelection,
-  min?: string,
-  max?: string,
-): string {
-  const bounds = parseWheelBounds(mode, min, max);
-  return formatWheelValue(mode, clampWheelSelection(parts, bounds));
+  changedColumn: WheelColumnKey | null,
+  constraints: WheelConstraints,
+): WheelSelection {
+  let next = parts;
+  if (mode === 'date') {
+    const year = dateKeyYear(next.date);
+    const month = dateKeyMonth(next.date);
+    const day = changedColumn === 'day'
+      ? dateKeyDay(next.date)
+      : Math.min(dateKeyDay(next.date), daysInMonth(year, month));
+    next = { date: `${year}-${pad2(month)}-${pad2(day)}`, hour: 0, minute: 0 };
+  }
+  return clampWheelSelection(next, parseWheelBounds(mode, constraints.min, constraints.max));
 }
 
 /** "Now" as a wheel selection; clock modes round the minute up to `step`. */
@@ -325,24 +351,6 @@ export function initialWheelSelection(
   const parsed = value ? parseWheelValue(mode, value) : null;
   const base = parsed ?? nowWheelSelection(mode, context.now, step);
   return clampWheelSelection(base, bounds);
-}
-
-function nearestValidMinute(
-  date: string,
-  hour: number,
-  minute: number,
-  bounds: WheelBounds,
-  step: number,
-): number {
-  const enabled = minuteGrid(step, minute).filter((candidate) => (
-    isWithinWheelBounds({ date, hour, minute: candidate }, bounds)
-  ));
-  if (enabled.length === 0) return minute;
-  let best = enabled[0]!;
-  for (const candidate of enabled) {
-    if (Math.abs(candidate - minute) < Math.abs(best - minute)) best = candidate;
-  }
-  return best;
 }
 
 function dayKeyRange(selection: WheelSelection, context: WheelContext): { low: string; high: string } {
@@ -534,23 +542,19 @@ export function buildWheelColumns(
   ];
 }
 
-/** Applies one column change and returns a valid, in-range selection. */
+/** Applies one column change through the shared selection rule. */
 export function applyWheelColumnChange(
   mode: WheelMode,
   selection: WheelSelection,
   key: WheelColumnKey,
   optionValue: string,
-  context: WheelContext,
+  constraints: WheelConstraints,
 ): WheelSelection {
-  const step = normalizeMinuteStep(context.minuteStep);
-  const bounds = parseWheelBounds(mode, context.min, context.max);
-
   if (mode === 'time') {
-    const next = { ...selection };
-    if (key === 'hour') next.hour = Number(optionValue);
-    if (key === 'minute') next.minute = Number(optionValue);
-    next.minute = nearestValidMinute(next.date, next.hour, next.minute, bounds, step);
-    return clampWheelSelection(next, bounds);
+    const parts = { ...selection };
+    if (key === 'hour') parts.hour = Number(optionValue);
+    if (key === 'minute') parts.minute = Number(optionValue);
+    return resolveSelection(mode, parts, key, constraints);
   }
 
   if (mode === 'date') {
@@ -561,17 +565,16 @@ export function applyWheelColumnChange(
     if (key === 'month') month = Number(optionValue);
     if (key === 'year') year = Number(optionValue);
     day = Math.min(day, daysInMonth(year, month));
-    const date = `${year}-${pad2(month)}-${pad2(day)}`;
-    return clampWheelSelection({ date, hour: 0, minute: 0 }, bounds);
+    return resolveSelection(mode, {
+      date: `${year}-${pad2(month)}-${pad2(day)}`,
+      hour: 0,
+      minute: 0,
+    }, key, constraints);
   }
 
-  const next = { ...selection };
-  if (key === 'day') next.date = optionValue;
-  if (key === 'hour') next.hour = Number(optionValue);
-  if (key === 'minute') next.minute = Number(optionValue);
-  const clamped = clampWheelSelection(next, bounds);
-  if (clamped.date === next.date && clamped.hour === next.hour) {
-    clamped.minute = nearestValidMinute(clamped.date, clamped.hour, clamped.minute, bounds, step);
-  }
-  return clampWheelSelection(clamped, bounds);
+  const parts = { ...selection };
+  if (key === 'day') parts.date = optionValue;
+  if (key === 'hour') parts.hour = Number(optionValue);
+  if (key === 'minute') parts.minute = Number(optionValue);
+  return resolveSelection(mode, parts, key, constraints);
 }

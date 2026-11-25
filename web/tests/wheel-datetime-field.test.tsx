@@ -4,6 +4,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WheelDateTimeField, type WheelDateTimeFieldProps } from '../src/ui/WheelDateTimeField';
+import {
+  isWithinWheelBounds,
+  parseWheelBounds,
+  parseWheelValue,
+  type WheelMode,
+} from '../src/ui/wheel-datetime';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -557,6 +563,174 @@ describe('compact wheel sheet', () => {
     expect(container.querySelector('.field-error')).toBeNull();
     expect(trigger().getAttribute('aria-invalid')).toBeNull();
     expect(trigger().getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('commits the same resolved value for immediate and settled column changes', async () => {
+    vi.useFakeTimers();
+    resizeTo(390);
+
+    type ColumnCase = {
+      mode: WheelMode;
+      value: string;
+      min?: string;
+      max?: string;
+      minuteStep?: number;
+      column: 'Gün' | 'Saat';
+      index: number;
+      expected: string;
+    };
+    const cases: ColumnCase[] = [
+      {
+        mode: 'time', value: '01:30', min: '22:00', max: '02:00',
+        column: 'Saat', index: 2, expected: '02:00',
+      },
+      {
+        mode: 'time', value: '10:30', min: '09:43', max: '18:00',
+        column: 'Saat', index: 9, expected: '09:43',
+      },
+      {
+        mode: 'time', value: '10:30', min: '09:43', max: '18:00', minuteStep: 15,
+        column: 'Saat', index: 9, expected: '09:43',
+      },
+      {
+        mode: 'time', value: '10:50', min: '09:00', max: '17:43',
+        column: 'Saat', index: 17, expected: '17:43',
+      },
+      {
+        mode: 'datetime', value: '2026-11-26T07:50',
+        min: '2026-11-25T09:43', max: '2026-11-27T18:00',
+        column: 'Gün', index: 0, expected: '2026-11-25T09:43',
+      },
+      {
+        mode: 'datetime', value: '2026-11-26T10:30',
+        min: '2026-11-25T09:00', max: '2026-11-27T18:00',
+        column: 'Gün', index: 0, expected: '2026-11-25T10:30',
+      },
+      {
+        mode: 'time', value: '22:30', min: '22:00', max: '02:00',
+        column: 'Saat', index: 1, expected: '01:30',
+      },
+      {
+        mode: 'date', value: '2026-11-26', min: '2026-11-25', max: '2026-11-27',
+        column: 'Gün', index: 24, expected: '2026-11-25',
+      },
+    ];
+
+    async function runCase(
+      testCase: ColumnCase,
+      settle: boolean,
+      key: string,
+    ): Promise<string | undefined> {
+      onChange.mockClear();
+      await act(async () => {
+        root.render(
+          <WheelDateTimeField
+            key={key}
+            mode={testCase.mode}
+            id="scheduled"
+            name="scheduledAt"
+            value={testCase.value}
+            min={testCase.min}
+            max={testCase.max}
+            minuteStep={testCase.minuteStep}
+            onChange={onChange}
+          />,
+        );
+      });
+      await click(trigger());
+      const scroller = document.querySelector<HTMLElement>(
+        `[data-wheel-column="${testCase.column}"] .wheel-column-scroller`,
+      );
+      expect(scroller).not.toBeNull();
+      await act(async () => {
+        scroller!.scrollTop = testCase.index * 44;
+        if (settle) {
+          scroller!.dispatchEvent(new Event('scroll', { bubbles: true }));
+          vi.advanceTimersByTime(300);
+        }
+      });
+      await click(action('Tamam'));
+      return onChange.mock.calls.at(-1)?.[0] as string | undefined;
+    }
+
+    for (const [index, testCase] of cases.entries()) {
+      const immediate = await runCase(testCase, false, `immediate-${index}`);
+      const settled = await runCase(testCase, true, `settled-${index}`);
+      expect(immediate, `${testCase.mode} ${testCase.column} immediate`).toBe(testCase.expected);
+      expect(settled, `${testCase.mode} ${testCase.column} settled`).toBe(testCase.expected);
+      expect(immediate).toBe(settled);
+
+      const parsed = parseWheelValue(testCase.mode, immediate!);
+      expect(parsed).not.toBeNull();
+      expect(isWithinWheelBounds(
+        parsed!,
+        parseWheelBounds(testCase.mode, testCase.min, testCase.max),
+      )).toBe(true);
+    }
+  });
+
+  it('shows the earliest bound for a range underflow', async () => {
+    resizeTo(390);
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="date"
+            id="due"
+            name="due"
+            value="2026-11-24"
+            min="2026-11-25"
+            onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    await act(async () => { container.querySelector('form')!.requestSubmit(); });
+    expect(container.querySelector('.field-error')?.textContent)
+      .toBe('En erken: Çar 25 Kas 2026');
+  });
+
+  it('shows the latest bound for a range overflow', async () => {
+    resizeTo(390);
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="datetime"
+            id="scheduled"
+            name="scheduledAt"
+            value="2026-11-28T10:00"
+            max="2026-11-27T18:00"
+            onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    await act(async () => { container.querySelector('form')!.requestSubmit(); });
+    expect(container.querySelector('.field-error')?.textContent)
+      .toBe('En geç: Cum 27 Kas · 18:00');
+  });
+
+  it('focuses only the first invalid field in a compact form', async () => {
+    resizeTo(390);
+    await act(async () => {
+      root.render(
+        <form>
+          <WheelDateTimeField
+            mode="date" id="first" name="first" value="" required onChange={onChange}
+          />
+          <WheelDateTimeField
+            mode="date" id="second" name="second" value="" required onChange={onChange}
+          />
+        </form>,
+      );
+    });
+    await act(async () => { container.querySelector('form')!.requestSubmit(); });
+
+    const triggers = container.querySelectorAll('.wheel-field-trigger');
+    expect(container.querySelectorAll('.field-error')).toHaveLength(2);
+    expect(document.activeElement).toBe(triggers[0]);
+    expect(document.activeElement).not.toBe(triggers[1]);
   });
 
   it('does not open while disabled', async () => {

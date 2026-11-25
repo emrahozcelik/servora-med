@@ -6,9 +6,10 @@ import { WheelColumn } from './WheelColumn';
 import {
   applyWheelColumnChange,
   buildWheelColumns,
-  composeWheelValue,
   formatWheelDisplay,
+  formatWheelValue,
   initialWheelSelection,
+  resolveSelection,
   type WheelColumnKey,
   type WheelContext,
   type WheelMode,
@@ -51,6 +52,20 @@ const MODE_REQUIRED_MESSAGE: Record<WheelMode, string> = {
   date: 'Tarih seçin.',
   time: 'Saat seçin.',
 };
+
+/**
+ * `invalid` fires for every failing control during one submit. Only the first
+ * one may move focus; the flag is released after the submit task so a later
+ * submit can focus again.
+ */
+let invalidFocusClaimed = false;
+
+function claimInvalidFocus(): boolean {
+  if (invalidFocusClaimed) return false;
+  invalidFocusClaimed = true;
+  queueMicrotask(() => { invalidFocusClaimed = false; });
+  return true;
+}
 
 const MODE_CLOSE_LABEL: Record<WheelMode, string> = {
   datetime: 'Tarih ve saat seçimini kapat',
@@ -174,19 +189,23 @@ function WheelSheet({
   const columns = buildWheelColumns(mode, draft, context);
 
   function commitDraft(): void {
-    // Flush every wheel's current center synchronously, then apply min/max once.
-    // Applying each column with its own bounds would let a stale minute wheel
-    // overwrite the hour/minute a day clamp had just produced.
+    // Flush every wheel's current center synchronously, then let the shared
+    // resolveSelection rule own the single min/max clamp. Applying each column
+    // with its own bounds would let a stale minute wheel overwrite the
+    // hour/minute a day or hour clamp had just produced.
     const rawContext: WheelContext = { ...context, min: undefined, max: undefined };
-    let candidate = draft;
+    let parts = draft;
+    let changedColumn: WheelColumnKey = columns[columns.length - 1]!.key;
     for (const column of columns) {
       const resolve = resolverFor[column.key].current;
       const centered = resolve?.();
       if (centered !== null && centered !== undefined) {
-        candidate = applyWheelColumnChange(mode, candidate, column.key, centered, rawContext);
+        parts = applyWheelColumnChange(mode, parts, column.key, centered, rawContext);
+        changedColumn = column.key;
       }
     }
-    onCommit(composeWheelValue(mode, candidate, min, max));
+    const resolved = resolveSelection(mode, parts, changedColumn, context);
+    onCommit(formatWheelValue(mode, resolved));
   }
 
   return (
@@ -272,18 +291,29 @@ export function WheelDateTimeField({
 
   // The clipped carrier owns native validation, so its `invalid` event is the
   // only signal a compact form gets. Suppress the browser's off-screen bubble,
-  // surface the message on the visible trigger and move focus there.
+  // surface the reason on the visible trigger and move focus there once.
   useEffect(() => {
     const proxy = proxyRef.current;
     if (!proxy) return;
     function onInvalid(event: Event) {
       event.preventDefault();
-      setValidationError(requiredMessage);
-      triggerRef.current?.focus();
+      const input = event.currentTarget as HTMLInputElement;
+      const minLabel = min ? formatWheelDisplay(mode, min) : '';
+      const maxLabel = max ? formatWheelDisplay(mode, max) : '';
+      let message = requiredMessage;
+      if (!input.validity.valueMissing) {
+        if (input.validity.rangeUnderflow && minLabel) {
+          message = `En erken: ${minLabel}`;
+        } else if (input.validity.rangeOverflow && maxLabel) {
+          message = `En geç: ${maxLabel}`;
+        }
+      }
+      setValidationError(message);
+      if (claimInvalidFocus()) triggerRef.current?.focus();
     }
     proxy.addEventListener('invalid', onInvalid);
     return () => proxy.removeEventListener('invalid', onInvalid);
-  }, [compact, requiredMessage]);
+  }, [compact, max, min, mode, requiredMessage]);
 
   if (!compact) {
     return (

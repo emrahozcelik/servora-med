@@ -128,31 +128,65 @@ describe('min/max clamping', () => {
     })).toEqual({ date: '2026-11-25', hour: 10, minute: 5 });
   });
 
-  it('composes the confirmed value with a single clamp', () => {
-    expect(wheel.composeWheelValue(
+  it('resolves the confirmed value with a single clamp', () => {
+    const resolve = (
+      mode: 'datetime' | 'date' | 'time',
+      parts: WheelSelection,
+      min?: string,
+      max?: string,
+    ) => wheel.formatWheelValue(
+      mode,
+      wheel.resolveSelection(mode, parts, null, { min, max }),
+    );
+
+    expect(resolve(
       'datetime',
       { date: '2026-11-25', hour: 7, minute: 50 },
       '2026-11-25T09:43',
       '2026-11-27T18:00',
     )).toBe('2026-11-25T09:43');
-    expect(wheel.composeWheelValue(
+    expect(resolve(
       'datetime',
       { date: '2026-11-26', hour: 10, minute: 30 },
       '2026-11-25T09:43',
       '2026-11-27T18:00',
     )).toBe('2026-11-26T10:30');
-    expect(wheel.composeWheelValue(
+    expect(resolve(
       'time',
       { date: '', hour: 12, minute: 0 },
       '22:00',
       '02:00',
     )).toBe('22:00');
-    expect(wheel.composeWheelValue(
+    expect(resolve(
       'date',
       { date: '2026-11-25', hour: 0, minute: 0 },
       '2026-11-26',
       undefined,
     )).toBe('2026-11-26');
+  });
+
+  it('clamps a wrap-around time to the nearest bound', () => {
+    expect(wheel.resolveSelection(
+      'time',
+      { date: '', hour: 2, minute: 30 },
+      'hour',
+      { min: '22:00', max: '02:00' },
+    )).toEqual({ date: '', hour: 2, minute: 0 });
+    expect(wheel.resolveSelection(
+      'time',
+      { date: '', hour: 21, minute: 0 },
+      'hour',
+      { min: '22:00', max: '02:00' },
+    )).toEqual({ date: '', hour: 22, minute: 0 });
+  });
+
+  it('clamps to an off-grid minute bound instead of snapping the minute', () => {
+    expect(wheel.resolveSelection(
+      'time',
+      { date: '', hour: 9, minute: 30 },
+      'hour',
+      { min: '09:43', max: '18:00' },
+    )).toEqual({ date: '', hour: 9, minute: 43 });
   });
 
   it('compares time-only bounds by clock time', () => {
