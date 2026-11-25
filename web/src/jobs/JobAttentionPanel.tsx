@@ -91,17 +91,20 @@ type AttentionRow = {
   jobId: string;
   title: string;
   reason: string;
-  icon: 'edit' | 'exclamation' | 'circle';
+  icon: 'edit' | 'clock' | 'circle';
   person: string;
   timeLabel: string;
   time: string;
 };
 
+/** One shared size keeps the three group glyphs at the same visual weight. */
+const ROW_ICON_SIZE = 16;
+
 function AttentionRowView({ row }: { row: AttentionRow }) {
   return (
     <li className="job-attention-row" data-job-attention-row="true">
       <span className="job-attention-row-icon">
-        <SignalGlyph name={row.icon} />
+        <SignalGlyph name={row.icon} size={ROW_ICON_SIZE} />
       </span>
       <div className="job-attention-row-content">
         <Link className="job-attention-row-title" to={paths.job(row.jobId)}>
@@ -204,7 +207,7 @@ function ManagementAttentionPanel({
         jobId: item.jobCardId,
         title: item.jobTitle,
         reason: offerReasonLabel(item),
-        icon: 'exclamation',
+        icon: 'clock',
         person: item.assignee.name,
         timeLabel: 'Kabul için son',
         time: item.acceptanceDueAt,
@@ -295,7 +298,24 @@ function ManagementAttentionPanel({
             }
           }}
         >
-          <summary className="job-attention-summary">{heading}</summary>
+          <summary className="job-attention-summary">
+            <span className="job-attention-chevron" aria-hidden="true">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                focusable="false"
+              >
+                <path d="m9 6 6 6-6 6" />
+              </svg>
+            </span>
+            {heading}
+          </summary>
           <div className="job-attention-body">
             {disclosureOpen && errorBanner}
             {groupsContent}

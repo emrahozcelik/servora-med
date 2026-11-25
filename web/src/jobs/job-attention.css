@@ -39,12 +39,40 @@
 }
 
 .job-attention-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   min-height: var(--control-height);
   padding-block: 0.35rem;
   cursor: pointer;
+  list-style: none;
+}
+
+/* The panel brings its own chevron; the native marker must not add a second
+   disclosure glyph above the flex row (Safari/Chrome use the pseudo-element). */
+.job-attention-summary::-webkit-details-marker {
+  display: none;
+}
+
+.job-attention-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--warning);
+  transition: transform 140ms ease;
+}
+
+.job-attention-disclosure[open] .job-attention-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-attention-chevron {
+    transition: none;
+  }
 }
 
 .job-attention-summary .job-attention-title {
+  min-width: 0;
   margin-bottom: 0;
 }
 
@@ -54,7 +82,7 @@
 }
 
 .job-attention-disclosure[open] .job-attention-summary {
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.75rem;
   border-bottom: 1px solid var(--border-warning);
 }
 

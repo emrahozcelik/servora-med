@@ -178,6 +178,12 @@ describe('JobAttentionPanel', () => {
     const hrefs = Array.from(element.querySelectorAll<HTMLAnchorElement>('.job-attention-row-title'))
       .map((link) => link.getAttribute('href'));
     expect(hrefs).toEqual(['/jobs/job-1', '/jobs/job-2', '/jobs/job-3']);
+
+    // The offer glyph used to read smaller than the other two groups; all
+    // three now share one explicit size.
+    const iconSizes = Array.from(element.querySelectorAll('.job-attention-row-icon svg'))
+      .map((icon) => `${icon.getAttribute('width')}x${icon.getAttribute('height')}`);
+    expect(iconSizes).toEqual(['16x16', '16x16', '16x16']);
   });
 
   it('renders nothing and never loads for Staff', async () => {
@@ -264,6 +270,9 @@ describe('JobAttentionPanel', () => {
     const summary = details?.querySelector('summary');
     expect(summary?.textContent).toContain('Müdahale gerekenler');
     expect(summary?.textContent).toContain('1 kayıt');
+    const chevron = summary?.querySelector('.job-attention-chevron');
+    expect(chevron?.getAttribute('aria-hidden')).toBe('true');
+    expect(chevron?.querySelector('svg path')?.getAttribute('d')).toBe('m9 6 6 6-6 6');
 
     await act(async () => { summary!.click(); });
     expect(details?.open).toBe(false);
@@ -336,5 +345,33 @@ describe('JobAttentionPanel touch targets', () => {
     const rule = /\.job-attention-row-title\s*\{([^}]*)\}/s.exec(css)?.[1] ?? '';
     expect(rule).toMatch(/min-width:\s*var\(--control-height\)/);
     expect(rule).toMatch(/min-height:\s*var\(--control-height\)/);
+  });
+});
+
+describe('JobAttentionPanel mobile disclosure style contract', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/jobs/job-attention.css'), 'utf8');
+
+  function rule(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's').exec(css)?.[1] ?? '';
+  }
+
+  it('hides the native disclosure marker', () => {
+    expect(rule('.job-attention-summary')).toMatch(/list-style:\s*none/);
+    expect(rule('.job-attention-summary::-webkit-details-marker')).toMatch(/display:\s*none/);
+  });
+
+  it('keeps at least 0.75rem between the open summary rule and the first group', () => {
+    expect(rule('.job-attention-disclosure[open] .job-attention-summary'))
+      .toMatch(/margin-bottom:\s*0\.75rem/);
+  });
+
+  it('rotates its own chevron and stops that motion for reduced motion', () => {
+    expect(rule('.job-attention-chevron')).toMatch(/display:\s*inline-flex/);
+    expect(rule('.job-attention-disclosure[open] .job-attention-chevron'))
+      .toMatch(/transform:\s*rotate\(90deg\)/);
+    expect(css).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.job-attention-chevron\s*\{[^}]*transition:\s*none/s,
+    );
   });
 });
