@@ -1,0 +1,225 @@
+/*
+ * Wheel date/time picker (compact viewports).
+ *
+ * Geometry is fixed on purpose: 5 visible rows × 44px. The scroller pads by
+ * two rows top and bottom so any row can sit in the centered highlight band at
+ * `scrollTop = index * 44`, which is also what the selection math assumes.
+ */
+
+.wheel-field-label {
+  font-size: 0.9rem;
+  font-weight: 680;
+}
+
+.wheel-field-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 0.72rem 0.85rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.wheel-field-trigger:hover:not(:disabled) {
+  border-color: var(--border-control-hover);
+}
+
+.wheel-field-trigger:disabled {
+  background: var(--canvas);
+}
+
+.wheel-field-trigger svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.wheel-field-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wheel-field-placeholder {
+  color: var(--muted);
+}
+
+.wheel-sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.wheel-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: var(--scrim);
+}
+
+.wheel-sheet {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 32rem);
+  max-height: min(92dvh, 42rem);
+  overflow: hidden;
+  border-radius: 0.9rem 0.9rem 0 0;
+  background: var(--paper);
+  box-shadow: var(--shadow-overlay);
+}
+
+.wheel-sheet-header {
+  padding: 0.9rem 1rem 0.15rem;
+}
+
+.wheel-sheet-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.wheel-sheet-wheels {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0.35rem;
+}
+
+.wheel-sheet-wheels[data-wheel-mode='datetime'] {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.wheel-sheet-wheels[data-wheel-mode='date'] {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+}
+
+.wheel-sheet-wheels[data-wheel-mode='time'] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  width: min(100%, 18rem);
+  margin-inline: auto;
+}
+
+.wheel-sheet-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.wheel-sheet-actions .primary-button,
+.wheel-sheet-actions .secondary-button {
+  width: 100%;
+  margin-top: 0;
+}
+
+.wheel-column {
+  position: relative;
+  height: calc(5 * 44px);
+  min-width: 0;
+  border-radius: var(--radius-control);
+}
+
+.wheel-column-scroller {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding: 88px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.wheel-column-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.wheel-column-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 0.2rem;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 1.02rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+  scroll-snap-align: center;
+  scroll-snap-stop: normal;
+}
+
+.wheel-column-item:hover:not([data-wheel-disabled='true']) {
+  color: var(--ink);
+}
+
+.wheel-column-item[data-wheel-selected='true'] {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.wheel-column-item[data-wheel-disabled='true'] {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.wheel-column-highlight {
+  position: absolute;
+  z-index: 0;
+  inset-inline: 0;
+  top: 88px;
+  height: 44px;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+.wheel-column-fade {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  height: 52px;
+  pointer-events: none;
+}
+
+.wheel-column-fade--top {
+  top: 0;
+  background: linear-gradient(to bottom, var(--paper), transparent);
+}
+
+.wheel-column-fade--bottom {
+  bottom: 0;
+  background: linear-gradient(to top, var(--paper), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-column-scroller {
+    scroll-behavior: auto;
+  }
+}
