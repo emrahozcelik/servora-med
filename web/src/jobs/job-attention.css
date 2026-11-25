@@ -191,3 +191,11 @@
   color: var(--accent-hover);
   font-weight: 700;
 }
+
+/* Phones show only the closed summary until the manager opens it; tighter
+   panel padding keeps the first job row inside the UI-005 first-screen budget. */
+@media (max-width: 63.99rem) {
+  .job-attention {
+    padding-block: 0.5rem;
+  }
+}

@@ -90,6 +90,23 @@ function stubMatchMedia(desktop: boolean) {
   });
 }
 
+/** jsdom under Node exposes no window.localStorage; install a deterministic one. */
+function installMemoryLocalStorage(overrides?: Pick<Storage, 'getItem' | 'setItem'>) {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: overrides ?? {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+      key: (index: number) => [...store.keys()][index] ?? null,
+      get length() { return store.size; },
+    },
+  });
+  return store;
+}
+
 type Loaders = {
   loadChangeRequests?: ReturnType<typeof loaded>;
   loadAssignmentOffers?: ReturnType<typeof loaded>;
@@ -98,6 +115,7 @@ type Loaders = {
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+let storage!: Map<string, string>;
 
 async function renderPanel(user: CurrentUser, loaders: Loaders = {}) {
   container = document.createElement('div');
@@ -136,8 +154,21 @@ async function rerenderPanel(loaders: Loaders = {}) {
   return container!;
 }
 
+/**
+ * jsdom toggles a <details> on summary click but does not emit its `toggle`
+ * event (browsers do); dispatch it so React's onToggle path is exercised.
+ */
+async function toggleDisclosure(details: HTMLDetailsElement) {
+  const summary = details.querySelector('summary')!;
+  await act(async () => {
+    summary.click();
+    details.dispatchEvent(new Event('toggle'));
+  });
+}
+
 beforeEach(() => {
   stubMatchMedia(true);
+  storage = installMemoryLocalStorage();
 });
 
 afterEach(async () => {
@@ -256,7 +287,7 @@ describe('JobAttentionPanel', () => {
     expect(overviewLink?.textContent).toBe('Tümünü Genel bakışta gör');
   });
 
-  it('uses a native open disclosure below the 64rem shell gate', async () => {
+  it('starts closed below the 64rem shell gate and toggles from its summary', async () => {
     stubMatchMedia(false);
     const element = await renderPanel(manager, {
       loadChangeRequests: loaded([changeRequest]),
@@ -266,7 +297,7 @@ describe('JobAttentionPanel', () => {
 
     const details = element.querySelector<HTMLDetailsElement>('details.job-attention-disclosure');
     expect(details).not.toBeNull();
-    expect(details?.open).toBe(true);
+    expect(details?.open).toBe(false);
     const summary = details?.querySelector('summary');
     expect(summary?.textContent).toContain('Müdahale gerekenler');
     expect(summary?.textContent).toContain('1 kayıt');
@@ -274,8 +305,46 @@ describe('JobAttentionPanel', () => {
     expect(chevron?.getAttribute('aria-hidden')).toBe('true');
     expect(chevron?.querySelector('svg path')?.getAttribute('d')).toBe('m9 6 6 6-6 6');
 
-    await act(async () => { summary!.click(); });
+    await toggleDisclosure(details!);
+    expect(details?.open).toBe(true);
+    expect(storage.get('servora.jobs.attentionPanel.open')).toBe('true');
+
+    await toggleDisclosure(details!);
     expect(details?.open).toBe(false);
+    expect(storage.get('servora.jobs.attentionPanel.open')).toBe('false');
+  });
+
+  it('restores the remembered open choice on a narrow shell', async () => {
+    stubMatchMedia(false);
+    storage.set('servora.jobs.attentionPanel.open', 'true');
+
+    const element = await renderPanel(manager, {
+      loadChangeRequests: loaded([changeRequest]),
+      loadAssignmentOffers: loaded([]),
+      loadUnacceptedPastStart: loaded([]),
+    });
+
+    expect(element.querySelector<HTMLDetailsElement>('details.job-attention-disclosure')?.open)
+      .toBe(true);
+  });
+
+  it('tolerates unavailable storage and still toggles the disclosure', async () => {
+    stubMatchMedia(false);
+    installMemoryLocalStorage({
+      getItem: () => { throw new Error('storage blocked'); },
+      setItem: () => { throw new Error('storage blocked'); },
+    });
+
+    const element = await renderPanel(manager, {
+      loadChangeRequests: loaded([changeRequest]),
+      loadAssignmentOffers: loaded([]),
+      loadUnacceptedPastStart: loaded([]),
+    });
+
+    const details = element.querySelector<HTMLDetailsElement>('details.job-attention-disclosure')!;
+    expect(details.open).toBe(false);
+    await toggleDisclosure(details);
+    expect(details.open).toBe(true);
   });
 
   it('keeps the server urgent reason on an open assignment offer', async () => {
@@ -307,8 +376,6 @@ describe('JobAttentionPanel', () => {
     });
 
     const details = element.querySelector<HTMLDetailsElement>('details.job-attention-disclosure')!;
-    const summary = details.querySelector('summary')!;
-    await act(async () => { summary.click(); });
     expect(details.open).toBe(false);
 
     await rerenderPanel({
@@ -326,7 +393,8 @@ describe('JobAttentionPanel', () => {
     expect(banner?.textContent).toContain('Tekrar dene');
   });
 
-  it('keeps the desktop panel fully expanded without a disclosure', async () => {
+  it('keeps the desktop panel fully expanded even after a stored closed choice', async () => {
+    storage.set('servora.jobs.attentionPanel.open', 'false');
     const element = await renderPanel(manager, {
       loadChangeRequests: loaded([changeRequest]),
       loadAssignmentOffers: loaded([]),
@@ -335,6 +403,7 @@ describe('JobAttentionPanel', () => {
 
     expect(element.querySelector('details')).toBeNull();
     expect(element.querySelector('#job-attention-title')).not.toBeNull();
+    expect(element.textContent).toContain('Ataşehir klinik ürün teslimi');
   });
 });
 

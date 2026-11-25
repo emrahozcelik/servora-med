@@ -20,6 +20,36 @@ import './job-attention.css';
 /** Compact rows stop at three per group; the overview owns the full pages. */
 const ROW_LIMIT = 3;
 
+/**
+ * Narrow shells start collapsed so the first job row keeps the UI-005
+ * first-screen budget. The viewer's last choice is remembered per device;
+ * unavailable storage falls back to closed.
+ */
+const PANEL_OPEN_STORAGE_KEY = 'servora.jobs.attentionPanel.open';
+
+function readStoredPanelOpen(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(PANEL_OPEN_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function storePanelOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(PANEL_OPEN_STORAGE_KEY, open ? 'true' : 'false');
+  } catch {
+    // Remembering the choice is optional; the disclosure still toggles.
+  }
+}
+
+export type JobAttentionLoaders = {
+  loadChangeRequests: typeof listOpenChangeRequests;
+  loadAssignmentOffers: typeof listAssignmentOffersNeedingAction;
+  loadUnacceptedPastStart: typeof listUnacceptedPastStart;
+};
+
 type AttentionListState<T> =
   | { kind: 'loading' }
   | { kind: 'error' }
@@ -156,7 +186,7 @@ export function JobAttentionPanel({
   loadUnacceptedPastStart = listUnacceptedPastStart,
 }: {
   user: CurrentUser;
-  /** Test seams; production always reads the existing server lists. */
+  /** Test/fixture seams; production always reads the existing server lists. */
   loadChangeRequests?: typeof listOpenChangeRequests;
   loadAssignmentOffers?: typeof listAssignmentOffersNeedingAction;
   loadUnacceptedPastStart?: typeof listUnacceptedPastStart;
@@ -187,7 +217,7 @@ function ManagementAttentionPanel({
   useRealtimeInvalidation(['overview', 'job-list'], () => setReload((value) => value + 1));
 
   const narrow = useNarrowShell();
-  const [disclosureOpen, setDisclosureOpen] = useState(true);
+  const [disclosureOpen, setDisclosureOpen] = useState(readStoredPanelOpen);
 
   const changeRequestRows: AttentionRow[] = changeRequests.kind === 'ready'
     ? changeRequests.items.map((item) => ({
@@ -294,7 +324,9 @@ function ManagementAttentionPanel({
           open={disclosureOpen}
           onToggle={(event) => {
             if (event.target === event.currentTarget) {
-              setDisclosureOpen(event.currentTarget.open);
+              const open = event.currentTarget.open;
+              setDisclosureOpen(open);
+              storePanelOpen(open);
             }
           }}
         >

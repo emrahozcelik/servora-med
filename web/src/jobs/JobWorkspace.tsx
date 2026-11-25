@@ -6,7 +6,7 @@ import { ApiError } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { LoadingSkeleton, ResultState } from '../ui/antd';
-import { JobAttentionPanel } from './JobAttentionPanel';
+import { JobAttentionPanel, type JobAttentionLoaders } from './JobAttentionPanel';
 import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
@@ -73,6 +73,8 @@ export function JobWorkspace(props: {
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
   loadBoard?: typeof getJobCardBoard;
+  /** Fixture seam for the management intervention lists; production uses the API. */
+  attentionLoaders?: JobAttentionLoaders;
 }) {
   const location = useLocation();
   const resolved = useOptionalResolvedIdentity();
@@ -86,12 +88,16 @@ export function JobWorkspace(props: {
   return <JobWorkspaceContent {...props} />;
 }
 
-function JobWorkspaceContent({ user, notice = '', onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
+function JobWorkspaceContent({
+  user, notice = '', onCommand, load = listJobCards, loadBoard = getJobCardBoard,
+  attentionLoaders,
+}: {
   user: CurrentUser;
   notice?: string;
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
   loadBoard?: typeof getJobCardBoard;
+  attentionLoaders?: JobAttentionLoaders;
 }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -359,7 +365,14 @@ function JobWorkspaceContent({ user, notice = '', onCommand, load = listJobCards
         {modeNotice}
       </p>
     )}
-    {showAttentionPanel && <JobAttentionPanel user={user} />}
+    {showAttentionPanel && (
+      <JobAttentionPanel
+        user={user}
+        loadChangeRequests={attentionLoaders?.loadChangeRequests}
+        loadAssignmentOffers={attentionLoaders?.loadAssignmentOffers}
+        loadUnacceptedPastStart={attentionLoaders?.loadUnacceptedPastStart}
+      />
+    )}
     {showBoard
       ? (boardState.kind === 'loading'
         ? (
