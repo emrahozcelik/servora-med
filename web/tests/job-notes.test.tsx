@@ -621,7 +621,9 @@ describe('JobNotes visual contracts (T2C)', () => {
   }
 
   it('separates the submit action from the textarea with the field-group rhythm', () => {
-    const submit = exactRuleBody(stylesCss, '.job-notes form .primary-button');
+    // The submit is a secondary compact button (not a .primary-button), so the
+    // contract targets the form's submit control itself.
+    const submit = exactRuleBody(stylesCss, '.job-notes form > button[type="submit"]');
     expect(submit).toMatch(/margin-top:\s*1\.25rem/);
   });
 });

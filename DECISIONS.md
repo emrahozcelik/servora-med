@@ -291,8 +291,8 @@ vertical when expanded, and the compact summary is the mobile default.
   narrow first screen in the densest state (open lateness signal plus the
   responsibility and command panels). A typical delivery job keeps the strict
   first-screen guarantee; the open-lateness stress state keeps its primary
-  command inside the 844 px viewport but below the sticky top-bar allowance
-  until the follow-up spacing pass reclaims it. The rendered geometry runner
+  command inside the 844 px viewport but below the sticky top-bar allowance.
+  The rendered geometry runner
   (`web/scripts/job-detail-mobile-priority-geometry.mjs`) records that difference
   explicitly instead of dropping the check.
 - Visual evidence follows UI-003; geometry checks must prove that the primary

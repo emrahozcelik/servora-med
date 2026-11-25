@@ -128,6 +128,20 @@ async function measure(page) {
     const earlyStart = document.querySelector('[data-early-start-authorization="idle"]');
     const earlyStartReveal = document.querySelector('[data-early-start-authorization-reveal="true"]');
     const schedule = document.querySelector('.job-schedule-edit');
+    const revisionSection = document.querySelector('[data-job-detail-section="revision"]');
+    // Spacing audit 2026-11-25: the narrow decision panel must keep a real gap to
+    // the surface that follows, and the schedule quick chips must not touch.
+    const chips = [...document.querySelectorAll('.schedule-quick-chip')]
+      .map((chip) => chip.getBoundingClientRect())
+      .sort((a, b) => (Math.abs(a.top - b.top) > 2 ? a.top - b.top : a.left - b.left));
+    const chipRows = new Map();
+    for (const chip of chips) {
+      const key = Math.round(chip.top);
+      chipRows.set(key, [...(chipRows.get(key) ?? []), chip]);
+    }
+    const chipGaps = [...chipRows.values()]
+      .flatMap((row) => row.slice(1).map((chip, index) => chip.left - row[index].right));
+    const chipGap = chipGaps.length > 0 ? Math.min(...chipGaps) : null;
     const probe = document.createElement('span');
     probe.style.color = 'var(--warning)';
     probe.style.backgroundColor = 'var(--warning-soft)';
@@ -152,6 +166,9 @@ async function measure(page) {
       lifecycleBottom: round(lifecycle?.getBoundingClientRect().bottom ?? null),
       headingTop: round(heading?.getBoundingClientRect().top ?? null),
       actionsTop: round(actions?.getBoundingClientRect().top ?? null),
+      actionsBottom: round(actions?.getBoundingClientRect().bottom ?? null),
+      hasRevisionSection: revisionSection !== null,
+      chipGap: round(chipGap),
       factsTop: round(facts?.getBoundingClientRect().top ?? null),
       latenessTop: round(lateness?.getBoundingClientRect().top ?? null),
       compact: disclosure ? {
@@ -274,6 +291,14 @@ try {
       m.actionsTop !== null && m.responsibilityTop !== null && m.responsibilityTop < m.actionsTop,
       `${fixtureCase}@390: responsibility panel (${m.responsibilityTop}) is not above the primary commands (${m.actionsTop})`,
     );
+    // Spacing audit: the narrow decision panel must not be glued to the surface
+    // below it (revision cases insert the revision panel in between).
+    if (!m.hasRevisionSection) {
+      invariant(
+        m.actionsBottom !== null && m.factsTop !== null && m.factsTop - m.actionsBottom >= 8,
+        `${fixtureCase}@390: decision panel (${m.actionsBottom}) touches the next surface (${m.factsTop})`,
+      );
+    }
     invariant(m.compact !== null, `${fixtureCase}@390: compact lifecycle summary missing`);
     if (m.compact) {
       invariant(m.compact.open === false, `${fixtureCase}@390: compact summary is expanded by default`);
@@ -388,6 +413,8 @@ try {
       invariant(m.earlyStart.height <= 132,
         `manager-early-start@${label}: idle early-start panel occupies ${m.earlyStart.height}px`);
     }
+    invariant(m.chipGap === null || m.chipGap >= 8,
+      `manager-early-start@${label}: schedule quick chips touch (${m.chipGap}px gap)`);
     await page.close();
   }
 

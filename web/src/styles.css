@@ -1839,7 +1839,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .report-filters-wide--customer {
     grid-template-columns: 1fr;
   }
-  .report-filters-wide--customer > label,
+  .report-filters-wide--customer > label:nth-child(n + 3),
   .report-filters-wide--customer > button {
     grid-row: auto;
   }
@@ -2903,6 +2903,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .meeting-details { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 .meeting-details h2 { margin-top: 0; overflow-wrap: anywhere; }
 .meeting-result-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+/* Actual meeting time: the datetime input and "Şimdi" form one row with a real
+   gap and wrap to two rows when the input cannot keep its 12rem base width. */
+.meeting-actual-at-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.meeting-actual-at-row input { flex: 1 1 12rem; min-width: 0; }
+.meeting-actual-at-row .secondary-button { flex: 0 0 auto; margin-top: 0; }
 .calendar-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .field-guidance { display: block; color: var(--ink); font-weight: 650; line-height: 1.45; }
 .field-label { display: block; margin-bottom: 0.4rem; font-weight: 650; }
@@ -3499,6 +3510,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-top: 0;
   margin-top: 1.5rem;
 }
+/* Below the 64rem gate the decision panel is a direct child of .job-detail (it
+   leaves the work rail), so it must not touch the surface that follows the
+   command group (owner spacing audit 2026-11-25). Desktop keeps the rail gap. */
+.job-detail > [data-job-detail-section="actions"] > .detail-action.surface-flat {
+  margin-bottom: 1.25rem;
+}
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
 .detail-action > p:first-of-type { margin-top: 0; }
 .detail-action .start-location-notice {
@@ -3588,7 +3605,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .schedule-quick-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 .schedule-quick-chip {
@@ -3978,7 +3995,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .detail-section-heading span, .detail-empty { color: var(--muted); font-size: 0.8rem; }
 .detail-section-heading span { overflow-wrap: anywhere; }
 .job-notes form { max-width: 38rem; }
-.job-notes form .primary-button { margin-top: 1.25rem; }
+/* The submit control is a secondary compact button, not a .primary-button: keep
+   the separation from the note textarea on the button itself. */
+.job-notes form > button[type="submit"] { margin-top: 1.25rem; }
 .job-note-list { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
 .job-note-list li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
 .job-note-body { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -4371,7 +4390,7 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .product-filters {
     grid-template-columns: 1fr;
   }
-  .report-filters-wide--customer > label,
+  .report-filters-wide--customer > label:nth-child(n + 3),
   .report-filters-wide--customer > button {
     grid-row: auto;
   }
@@ -4491,6 +4510,24 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .report-section-heading { align-items: flex-start; flex-direction: column; }
   .report-table th, .report-table td { padding-inline: 0.25rem; }
   .report-filters, .report-filters-wide { grid-template-columns: 1fr; }
+  /* Customer report filters: Başlangıç/Bitiş share a row, the search field spans
+     the full row, Durum/Tür share the next one, and Uygula is full width. The
+     nth-child reset repeats the base selector so its grid-row: 2 placement cannot
+     force implicit columns and a clipped date input at 390px. */
+  .report-filters-wide--customer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .report-filters-wide--customer > label:nth-child(n + 3) {
+    grid-row: auto;
+  }
+  .report-filters-wide--customer > label:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .report-filters-wide--customer > button {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    width: 100%;
+  }
   .report-filters button { width: 100%; }
   .report-customer-row { grid-template-columns: 1fr; }
   .report-customer-metrics { grid-template-columns: 1fr; }
@@ -4571,6 +4608,13 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .record-commands button { width: 100%; }
   .conflict-actions { align-items: stretch; flex-direction: column; }
   .conflict-actions button { width: 100%; }
+}
+
+/* A native date input needs roughly 9.5rem to keep its value and picker glyph;
+   below this width the two-column customer filter row would clip them, so the
+   row stacks to one column (the 390px audit keeps the two-column layout). */
+@media (max-width: 24rem) {
+  .report-filters-wide--customer { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 64rem) {
