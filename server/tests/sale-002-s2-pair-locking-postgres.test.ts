@@ -192,7 +192,10 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 pair locking and intents', () => {
       await withApp(f, () => f.staff, async (app) => {
         for (let index = 0; index < 10 && new Set(orderings).size < 2; index += 1) {
           const customerId = await insertCustomer(f, `S2 sıralama kliniği ${index}`);
-          const pair = await createPair(f, customerId, '2026-10-14T09:00:00.000Z', `order-${index}`);
+          // SCH-001: every iteration plans for the same Staff, so each visit
+          // gets its own non-overlapping hour.
+          const visitAt = `2026-10-14T${String(8 + index).padStart(2, '0')}:00:00.000Z`;
+          const pair = await createPair(f, customerId, visitAt, `order-${index}`);
           const response = await app.inject({
             method: 'POST',
             url: `/api/job-cards/${pair.visitId}/submit-for-approval`,

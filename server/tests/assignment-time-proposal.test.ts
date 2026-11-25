@@ -373,6 +373,7 @@ describe('JOB-012 Staff answer validation', () => {
       startsAt: '2026-11-25T09:00:00.000Z',
       // The persisted 60-minute plan, not the PRODUCT_DELIVERY canonical 30.
       endsAt: '2026-11-25T10:00:00.000Z',
+      includeCalendarEvents: true,
     });
     expect(tx.closeAssignmentOffer).toHaveBeenCalledWith(expect.objectContaining({
       offerId: OFFER_ID,
@@ -529,6 +530,7 @@ describe('JOB-012 accept-proposal command', () => {
       assignedUserId: STAFF_ID,
       startsAt: '2026-11-25T09:00:00.000Z',
       endsAt: '2026-11-25T10:00:00.000Z',
+      includeCalendarEvents: true,
     });
     expect(tx.transitionWithVersion).not.toHaveBeenCalled();
   });

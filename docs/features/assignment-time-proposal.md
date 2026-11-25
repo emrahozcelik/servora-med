@@ -52,9 +52,11 @@ Body gains `proposedScheduledAt?: string | null` (canonical ISO instant).
   ("Önerilen zaman gelecekte olmalı."). `requestTime` is the 049 reservation
   instant, checked after the replay lookup, so a completed answer still replays
   after its proposal has passed.
-- The derived interval conflicting with the Staff member's calendar (the same
-  occupancy reader as reschedule, excluding this job) → `409 CALENDAR_CONFLICT`
-  with the existing Staff-projected conflict shape.
+- The derived interval conflicting with the Staff member's occupancy (the same
+  core occupancy reader as reschedule, excluding this job; checked whether or
+  not the Calendar module is enabled, manual entries counted only while it is,
+  DECISIONS.md SCH-001) → `409 CALENDAR_CONFLICT` with the existing
+  Staff-projected conflict shape.
 - The value is part of the command's request hash. It is stored on the offer the
   answer closes. Nothing else about decline/release changes.
 
@@ -71,7 +73,8 @@ has id `offerId`, state `DECLINED` or `RELEASED`, a `proposed_scheduled_at`,
 `proposal_accepted_at IS NULL`; `offer.assignee_user_id = job.assigned_to`; the
 assignee is an active STAFF user. Version mismatch → `409 VERSION_CONFLICT`.
 `proposed_scheduled_at <= requestTime` → `409 ASSIGNMENT_PROPOSAL_EXPIRED`.
-Calendar conflict for the derived interval → `409 CALENDAR_CONFLICT`.
+Occupancy conflict for the derived interval (SCH-001, independent of the
+Calendar module) → `409 CALENDAR_CONFLICT`.
 
 Effects, one transaction:
 

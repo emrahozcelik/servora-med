@@ -528,6 +528,9 @@ describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
         fixture.manager,
         {
           ...deliveryInput(fixture, 's1-link-second'),
+          // SCH-001: same Staff as the first delivery, so a non-overlapping slot.
+          scheduledAt: '2026-10-14T12:00:00.000Z',
+          scheduledEndsAt: '2026-10-14T12:30:00.000Z',
           items: [{ productId: fixture.products[1]!, quantity: 1 }],
         },
       );

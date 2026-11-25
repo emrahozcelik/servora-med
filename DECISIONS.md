@@ -3667,3 +3667,67 @@ alternative is usually later the same day.
 
 Contract, data, API and acceptance scenarios:
 [docs/features/assignment-time-proposal.md](docs/features/assignment-time-proposal.md).
+
+## SCH-001 — Staff occupancy is a core rule; the Calendar module contributes
+
+- **Date:** 2026-11-25
+- **Status:** Accepted by the owner ("evet önerine katılıyorum", 2026-11-25,
+  core planning + Calendar module split; the four follow-up questions answered
+  in the Takvim 2.0 design session the same day; "düzeltmeyi yapalım",
+  2026-11-25). Clarifies JOB-007, JOB-010, JOB-011 and JOB-012; does not change
+  their rules.
+
+### Context
+
+Every staff double-booking check (`409 CALENDAR_CONFLICT`) ran only while
+`CALENDAR_ENABLED=true`. With the Calendar module off, a job could be created,
+rescheduled, transferred or approved into an interval the same Staff member
+already occupied, contradicting JOB-012 item 2. The occupancy query also
+existed in four copies with small differences (job-cards conflict check,
+follow-up auto-scheduler, offboarding transfer, calendar manual events), and
+the follow-up auto-scheduler counted manual calendar entries even while the
+module was off. The owner is moving modules to an in-app module panel, so
+turning a module off must not weaken a core workflow rule.
+
+### Decision
+
+1. **Planning and staff occupancy are core.** A Staff member is occupied by
+   their active on-site jobs (`SALES_MEETING`, `PRODUCT_DELIVERY` in `NEW`,
+   `ACCEPTED`, `IN_PROGRESS`, `WAITING_APPROVAL`, `REVISION_REQUESTED`, with a
+   planned interval and the JOB-007 occupied end). Create, sale-approval
+   delivery, follow-up create, management reschedule, assignment-time proposal
+   and its approval (JOB-012), and offboarding transfer always reject a
+   conflicting interval, whatever the Calendar module state. The assignee
+   locks that make this check race-free are core as well.
+2. **The Calendar module contributes.** While the module is enabled, a Staff
+   member's `ACTIVE` manual calendar entries also count as occupancy. While it
+   is disabled, they do not count and are never deleted.
+3. **One definition.** Occupancy has a single server-side definition
+   (`server/src/modules/job-cards/occupancy.ts`) used by every check above,
+   by the available-slot search and by the follow-up auto-scheduler.
+4. **Available-slot search is core.** `POST /api/job-cards/available-slots`
+   works in every install, and the web offers its suggestions whether or not
+   the Calendar module is enabled. JOB-011's candidate rules are unchanged.
+5. The API contract is unchanged: `409 CALENDAR_CONFLICT` with the existing
+   message and `details.conflicts[]`; `MANUAL` rows appear only while the
+   module is enabled.
+6. Unchanged module behaviour: the calendar screen, manual entries, the
+   reminder worker and job-reminder synchronization, Overview `upcomingWork`
+   and `calendar.*` notifications remain part of the Calendar module.
+
+### Consequences
+
+- **Deploy-visible behaviour change:** an install with the Calendar module off
+  starts rejecting a new job, reschedule, approval or transfer that overlaps
+  another active on-site job of the same Staff member. Read the production
+  `CALENDAR_ENABLED` value before deploying and state the change in the
+  release note.
+- Conflicts that already exist in stored data are not resolved or reported by
+  this change; re-enable marking is a separate Takvim 2.0 slice.
+- Deferred to separate decisions/slices (Takvim 2.0 design): organization
+  working hours as core data, the earliest free slot in a conflict response,
+  the "to be planned" query, General Task time blocks, absence blocks
+  (remain a module feature), re-enable conflict marking.
+- Research and owner answers:
+  [docs/backlog/2026-11-25-core-modules-architecture-research.md](docs/backlog/2026-11-25-core-modules-architecture-research.md)
+  §2 V10/V10+, §5a and §5b.

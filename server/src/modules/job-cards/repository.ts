@@ -2,7 +2,8 @@ import { assigneeAtInstantSql } from './assignment-history-sql.js';
 import { PostgresSaleReader, type SaleReadPort } from './sale-reader.js';
 import { PostgresSaleTransaction, selectSaleSubmission, type SaleTransaction, type SaleSubmissionSnapshot } from './sale-repository.js';
 import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type CustomerVisitDuplicate } from './customer-schedule.js';
-import { canonicalScheduledDurationMs, JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from './job-card-duration.js';
+import { canonicalScheduledDurationMs } from './job-card-duration.js';
+import { findStaffOccupancyConflicts, listStaffOccupiedIntervals } from './occupancy.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
   FOLLOW_UP_CYCLE_END_REASONS,
@@ -859,6 +860,9 @@ export type JobCalendarSchedule = Readonly<{
   now: Date;
   reminderLeadMinutes: number;
 }>;
+export type CalendarAvailabilityInput =
+  Omit<JobCalendarSchedule, 'version' | 'active' | 'now' | 'reminderLeadMinutes'>
+  & Readonly<{ includeCalendarEvents: boolean }>;
 export type AssigneeCalendarInterval = Readonly<{
   startsAt: string;
   endsAt: string;
@@ -1239,6 +1243,7 @@ export interface JobCardTransaction extends SubmissionReader {
     from: Date,
     to: Date,
     excludeJobId: string | null,
+    includeCalendarEvents: boolean,
   ): Promise<AssigneeCalendarInterval[]>;
   getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
@@ -1629,7 +1634,7 @@ export interface JobCardTransaction extends SubmissionReader {
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
-  assertCalendarAvailability(input: Omit<JobCalendarSchedule, 'version' | 'active' | 'now' | 'reminderLeadMinutes'>): Promise<void>;
+  assertCalendarAvailability(input: CalendarAvailabilityInput): Promise<void>;
   synchronizeCalendarReminder(input: JobCalendarSchedule): Promise<void>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
   /** Data-class scope of the job's delivery graph; callers already hold the JobCard row lock. */
@@ -3929,30 +3934,16 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     from: Date,
     to: Date,
     excludeJobId: string | null,
+    includeCalendarEvents: boolean,
   ): Promise<AssigneeCalendarInterval[]> {
-    const result = await this.client.query<{ starts_at: Date; ends_at: Date }>(
-      `SELECT e.starts_at, e.ends_at
-         FROM calendar_events e
-        WHERE e.organization_id = $1 AND e.assigned_user_id = $2
-          AND e.status = 'ACTIVE'
-          AND e.starts_at < $4 AND $3 < e.ends_at
-       UNION ALL
-       SELECT j.scheduled_at, ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-         FROM job_cards j
-        WHERE j.organization_id = $1 AND j.assigned_to = $2
-          AND ($5::uuid IS NULL OR j.id <> $5)
-          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
-        AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
-          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-          AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-          AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-        ORDER BY starts_at ASC, ends_at ASC`,
-      [organizationId, assignedUserId, from, to, excludeJobId],
-    );
-    return result.rows.map((row) => ({
-      startsAt: row.starts_at.toISOString(),
-      endsAt: row.ends_at.toISOString(),
-    }));
+    return listStaffOccupiedIntervals(this.client, {
+      organizationId,
+      assignedUserId,
+      startsAt: from,
+      endsAt: to,
+      excludeJobCardId: excludeJobId,
+      includeCalendarEvents,
+    });
   }
 
   async customerExists(organizationId: string, customerId: string) {
@@ -5094,63 +5085,33 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
-  async assertCalendarAvailability(
-    input: Omit<JobCalendarSchedule, 'version' | 'active' | 'now' | 'reminderLeadMinutes'>,
-  ) {
+  async assertCalendarAvailability(input: CalendarAvailabilityInput) {
     if (!input.startsAt || !input.endsAt) return;
-    const result = await this.client.query<{
-      source: 'JOB' | 'MANUAL';
-      id: string;
-      title: string;
-      starts_at: Date;
-      ends_at: Date;
-      assigned_user_name: string;
-      related_job_path: string | null;
-    }>(
-      `SELECT 'MANUAL'::text AS source, e.id, e.title, e.starts_at, e.ends_at,
-         u.name AS assigned_user_name, NULL::text AS related_job_path
-       FROM calendar_events e
-       JOIN users u ON u.organization_id = e.organization_id AND u.id = e.assigned_user_id
-       WHERE e.organization_id = $1 AND e.assigned_user_id = $2
-         AND e.status = 'ACTIVE' AND e.starts_at < $4 AND $3 < e.ends_at
-       UNION ALL
-       SELECT 'JOB', j.id, j.title, j.scheduled_at, ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL},
-         u.name, '/jobs/' || j.id::text
-       FROM job_cards j
-       JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
-       WHERE j.organization_id = $1 AND j.assigned_to = $2
-         AND ($5::uuid IS NULL OR j.id <> $5)
-         AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
-         AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-         AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
-         AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-         AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-       ORDER BY starts_at ASC, id ASC LIMIT 10`,
-      [
-        input.organizationId,
-        input.assignedUserId,
-        input.startsAt,
-        input.endsAt,
-        input.jobCardId,
-      ],
-    );
-    if (result.rows.length === 0) return;
+    const conflicts = await findStaffOccupancyConflicts(this.client, {
+      organizationId: input.organizationId,
+      assignedUserId: input.assignedUserId,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      excludeJobCardId: input.jobCardId,
+      includeCalendarEvents: input.includeCalendarEvents,
+    });
+    if (conflicts.length === 0) return;
     throw new AppError(
       'CALENDAR_CONFLICT',
       409,
       'Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.',
       {
-        conflicts: result.rows.map((row) => ({
+        conflicts: conflicts.map((row) => ({
           source: row.source,
           id: row.id,
           title: row.title,
-          startsAt: row.starts_at.toISOString(),
-          endsAt: row.ends_at.toISOString(),
+          startsAt: row.startsAt.toISOString(),
+          endsAt: row.endsAt.toISOString(),
           assignedUser: {
             id: input.assignedUserId,
-            name: row.assigned_user_name,
+            name: row.assignedUserName,
           },
-          relatedJobPath: row.related_job_path,
+          relatedJobPath: row.relatedJobPath,
         })),
       },
     );
