@@ -6,7 +6,7 @@ import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { CurrentUser } from '../services/api';
 import { SignalGlyph } from '../ui/signal-icons';
 import { useNarrowShell } from '../ui/useResponsive';
-import { assignmentOfferStateLabel, changeRequestReasonLabel } from './job-labels';
+import { assignmentOfferStateLabel, assignmentOfferUrgentReasonLabel, changeRequestReasonLabel } from './job-labels';
 import {
   listAssignmentOffersNeedingAction,
   listOpenChangeRequests,
@@ -32,6 +32,17 @@ type PagedLoader<T> = (
 function formatInstant(value: string): string {
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
     .format(new Date(value));
+}
+
+/**
+ * An offer row names its state and, when the server flags urgency, keeps the
+ * urgent reason and the customer-time consequence the overview shows. The
+ * compact row must never reduce an urgent offer to a calm "Yanıt bekliyor".
+ */
+function offerReasonLabel(item: AssignmentOfferNeedingActionItem): string {
+  const state = assignmentOfferStateLabel(item.state);
+  const urgent = assignmentOfferUrgentReasonLabel(item.urgentReason);
+  return urgent === null ? state : `${state} · ${urgent} — müşteri zamanı risk altında`;
 }
 
 /**
@@ -192,7 +203,7 @@ function ManagementAttentionPanel({
         id: item.offerId,
         jobId: item.jobCardId,
         title: item.jobTitle,
-        reason: assignmentOfferStateLabel(item.state),
+        reason: offerReasonLabel(item),
         icon: 'exclamation',
         person: item.assignee.name,
         timeLabel: 'Kabul için son',
@@ -232,20 +243,23 @@ function ManagementAttentionPanel({
     </h2>
   );
 
-  const body = (
-    <div className="job-attention-body">
-      {failed && (
-        <div className="job-attention-error" data-job-attention-error="true">
-          <p role="alert">Müdahale gerekenler yüklenemedi</p>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => setReload((value) => value + 1)}
-          >
-            Tekrar dene
-          </button>
-        </div>
-      )}
+  // The failure and its retry must stay reachable: inside the expanded mobile
+  // disclosure, or directly below its summary while it is closed.
+  const errorBanner = failed ? (
+    <div className="job-attention-error" data-job-attention-error="true">
+      <p role="alert">Müdahale gerekenler yüklenemedi</p>
+      <button
+        className="secondary-button"
+        type="button"
+        onClick={() => setReload((value) => value + 1)}
+      >
+        Tekrar dene
+      </button>
+    </div>
+  ) : null;
+
+  const groupsContent = (
+    <>
       <AttentionGroup
         id="job-attention-change-requests"
         title="Personel önerileri"
@@ -266,7 +280,7 @@ function ManagementAttentionPanel({
           <Link to={paths.overview}>Tümünü Genel bakışta gör</Link>
         </p>
       )}
-    </div>
+    </>
   );
 
   if (narrow) {
@@ -282,8 +296,12 @@ function ManagementAttentionPanel({
           }}
         >
           <summary className="job-attention-summary">{heading}</summary>
-          {body}
+          <div className="job-attention-body">
+            {disclosureOpen && errorBanner}
+            {groupsContent}
+          </div>
         </details>
+        {!disclosureOpen && errorBanner}
       </section>
     );
   }
@@ -291,7 +309,10 @@ function ManagementAttentionPanel({
   return (
     <section className="job-attention" aria-labelledby="job-attention-title" data-job-attention="true">
       {heading}
-      {body}
+      <div className="job-attention-body">
+        {errorBanner}
+        {groupsContent}
+      </div>
     </section>
   );
 }

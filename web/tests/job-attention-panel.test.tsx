@@ -1,4 +1,7 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
@@ -114,6 +117,23 @@ async function renderPanel(user: CurrentUser, loaders: Loaders = {}) {
   });
   await act(async () => { await Promise.resolve(); });
   return container;
+}
+
+async function rerenderPanel(loaders: Loaders = {}) {
+  await act(async () => {
+    root!.render(
+      <MemoryRouter>
+        <JobAttentionPanel
+          user={manager}
+          loadChangeRequests={loaders.loadChangeRequests as never}
+          loadAssignmentOffers={loaders.loadAssignmentOffers as never}
+          loadUnacceptedPastStart={loaders.loadUnacceptedPastStart as never}
+        />
+      </MemoryRouter>,
+    );
+  });
+  await act(async () => { await Promise.resolve(); });
+  return container!;
 }
 
 beforeEach(() => {
@@ -249,6 +269,54 @@ describe('JobAttentionPanel', () => {
     expect(details?.open).toBe(false);
   });
 
+  it('keeps the server urgent reason on an open assignment offer', async () => {
+    const urgentOffer: AssignmentOfferNeedingActionItem = {
+      ...assignmentOffer,
+      state: 'OPEN',
+      closeReason: null,
+      closeText: null,
+      urgentReason: 'START_PASSED',
+    };
+    const element = await renderPanel(manager, {
+      loadChangeRequests: loaded([]),
+      loadAssignmentOffers: loaded([urgentOffer]),
+      loadUnacceptedPastStart: loaded([]),
+    });
+
+    const reason = element.querySelector('.job-attention-reason')?.textContent ?? '';
+    expect(reason).toContain('Yanıt bekliyor');
+    expect(reason).toContain('Başlangıç geçti');
+    expect(reason).toContain('müşteri zamanı risk altında');
+  });
+
+  it('keeps the failure and retry visible below a closed mobile disclosure', async () => {
+    stubMatchMedia(false);
+    const element = await renderPanel(manager, {
+      loadChangeRequests: loaded([changeRequest]),
+      loadAssignmentOffers: loaded([]),
+      loadUnacceptedPastStart: loaded([]),
+    });
+
+    const details = element.querySelector<HTMLDetailsElement>('details.job-attention-disclosure')!;
+    const summary = details.querySelector('summary')!;
+    await act(async () => { summary.click(); });
+    expect(details.open).toBe(false);
+
+    await rerenderPanel({
+      loadChangeRequests: loaded([changeRequest]),
+      loadAssignmentOffers: vi.fn().mockRejectedValue(new Error('Servis kullanılamıyor.')),
+      loadUnacceptedPastStart: loaded([]),
+    });
+
+    expect(details.open).toBe(false);
+    const banner = element.querySelector<HTMLElement>('[data-job-attention-error="true"]');
+    expect(banner).not.toBeNull();
+    // A closed disclosure must not swallow the failure or its retry action.
+    expect(details.contains(banner)).toBe(false);
+    expect(banner?.textContent).toContain('Müdahale gerekenler yüklenemedi');
+    expect(banner?.textContent).toContain('Tekrar dene');
+  });
+
   it('keeps the desktop panel fully expanded without a disclosure', async () => {
     const element = await renderPanel(manager, {
       loadChangeRequests: loaded([changeRequest]),
@@ -258,5 +326,15 @@ describe('JobAttentionPanel', () => {
 
     expect(element.querySelector('details')).toBeNull();
     expect(element.querySelector('#job-attention-title')).not.toBeNull();
+  });
+});
+
+describe('JobAttentionPanel touch targets', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/jobs/job-attention.css'), 'utf8');
+
+  it('gives a short job-title link the full 44x44 CSS px target', () => {
+    const rule = /\.job-attention-row-title\s*\{([^}]*)\}/s.exec(css)?.[1] ?? '';
+    expect(rule).toMatch(/min-width:\s*var\(--control-height\)/);
+    expect(rule).toMatch(/min-height:\s*var\(--control-height\)/);
   });
 });

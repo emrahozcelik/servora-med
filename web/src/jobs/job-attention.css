@@ -70,6 +70,10 @@
   justify-items: start;
 }
 
+.job-attention > .job-attention-error {
+  margin-top: 0.35rem;
+}
+
 .job-attention-error p {
   margin: 0;
   font-weight: 700;
@@ -118,6 +122,7 @@
 .job-attention-row-title {
   display: inline-flex;
   align-items: center;
+  min-width: var(--control-height);
   min-height: var(--control-height);
   color: var(--accent-hover);
   font-weight: 700;
