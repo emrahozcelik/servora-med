@@ -22,6 +22,9 @@ const staffUser: CurrentUser = {
   id: 's1', organizationId: 'org-1', name: 'Ayşe Personel', email: 'a@x',
   role: 'STAFF', mustChangePassword: false, isActive: true, version: 1,
 };
+const managerUser: CurrentUser = {
+  ...staffUser, id: 'm1', name: 'Murat Yönetici', email: 'm@x', role: 'MANAGER',
+};
 
 const baseLifecycle: JobLifecycleFacts = {
   createdAt: '2026-11-12T06:00:00.000Z', acceptedAt: null, acceptedBy: null,
@@ -222,11 +225,16 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderScreen(card: JobCard, source: FakeRealtimeEventSource, fetch: ReturnType<typeof vi.fn>) {
+  async function renderScreen(
+    card: JobCard,
+    source: FakeRealtimeEventSource,
+    fetch: ReturnType<typeof vi.fn>,
+    user: CurrentUser = staffUser,
+  ) {
     vi.stubGlobal('fetch', fetch);
     await act(async () => {
       root.render(<RealtimeProvider eventSourceFactory={() => source}>
-        <JobDetailScreen jobId={card.id} user={staffUser} onBack={() => {}} onChanged={() => {}} />
+        <JobDetailScreen jobId={card.id} user={user} onBack={() => {}} onChanged={() => {}} />
       </RealtimeProvider>);
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -364,6 +372,164 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(host.querySelector('form #job-scheduled-at')).not.toBeNull();
   });
 
+  it('past-start acknowledgement retry clears the old form error and focuses the notice', async () => {
+    const card = deliveryJob();
+    const scheduled: JobCard = { ...card, version: card.version + 1 };
+    let patches = 0;
+    let detailGets = 0;
+    const patchBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.includes('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith(`/api/job-cards/${card.id}`) && method === 'PATCH') {
+        patches += 1;
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        patchBodies.push(body);
+        if (patches === 1) {
+          return Response.json({
+            error: 'Başlangıç saati geçti. Kaydetmek için müşteri onayı gerekiyor.',
+            code: 'PAST_START_ACKNOWLEDGEMENT_REQUIRED',
+          }, { status: 409 });
+        }
+        return Response.json(scheduled);
+      }
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        if (detailGets === 2) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+        return Response.json(card);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch, managerUser);
+
+    await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    const saveButton = buttonByName(host, 'Planlanan zamanı kaydet') as HTMLButtonElement;
+    await act(async () => {
+      saveButton.focus();
+      saveButton.click();
+      await settle();
+    });
+
+    expect(patches).toBe(1);
+    expect(host.textContent).toContain('Kaydetmek için müşteri onayı gerekiyor.');
+    const drawer = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(drawer).not.toBeNull();
+    const reasonCode = drawer.querySelector<HTMLSelectElement>('#past-start-ack-code')!;
+    const reasonText = drawer.querySelector<HTMLTextAreaElement>('#past-start-ack-text')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')
+        ?.set?.call(reasonCode, 'CUSTOMER_WAITING');
+      reasonCode.dispatchEvent(new Event('change', { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reasonText, 'Müşteri güncel durumu onayladı.');
+      reasonText.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(drawer, 'Onayla ve devam et')?.click();
+      await settle();
+    });
+
+    expect(patches).toBe(2);
+    expect(patchBodies[0]!.pastStartAcknowledgement).toBeUndefined();
+    expect(patchBodies[1]!.pastStartAcknowledgement).toEqual({
+      code: 'CUSTOMER_WAITING',
+      text: 'Müşteri güncel durumu onayladı.',
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.textContent).not.toContain('Kaydetmek için müşteri onayı gerekiyor.');
+    const notice = committedNotice(host);
+    expect(notice?.textContent).toContain('Planlanan zaman güncellendi.');
+    expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(document.activeElement).toBe(notice);
+  });
+
+  it('a location-difference submit keeps the approval receipt in the stale heading', async () => {
+    const base = deliveryJob();
+    const card: JobCard = {
+      ...base,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-11-12T09:00:00.000Z',
+      }, {
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES'],
+        submissionReadiness: null,
+      }),
+    };
+    const submitted: JobCard = {
+      ...card,
+      status: 'WAITING_APPROVAL',
+      version: card.version + 1,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        submittedAt: '2026-11-12T10:30:00.000Z',
+        submittedBy: { id: staffUser.id, name: staffUser.name },
+      }),
+      submitLocationComparison: { outcome: 'DIFFERENT', distanceMeters: 1_250 },
+    };
+    let submits = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.includes('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.split('?')[0]!.endsWith(`/api/job-cards/${card.id}/submit-for-approval`) && method === 'POST') {
+        submits += 1;
+        if (submits === 1) throw new TypeError('network');
+        return Response.json(submitted);
+      }
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        if (detailGets === 2) throw new TypeError('network');
+        return Response.json(card);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reason = Array.from(dialog.querySelectorAll<HTMLTextAreaElement>('textarea')).at(-1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Görüşme tamamlandı');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      (dialog.querySelector('form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+    expect(submits).toBe(1);
+    const retryDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => {
+      buttonByName(retryDialog, 'Özgün isteği tekrar dene')?.click();
+      await settle();
+    });
+
+    expect(submits).toBe(2);
+    const notice = committedNotice(host);
+    expect(notice?.textContent).toContain('İş yönetici kontrolüne gönderildi.');
+    expect(notice?.textContent).toContain('fark tespit edildi');
+    expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(notice?.textContent?.startsWith('İş yönetici kontrolüne gönderildi.')).toBe(true);
+    expect(document.activeElement).toBe(notice);
+  });
+
   it('lifecycle dialog command: retained retry commits, closes the dialog and shows the notice', async () => {
     const card = deliveryJob();
     const cancelled: JobCard = {
@@ -483,6 +649,21 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
     expect(host.textContent).not.toContain('Görüşme sonucu kaydedilemedi.');
     expect(document.activeElement).toBe(notice);
+    // The meeting child set its own success receipt for the same operation.
+    // The scoped modifier removes that duplicate status from layout and the
+    // accessibility tree so only the page notice announces the result.
+    expect(host.querySelector('[data-job-detail="true"]')
+      ?.getAttribute('data-job-detail-committed-stale')).toBe('true');
+    const childFeedback = host.querySelector<HTMLElement>('.meeting-details > .detail-feedback')!;
+    expect(childFeedback).not.toBeNull();
+    expect(childFeedback.textContent).toContain('Görüşme sonucu kaydedildi.');
+    const duplicateRule = /\[data-job-detail-committed-stale="true"\] \.meeting-details > \.detail-feedback \{([^}]*)\}/.exec(styles);
+    expect(duplicateRule?.[1]).toContain('display: none');
+    const probe = document.createElement('style');
+    probe.textContent = duplicateRule![0];
+    document.head.append(probe);
+    expect(getComputedStyle(childFeedback).display).toBe('none');
+    probe.remove();
   });
 
   it('GET 404 after a committed patch keeps the previous terminal error path', async () => {

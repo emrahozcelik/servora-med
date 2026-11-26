@@ -3463,6 +3463,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   min-height: 2.75rem;
   font-size: 0.95rem;
 }
+/* UI-FEEDBACK/A: the meeting form re-announces its own success receipt for the
+   same committed operation. While the page notice is the single result region,
+   that duplicate status is removed from layout and the accessibility tree;
+   the notice owns the announcement and focus. */
+[data-job-detail-committed-stale="true"] .meeting-details > .detail-feedback {
+  display: none;
+}
 .detail-summary {
   display: block;
   margin: 0;

@@ -510,6 +510,7 @@ function JobScheduleEditForm({
   user,
   deadlineExtensionError = null,
   scheduleShiftSignal,
+  committedStale = false,
   onRequestChange,
   onSave,
 }: {
@@ -520,6 +521,8 @@ function JobScheduleEditForm({
   /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
   deadlineExtensionError?: string | null;
   scheduleShiftSignal?: number;
+  /** UI-FEEDBACK/A: this mutation committed but its canonical re-read failed. */
+  committedStale?: boolean;
   onRequestChange?: () => void;
   onSave?: (
     scheduledAt: string | null,
@@ -576,6 +579,16 @@ function JobScheduleEditForm({
     setReasonVisible(true);
     setReasonError(deadlineExtensionError);
   }, [deadlineExtensionError]);
+
+  // UI-FEEDBACK/A: a committed-but-stale save supersedes the previous attempt's
+  // inline failure (for example the past-start acknowledgement request). The
+  // page notice, not the old form error, now describes the outcome.
+  useEffect(() => {
+    if (!committedStale) return;
+    setFieldError('');
+    setSubmitError('');
+    setReasonError('');
+  }, [committedStale]);
 
   useEffect(() => {
     if (scheduleShiftSignal === undefined || scheduleShiftSignal <= 0) {
@@ -1034,6 +1047,8 @@ export function JobDetailPanel({
     meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
     pairManagedCommand,
   });
+  /** UI-FEEDBACK/A: the committed notice is the single visible/announced result. */
+  const committedStale = committedStaleNotice !== undefined && committedStaleNotice !== null;
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
   const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
     && job.workflowContext.allowedActions.includes('EDIT_DELIVERY_ACTUAL_TIME')
@@ -1227,7 +1242,11 @@ export function JobDetailPanel({
   ) : null;
 
   return (
-    <main className="job-detail" data-job-detail="true">
+    <main
+      className="job-detail"
+      data-job-detail="true"
+      data-job-detail-committed-stale={committedStale ? 'true' : undefined}
+    >
       {/* DOM/keyboard (owner decision 2026-11-25): heading → lifecycle strip →
           feedback → lateness signal → change request/assignment offer → facts →
           schedule → early start → type content → management review → actions →
@@ -1315,6 +1334,7 @@ export function JobDetailPanel({
               user={user}
               deadlineExtensionError={deadlineExtensionError}
               scheduleShiftSignal={scheduleShiftSignal}
+              committedStale={committedStale}
               onRequestChange={onRequestChange}
               onSave={onSaveSchedule}
             />
@@ -1690,6 +1710,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [pastStartAckPending, setPastStartAckPending] = useState(false);
   const [pastStartAckError, setPastStartAckError] = useState('');
   const pastStartAckOpenerRef = useRef<HTMLElement | null>(null);
+  /**
+   * UI-FEEDBACK/A: the drawer's focus target. It normally returns to the
+   * opener, but a committed-but-stale save must land on the page notice
+   * instead of the old save control that is still on screen.
+   */
+  const pastStartAckReturnFocusRef = useRef<HTMLElement | null>(null);
   const lastSavePatchErrorRef = useRef('');
   const [followUp, setFollowUp] = useState<{
     draft: FollowUpDraft | null;
@@ -1970,6 +1996,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   useEffect(() => {
     if (feedbackFocusRequest > 0) feedbackRef.current?.focus();
   }, [feedbackFocusRequest]);
+
+  // UI-FEEDBACK/A: a past-start acknowledgement retry that commits but fails
+  // its canonical re-read must return drawer focus to the stale notice, not to
+  // the old save control. Refs attach before layout effects, and the drawer
+  // reads this ref when it restores focus after unmount.
+  useLayoutEffect(() => {
+    if (pastStartAck !== null || !committedStale) return;
+    if (feedbackRef.current) pastStartAckReturnFocusRef.current = feedbackRef.current;
+  }, [committedStale, pastStartAck]);
 
   function resetFollowUpState() {
     followUpLoadTokenRef.current += 1;
@@ -2424,37 +2459,44 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       // notice can name exactly what the server accepted (UI-FEEDBACK/A).
       const transition = findTransition(presentation, command);
       const continuity = attempt.input.followUpContinuity;
-      let committedMessage = transition
+      let receiptMessage = transition
         ? transition.successMessage
           + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null)
           + (updated.deliveryJobCardId ? ' Teslim işi oluşturuldu.' : '')
         : '';
       if (command === 'CANCEL' && continuity?.decision === 'RESCHEDULE') {
-        committedMessage = `İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
+        receiptMessage = `İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
           dateStyle: 'medium', timeStyle: 'short',
         }).format(new Date(continuity.scheduledAt))} için planlandı.`;
       } else if (command === 'CANCEL' && continuity?.decision === 'END_CYCLE') {
-        committedMessage = 'İş iptal edildi ve takip döngüsü sonlandırıldı.';
+        receiptMessage = 'İş iptal edildi ve takip döngüsü sonlandırıldı.';
       }
       // #347: location is advisory at both checkpoints. Precedence is
       // deterministic: the lifecycle already succeeded, an unavailable local
       // snapshot yields enablement guidance, a captured SUBMIT keeps the
       // Slice-2 DIFFERENT distance advisory, everything else stays ordinary.
+      // The advisory remains additional information; the stale heading keeps
+      // the receipt sentence so a committed submit is never reported as only a
+      // location warning.
+      let advisoryMessage = '';
       const localCapture = attempt.input.locationCapture;
       if (command === 'START' && localCapture?.outcome === 'unavailable') {
-        committedMessage = startLocationUnavailableAdvisory({
+        advisoryMessage = startLocationUnavailableAdvisory({
           reason: localCapture.reason,
           device: classifyDevice(readDeviceSignals()),
         });
       } else if (command === 'SUBMIT_FOR_APPROVAL' && localCapture?.outcome === 'unavailable') {
-        committedMessage = submitLocationUnavailableGuidance({
+        advisoryMessage = submitLocationUnavailableGuidance({
           reason: localCapture.reason,
           device: classifyDevice(readDeviceSignals()),
         });
       } else if (command === 'SUBMIT_FOR_APPROVAL'
         && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
-        committedMessage = submitComparisonWarning(updated.submitLocationComparison.distanceMeters);
+        advisoryMessage = submitComparisonWarning(updated.submitLocationComparison.distanceMeters);
       }
+      const committedMessage = advisoryMessage
+        ? `${receiptMessage} ${advisoryMessage}`.trim()
+        : receiptMessage;
       let read: 'fresh' | 'stale' | 'inactive' = 'fresh';
       if (retained || (state.detail.kind === 'SALES_MEETING' && command === 'START')) {
         read = await refreshAfterCommit(committedMessage);
@@ -2495,7 +2537,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setAssignmentReason(null);
         setRevisionCorrection(null);
       }
-      if (read === 'fresh') setMessage(committedMessage);
+      if (read === 'fresh') setMessage(advisoryMessage || receiptMessage);
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
@@ -2800,6 +2842,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     pastStartAckOpenerRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+    pastStartAckReturnFocusRef.current = pastStartAckOpenerRef.current;
     setPastStartAckError('');
     setPastStartAck(request);
   }
@@ -4013,7 +4056,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       pending={pastStartAckPending}
       error={pastStartAckError}
       onShiftToFuture={pastStartAck?.onShiftToFuture}
-      returnFocusRef={pastStartAckOpenerRef}
+      returnFocusRef={pastStartAckReturnFocusRef}
       onDismiss={() => {
         if (!pastStartAckPending) {
           setPastStartAck(null);
