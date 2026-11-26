@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { OpenSubmissionLateSection } from '../jobs/SubmissionLateness';
@@ -81,10 +81,15 @@ function OverviewList({ children }: { children: ReactNode }) {
 export function OverviewPage({
   user,
   load = getOverview,
+  onUnavailable,
 }: {
   user: CurrentUser;
   load?: () => Promise<OverviewResponse>;
+  /** Called when the server answers 404: the module may have been switched off (MOD-002 §8). */
+  onUnavailable?: () => void;
 }) {
+  const onUnavailableRef = useRef(onUnavailable);
+  useEffect(() => { onUnavailableRef.current = onUnavailable; });
   const [state, setState] = useState<
     { kind: 'loading' }
     | { kind: 'error'; message: string }
@@ -100,6 +105,7 @@ export function OverviewPage({
         kind: 'error',
         message: error instanceof Error ? error.message : 'Genel bakış yüklenemedi.',
       });
+      if ((error as { status?: unknown } | null)?.status === 404) onUnavailableRef.current?.();
     }
   }, [load]);
 
