@@ -68,6 +68,7 @@ PSQL_BIN="${PSQL_BIN:-psql}"
 PG_DUMP_BIN="${PG_DUMP_BIN:-pg_dump}"
 NODE_BIN="${NODE_BIN:-node}"
 RECOVERY_PROBE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../server" && pwd -P)/dist/db/recovery-preflight.js"
+OPERATOR_CLI="${RECOVERY_PROBE%/*}/operator-cli-main.js"
 
 # Effective env file may be overridden by --env-file (test).
 EFFECTIVE_ENV_FILE="$APP_ENV_FILE"
@@ -506,6 +507,21 @@ echo "RESTORE=PASS backup=${backup_basename}" >&2
 # Full catalog reconciliation; neither timestamp head nor count is a gate.
 if ! "$NODE_BIN" "$RECOVERY_PROBE" verify "$OLD_RELEASE" "$OLD_HEALTH_SCHEMA_VERSION"; then
   fail_exit 6 SCHEMA_VERIFICATION_FAILED "post_restore_catalog_or_history_refused"
+fi
+
+# MOD-002 restore safety: restored operator accounts and sessions must not
+# carry over. Revoke all operator sessions and deactivate all operator accounts
+# before this helper reports success; traffic is opened only afterwards. A
+# schema older than migration 074 has no operator tables and is skipped.
+[[ -f "$OPERATOR_CLI" && ! -L "$OPERATOR_CLI" ]] || fail_exit 8 OPERATOR_RESET_CLI_MISSING "operator_reset_cli_missing"
+if [[ "$TEST_MODE" == true ]]; then
+  _operator_db_url="$TEST_DATABASE_URL"
+else
+  _operator_db_url="postgresql://${_restore_host}/${TARGET_DB}"
+  [[ "$_restore_host" != *:* ]] || _operator_db_url="postgresql://[${_restore_host}]/${TARGET_DB}"
+fi
+if ! DATABASE_URL="$_operator_db_url" "$NODE_BIN" "$OPERATOR_CLI" reset-after-restore >&2; then
+  fail_exit 8 OPERATOR_RESET_FAILED "operator_reset_failed"
 fi
 
 # ---- atomically restore HEALTH_SCHEMA_VERSION ----

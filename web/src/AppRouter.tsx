@@ -208,6 +208,8 @@ type AppRouterProps = {
   notice: string;
   onDeliveryCreated: () => void;
   onSessionEnded: () => void;
+  /** Overview answered 404 (module switched off): ask the shell to revalidate the identity once. */
+  onOverviewUnavailable?: () => void;
 };
 
 function ForbiddenView() {
@@ -387,7 +389,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
     onCreated={(jobCardId) => navigate(paths.job(jobCardId))} />;
 }
 
-export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
+export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded, onOverviewUnavailable }: AppRouterProps) {
   const navigate = useNavigate();
   const overviewAllowed = canAccessRoute('overview', user);
   const calendarAllowed = canAccessRoute('calendar', user);
@@ -399,7 +401,7 @@ export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded }: A
         <Route path="/" element={<Navigate to={landingPath} replace />} />
         <Route path="/login" element={<Navigate to={landingPath} replace />} />
         <Route path={paths.overview} element={overviewAllowed
-          ? <OverviewPage user={user} /> : <Navigate to={paths.jobs} replace />} />
+          ? <OverviewPage user={user} onUnavailable={onOverviewUnavailable} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.calendar} element={calendarAllowed
           ? <CalendarPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.messages} element={messagingAllowed

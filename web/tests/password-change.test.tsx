@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { PasswordChangeScreen, validatePasswordChange } from '../src/PasswordChange';
@@ -50,7 +51,7 @@ describe('mandatory password change UI', () => {
   });
 
   it('intercepts the protected workspace for forced-change users', () => {
-    const html = renderToStaticMarkup(<App initialUser={forcedUser} />);
+    const html = renderToStaticMarkup(<MemoryRouter><App initialUser={forcedUser} /></MemoryRouter>);
     expect(html).toContain('Parolanızı değiştirin');
     expect(html).not.toContain('İşlerim');
     expect(html).not.toContain('Onay kuyruğu');

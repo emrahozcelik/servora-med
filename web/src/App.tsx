@@ -7,9 +7,14 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 
+import { useLocation } from 'react-router-dom';
+
 import { AppRouter } from './AppRouter';
 import { AppShell } from './AppShell';
 import { setDocumentTitle } from './document-title';
+import { isSameIdentity, useIdentityRevalidation } from './identity-revalidation';
+import { OperatorArea } from './operator/OperatorArea';
+import { isOperatorPath } from './operator/operator-paths';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { PasswordChangeScreen } from './PasswordChange';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
@@ -149,7 +154,11 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
   );
 }
 
-function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut: () => void }) {
+function ProtectedShell({ user, onSignedOut, onOverviewUnavailable }: {
+  user: CurrentUser;
+  onSignedOut: () => void;
+  onOverviewUnavailable: () => void;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -175,6 +184,7 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
           <AppRouter user={user}
             notice={notice}
             onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')}
+            onOverviewUnavailable={onOverviewUnavailable}
             onSessionEnded={onSignedOut} />
           {error && <div className="shell-error form-error" role="alert">{error}</div>}
         </AppShell>
@@ -183,7 +193,16 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   );
 }
 
-export function App({ initialUser }: AppProps) {
+/**
+ * The installation-operator area is a separate top-level branch (MOD-002 §8):
+ * it is chosen before any customer hook, provider or request runs.
+ */
+export function App(props: AppProps) {
+  const { pathname } = useLocation();
+  return isOperatorPath(pathname) ? <OperatorArea /> : <CustomerApp {...props} />;
+}
+
+function CustomerApp({ initialUser }: AppProps) {
   const [user, setUser] = useState<CurrentUser | null | undefined>(initialUser);
   const [identityError, setIdentityError] = useState('');
 
@@ -202,8 +221,16 @@ export function App({ initialUser }: AppProps) {
     return () => { active = false; };
   }, [initialUser]);
 
+  const applyRevalidatedIdentity = useCallback((next: CurrentUser | null) => {
+    setUser((current) => (next && current && isSameIdentity(current, next) ? current : next));
+  }, []);
+  const revalidateIdentity = useIdentityRevalidation({
+    sessionKey: user ? `${user.organizationId}:${user.id}` : null,
+    onIdentity: applyRevalidatedIdentity,
+  });
+
   if (user === undefined) return <LoadingScreen />;
   if (user === null) return <LoginScreen onAuthenticated={setUser} initialError={identityError} />;
   if (user.mustChangePassword) return <PasswordChangeScreen user={user} onChanged={() => setUser(null)} onSignedOut={() => setUser(null)} />;
-  return <ProtectedShell user={user} onSignedOut={() => setUser(null)} />;
+  return <ProtectedShell user={user} onSignedOut={() => setUser(null)} onOverviewUnavailable={revalidateIdentity} />;
 }

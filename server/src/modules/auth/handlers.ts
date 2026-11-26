@@ -1,11 +1,12 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
-import { authenticatedUser } from '../capabilities/service.js';
+import { authenticatedUser, withOverviewDashboard } from '../capabilities/service.js';
 import type {
   AuthenticatedCapabilities,
   AuthenticatedSupport,
 } from '../capabilities/types.js';
+import { readModuleEnabledOrFalse, type ModuleStateReader } from '../installation-modules/state.js';
 import { SESSION_COOKIE_NAME } from './middleware.js';
 import type { AuthService } from './service.js';
 
@@ -23,7 +24,14 @@ export function createAuthHandlers(
   cookieOptions: CookieOptions,
   capabilities: AuthenticatedCapabilities | undefined,
   support: AuthenticatedSupport | undefined,
+  moduleState: ModuleStateReader,
 ) {
+  // Overview is runtime module state (MOD-002): one read per login / me, off on
+  // failure (logged), never an env fallback.
+  const runtimeCapabilities = async (request: FastifyRequest) => withOverviewDashboard(
+    capabilities,
+    await readModuleEnabledOrFalse(moduleState, 'OVERVIEW', request.log),
+  );
   return {
     login: async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as Record<string, unknown> | null;
@@ -32,10 +40,10 @@ export function createAuthHandlers(
         requireString(body?.password, 'password'),
       );
       reply.setCookie(SESSION_COOKIE_NAME, result.rawToken, cookieOptions);
-      return { user: authenticatedUser(result.user, capabilities, support) };
+      return { user: authenticatedUser(result.user, await runtimeCapabilities(request), support) };
     },
     me: async (request: FastifyRequest) => ({
-      user: authenticatedUser(request.currentUser!, capabilities, support),
+      user: authenticatedUser(request.currentUser!, await runtimeCapabilities(request), support),
     }),
     logout: async (request: FastifyRequest, reply: FastifyReply) => {
       const token = request.cookies[SESSION_COOKIE_NAME];
