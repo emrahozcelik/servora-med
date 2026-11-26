@@ -303,15 +303,36 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
     });
   });
 
-  it('rolls back removal, invalidation and period release when an audit write fails', async () => {
+  it('rolls back invalidation and period release when the later report audit fails', async () => {
     await withFixture(async ({ pool, service, admin, staff }) => {
       const created = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
-      const spy = vi.spyOn(PostgresJobCardTransaction.prototype,'appendAudit').mockRejectedValueOnce(new Error('forced audit failure'));
+      const actionId = randomUUID();
+      const countRealtime = async () => (await pool.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM realtime_events WHERE organization_id=$1 AND entity_id=$2',
+        [admin.organizationId, created.jobCardId],
+      )).rows[0]!.n;
+      const realtimeBefore = await countRealtime();
+      const appendAudit = PostgresJobCardTransaction.prototype.appendAudit;
+      const spy = vi.spyOn(PostgresJobCardTransaction.prototype, 'appendAudit')
+        .mockImplementation(function (input) {
+          if (input.eventType === 'WEEKLY_REPORT_REMOVED') {
+            return Promise.reject(new Error('forced removal audit failure'));
+          }
+          return appendAudit.call(this, input);
+        });
       try {
-        await expect(service.removeWeeklyReport(admin,created.jobCardId,{ clientActionId: randomUUID(),
-          expectedVersion: 1,expectedReportVersion: 1,reason: 'Hatalı hafta.' })).rejects.toThrow('forced audit failure');
+        await expect(service.removeWeeklyReport(admin, created.jobCardId, { clientActionId: actionId,
+          expectedVersion: 1, expectedReportVersion: 1, reason: 'Hatalı hafta.' }))
+          .rejects.toThrow('forced removal audit failure');
       } finally { spy.mockRestore(); }
+      expect(await countRealtime()).toBe(realtimeBefore);
+      expect((await pool.query(
+        'SELECT count(*)::int AS n FROM processed_actions WHERE client_action_id=$1', [actionId],
+      )).rows[0].n).toBe(0);
+      expect((await pool.query(
+        'SELECT count(*)::int AS n FROM audit_events WHERE subject_id=$1', [created.jobCardId],
+      )).rows[0].n).toBe(0);
       expect(await service.getWeeklyReport(admin,created.jobCardId)).toMatchObject({ removal: null,version: 1,jobVersion: 1,jobStatus: 'ACCEPTED' });
       expect((await pool.query("SELECT count(*)::int AS n FROM job_card_activity_logs WHERE event_type IN ('WEEKLY_REPORT_REMOVED','JOB_INVALIDATED')")).rows[0].n).toBe(0);
       await expect(service.createWeeklyReport(staff,parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart })))

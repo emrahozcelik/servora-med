@@ -42,11 +42,10 @@ through the existing detail, submission, PDF and personnel-history paths.
   trimmed reason (1–2000 Unicode code points). Unknown fields are rejected.
 - Current actor and owner, root/report ownership, versions, removal state and
   active follow-up blockers are revalidated under User → JobCard → WeeklyReport
-  locks. No historical mismatch is repaired. The `users` rows are taken in
-  shared mode (`FOR SHARE`), so removal stays compatible with the note-author
-  lock a concurrent SUBMIT holds beneath the JobCard lock instead of deadlocking
-  against it; SHARE still fences role/deactivation changes and still conflicts
-  with creation's `FOR NO KEY UPDATE`.
+  locks. No historical mismatch is repaired. The lock-order fix in `5167736`
+  places the acting Admin and Staff owner in one ordered user-lock acquisition
+  using `FOR NO KEY UPDATE`. Removal serializes with creation and submission
+  on the Staff row before acquiring the JobCard lock.
 - Removal, invalidation when needed, append-only activity/audit, version changes,
   idempotency receipt and realtime effects commit together. Failed commands roll
   back. New keys for an already removed target conflict; exact retries converge.

@@ -209,7 +209,6 @@ import {
 } from '../weekly-reports/create.js';
 import { updateWeeklyReportDraft } from '../weekly-reports/draft.js';
 import { WeeklyReportReadService } from '../weekly-reports/read.js';
-import { mapReport } from '../weekly-reports/repository.js';
 import { appendWeeklyReportSubmission } from '../weekly-reports/submission.js';
 import type {
   WeeklyReportDetail,
@@ -225,9 +224,11 @@ import type {
   WeeklyReportDraftPatchInput,
 } from '../weekly-reports/create-input.js';
 import {
-  parseWeeklyReportRemovalInput, weeklyReportRemovalRequestHash,
-  type WeeklyReportRemovalInput,
-} from '../weekly-reports/removal-input.js';
+  WeeklyReportRemovalService,
+  type WeeklyReportRemovalContext,
+  type WeeklyReportRemovalJobCardChange,
+} from '../weekly-reports/removal.js';
+import type { WeeklyReportRemovalInput } from '../weekly-reports/removal-input.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import {
   evaluateSubmission,
@@ -887,6 +888,7 @@ export class JobCardService {
   private readonly saleService: JobCardSaleService;
   private readonly weeklyReportCreation: WeeklyReportCreationService<JobCardTransaction>;
   private readonly weeklyReportReads: WeeklyReportReadService;
+  private readonly weeklyReportRemoval: WeeklyReportRemovalService<JobCardTransaction>;
 
   constructor(
     private readonly repository: JobCardRepository,
@@ -927,6 +929,11 @@ export class JobCardService {
         event, jobType: job.type, beforeAssigneeId: null, afterAssigneeId: job.assignedTo, customerId: job.customerId,
       }), (events) => this.publishRealtime(events));
     this.weeklyReportReads = new WeeklyReportReadService(repository);
+    this.weeklyReportRemoval = new WeeklyReportRemovalService(repository, this.weeklyReportReads, {
+      invalidateForRemoval: (tx, removal) => this.invalidateJobCardForWeeklyReportRemoval(tx, removal),
+      recordInvalidation: (tx, removal, change) => this.recordWeeklyReportJobInvalidation(tx, removal, change),
+      finishRemoval: (tx, removal, version, activity) => this.finishWeeklyReportJobRemoval(tx, removal, version, activity),
+    }, () => this.now());
     this.weeklyReportCreation = new WeeklyReportCreationService(
       repository,
       {
@@ -2076,133 +2083,84 @@ export class JobCardService {
     return this.weeklyReportReads.getWeeklyReport(actor, jobCardId, includeSaleCapability);
   }
 
-  async weeklyReportRemovalPreview(actor: JobCardActor, jobCardId: string) {
-    assertCanInvalidate(actor);
-    const report = await this.getWeeklyReport(actor, jobCardId);
-    const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
-    if (!job) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-    // Advisory read only; POST repeats this guard under transaction/child locks.
-    const activeFollowUps = report.canRemove
-      ? await this.repository.hasActiveFollowUpChildren(actor.organizationId, jobCardId)
-      : false;
-    return {
-      jobCardId, reportId: report.id, staffUserId: report.staffUserId, staffName: job.assignee.name,
-      periodStart: report.periodStart, periodEnd: report.periodEnd,
-      status: report.jobStatus, expectedVersion: report.jobVersion, expectedReportVersion: report.version,
-      submissionCount: report.submissionSummaries.length,
-      canRemove: report.canRemove && !activeFollowUps,
-      removalBlocker: activeFollowUps ? 'ACTIVE_FOLLOW_UPS' as const : null,
-      removal: report.removal,
-    };
+  weeklyReportRemovalPreview(actor: JobCardActor, jobCardId: string) {
+    return this.weeklyReportRemoval.weeklyReportRemovalPreview(actor, jobCardId);
   }
 
-  async removeWeeklyReport(actor: JobCardActor, jobCardId: string, rawInput: WeeklyReportRemovalInput) {
-    assertCanInvalidate(actor);
-    const input = parseWeeklyReportRemovalInput(rawInput);
-    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>({
-      organizationId: actor.organizationId, userId: actor.id, clientActionId: input.clientActionId,
-      operationKey: `WEEKLY_REPORT_REMOVE:${jobCardId}`,
-      requestHash: weeklyReportRemovalRequestHash(jobCardId, input),
-    }, async (tx) => {
-      // Staff-user lock contract (assignee-lock.ts): the acting admin and the
-      // report owner are locked FIRST, in ONE sorted de-duplicated call, before
-      // the JobCard/WeeklyReport rows. The owner id comes from the unlocked
-      // snapshot, so the authoritative checks are re-taken from the locked rows:
-      // an actor demoted or deactivated meanwhile still gets 403 before anything
-      // is written, and an owner that changed still fails the ownership check.
-      const actorSnapshot = await tx.getAssignee(actor.organizationId, actor.id);
-      if (!actorSnapshot?.isActive || actorSnapshot.role !== 'ADMIN') {
-        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
-      }
-      const snapshot = await tx.getJob(actor.organizationId, jobCardId);
-      if (!snapshot || snapshot.type !== 'WEEKLY_REPORT') {
-        throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-      }
-      const lockedUsers = await this.lockUsersInOrder(
-        tx, actor.organizationId, [actor.id, snapshot.assignedTo],
-      );
-      const currentActor = lockedUsers.get(actor.id) ?? null;
-      if (!currentActor?.isActive || currentActor.role !== 'ADMIN') {
-        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
-      }
-      const owner = lockedUsers.get(snapshot.assignedTo) ?? null;
-      const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
-      const row = await tx.getWeeklyReportByJobForUpdate(actor.organizationId, jobCardId);
-      if (!job || !row) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-      if (!owner || owner.role !== 'STAFF' || job.type !== 'WEEKLY_REPORT'
-        || row.staff_user_id !== job.assignedTo || job.assignedTo !== snapshot.assignedTo) {
-        throw new AppError('WEEKLY_REPORT_OWNERSHIP_CONFLICT', 409, 'Rapor sahibi doğrulanamadığı için rapor kaldırılamaz.');
-      }
-      if (row.removed_at !== null) {
-        throw new AppError('WEEKLY_REPORT_ALREADY_REMOVED', 409, 'Bu haftalık rapor zaten kaldırılmış.');
-      }
-      if (job.version !== input.expectedVersion || row.version !== input.expectedReportVersion) {
-        throw new AppError('VERSION_CONFLICT', 409, 'Rapor değişti. Güncel kaydı inceleyip yeniden deneyin.');
-      }
-      if ((await tx.listActiveFollowUpChildrenForUpdate(actor.organizationId, jobCardId)).length > 0) {
-        throw new AppError('JOB_HAS_ACTIVE_FOLLOW_UPS', 409, 'Aktif takip işleri bulunan rapor kaldırılamaz.');
-      }
-      const at = this.now();
-      const updated = job.status === 'INVALIDATED'
-        ? await tx.bumpVersion(actor.organizationId, jobCardId, job.version)
-        : await tx.invalidateWithVersion({ organizationId: actor.organizationId, jobCardId,
-          expectedVersion: job.version, invalidatedAt: at, invalidatedBy: actor.id, reasonCode: 'CREATED_BY_MISTAKE' });
-      if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
-      // OVR-2 invalidation closure: a removal that invalidates the root uses
-      // the same correction semantics as INVALIDATE, so every still-open
-      // overdue obligation of the card ends here too, in this transaction and
-      // with this command's request time/actor. A root that was ALREADY
-      // INVALIDATED is historical data under the no-backfill rule: its open
-      // rows stay untouched.
-      const closedOverdueIncidents = job.status === 'INVALIDATED'
-        ? 0
-        : await tx.invalidateOpenOverdueIncidents({
-          organizationId: actor.organizationId,
-          jobCardId,
-          endedAt: at,
-          endedByUserId: actor.id,
-        });
-      const removed = await tx.removeWeeklyReportRow({ organizationId: actor.organizationId,
-        reportId: row.id, expectedVersion: row.version, removedAt: at, removedBy: actor.id, reason: input.reason });
-      if (!removed) throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
-      const realtimeEvents: RealtimeEventRecord[] = [];
-      if (job.status !== 'INVALIDATED') {
-        const activity = await tx.appendActivity({ organizationId: actor.organizationId, jobCardId,
-          actorId: actor.id, event: 'JOB_INVALIDATED', clientActionId: input.clientActionId,
-          oldValue: { status: job.status, version: job.version },
-          newValue: { status: updated.status, version: updated.version },
-          metadata: { reasonCode: 'CREATED_BY_MISTAKE', reportId: row.id, closedOverdueIncidents } });
-        await tx.appendAudit({ organizationId: actor.organizationId, actorUserId: actor.id, subjectId: jobCardId,
-          oldValue: { status: job.status }, newValue: { status: updated.status },
-          metadata: { reasonCode: 'CREATED_BY_MISTAKE', clientActionId: input.clientActionId } });
-        realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
-          activity, organizationId: actor.organizationId, jobCardId, actorUserId: actor.id,
-          event: 'JOB_INVALIDATED', jobType: job.type, beforeAssigneeId: job.assignedTo,
-          afterAssigneeId: job.assignedTo, calendarAffected: true, customerId: null,
-        }));
-      }
-      const activity = await tx.appendActivity({ organizationId: actor.organizationId, jobCardId,
-        actorId: actor.id, event: 'WEEKLY_REPORT_REMOVED', clientActionId: input.clientActionId,
-        oldValue: { reportVersion: row.version }, newValue: { reportVersion: removed.version },
-        metadata: { reportId: row.id, reason: input.reason, closedOverdueIncidents } });
-      await tx.appendAudit({ organizationId: actor.organizationId, actorUserId: actor.id, subjectId: jobCardId,
-        eventType: 'WEEKLY_REPORT_REMOVED', oldValue: { reportId: row.id, removedAt: null },
-        newValue: { reportId: row.id, removedAt: at.toISOString() },
-        metadata: { staffUserId: row.staff_user_id, periodStart: mapReport(row).periodStart,
-          reason: input.reason, clientActionId: input.clientActionId } });
-      await tx.synchronizeCalendarReminder({ organizationId: actor.organizationId, jobCardId,
-        assignedUserId: job.assignedTo, startsAt: job.scheduledAt, endsAt: job.scheduledEndsAt,
-        version: updated.version, active: false, now: at, reminderLeadMinutes: this.calendar.reminderLeadMinutes });
-      realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
-        activity, organizationId: actor.organizationId, jobCardId, actorUserId: actor.id,
-        event: 'WEEKLY_REPORT_REMOVED', jobType: job.type, beforeAssigneeId: job.assignedTo,
-        afterAssigneeId: job.assignedTo, calendarAffected: true, customerId: null,
-      }));
-      return { response: { jobCardId }, realtimeEvents };
-    });
+  async removeWeeklyReport(actor: JobCardActor, jobCardId: string, input: WeeklyReportRemovalInput) {
+    const result = await this.weeklyReportRemoval.removeWeeklyReport(actor, jobCardId, input);
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     return this.getWeeklyReport(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
+  }
+
+  private async invalidateJobCardForWeeklyReportRemoval(
+    tx: JobCardTransaction,
+    { actor, jobCardId, job, at }: WeeklyReportRemovalContext,
+  ): Promise<WeeklyReportRemovalJobCardChange> {
+    const updated = job.status === 'INVALIDATED'
+      ? await tx.bumpVersion(actor.organizationId, jobCardId, job.version)
+      : await tx.invalidateWithVersion({ organizationId: actor.organizationId, jobCardId,
+        expectedVersion: job.version, invalidatedAt: at, invalidatedBy: actor.id, reasonCode: 'CREATED_BY_MISTAKE' });
+    if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+    // OVR-2 invalidation closure: a removal that invalidates the root uses
+    // the same correction semantics as INVALIDATE, so every still-open
+    // overdue obligation of the card ends here too, in this transaction and
+    // with this command's request time/actor. A root that was ALREADY
+    // INVALIDATED is historical data under the no-backfill rule: its open
+    // rows stay untouched.
+    const closedOverdueIncidents = job.status === 'INVALIDATED'
+      ? 0
+      : await tx.invalidateOpenOverdueIncidents({
+        organizationId: actor.organizationId,
+        jobCardId,
+        endedAt: at,
+        endedByUserId: actor.id,
+      });
+    return { version: updated.version, status: updated.status, closedOverdueIncidents };
+  }
+
+  private async recordWeeklyReportJobInvalidation(
+    tx: JobCardTransaction,
+    { actor, jobCardId, job, reportId, clientActionId }: WeeklyReportRemovalContext,
+    change: WeeklyReportRemovalJobCardChange,
+  ): Promise<readonly RealtimeEventRecord[]> {
+    if (job.status === 'INVALIDATED') return [];
+    const activity = await tx.appendActivity({
+      organizationId: actor.organizationId, jobCardId, actorId: actor.id,
+      event: 'JOB_INVALIDATED', clientActionId,
+      oldValue: { status: job.status, version: job.version },
+      newValue: { status: change.status, version: change.version },
+      metadata: {
+        reasonCode: 'CREATED_BY_MISTAKE', reportId, closedOverdueIncidents: change.closedOverdueIncidents,
+      },
+    });
+    await tx.appendAudit({
+      organizationId: actor.organizationId, actorUserId: actor.id, subjectId: jobCardId,
+      oldValue: { status: job.status }, newValue: { status: change.status },
+      metadata: { reasonCode: 'CREATED_BY_MISTAKE', clientActionId },
+    });
+    return this.appendRealtimeForActivity(tx, {
+      activity, organizationId: actor.organizationId, jobCardId, actorUserId: actor.id,
+      event: 'JOB_INVALIDATED', jobType: job.type, beforeAssigneeId: job.assignedTo,
+      afterAssigneeId: job.assignedTo, calendarAffected: true, customerId: null,
+    });
+  }
+
+  private async finishWeeklyReportJobRemoval(
+    tx: JobCardTransaction,
+    { actor, jobCardId, job, at }: WeeklyReportRemovalContext,
+    version: number,
+    activity: AppendedActivity,
+  ): Promise<readonly RealtimeEventRecord[]> {
+    await tx.synchronizeCalendarReminder({ organizationId: actor.organizationId, jobCardId,
+      assignedUserId: job.assignedTo, startsAt: job.scheduledAt, endsAt: job.scheduledEndsAt,
+      version, active: false, now: at, reminderLeadMinutes: this.calendar.reminderLeadMinutes });
+    return this.appendRealtimeForActivity(tx, {
+      activity, organizationId: actor.organizationId, jobCardId, actorUserId: actor.id,
+      event: 'WEEKLY_REPORT_REMOVED', jobType: job.type, beforeAssigneeId: job.assignedTo,
+      afterAssigneeId: job.assignedTo, calendarAffected: true, customerId: null,
+    });
   }
 
   async updateWeeklyReportDraft(

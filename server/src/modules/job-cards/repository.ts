@@ -76,6 +76,7 @@ import type { SqlExecutor } from '../../db/executor.js';
 import type { WeeklyReportCreationTransaction } from '../weekly-reports/create.js';
 import type { WeeklyReportDraftTransaction } from '../weekly-reports/draft.js';
 import type { WeeklyReportReadRepository } from '../weekly-reports/read.js';
+import type { WeeklyReportRemovalTransaction } from '../weekly-reports/removal.js';
 import type {
   WeeklyReportSubmissionInsert,
   WeeklyReportSubmissionReader,
@@ -85,15 +86,15 @@ import {
   findWeeklyReportByStaffWeek,
   insertWeeklyReportRow,
   listWeeklyReportSubmissionRows as selectWeeklySubmissions,
+  removeWeeklyReportRow,
   selectWeeklyReportByJob,
   selectWeeklyReportSubmissionBySeq,
   selectWeeklySourceWork,
   updateWeeklyReportDraftRow,
-  WEEKLY_REPORT_COLUMNS,
   WEEKLY_REPORT_SUBMISSION_COLUMNS,
   type WeeklyDraftRowUpdate,
   type WeeklyReportInsert,
-  type WeeklyReportRow,
+  type WeeklyReportRemovalUpdate,
   type WeeklyReportSubmissionRow,
 } from '../weekly-reports/repository.js';
 import type { WeeklySourceWorkRow } from '../weekly-reports/types.js';
@@ -1145,7 +1146,7 @@ export interface SubmissionReader extends WeeklyReportSubmissionReader {
 
 export interface JobCardTransaction
   extends SubmissionReader, WeeklyReportSubmissionWriter, WeeklyReportDraftTransaction,
-    WeeklyReportCreationTransaction {
+    WeeklyReportCreationTransaction, WeeklyReportRemovalTransaction {
   readonly sale: SaleTransaction;
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
@@ -1639,11 +1640,6 @@ export interface JobCardTransaction
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   deleteDeliveryItem(itemId: string): Promise<void>;
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
-  /** Removal metadata update; caller holds User, JobCard and report locks. */
-  removeWeeklyReportRow(input: {
-    organizationId: string; reportId: string; expectedVersion: number;
-    removedAt: Date; removedBy: string; reason: string;
-  }): Promise<WeeklyReportRow | null>;
 }
 
 export interface JobCardRepository extends SubmissionReader, WeeklyReportReadRepository {
@@ -5078,17 +5074,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return selectWeeklyReportByJob(this.client, organizationId, jobCardId, true);
   }
 
-  async removeWeeklyReportRow(input: {
-    organizationId: string; reportId: string; expectedVersion: number;
-    removedAt: Date; removedBy: string; reason: string;
-  }) {
-    const result = await this.client.query<WeeklyReportRow>(
-      `UPDATE weekly_reports SET removed_at=$4, removed_by=$5, removal_reason=$6,
-        version=version+1, updated_at=$4
-       WHERE organization_id=$1 AND id=$2 AND version=$3 AND removed_at IS NULL
-       RETURNING ${WEEKLY_REPORT_COLUMNS}`,
-      [input.organizationId,input.reportId,input.expectedVersion,input.removedAt,input.removedBy,input.reason]);
-    return result.rows[0] ?? null;
+  removeWeeklyReportRow(input: WeeklyReportRemovalUpdate) {
+    return removeWeeklyReportRow(this.client, input);
   }
 
   getWeeklyReportByStaffWeek(organizationId: string, staffUserId: string, periodStart: string) {

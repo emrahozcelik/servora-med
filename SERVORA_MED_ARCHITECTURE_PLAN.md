@@ -137,6 +137,11 @@ and assignee to scope access. Detail reads live work for the stored reporting
 period while editable. History and PDF use immutable submissions, with PDF
 selecting the requested sequence and resolving the submitter's display name.
 
+Weekly Report removal preview, ownership and version checks, and period release
+live in `weekly-reports/removal.ts`. The command uses the same JobCard
+transaction for invalidation, overdue closure, removal metadata, audit and
+realtime events. JobCard owns the lifecycle transition and calendar cleanup.
+
 ## 6. Frontend Contract
 
 | Area | Responsibility |

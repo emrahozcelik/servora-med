@@ -148,7 +148,7 @@ export type WeeklyQueryable = {
   query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
 };
 
-export const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_user_id,
+const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_user_id,
   period_start, period_end, draft_summary, draft_blockers, draft_next_week_plan,
   draft_highlights, draft_field_observations, draft_support_needed,
   manager_questions, manager_answers, version, created_at, updated_at,
@@ -269,6 +269,30 @@ export async function insertWeeklyReportRow(
   );
   // null = an existing canonical report won the staff/week identity. The
   // transaction stays usable, so the caller re-reads the winner row.
+  return result.rows[0] ?? null;
+}
+
+export type WeeklyReportRemovalUpdate = {
+  organizationId: string;
+  reportId: string;
+  expectedVersion: number;
+  removedAt: Date;
+  removedBy: string;
+  reason: string;
+};
+
+/** Write removal metadata on the client holding the user, JobCard and report locks. */
+export async function removeWeeklyReportRow(
+  client: PoolClient,
+  input: WeeklyReportRemovalUpdate,
+): Promise<WeeklyReportRow | null> {
+  const result = await client.query<WeeklyReportRow>(
+    `UPDATE weekly_reports SET removed_at=$4, removed_by=$5, removal_reason=$6,
+      version=version+1, updated_at=$4
+     WHERE organization_id=$1 AND id=$2 AND version=$3 AND removed_at IS NULL
+     RETURNING ${WEEKLY_REPORT_COLUMNS}`,
+    [input.organizationId, input.reportId, input.expectedVersion, input.removedAt, input.removedBy, input.reason],
+  );
   return result.rows[0] ?? null;
 }
 
