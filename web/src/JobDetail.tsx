@@ -2649,6 +2649,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           // The response already proved the commit; only a 403/404 during this
           // drain needs the committed wording and the attempt cleanup.
           committedReceiptPendingRef.current = true;
+          // Only an access loss seen by this drain counts; an older realtime
+          // read that failed while the command was in flight does not.
+          accessLostRef.current = false;
           let settled: boolean;
           try {
             settled = await requestRealtimeDrain();
