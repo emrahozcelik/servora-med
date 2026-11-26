@@ -25,6 +25,9 @@ const staffUser: CurrentUser = {
 const managerUser: CurrentUser = {
   ...staffUser, id: 'm1', name: 'Murat Yönetici', email: 'm@x', role: 'MANAGER',
 };
+const adminUser: CurrentUser = {
+  ...staffUser, id: 'a1', name: 'Aylin Yönetici', email: 'admin@x', role: 'ADMIN',
+};
 
 const baseLifecycle: JobLifecycleFacts = {
   createdAt: '2026-11-12T06:00:00.000Z', acceptedAt: null, acceptedBy: null,
@@ -153,6 +156,13 @@ function generalTask(): JobCard {
 }
 
 const emptyPage = { items: [], total: 0, limit: 25, offset: 0 };
+const customerPayload = {
+  id: 'c1', organizationId: 'org-1', name: 'ABC Klinik', customerType: 'clinic',
+  taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+  assignedStaffUserId: null, status: 'active', version: 1, assignedStaffName: null,
+  primaryContact: null, contacts: [], hasOperationHistory: false,
+  openJobCount: 0, completedJobCount: 0,
+};
 const meetingDetails: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: '2026-11-12T10:00:00.000Z', outcome: 'POSITIVE',
   meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, metContactId: null, metContact: null,
@@ -604,7 +614,7 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(detailGets).toBe(2);
   });
 
-  it('saveMeeting: keeps the committed receipt out of the child error state', async () => {
+  it('saveMeeting: keeps the committed receipt out of the child error state and locks the form', async () => {
     const card = meetingJob();
     let meetingPatches = 0;
     let detailGets = 0;
@@ -612,6 +622,10 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
       const url = withoutSaleCapability(String(input));
       const method = init?.method ?? 'GET';
       if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url === '/api/customers/c1') return Response.json(customerPayload);
+      if (url === '/api/customers/c1/enrichment') {
+        return Response.json({ canEnrich: false, canCreateContact: false });
+      }
       if (url.includes('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/meeting-details') && method === 'PATCH') {
         meetingPatches += 1;
@@ -631,6 +645,8 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     });
     await renderScreen(card, new FakeRealtimeEventSource(), fetch);
 
+    // The contact request is satisfied, so the section has no unrelated alert.
+    expect(host.querySelectorAll('.meeting-details [role="alert"]')).toHaveLength(0);
     const summary = host.querySelector('#meeting-summary') as HTMLTextAreaElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
@@ -645,6 +661,7 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
 
     expect(meetingPatches).toBe(1);
     const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
     expect(notice?.textContent).toContain('Görüşme sonucu kaydedildi.');
     expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
     expect(host.textContent).not.toContain('Görüşme sonucu kaydedilemedi.');
@@ -656,11 +673,32 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
       .filter((region) => region.textContent?.includes('Görüşme sonucu kaydedildi.'))).toHaveLength(1);
     expect(styles).not.toMatch(/\.meeting-details > \.detail-feedback \{[^}]*display: none/);
 
-    // A later local validation error in the section stays visible and focusable.
+    // The stale record locks the section: the save control is disabled and no
+    // validation or contact alert appears while the notice is up.
+    const staleSave = host.querySelector<HTMLButtonElement>('.meeting-result-form button[type="submit"]')!;
+    expect(staleSave).not.toBeNull();
+    expect(staleSave.textContent).toBe('Kaydediliyor…');
+    expect(staleSave.disabled).toBe(true);
+    expect(host.querySelectorAll('.meeting-details [role="alert"]')).toHaveLength(0);
+    expect(host.textContent).not.toContain('İlgili kişiler yüklenemedi');
+
+    await act(async () => {
+      buttonByName(notice!, 'Güncel durumu yenile')?.click();
+      await settle();
+    });
+
+    expect(committedNotice(host)).toBeNull();
+    const enabledSave = buttonByName(host, 'Görüşme sonucunu kaydet') as HTMLButtonElement;
+    expect(enabledSave).not.toBeNull();
+    expect(enabledSave.disabled).toBe(false);
+
+    // A later local validation error in the section stays visible and is the
+    // only section alert: the exact summary bound owns the message.
+    const reloadedSummary = host.querySelector('#meeting-summary') as HTMLTextAreaElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
-        ?.set?.call(summary, 'x'.repeat(4001));
-      summary.dispatchEvent(new Event('input', { bubbles: true }));
+        ?.set?.call(reloadedSummary, 'x'.repeat(4001));
+      reloadedSummary.dispatchEvent(new Event('input', { bubbles: true }));
       await Promise.resolve();
     });
     await act(async () => {
@@ -668,9 +706,14 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
       await settle();
     });
     expect(meetingPatches).toBe(1);
-    const sectionAlert = host.querySelector<HTMLElement>('.meeting-details [role="alert"]');
-    expect(sectionAlert).not.toBeNull();
-    expect(getComputedStyle(sectionAlert!).display).not.toBe('none');
+    const alerts = host.querySelectorAll<HTMLElement>('.meeting-details [role="alert"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.textContent).toBe('Görüşme sonucunu kaydetmeden önce işaretli alanı düzeltin.');
+    expect(host.querySelector('.meeting-details #meeting-summary-error')?.textContent)
+      .toBe('Görüşme özeti en fazla 4.000 karakter olabilir.');
+    expect(host.textContent).not.toContain('İlgili kişiler yüklenemedi');
+    expect(host.querySelector('.meeting-details > .detail-feedback')?.textContent)
+      .toContain('Görüşme sonucunu kaydetmeden önce işaretli alanı düzeltin.');
   });
 
   it('saveJobPatch (page): a 403 on the post-commit read ends in the access-lost state, not a mutation failure', async () => {
@@ -843,6 +886,239 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(host.textContent).not.toContain('Görüşme sonucu kaydedildi.');
     expect(host.textContent).not.toContain('Görüşme sonucu kaydedilemedi.');
     expect(host.querySelector('.meeting-details')).toBeNull();
+  });
+
+  it('a 403 on the post-commit realtime drain ends in the access-lost state', async () => {
+    const card = generalTask();
+    const source = new FakeRealtimeEventSource();
+    const { fetch, patches, detailGets } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) {
+        // The invalidation arrives while the canonical read is in flight, so
+        // the drain owns the next post-commit read.
+        source.emitJobUpdate('1');
+        return Response.json(card);
+      }
+      if (ordinal === 3) {
+        return Response.json({ error: 'Bu işe erişiminiz yok.', code: 'FORBIDDEN' }, { status: 403 });
+      }
+      return Response.json(card);
+    });
+    await renderScreen(card, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(detailGets()).toBe(3);
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.textContent).not.toContain('Görev bilgileri güncellendi.');
+    expect(host.textContent).not.toContain('Güncel kayıt henüz yüklenemedi.');
+    // The stale record is never left on screen and nothing is retried.
+    expect(host.querySelector('[data-job-detail="true"]')).toBeNull();
+    expect(buttonByName(host, 'Tekrar dene')).toBeNull();
+    expect(patches).toHaveLength(1);
+  });
+
+  it('a 404 on the post-commit realtime drain keeps the committed access-lost message', async () => {
+    const card = generalTask();
+    const source = new FakeRealtimeEventSource();
+    const { fetch, patches } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) {
+        source.emitJobUpdate('1');
+        return Response.json(card);
+      }
+      if (ordinal === 3) {
+        return Response.json({ error: 'İş bulunamadı.', code: 'NOT_FOUND' }, { status: 404 });
+      }
+      return Response.json(card);
+    });
+    await renderScreen(card, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.textContent).not.toContain('İş bulunamadı.');
+    expect(host.textContent).not.toContain('Güncel kayıt henüz yüklenemedi.');
+  });
+
+  it('an access-lost read after a committed lifecycle retry clears the retained attempt and dialog', async () => {
+    const card = deliveryJob();
+    const cancelled: JobCard = {
+      ...card,
+      status: 'CANCELLED',
+      version: card.version + 1,
+      workflowContext: staffContext('CANCELLED', {
+        cancelledAt: '2026-11-12T12:00:00.000Z',
+        cancelReason: 'Müşteri vazgeçti',
+        cancelledFromStatus: 'NEW',
+      }, { allowedActions: [] }),
+    };
+    const source = new FakeRealtimeEventSource();
+    let cancelCalls = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.includes('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith(`/api/job-cards/${card.id}/cancel`) && method === 'POST') {
+        cancelCalls += 1;
+        if (cancelCalls === 1) throw new TypeError('network');
+        return Response.json(cancelled);
+      }
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        if (detailGets === 2) {
+          return Response.json({ error: 'Bu işe erişiminiz yok.', code: 'FORBIDDEN' }, { status: 403 });
+        }
+        return Response.json(detailGets === 1 ? card : cancelled);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reason = Array.from(dialog.querySelectorAll<HTMLTextAreaElement>('textarea')).at(-1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Müşteri vazgeçti');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'İşi iptal et')?.click();
+      await settle();
+    });
+    const retryDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => {
+      buttonByName(retryDialog, 'Özgün isteği tekrar dene')?.click();
+      await settle();
+    });
+
+    // The exact retained attempt was replayed once; the lost read closes it.
+    expect(cancelCalls).toBe(2);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(buttonByName(host, 'Özgün isteği tekrar dene')).toBeNull();
+    expect(host.querySelector('[data-original-retry]')).toBeNull();
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+
+    // A later successful realtime read cannot resurrect the dialog or the
+    // retained "retry the original request" control.
+    await act(async () => {
+      source.emitJobUpdate('2');
+      await settle();
+    });
+    expect(cancelCalls).toBe(2);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(buttonByName(host, 'Özgün isteği tekrar dene')).toBeNull();
+    expect(host.querySelector('[data-original-retry]')).toBeNull();
+    expect(host.textContent).not.toContain('İşlem tamamlanamadı');
+  });
+
+  it('the committed-stale notice locks invalidation and early-start actions', async () => {
+    const card: JobCard = {
+      ...deliveryJob(),
+      scheduledAt: '2999-01-01T09:00:00.000Z',
+      scheduledEndsAt: '2999-01-01T09:30:00.000Z',
+    };
+    const newest: JobCard = { ...card, version: card.version + 1 };
+    const { fetch, patches } = detailFetch(card, (ordinal) => {
+      if (ordinal === 1) return Response.json(card);
+      if (ordinal === 2) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+      return Response.json(newest);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch, adminUser);
+
+    // Open both surfaces before the save so their disabled state is visible.
+    await act(async () => {
+      buttonByName(host, 'Geçersiz olarak işaretle')?.click();
+      await Promise.resolve();
+    });
+    const reasonSelect = host.querySelector<HTMLSelectElement>('#job-invalidation-reason')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')
+        ?.set?.call(reasonSelect, 'DUPLICATE');
+      reasonSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'Erken başlamaya izin ver')?.click();
+      await Promise.resolve();
+    });
+    expect((buttonByName(host, 'Devam et') as HTMLButtonElement).disabled).toBe(false);
+    expect((buttonByName(host, 'Erken başlama iznini kaydet') as HTMLButtonElement).disabled).toBe(false);
+
+    // The confirmation's submit is the invalidation dialog's final action.
+    await act(async () => {
+      buttonByName(host, 'Devam et')?.click();
+      await Promise.resolve();
+    });
+    const confirmation = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(confirmation).not.toBeNull();
+    expect((buttonByName(confirmation, 'Geçersiz olarak işaretle') as HTMLButtonElement).disabled).toBe(false);
+
+    await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'Planlanan zamanı kaydet')?.click();
+      await settle();
+    });
+
+    const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain('Planlanan zaman güncellendi.');
+    expect(patches).toHaveLength(1);
+    const invalidationTrigger = buttonByName(host, 'Formu kapat') as HTMLButtonElement;
+    expect(invalidationTrigger).not.toBeNull();
+    expect(invalidationTrigger.disabled).toBe(true);
+    expect((buttonByName(host, 'Devam et') as HTMLButtonElement).disabled).toBe(true);
+    const staleConfirm = buttonByName(
+      host.querySelector<HTMLElement>('[role="dialog"]')!, 'Geçersiz olarak işaretle',
+    ) as HTMLButtonElement;
+    expect(staleConfirm).not.toBeNull();
+    expect(staleConfirm.disabled).toBe(true);
+    const reveal = buttonByName(host, 'Erken başlamaya izin ver') as HTMLButtonElement;
+    expect(reveal).not.toBeNull();
+    expect(reveal.disabled).toBe(true);
+    expect((buttonByName(host, 'Erken başlama iznini kaydet') as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      buttonByName(notice!, 'Güncel durumu yenile')?.click();
+      await settle();
+    });
+
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('Planlanan zaman güncellendi.');
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect((buttonByName(host, 'Geçersiz olarak işaretle') as HTMLButtonElement).disabled).toBe(false);
+    const unlockedReveal = buttonByName(host, 'Erken başlamaya izin ver') as HTMLButtonElement;
+    expect(unlockedReveal).not.toBeNull();
+    expect(unlockedReveal.disabled).toBe(false);
+    expect(patches).toHaveLength(1);
   });
 
   it('mutation 400 and 403 still fail inline without a committed notice', async () => {
@@ -1028,6 +1304,47 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(committedNotice(host)).toBeNull();
     expect(patches).toHaveLength(1);
     expect(detailGets).toBe(4);
+  });
+
+  it('a late realtime invalidation resolves the committed notice into the normal success message', async () => {
+    const card = generalTask();
+    const newest: JobCard = { ...card, version: 6, title: 'Yenilenen güncel görev' };
+    const source = new FakeRealtimeEventSource();
+    const { fetch, patches, detailGets } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) {
+        source.emitJobUpdate('1');
+        return Response.json(card);
+      }
+      if (ordinal === 3) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+      return Response.json(newest);
+    });
+    await renderScreen(card, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    // The drain failed and, right after it, another invalidation arrived.
+    expect(committedNotice(host)).not.toBeNull();
+    await act(async () => {
+      source.emitJobUpdate('2');
+      await settle();
+    });
+
+    // The next serialized re-read reconciles both invalidations: the temporary
+    // notice becomes the ordinary confirmation, once, with no stale heading.
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('Yenilenen güncel görev');
+    expect(host.textContent).not.toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(Array.from(host.querySelectorAll('[role="status"]'))
+      .filter((region) => region.textContent?.includes('Görev bilgileri güncellendi.'))).toHaveLength(1);
+    expect(patches).toHaveLength(1);
+    expect(detailGets()).toBe(4);
   });
 
   it('a committed-stale record cannot start new critical actions until the reload clears it', async () => {
@@ -1328,14 +1645,31 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
       await settle();
     });
 
-    // The ambiguous attempt is never retried automatically.
+    // The ambiguous attempt is never retried automatically, and the unknown
+    // outcome locks the batch surface until a successful reload.
     expect(itemPatches).toBe(2);
     expect(detailGets).toBe(2);
-    expect(committedNotice(host)).toBeNull();
-    expect(host.textContent).toContain(
-      '1/2 kalem kaydedildi; sonraki kalemin sonucu doğrulanamadı. Güncel durumu yenileyip kontrol edin.',
+    const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain(
+      '1/2 kalem kaydedildi; sonraki kalemin sonucu doğrulanamadı. Güncel kayıt henüz yüklenemedi.',
     );
     expect(host.textContent).not.toContain('Gerçekleşen teslim zamanı kaydedilemedi.');
+    const batchButton = host.querySelector<HTMLButtonElement>('.delivery-bulk-action');
+    expect(batchButton).not.toBeNull();
+    expect(batchButton!.disabled).toBe(true);
+
+    await act(async () => {
+      buttonByName(notice!, 'Güncel durumu yenile')?.click();
+      await settle();
+    });
+
+    // An unknown outcome is not a success receipt: the reload clears it and
+    // the canonical record is the only truth.
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).not.toContain('için gerçekleşen teslim zamanı kaydedildi.');
+    expect(itemPatches).toBe(2);
+    expect((host.querySelector('.delivery-bulk-action') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('styles the notice with warning tokens, rem type and a 44px-class action', () => {

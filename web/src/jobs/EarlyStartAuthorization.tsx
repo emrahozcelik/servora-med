@@ -51,10 +51,12 @@ export function canGrantEarlyStartAuthorization(
  * is allowed from the planned time on, so that write would authorize nothing;
  * the action reports the expiry instead of posting.
  */
-export function EarlyStartAuthorizationSection({ job, user, onGranted, now = new Date() }: {
+export function EarlyStartAuthorizationSection({ job, user, onGranted, disabled = false, now = new Date() }: {
   job: JobCard;
   user: CurrentUser;
   onGranted: () => void;
+  /** UI-FEEDBACK/A: a committed-stale record must not start this grant. */
+  disabled?: boolean;
   /** Fixed clock for deterministic tests; production uses the current time. */
   now?: Date;
 }) {
@@ -82,6 +84,7 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, now = new
   if (authorization === null && !canGrant && !expired) return null;
 
   const grant = async () => {
+    if (disabled) return;
     // Save-time clock check (see the component note). Uses the real clock, not
     // the render-time `now` prop, so a form opened just before the planned
     // start cannot post after it passed.
@@ -135,6 +138,7 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, now = new
                 aria-expanded={revealed}
                 aria-controls="early-start-authorization-detail"
                 data-early-start-authorization-reveal="true"
+                disabled={disabled}
                 onClick={() => setRevealed((value) => !value)}
               >
                 Erken başlamaya izin ver
@@ -152,7 +156,7 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, now = new
               <button
                 className="secondary-button"
                 type="button"
-                disabled={granting || done}
+                disabled={disabled || granting || done}
                 data-early-start-authorization-action="true"
                 onClick={() => void grant()}
               >
