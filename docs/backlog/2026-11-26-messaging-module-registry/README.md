@@ -97,7 +97,29 @@ değişiklik yok (`git status` yalnızca bu klasörü gösterir).
 | K3 | Kapalıyken idempotent tekrar | Kapı önce, tekrar 404 alır; açılınca normal replay | Aynı, "kabul" | 02 F4 bunu AGENTS.md §7 riski olarak işaretliyor. Karar 5'te açıkça soruluyor. |
 | K4 | Kapı yeri | Her zaman kayıtlı route + istek başına okuma | Route `preHandler` (11 route, servis bayrağı silinir) | İkisi uyumlu. Lead önerisi: tek bir `preHandler` kapısı; Overview'un servis içi kapısı ise Overview'da kalır. |
 
-## Ürün sahibinin kararları
+## Ürün sahibi incelemesi (2026-11-26)
+
+Sonuç: `RESEARCH_ACCEPTABLE — CONTRACT_REVISION_REQUIRED`. Revize sözleşme taslağı:
+[docs/features/messaging-module-registry.md](../../features/messaging-module-registry.md).
+
+| Karar | Araştırma önerisi | Ürün sahibi |
+| ----- | ----------------- | ----------- |
+| 1 Kapatma | Tamamen gizli | Kabul |
+| 2 Eski bildirimler | Görünür kalsın | **Değişti:** kapalıyken listeden ve sayaçtan gizlenir, veri korunur |
+| 3 Yeniden atama | M9 korunur | **Değişti:** sonradan senkron yapılabilir (otomatik senkron yok) |
+| 4 Push kuyruğu | Dokunulmaz | **Değişti:** bekleyen mesaj push'ları sonlandırılır, yeniden açılınca gönderilmez |
+| 5 Idempotent tekrar | 404 | Kabul |
+| 6 Migration 075 | Bu dilim alır | **Değişti:** ortak registry genişletmesi tek seferde; anahtarlar kodda sabit ve doğrulanabilir |
+| 7 Env tavanı | Yok | Kabul |
+| 8 Onay metni | "Veriler silinmez." | Kabul; etkiler de listelenir |
+| 9 Sözleşme yeri | feature doc + MOD-003 | Kabul |
+| SSE replay | Değişmez (varsayılan) | **Değişti:** canlı akış ve replay modül durumuna uyar |
+
+Ek iş (ürün sahibi): offboarding'de okundu işaretçisi, pasif katılımcıya bildirim yok,
+senkron yetkisi tutarsızlığı, iptal/geçersiz iş testleri. Teslim sırası R0 → MSG-001 →
+MSG-002 → MSG-003 (sözleşme §1).
+
+## İlk karar listesi (tarihsel, yukarıdaki inceleme geçerlidir)
 
 Önerilen seçenek her maddede ilk sıradadır.
 
