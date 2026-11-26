@@ -79,7 +79,11 @@ async function createNotification(
   return appended[0]!.id;
 }
 
-async function createPendingDelivery(pool: Pool, organizationId: string, userId: string, notificationId: string) {
+async function createSubscription(
+  pool: Pool,
+  organizationId: string,
+  userId: string,
+): Promise<void> {
   const sessionId = (await pool.query<{ id: string }>(
     `INSERT INTO sessions (user_id, token_hash, expires_at)
      VALUES ($1, $2, NOW() + INTERVAL '1 day') RETURNING id`,
@@ -92,12 +96,91 @@ async function createPendingDelivery(pool: Pool, organizationId: string, userId:
      VALUES ($1, $2, $3, $4, $5, 'p256dh', 'auth', $6)`,
     [organizationId, userId, sessionId, `https://push.example/${hexToken().slice(0, 16)}`, hexToken(), 'a'.repeat(64)],
   );
+}
+
+async function createPendingDelivery(pool: Pool, organizationId: string, userId: string, notificationId: string) {
+  await createSubscription(pool, organizationId, userId);
   const tx = new PostgresWebPushTransaction(pool as never);
   await tx.appendDeliveries({
     organizationId,
     notificationIds: [notificationId],
     at: new Date('2026-07-22T10:00:00.000Z'),
   });
+}
+
+type DeliveryPair = { pendingId: string; deliveredId: string };
+
+/**
+ * Delivers one notification to two subscriptions so a read or dismiss must
+ * abandon exactly one PENDING row and leave the already DELIVERED row alone.
+ */
+async function seedPushPair(
+  pool: Pool,
+  organizationId: string,
+  userId: string,
+  notificationId: string,
+): Promise<DeliveryPair> {
+  await createSubscription(pool, organizationId, userId);
+  await createSubscription(pool, organizationId, userId);
+  const tx = new PostgresWebPushTransaction(pool as never);
+  const deliveryIds = await tx.appendDeliveries({
+    organizationId,
+    notificationIds: [notificationId],
+    at: new Date('2026-07-22T10:00:00.000Z'),
+  });
+  expect(deliveryIds).toHaveLength(2);
+  const deliveredId = deliveryIds[1]!;
+  await pool.query(
+    `UPDATE web_push_deliveries
+        SET state = 'DELIVERED', delivered_at = NOW(), updated_at = NOW()
+      WHERE id = $1`,
+    [deliveredId],
+  );
+  return { pendingId: deliveryIds[0]!, deliveredId };
+}
+
+async function notificationEntityId(pool: Pool, notificationId: string): Promise<string> {
+  return (await pool.query<{ entity_id: string }>(
+    'SELECT entity_id FROM in_app_notifications WHERE id = $1',
+    [notificationId],
+  )).rows[0]!.entity_id;
+}
+
+async function expectAbandonedPushes(
+  pool: Pool,
+  pair: DeliveryPair,
+  reason: 'READ' | 'DISMISSED',
+) {
+  const rows = await pool.query<{
+    id: string;
+    state: string;
+    lease_token: string | null;
+    lease_until: Date | null;
+    last_error_code: string | null;
+    delivered_at: Date | null;
+    abandoned_at: Date | null;
+  }>(
+    `SELECT id, state, lease_token, lease_until, last_error_code, delivered_at, abandoned_at
+       FROM web_push_deliveries
+      WHERE id = ANY($1::uuid[])`,
+    [[pair.pendingId, pair.deliveredId]],
+  );
+  expect(rows.rows).toHaveLength(2);
+
+  const abandoned = rows.rows.find((row) => row.id === pair.pendingId)!;
+  expect(abandoned.state).toBe('ABANDONED');
+  expect(abandoned.lease_token).toBeNull();
+  expect(abandoned.lease_until).toBeNull();
+  expect(abandoned.last_error_code).toBe(reason);
+  expect(abandoned.abandoned_at).toBeInstanceOf(Date);
+
+  // There is no SENT state in the delivery lifecycle; DELIVERED is the
+  // terminal "already left the queue" state that must stay untouched.
+  const delivered = rows.rows.find((row) => row.id === pair.deliveredId)!;
+  expect(delivered.state).toBe('DELIVERED');
+  expect(delivered.last_error_code).toBeNull();
+  expect(delivered.delivered_at).toBeInstanceOf(Date);
+  expect(delivered.abandoned_at).toBeNull();
 }
 
 async function deliveryState(pool: Pool, notificationId: string) {
@@ -242,6 +325,63 @@ describe.skipIf(!databaseUrl)('N2 dismiss / clear PostgreSQL behavior', () => {
       expect(rows.rows.find((row) => row.id === unreadId)!.dismissed_at).toBeNull();
       expect(rows.rows.find((row) => row.id === readId)!.dismissed_at).toBeInstanceOf(Date);
       await expect(repository.unreadCount({ organizationId, userId: viewerId })).resolves.toBe(1);
+    });
+  });
+
+  it('markRead abandons the PENDING delivery with READ and keeps a DELIVERED delivery', async () => {
+    await withFixture(async ({ pool, organizationId, viewerId }) => {
+      const repository = new PostgresNotificationRepository(pool);
+      const id = await createNotification(pool, organizationId, viewerId);
+      const pair = await seedPushPair(pool, organizationId, viewerId, id);
+
+      await expect(repository.markRead(
+        { organizationId, userId: viewerId }, id,
+      )).resolves.toMatchObject({ id });
+
+      await expectAbandonedPushes(pool, pair, 'READ');
+    });
+  });
+
+  it('markReadByEntity abandons the PENDING delivery with READ and keeps a DELIVERED delivery', async () => {
+    await withFixture(async ({ pool, organizationId, viewerId }) => {
+      const repository = new PostgresNotificationRepository(pool);
+      const id = await createNotification(pool, organizationId, viewerId);
+      const pair = await seedPushPair(pool, organizationId, viewerId, id);
+      const entityId = await notificationEntityId(pool, id);
+
+      await expect(repository.markReadByEntity(
+        { organizationId, userId: viewerId }, 'job-card', entityId,
+      )).resolves.toBe(1);
+
+      await expectAbandonedPushes(pool, pair, 'READ');
+    });
+  });
+
+  it('dismiss abandons the PENDING delivery with DISMISSED and keeps a DELIVERED delivery', async () => {
+    await withFixture(async ({ pool, organizationId, viewerId }) => {
+      const repository = new PostgresNotificationRepository(pool);
+      const id = await createNotification(pool, organizationId, viewerId);
+      const pair = await seedPushPair(pool, organizationId, viewerId, id);
+
+      await expect(repository.dismiss(
+        { organizationId, userId: viewerId }, id,
+      )).resolves.toBe(true);
+
+      await expectAbandonedPushes(pool, pair, 'DISMISSED');
+    });
+  });
+
+  it('clearAll abandons the PENDING delivery with DISMISSED and keeps a DELIVERED delivery', async () => {
+    await withFixture(async ({ pool, organizationId, viewerId }) => {
+      const repository = new PostgresNotificationRepository(pool);
+      const id = await createNotification(pool, organizationId, viewerId);
+      const pair = await seedPushPair(pool, organizationId, viewerId, id);
+
+      await expect(repository.clearAll(
+        { organizationId, userId: viewerId },
+      )).resolves.toBe(1);
+
+      await expectAbandonedPushes(pool, pair, 'DISMISSED');
     });
   });
 });
