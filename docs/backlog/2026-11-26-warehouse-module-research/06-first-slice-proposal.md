@@ -1,5 +1,8 @@
 # 06 — First Warehouse/Stock slice: W0 (module plumbing) + W1 (data ownership end-to-end)
 
+> **Historical research — superseded for implementation by the owner-approved [README §§A–E](README.md).** R0/MOD-003 has merged (#520); do not repeat migration 075. The old W1 excludes receipts, assumes the assignee vehicle, reuses stale balances after enable, derives non-posting reasons and automatically reverses invalidated deliveries. Those proposals and dependent acceptance tests are superseded. Apply the revised readiness, physical-source, receipt, reconciliation and correction contracts instead. Retain this document as evidence, not as an executable implementation plan.
+
+
 - **Date:** 2026-11-26
 - **Status:** **PROPOSAL.** Not a decision. Nothing here is implemented and nothing here authorizes
   implementation. `AGENTS.md` §13 still forbids a full Warehouse module without explicit owner
