@@ -1,5 +1,7 @@
 # 06 — Cross-module and web impact of a `MAINTENANCE` JobCard type
 
+> **Owner review update (2026-11-26):** Historical baseline 89bf6b1. #513 is merged and the claimed weekly-report guard loss was refuted in README §3; verify the final merged shape. [07](07-owner-approved-product-direction.md) defines explicit productive-work reporting, server/web parity and scheduling behavior.
+
 Research only. Nothing here is implemented, approved, or authorized.
 Baseline: `origin/main` @ `89bf6b1`. All `path:line` references are against that
 commit unless another ref is named.
