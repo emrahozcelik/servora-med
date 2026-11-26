@@ -106,7 +106,7 @@ const OVERVIEW_DESCRIPTOR = {
   key: 'OVERVIEW',
   label: 'Genel Bakış',
   description:
-    'Dönem özeti, onay kuyruğu, yaklaşan ve tamamlanmış işleri tek ekranda gösteren başlangıç sayfası.',
+    'Dönem özeti, onay kuyruğu, yaklaşan ve tamamlanan işleri tek ekranda gösteren başlangıç sayfası.',
   capability: 'overviewDashboard',
   legacyEnvKey: 'OVERVIEW_DASHBOARD_ENABLED',
   whenDisabled: [
@@ -900,8 +900,7 @@ describe.skipIf(!databaseUrl)('R0-8 /api/auth/me reads module capabilities from 
         capabilities: {
           ...baseConfig.capabilities,
           calendar: true,
-          backup: true,
-          messaging: false,
+          messaging: true,
         },
       },
     });
@@ -912,7 +911,7 @@ describe.skipIf(!databaseUrl)('R0-8 /api/auth/me reads module capabilities from 
     const off = await call(app, 'GET', '/api/auth/me', undefined, { cookie: customerCookie });
     expect(off.statusCode).toBe(200);
     expect(off.json().user.capabilities).toMatchObject({
-      overviewDashboard: false, calendar: true, backup: true, messaging: false,
+      overviewDashboard: false, calendar: true, messaging: true,
     });
 
     const on = await put(app, operator.cookie, { enabled: true, expectedVersion: 1 });
@@ -921,7 +920,7 @@ describe.skipIf(!databaseUrl)('R0-8 /api/auth/me reads module capabilities from 
     const onMe = await call(app, 'GET', '/api/auth/me', undefined, { cookie: customerCookie });
     expect(onMe.statusCode).toBe(200);
     expect(onMe.json().user.capabilities).toMatchObject({
-      overviewDashboard: true, calendar: true, backup: true, messaging: false,
+      overviewDashboard: true, calendar: true, messaging: true,
     });
 
     const login = await call(app, 'POST', '/api/auth/login', {
@@ -929,7 +928,7 @@ describe.skipIf(!databaseUrl)('R0-8 /api/auth/me reads module capabilities from 
     });
     expect(login.statusCode).toBe(200);
     expect(login.json().user.capabilities).toMatchObject({
-      overviewDashboard: true, calendar: true, backup: true, messaging: false,
+      overviewDashboard: true, calendar: true, messaging: true,
     });
 
     const offAgain = await put(app, operator.cookie, { enabled: false, expectedVersion: 2 });
@@ -938,7 +937,7 @@ describe.skipIf(!databaseUrl)('R0-8 /api/auth/me reads module capabilities from 
     const offMe = await call(app, 'GET', '/api/auth/me', undefined, { cookie: customerCookie });
     expect(offMe.statusCode).toBe(200);
     expect(offMe.json().user.capabilities).toMatchObject({
-      overviewDashboard: false, calendar: true, backup: true, messaging: false,
+      overviewDashboard: false, calendar: true, messaging: true,
     });
   });
 });
