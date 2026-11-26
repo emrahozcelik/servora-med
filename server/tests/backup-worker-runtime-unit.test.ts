@@ -49,10 +49,18 @@ function serviceSpy(calls: string[]): BackupServiceTransitionPrimitives {
   return {
     startRun: async (_id, token) => { calls.push(`start:${token}`); return current; },
     advancePhase: async (_id, _phase, _files, token) => { calls.push(`advance:${token}`); return current; },
-    markFailed: async (_id, code, _summary, token) => { calls.push(`failed:${code}:${token}`); return current; },
+    markFailed: async (_id, code, _summary, token, audit) => {
+      calls.push(`failed:${code}:${token}`);
+      if (audit) calls.push(`audit-intent:${audit.eventType}`);
+      return current;
+    },
     markCancelled: async (_id, token) => { calls.push(`cancel:${token}`); return current; },
     recordVerification: async (_id, _input, token) => { calls.push(`verify:${token}`); return current; },
-    completeRun: async (_id, _options, token) => { calls.push(`complete:${token}`); return current; },
+    completeRun: async (_id, options, token) => {
+      calls.push(`complete:${token}`);
+      if (options?.systemAudit) calls.push(`audit-intent:${options.systemAudit.eventType}`);
+      return current;
+    },
     markCleanupWarning: async (_id, _summary, token) => { calls.push(`warning:${token}`); return current; },
   };
 }
@@ -122,6 +130,9 @@ describe('BR5 backup worker runtime', () => {
     ]);
     expect(executionCalls).toEqual([firstClaim.leaseToken]);
     expect(calls).toContain(`advance:${firstClaim.leaseToken}`);
+    // BACKUP_STARTED belongs to the atomic claim statement, never to a
+    // separate worker-side audit append.
+    expect(calls).not.toContain('audit:BACKUP_STARTED');
   });
 
   it('retries a transient same-phase failure with bounded injected sleep', async () => {
@@ -174,6 +185,36 @@ describe('BR5 backup worker runtime', () => {
     await worker.runOnce();
     expect(attempts).toBe(3);
     expect(calls).toContain(`failed:R2_VERIFY_FAILED:${firstClaim.leaseToken}`);
+    // The failure transition carries its SYSTEM audit descriptor; the worker
+    // no longer appends BACKUP_FAILED separately.
+    expect(calls).toContain('audit-intent:BACKUP_FAILED');
+    expect(calls).not.toContain('audit:BACKUP_FAILED');
+  });
+
+  it('trusts an engine-persisted terminal failure without a second audit write', async () => {
+    const firstClaim = claim();
+    const { repository, calls } = repositorySpy({
+      claimNextRun: async () => firstClaim,
+    });
+    const worker = new BackupWorker({
+      repository,
+      service: serviceSpy(calls),
+      executeRun: async () => ({
+        kind: 'terminal-failure',
+        failureCode: 'ENCRYPTION_FAILED',
+        failureSummary: 'persisted by the engine',
+        persisted: true,
+      }),
+      enabled: true,
+      now: fixedNow,
+      randomId: () => firstClaim.leaseToken,
+    });
+
+    await expect(worker.runOnce()).resolves.toEqual({ kind: 'claimed', runId: RUN_ID });
+    // The engine committed FAILED with BACKUP_FAILED atomically; the worker
+    // must neither repeat the transition nor append a second audit row.
+    expect(calls.some((call) => call.startsWith('failed:'))).toBe(false);
+    expect(calls).not.toContain('audit:BACKUP_FAILED');
   });
 
   it.each([
