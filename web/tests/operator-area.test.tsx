@@ -15,8 +15,15 @@ const operator = {
   id: 'op-1', name: 'Kurulum Operatörü', email: 'operator@example.com', capabilities: ['MODULE_MANAGEMENT'],
 };
 const overviewModule = {
-  key: 'OVERVIEW', label: 'Genel Bakış', enabled: true, version: 3,
-  source: 'OPERATOR', updatedAt: '2026-11-26T09:30:00.000Z',
+  key: 'OVERVIEW',
+  label: 'Genel Bakış',
+  description: 'Dönem özeti, onay kuyruğu, yaklaşan ve tamamlanan işleri tek ekranda gösteren başlangıç sayfası.',
+  enabled: true,
+  version: 3,
+  source: 'OPERATOR',
+  updatedAt: '2026-11-26T09:30:00.000Z',
+  whenDisabled: ['Genel Bakış menüsü ve sayfası', "Genel Bakış'ın açılış sayfası olarak kullanılması"],
+  preserved: ['İşler, onaylar ve raporlar', 'Geçmiş kayıtlar ve audit kayıtları'],
 };
 const customer: CurrentUser = {
   id: 'user-1', organizationId: 'org-1', name: 'Ayşe Personel', email: 'staff@example.com',
@@ -158,11 +165,12 @@ describe('operator area', () => {
       .toEqual({ email: 'operator@example.com', password: 'wrong' });
   });
 
-  it('signs in and renders the Overview row with state and last change', async () => {
+  it('signs in and renders the Overview row with description, state and last change', async () => {
     await signInAndLoad();
 
     expect(container.querySelector('h1')?.textContent).toBe('Modüller');
     expect(text()).toContain('Genel Bakış');
+    expect(text()).toContain(overviewModule.description);
     expect(text()).toContain('Kurulum Operatörü');
     expect(text()).toContain('Son değişiklik:');
     expect(text()).toContain('operatör tarafından değiştirildi');
@@ -172,19 +180,84 @@ describe('operator area', () => {
     expect(calls.some((call) => call.url.startsWith('/api/auth'))).toBe(false);
   });
 
-  it('requires a confirmation before switching, and cancelling writes nothing', async () => {
+  it('formats FRESH_INSTALL and ENV_TAKEOVER last-change sources', async () => {
+    handler = modulesHandler({
+      'GET /api/operator/modules': () => jsonResponse(200, {
+        modules: [
+          { ...overviewModule, enabled: false, source: 'FRESH_INSTALL' },
+          {
+            ...overviewModule,
+            key: 'SECOND_MODULE',
+            label: 'İkinci Modül',
+            enabled: true,
+            source: 'ENV_TAKEOVER',
+          },
+        ],
+      }),
+    });
+    await renderAt('/operator/modules');
+    await vi.waitFor(() => expect(operatorSwitch()).toBeTruthy());
+
+    expect(text()).toContain('kurulumda kapalı olarak başlatıldı');
+    expect(text()).toContain('kurulum ayarından devralındı');
+  });
+
+  it('requires a confirmation with semantic lists before disabling, and cancelling writes nothing', async () => {
     await signInAndLoad();
     const writesBefore = calls.filter((call) => call.method === 'PUT').length;
 
     await click(operatorSwitch());
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain('Genel Bakış modülü kapatılsın mı?');
+    expect(dialog?.textContent).toContain('Kapanacaklar:');
+    expect(dialog?.textContent).toContain('Korunanlar:');
+    expect(dialog?.textContent).toContain('Veriler silinmez.');
+    expect(dialog?.textContent).not.toContain('sayfasına');
+    expect(dialog?.textContent).not.toContain('sayfa kısa');
+    const lists = Array.from(dialog?.querySelectorAll('[role="list"]') ?? []);
+    expect(lists).toHaveLength(2);
+    expect(Array.from(lists[0]!.querySelectorAll('[role="listitem"]')).map((item) => item.textContent))
+      .toEqual(overviewModule.whenDisabled);
+    expect(Array.from(lists[1]!.querySelectorAll('[role="listitem"]')).map((item) => item.textContent))
+      .toEqual(overviewModule.preserved);
     expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(writesBefore);
 
     await click(button('Vazgeç'));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(writesBefore);
     expect(operatorSwitch().getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('shows enable confirmation copy with Açılacaklar and Korunanlar lists and applies the change', async () => {
+    handler = modulesHandler({
+      'GET /api/operator/modules': () => jsonResponse(200, {
+        modules: [{ ...overviewModule, enabled: false, source: 'FRESH_INSTALL' }],
+      }),
+      'PUT /api/operator/modules/OVERVIEW': () => jsonResponse(200, {
+        module: { ...overviewModule, enabled: true, version: 4, updatedAt: '2026-11-26T10:00:00.000Z' },
+      }),
+    });
+    await renderAt('/operator/modules');
+    await vi.waitFor(() => expect(operatorSwitch()).toBeTruthy());
+
+    await click(operatorSwitch());
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Genel Bakış modülü açılsın mı?');
+    expect(dialog?.textContent).toContain('Açılacaklar:');
+    expect(dialog?.textContent).toContain('Korunanlar:');
+    expect(dialog?.textContent).toContain('Veriler silinmez.');
+    expect(dialog?.textContent).not.toContain('sayfası,');
+    const lists = Array.from(dialog?.querySelectorAll('[role="list"]') ?? []);
+    expect(lists).toHaveLength(2);
+    expect(Array.from(lists[0]!.querySelectorAll('[role="listitem"]')).map((item) => item.textContent))
+      .toEqual(overviewModule.whenDisabled);
+    expect(Array.from(lists[1]!.querySelectorAll('[role="listitem"]')).map((item) => item.textContent))
+      .toEqual(overviewModule.preserved);
+
+    await click(button('Modülü aç'));
+    await vi.waitFor(() => expect(operatorSwitch().getAttribute('aria-checked')).toBe('true'));
+    expect(calls.find((call) => call.method === 'PUT')?.body).toEqual({ enabled: true, expectedVersion: 3 });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('Genel Bakış modülü açıldı.');
   });
 
   it('applies a confirmed change with expectedVersion and announces the result', async () => {

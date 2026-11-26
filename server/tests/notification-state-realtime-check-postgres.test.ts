@@ -119,9 +119,9 @@ describe.skipIf(!databaseUrl)('046 notification state CHECK matrix (live Postgre
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(applied.rows[0]!.version).toBe('074_installation_operator_and_module_state');
+      expect(applied.rows[0]!.version).toBe('075_installation_module_registry_widening');
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('074_installation_operator_and_module_state');
+      expect(catalog.head?.version).toBe('075_installation_module_registry_widening');
     });
   });
 
