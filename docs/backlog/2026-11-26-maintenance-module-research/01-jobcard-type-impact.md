@@ -1,5 +1,7 @@
 # 01 — JobCard type impact inventory for a new `MAINTENANCE` type
 
+> **Owner review update (2026-11-26):** Historical baseline 89bf6b1. #513 is now merged (6b909356); the claimed weekly-report merge conflict was refuted in README §3. Rebaseline remaining dispatch points before implementation; [07](07-owner-approved-product-direction.md) controls duration, acceptance, occupancy, and rollout.
+
 Baseline: `origin/main` @ `89bf6b1` (worktree `maintenance-module-research-b97e8e`).
 Scope: `server/src/modules/job-cards/**` + the migrations that constrain its
 vocabulary. Read-only research; nothing implemented.
