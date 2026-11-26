@@ -1,5 +1,7 @@
 # Maintenance / Bakım module — scope options
 
+> **Owner review update (2026-11-26):** Historical scope options, superseded by [07](07-owner-approved-product-direction.md): V1 starts with equipment registry, then service case and work orders; technical report, PDF and structured evidence are V1. Use MOD-003 (#520), not a new legacy env flag; unit-level delivery provenance must not assume one line equals one device.
+
 Status: **research note, not a decision.** Nothing here authorizes implementation.
 Base: `origin/main` @ `89bf6b1` (worktree clean). All `path:line` references are
 against that commit unless another ref is named.
