@@ -167,9 +167,11 @@ The allowed module keys stay fixed in code and verifiable.
 
 ## 9. MSG-002 — participant lifecycle
 
-- **Later assignee sync.** The canonical JOB conversation lookup reports
-  `assigneeSync: { transitionId } | null`. It is non-null when the latest `JOB_ASSIGNED`
-  activity names a STAFF assignee who is not a participant, and the job is not terminal.
+- **Later assignee sync.** `GET /api/messaging/conversations/job/:jobId` reports
+  `assigneeSync: { transitionId, previousAssignee: { id, name } | null, newAssignee: { id,
+  name } } | null`. It is non-null only for an ADMIN/MANAGER actor, on a non-terminal job,
+  when the latest assignment activity is `JOB_ASSIGNED`, its new assignee is the current
+  `assigned_to`, is STAFF and is not a participant. Always `null` for STAFF.
   JobDetail then shows a persistent sync action, not only the one-time offer after PATCH.
   It reuses the M9 endpoint with that transition id, keeping M9's security properties:
   immutable transition id, STAFF-only candidate, terminal rejection, unread 0 on join,
@@ -239,8 +241,8 @@ takeover.
 
 R0 (PR #520) already updated MOD-003, the pilot status line and the 075 schema notes.
 MSG-001: `DECISIONS.md` MOD-004; this contract; `server/.env.example` legacy note;
-`docs/README.md` row for Messaging. MSG-002 adds the `assigneeSync` field to
-`SERVORA_MED_API_DRAFT.md`.
+`docs/README.md` row for Messaging. MSG-002's `assigneeSync` field is
+owned by §9 of this contract (the API draft has no messaging section).
 
 ## 12. Resolved owner questions
 
