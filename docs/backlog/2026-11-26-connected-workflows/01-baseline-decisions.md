@@ -41,3 +41,17 @@ Owner approved overall product direction in this chat; the following specific de
 | D12 | Current permission/assignee constraints and REPORT-002 preserved, no automatic cascade; corrections append evidence; no production activation without separate gate. | all |
 
 Open implementation details: final enums/labels, treatment of held legacy FOLLOW_UP_REQUIRED, optional stop authorization and reason list, exact customer report privacy, replacement with physical execution evidence, opportunity/quote ownership, module contracts and legal/device traceability. Resolve in slice review, do not fabricate a past decision. No general relation graph until concrete unmet need demonstrated.
+
+## 5. Recovery and feedback extension (owner follow-up, 2026-11-26)
+Owner accepted the recovery recommendations and explicitly requested clear manager action confirmation. Detailed engineering defaults (including exact reason codes, occupancy and urgency thresholds) remain proposals until reconciled in implementing slice.
+
+| ID | Proposed default | Amends / gate |
+| --- | --- | --- |
+| D13 | Reason and proposed solution independent; future alternative time possible for city-out/leave and other eligible reasons; no staff cancellation. | JOB-010/012, RESCUE-002 |
+| D14 | Purpose-built manager decision form: accept proposal, reschedule, transfer, combined transfer/time, reoffer, actual correction or reasoned cancellation; atomic request resolution when supported. | JOB-010/012, OVR-5, JOB-009, RESCUE-003 |
+| D15 | Candidate staff/slots based on canonical availability; separate customer appointment from reservation; explicit occupancy amendment before release of declined/released time. | SCH-001, RESCUE-004 |
+| D16 | Core Jobs Intervention Center accessible with Overview off, priority/risk/age ordering, full pagination and episode history. | MOD-002/003, OVR-6, RESCUE-005 |
+| D17 | Operational refusal/recovery metrics separate from performance; distinguish decision vs acceptance vs execution. | JOB-010/REPORT-002, RESCUE-006 |
+| D18 | All manager decision paths provide unambiguous pending, committed, definitive failure, uncertain/refresh-failure and conflict feedback; persistent authoritative result, not toast alone. | UI-001/003, DESIGN.md, UI-FEEDBACK |
+
+Static findings R01–R07, detailed scope and remaining decisions: [06](06-assignment-recovery-contract.md). Feedback audit/contract: [07](07-manager-action-feedback.md). No automatic cancellation, assignment, role expansion or historic rewrite.

@@ -1,6 +1,6 @@
 # Implementation roadmap, contract ownership and acceptance
 
-Status: proposed delivery sequence; no runtime changes in this PR. Start from freshly verified main, not planning branch or stale module PR. Each slice is a narrow vertical PR with code + tests + canonical documents in the same change, exact-head review, no unapproved merge/deploy. Do not merge a separate decision-only change as if implemented. Detailed D01–D12 defaults are subject to acceptance in relevant implementation review; any conflict requires explicit supersession.
+Status: proposed delivery sequence; no runtime changes in this PR. Start from freshly verified main, not planning branch or stale module PR. Each slice is a narrow vertical PR with code + tests + canonical documents in the same change, exact-head review, no unapproved merge/deploy. Do not merge a separate decision-only change as if implemented. Detailed D01–D18 defaults are subject to acceptance in relevant implementation review; any conflict requires explicit supersession.
 
 ## 1. Slices and dependencies
 | Slice | Scope / deliverable | Dependencies and exit |
@@ -17,6 +17,19 @@ Status: proposed delivery sequence; no runtime changes in this PR. Start from fr
 | REPORT-A outcome and conversion | New type/occurrence/channel reports, matured direct conversion, independent orders, product interest. | ENG-A/C + D09; may ship held/type earlier; verify exact cohort fixture. |
 | REPORT-B fulfillment and chain | Delivery attempt status, exception queue, optional explicit root-chain metric, drill-down. | FLOW-C/CRM-A + D09; no double counting. |
 | MOD-A integrations | Individually designed WH/MNT/ACC actions/ports, messaging/Calendar independence; no duplicate registry migrations. | Owning module first slices accepted/tested; D11 and separate per-integration decisions. |
+
+### Recovery and decision feedback track (parallel, prioritized)
+| Slice | Scope / deliverable | Dependencies and exit |
+| --- | --- | --- |
+| RESCUE-001 | Exact-head audit R01–R07, reproduce UI and PG findings including >3 queue Overview off, staff occupancy, closure semantics and role/deadline coverage. | Start alongside FLOW-001/A; evidence, no speculative rewrite. |
+| UI-FEEDBACK/A | Audit existing decision feedback, receipt/refresh and unmount; fix first manager surfaces with shared result standard and UI-F01–12. | Start immediately alongside RESCUE-001; reuse DESIGN.md, useAppFeedback/ResultState; common standard applied to every new slice. |
+| RESCUE-002 | Typed staff reason + proposed solution, optional alternate time for eligible reasons, legacy API and preview. | RESCUE-001 + D13; JOB-012 amendment, test expired/replay/conflicts. |
+| RESCUE-003 | One manager recovery form, atomic transfer/time or existing commands, evidence-bound change-request resolution, clear committed outcome. | RESCUE-002 + D14 + feedback A; may ship existing-action form before new reason schema. |
+| RESCUE-004 | Staff candidate and slot guidance, appointment risk, explicit occupancy decision and shared producer tests. | RESCUE-001/003 + D15; preview can precede occupancy amendment. |
+| RESCUE-005 | Core Jobs Intervention Center, complete queues and ranking, resolved vs pending acceptance, independent Overview. | RESCUE-003 + D16; no >3 dead-end, permission/paging/realtime. |
+| RESCUE-006 | Operational intervention metrics, decision latency and later acceptance; not staff score. | RESCUE-003/005 + D17; persisted episode facts, cohort tests. |
+
+UI-FEEDBACK/A is one cross-cutting work item, not a new workflow state. Recovery and feedback can be delivered before broad CRM/report/module work; preserve FLOW-C and JOB-009 continuity.
 
 Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, generic workflow builder, cross-module worker infrastructure, or calendar redesign under this umbrella without an accepted owning contract.
 
@@ -36,6 +49,9 @@ Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, 
 | DESIGN.md / PRODUCT.md | Apply existing UI rules; change only if genuinely new accepted standard. |
 | #515/#516/#517/#518 owning feature docs | Reconcile before integration; do not mutate their branches from this PR, no duplicate 075. |
 | AGENTS.md | No change needed; engineering rules remain. |
+| docs/features/assignment-acceptance-sla.md, assignment-time-proposal.md | JOB-010/012 amendments, reason/suggestion and manager recovery contracts, compatibility, offer deadline/replay. |
+| Existing OVR-5/6/7 and scheduling/occupancy owning docs | Atomic resolution and queue ownership; explicit SCH-001 amendment only if accepted, no historical accountability rewrite. |
+| DESIGN.md / DECISIONS.md UI records | Accepted manager feedback standard, one action result, receipt vs refresh/uncertain outcome, UI-003 tests; no competing feedback infrastructure. |
 
 ## 3. Acceptance matrix (minimum)
 | ID | Scenario | Required observation |
@@ -71,8 +87,36 @@ Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, 
 | A29 | Performance representative fixture | indexed bounded queries, EXPLAIN evidence, no N+1 or unbounded recursion |
 | A30 | Closed sale/visit/revision and action visibility | terminal immutability, no forced transition, exact server next action |
 
+### Recovery acceptance (additional to A01–A30)
+| ID | Scenario | Required observation |
+| --- | --- | --- |
+| R-A01 | City-out/leave staff declines with future alternative | structured reason + suggestion; no silent auto-cancel, customer plan kept. |
+| R-A02 | Staff proposes transfer or manager decision, no concrete date | allowed per accepted new semantics; old SCHEDULE_CONFLICT API remains compatible. |
+| R-A03 | Accept proposed interval | atomic schedule+accept, same assignee, no extra acceptance, receipt replay. |
+| R-A04 | Manager chooses different date / reoffer | actual new offer pending, no fabricated acceptance. |
+| R-A05 | Transfer fixed appointment and combined transfer/time | validate staff and interval, one offer/transaction, history preserved. |
+| R-A06 | Two managers act concurrently or same-key retry | one valid result, stale rejected, no duplicate offers or closure. |
+| R-A07 | Proposal expires/conflicts/assignee becomes inactive | safe coded error, refresh, alternatives, no partial state. |
+| R-A08 | Started job change request | no pre-start release or rewrite; management decision and audit only. |
+| R-A09 | Actual correction/reschedule resolves request | mutation and closure atomic; record-only closure clearly labelled. |
+| R-A10 | Follow-up cancel/reschedule/end | JOB-009 lineage/continuity preserved, no duplicate replacement. |
+| R-A11 | Sale-pair or sale-linked delivery recovery | existing pair constraints, no duplicate physical fulfillment or financial write. |
+| R-A12 | Decline/release vs OPEN/ACCEPTED occupancy | verify existing behavior, then accepted SCH-001 amendment only; customer appointment remains visible. |
+| R-A13 | Reoffer after released occupancy conflicts with new job | core check rejects; race with create/worker/transfer serialized. |
+| R-A14 | Candidate staff, no availability/unknown region | canonical slots, active same-org only, unknown not fabricated, no autoassignment. |
+| R-A15 | More than three intervention cases, Overview/Calendar/Messaging off | core full pagination and direct recovery; no inaccessible module redirect. |
+| R-A16 | OVR-6 list overlap, urgent OPEN, expiry worker lag, multiple issues | preserve ownership; dedup display; correct priority and episode meaning. |
+| R-A17 | Resolve and later staff refuses again | separate episode, history and awaiting-acceptance distinct from resolution. |
+| R-A18 | Report cohort/latency and privacy | explicit refusal vs expiry, correct denominator, no staff performance penalty, no text leakage. |
+
+### Mandatory manager action outcome acceptance
+All 12 scenarios UI-F01–UI-F12 in [07](07-manager-action-feedback.md) apply to relevant decision surfaces. Existing 30 + recovery 18 + feedback 12 = 60 named acceptance scenarios (not tests executed). Each implementing PR maps relevant IDs to automated tests and rendered evidence; do not claim all 60 pass from a docs-only review.
+
 ## 4. Engineering / release gates
 Read AGENTS.md and current owning docs; exact base/head, clean isolated worktree, no unrelated changes. Before migration allocate latest number and update schema-check, migration inventory/upgrade tests, clean install and forward-only rehearsal with synthetic PostgreSQL. No runtime dependency changes unless needed/authorized. Preserve 049 lock order and receipt admission; test concurrent operations and rollback on downstream failure. Run server build, full server suite with required PG environment, web build/tests and applicable browser smoke/UI-003, normal hosted CI for exact head and resulting main; AGENTS §9 local CI fallback only when authorized. Record command, environment, pass/fail/skip, evidence. No skip-ci for implementation. No deploy until explicit authorization and migration/backup/release gates; do not infer production from main.
 
 ## 5. First agent handoff (FLOW-001/A)
 Goal: produce exact-head evidence, reproduce F01–F09; no feature code or speculative policy rewrite until findings categorized and affected decisions accepted. Read this package and canonical docs; inventory backend command paths/constraints/transactions, frontend actions, read consumers, worker/module dependencies. For F04 compare due-date predicate to canonical overdue scanner and JOB-010 unaccepted case; for F07 check manually created FOLLOW_UP and linked other meeting; for F03 demonstrate cancelled and invalidated slot and physical evidence behavior; for F01 prove held meeting + follow-up and not-held semantics. Inspect prior PRs and S4 doc drift. Deliver path:line citations, reproduction commands/fixtures (synthetic), expected/actual, severity, accepted limitation vs defect, proposed minimum fix and exact slice dependencies. For independent bugfix propose code+tests+owning docs in separate PR after scope approval. No production, no merge, no secret or customer data, no automatic CI skip. Report in Turkish per AGENTS §12.
+
+## 6. Parallel handoff: RESCUE-001 and UI-FEEDBACK/A
+Read [06](06-assignment-recovery-contract.md), [07](07-manager-action-feedback.md), JOB-010/012/009, SCH-001, OVR-5/6/7 and UI-001/003 + DESIGN.md/PRODUCT.md. Reproduce R01–R07 with exact-head PG and browser evidence, inspect existing assignment/offer/change-request tests and all occupancy consumers. Audit feedback across approval, paired approval, revision, cancellation, reassignment, reschedule, proposal, reoffer, correction and invalidation; trace committed receipt vs refresh failure and response loss, unmount and mobile scroll. Classify observed versus accepted limitation; propose minimum vertical fixes, no generic state machine. Prioritize clear result feedback and single recovery form; record exact source, test IDs and dependencies. No production or merge. Scope approved for planning; detailed defaults to be reconciled with owning decisions and implementation authorization.

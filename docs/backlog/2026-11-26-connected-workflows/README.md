@@ -4,6 +4,7 @@ Date: 2026-11-26 (Europe/Istanbul)
 Status: OWNER_APPROVED_PRODUCT_DIRECTION / DRAFT_IMPLEMENTATION_CONTRACTS
 Baseline: `873c4285cbcf6735a9908fffe80b48d6882a1fa4` (main; migration catalog 075). Production schema and feature activation not verified.
 Owner input: 26 Kasım 2026 görüşme/ziyaretlerin satışa dönüşmesi, birbirine bağlı işlerin esnekleştirilmesi, sonuçların raporlara taşınması; inceleme önerilerine onay ve başlangıç PR'ı talebi.
+Owner follow-up (26 Kasım): ret/geri bırakma ve yönetici müdahalesi önerileri kabul edildi; yönetici kararlarının sonucunun açıkça görünmesi ayrıca istendi.
 This package is a planning handoff, not shipped behavior, a merge authorization, or a production enablement authorization.
 
 ## Amaç
@@ -15,8 +16,10 @@ Personel mevcut müşteri bağlamından kopmadan gerçek bir ihtiyacı sonraki i
 3. [03 — FLOW-002 bağlantılı aksiyonlar / SALE-003 teslimat devamlılığı](03-linked-actions-contract.md)
 4. [04 — CRM / REPORT / modül entegrasyon sözleşmeleri](04-crm-report-module-contract.md)
 5. [05 — uygulama dilimleri, sahip dokümanlar, kabul matrisi ve handoff](05-implementation-acceptance.md)
+6. [06 — RESCUE iş kurtarma ve yönetici müdahale sözleşmesi](06-assignment-recovery-contract.md)
+7. [07 — yönetici aksiyonları ve işlem sonucu görünürlüğü](07-manager-action-feedback.md)
 
-FLOW-001, ENG-001, FLOW-002, SALE-003, CRM-FLOW, REPORT-FLOW, MOD-FLOW are provisional identifiers; confirm uniqueness and ownership at slice start. Product direction is approved; detailed defaults in these drafts are recommendations, not retrospective approval of every field or policy. Explicit choices in 01 §4 gate the affected implementation; independently verified defects may be fixed in their own vertical slice. AGENTS.md §§3–4, 9, 11, 13, 15 govern. Existing DECISIONS.md remains authoritative until explicitly amended with code and tests. No canonical decision/schema/API/MVP rewrite in this docs-only PR.
+FLOW-001, ENG-001, FLOW-002, SALE-003, CRM-FLOW, REPORT-FLOW, MOD-FLOW, RESCUE-001–006 and UI-FEEDBACK are provisional identifiers; confirm uniqueness and ownership at slice start. Product direction is approved; detailed defaults in these drafts are recommendations, not retrospective approval of every field or policy. Explicit choices in 01 §4 and 06 gate the affected implementation; independently verified defects may be fixed in their own vertical slice. AGENTS.md §§3–4, 9, 11, 13, 15 govern. Existing DECISIONS.md remains authoritative until explicitly amended with code and tests. No canonical decision/schema/API/MVP rewrite in this docs-only PR.
 
 ## Çapraz PR sınırı
 - #515 accounting (open, head 7b20ff7): ACC-A contract proposed; no financial write from core.
@@ -27,6 +30,6 @@ FLOW-001, ENG-001, FLOW-002, SALE-003, CRM-FLOW, REPORT-FLOW, MOD-FLOW are provi
 - SCH-001 core occupancy survives Calendar off; no calendar rewrite in this program.
 
 ## Başarı ölçütü
-A genuine visit can have multiple different next actions without duplicate commitments; a failed visit attempt is not a failed sale or a held visit; links survive replacement/cancellation/invalidation; users see only authorized data; core paths work when optional modules are disabled. Management can distinguish visit type, outcome, source, actual dates, follow-up health and fulfillment. Preserve existing sale/visit joint commands, approval, JOB-010 assignment, REPORT-002 attribution, audit and existing records.
+A genuine visit can have multiple different next actions without duplicate commitments; a failed visit attempt is not a failed sale or a held visit; links survive replacement/cancellation/invalidation; users see only authorized data; core paths work when optional modules are disabled. Management can distinguish visit type, outcome, source, actual dates, follow-up health and fulfillment. A refused assignment becomes a visible management decision, not a lost customer commitment; every manager decision gives an unambiguous committed/pending/error/unknown outcome. Preserve existing sale/visit joint commands, approval, JOB-010 assignment, REPORT-002 attribution, audit and existing records.
 
 No application code, migration, tests, deploy, feature flags or production data changed by this package.
