@@ -1,5 +1,8 @@
 # Warehouse / Stock module — codebase touchpoints inventory
 
+> **Historical baseline at 89bf6b1. See [owner-approved direction](README.md) and [WH-A implementation contract](07-wh-a-implementation-contract.md). R0/MOD-003 is merged; no duplicate registry migration. Reservation-at-creation, assignee-only source and automatic reversal proposals are superseded. Restore/delete/permission checks begin with first Warehouse tables.**
+
+
 - **Date:** 2026-11-26
 - **Status:** research inventory. **Not a decision.** No code was changed; no build, test, migration or server was run.
 - **Repository state:** `claude/warehouse-module-research-0e4def` @ `89bf6b10715d74040edbfd503cacb34a7bb3d176` (worktree, read-only for this task)
