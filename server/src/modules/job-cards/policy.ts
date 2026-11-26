@@ -3,6 +3,7 @@ import { isManagementRole } from '../auth/types.js';
 import { isAssignmentOfferJobType } from './assignment-offer-policy.js';
 import {
   DELIVERY_PURPOSES,
+  type TERMINAL_JOB_CARD_STATUSES,
   type DeliveryItem,
   type JobCard,
   type JobCardActor,
@@ -41,7 +42,7 @@ function actorCanReachJob(actor: JobCardActor, job: JobPermissionSubject) {
 
 export function isTerminalJobStatus(
   status: JobCardStatus,
-): status is 'COMPLETED' | 'CANCELLED' | 'INVALIDATED' {
+): status is (typeof TERMINAL_JOB_CARD_STATUSES)[number] {
   return status === 'COMPLETED' || status === 'CANCELLED' || status === 'INVALIDATED';
 }
 
