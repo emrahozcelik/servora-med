@@ -125,6 +125,12 @@ JobCard repository transaction to lock the current user, JobCard and report in
 that order. Its versioned SQL runs on the checked-out client, and JobCard reads
 the response detail after the transaction commits.
 
+Weekly Report single creation and bulk requests share the creation flow in
+`weekly-reports/create.ts`. Weekly Reports owns the reporting period, deadline,
+staff/week identity and report row. JobCard owns the ordered assignee locks,
+initial card state and `JOB_CREATED` activity. The card, report, activity and
+idempotency receipt commit in one transaction.
+
 ## 6. Frontend Contract
 
 | Area | Responsibility |

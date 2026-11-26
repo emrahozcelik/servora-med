@@ -73,25 +73,25 @@ export type {
 } from '../../db/critical-action.js';
 export { runCriticalAction };
 import type { SqlExecutor } from '../../db/executor.js';
+import type { WeeklyReportCreationTransaction } from '../weekly-reports/create.js';
 import type { WeeklyReportDraftTransaction } from '../weekly-reports/draft.js';
 import type {
   WeeklyReportSubmissionInsert,
   WeeklyReportSubmissionReader,
   WeeklyReportSubmissionWriter,
 } from '../weekly-reports/submission.js';
-import type {
-  ManagerQuestion,
-  WeeklySourceWorkRow,
-} from '../weekly-reports/types.js';
-import type {
-  WeeklyReportRow,
-  WeeklyReportSubmissionRow,
-} from '../weekly-reports/repository.js';
 import {
+  findWeeklyReportByStaffWeek,
+  insertWeeklyReportRow,
   listWeeklyReportSubmissionRows as selectWeeklySubmissions,
   updateWeeklyReportDraftRow,
+  WEEKLY_REPORT_COLUMNS,
   type WeeklyDraftRowUpdate,
+  type WeeklyReportInsert,
+  type WeeklyReportRow,
+  type WeeklyReportSubmissionRow,
 } from '../weekly-reports/repository.js';
+import type { WeeklySourceWorkRow } from '../weekly-reports/types.js';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
 import type { ApprovalItem } from '../reports/types.js';
 import type {
@@ -1139,7 +1139,8 @@ export interface SubmissionReader extends WeeklyReportSubmissionReader {
 }
 
 export interface JobCardTransaction
-  extends SubmissionReader, WeeklyReportSubmissionWriter, WeeklyReportDraftTransaction {
+  extends SubmissionReader, WeeklyReportSubmissionWriter, WeeklyReportDraftTransaction,
+    WeeklyReportCreationTransaction {
   readonly sale: SaleTransaction;
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
@@ -1637,30 +1638,6 @@ export interface JobCardTransaction
   removeWeeklyReportRow(input: {
     organizationId: string; reportId: string; expectedVersion: number;
     removedAt: Date; removedBy: string; reason: string;
-  }): Promise<WeeklyReportRow | null>;
-  /** Best-effort duplicate pre-check; the UNIQUE constraint stays authoritative. */
-  getWeeklyReportByStaffWeek(
-    organizationId: string,
-    staffUserId: string,
-    periodStart: string,
-  ): Promise<WeeklyReportRow | null>;
-  /**
-   * Insert the WeeklyReport row as part of an atomic job+report creation.
-   *
-   * Duplicate identity is resolved by the database, not by an application
-   * pre-check: the (organization, staff, period_start) unique constraint
-   * arbitrates and `DO NOTHING` reports the loss as `null` WITHOUT aborting
-   * the caller's transaction, so the caller can still read the winner row.
-   * Callers own the semantics — single create raises
-   * WEEKLY_REPORT_ALREADY_EXISTS, bulk converges the item to `existing`.
-   */
-  insertWeeklyReportRow(input: {
-    organizationId: string;
-    jobCardId: string;
-    staffUserId: string;
-    periodStart: string;
-    periodEnd: string;
-    questions: ManagerQuestion[];
   }): Promise<WeeklyReportRow | null>;
 }
 
@@ -2247,11 +2224,6 @@ function mapNote(row: NoteRow): JobCardNoteDto {
 const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery_purpose,
   delivered_at, quantity, unit, product_name_snapshot, product_sku_snapshot,
   product_model_snapshot, lot_no, serial_no, expiry_date::text AS expiry_date, delivery_note`;
-const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_user_id,
-  period_start, period_end, draft_summary, draft_blockers, draft_next_week_plan,
-  draft_highlights, draft_field_observations, draft_support_needed,
-  manager_questions, manager_answers, version, created_at, updated_at,
-  removed_at, removed_by, removal_reason`;
 const WEEKLY_REPORT_SUBMISSION_COLUMNS = `id, organization_id, weekly_report_id,
   job_card_id, seq_no, submitted_by, submitted_at, period_start, period_end,
   frozen_body, frozen_questions, frozen_answers, frozen_source_work,
@@ -5182,17 +5154,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ?? null;
   }
 
-  async getWeeklyReportByStaffWeek(
-    organizationId: string,
-    staffUserId: string,
-    periodStart: string,
-  ) {
-    const result = await this.client.query<WeeklyReportRow>(
-      `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
-       WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3 AND removed_at IS NULL`,
-      [organizationId, staffUserId, periodStart],
-    );
-    return result.rows[0] ?? null;
+  getWeeklyReportByStaffWeek(organizationId: string, staffUserId: string, periodStart: string) {
+    return findWeeklyReportByStaffWeek(this.client, organizationId, staffUserId, periodStart);
   }
 
   async getNextWeeklyReportSubmissionSeqNo(organizationId: string, weeklyReportId: string) {
@@ -5204,33 +5167,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0]!.seq_no;
   }
 
-  async insertWeeklyReportRow(input: {
-    organizationId: string;
-    jobCardId: string;
-    staffUserId: string;
-    periodStart: string;
-    periodEnd: string;
-    questions: ManagerQuestion[];
-  }): Promise<WeeklyReportRow | null> {
-    const result = await this.client.query<WeeklyReportRow>(
-      `INSERT INTO weekly_reports
-         (organization_id, job_card_id, staff_user_id, period_start, period_end,
-          manager_questions, manager_answers)
-       VALUES ($1, $2, $3, $4, $5, $6, '[]')
-       ON CONFLICT (organization_id, staff_user_id, period_start) WHERE removed_at IS NULL DO NOTHING
-       RETURNING ${WEEKLY_REPORT_COLUMNS}`,
-      [
-        input.organizationId,
-        input.jobCardId,
-        input.staffUserId,
-        input.periodStart,
-        input.periodEnd,
-        JSON.stringify(input.questions),
-      ],
-    );
-    // null = an existing canonical report won the staff/week identity. The
-    // transaction stays usable, so the caller re-reads the winner row.
-    return result.rows[0] ?? null;
+  insertWeeklyReportRow(input: WeeklyReportInsert) {
+    return insertWeeklyReportRow(this.client, input);
   }
 
   async insertWeeklyReportSubmissionRow(input: WeeklyReportSubmissionInsert) {

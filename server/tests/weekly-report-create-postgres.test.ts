@@ -339,32 +339,38 @@ describe.skipIf(!databaseUrl)('weekly report creation (PostgreSQL)', () => {
     });
   });
 
-  it('rolls back the JobCard when report insertion fails', async () => {
-    await withSchema(async (pool) => {
-      const organizationId = await insertOrg(pool);
-      const staffId = await insertUser(pool, organizationId, 'STAFF');
-      const service = buildService(pool);
-      const spy = vi.spyOn(PostgresJobCardTransaction.prototype, 'insertWeeklyReportRow')
-        .mockRejectedValueOnce(new Error('boom'));
-      try {
-        await expect(service.createWeeklyReport(
-          staffActor(organizationId, staffId),
-          parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart: WEEK_A }),
-        )).rejects.toThrow('boom');
-      } finally {
-        spy.mockRestore();
-      }
-      const jobs = await pool.query(`SELECT COUNT(*)::int AS n FROM job_cards`);
-      const reports = await pool.query(`SELECT COUNT(*)::int AS n FROM weekly_reports`);
-      const actions = await pool.query(
-        `SELECT COUNT(*)::int AS n FROM processed_actions WHERE operation_key = 'WEEKLY_REPORT_CREATE'`,
-      );
-      expect(jobs.rows[0].n).toBe(0);
-      expect(reports.rows[0].n).toBe(0);
-      // Failed attempts leave no completed idempotency receipt behind.
-      expect(actions.rows[0].n).toBe(0);
-    });
-  });
+  it.each(['insertWeeklyReportRow', 'appendRealtimeEvent'] as const)(
+    'rolls back the JobCard and report when %s fails',
+    async (method) => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const service = buildService(pool);
+        const spy = vi.spyOn(PostgresJobCardTransaction.prototype, method)
+          .mockRejectedValueOnce(new Error('boom'));
+        try {
+          await expect(service.createWeeklyReport(
+            staffActor(organizationId, staffId),
+            parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart: WEEK_A }),
+          )).rejects.toThrow('boom');
+        } finally {
+          spy.mockRestore();
+        }
+        const jobs = await pool.query(`SELECT COUNT(*)::int AS n FROM job_cards`);
+        const reports = await pool.query(`SELECT COUNT(*)::int AS n FROM weekly_reports`);
+        const actions = await pool.query(
+          `SELECT COUNT(*)::int AS n FROM processed_actions WHERE operation_key = 'WEEKLY_REPORT_CREATE'`,
+        );
+        expect(jobs.rows[0].n).toBe(0);
+        expect(reports.rows[0].n).toBe(0);
+        const activities = await pool.query(`SELECT COUNT(*)::int AS n FROM job_card_activity_logs`);
+        const events = await pool.query(`SELECT COUNT(*)::int AS n FROM realtime_events`);
+        expect(activities.rows[0].n).toBe(0);
+        expect(events.rows[0].n).toBe(0);
+        expect(actions.rows[0].n).toBe(0);
+      });
+    },
+  );
 
   it('derives the canonical Monday deadline for a manager single create (S2)', async () => {
     await withSchema(async (pool) => {

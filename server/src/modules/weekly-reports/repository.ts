@@ -147,6 +147,64 @@ export type WeeklyQueryable = {
   query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
 };
 
+export const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_user_id,
+  period_start, period_end, draft_summary, draft_blockers, draft_next_week_plan,
+  draft_highlights, draft_field_observations, draft_support_needed,
+  manager_questions, manager_answers, version, created_at, updated_at,
+  removed_at, removed_by, removal_reason`;
+
+export async function findWeeklyReportByStaffWeek(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  staffUserId: string,
+  periodStart: string,
+): Promise<WeeklyReportRow | null> {
+  const result = await executor.query<WeeklyReportRow>(
+    `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
+     WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3 AND removed_at IS NULL`,
+    [organizationId, staffUserId, periodStart],
+  );
+  return result.rows[0] ?? null;
+}
+
+export type WeeklyReportInsert = {
+  organizationId: string;
+  jobCardId: string;
+  staffUserId: string;
+  periodStart: string;
+  periodEnd: string;
+  questions: ManagerQuestion[];
+};
+
+/**
+ * Insert on the same client as the JobCard and its creation activity.
+ * A staff/week duplicate returns null without aborting the transaction.
+ */
+export async function insertWeeklyReportRow(
+  client: PoolClient,
+  input: WeeklyReportInsert,
+): Promise<WeeklyReportRow | null> {
+  const result = await client.query<WeeklyReportRow>(
+    `INSERT INTO weekly_reports
+       (organization_id, job_card_id, staff_user_id, period_start, period_end,
+        manager_questions, manager_answers)
+     VALUES ($1, $2, $3, $4, $5, $6, '[]')
+     ON CONFLICT (organization_id, staff_user_id, period_start) WHERE removed_at IS NULL DO NOTHING
+     RETURNING ${WEEKLY_REPORT_COLUMNS}`,
+    [
+      input.organizationId,
+      input.jobCardId,
+      input.staffUserId,
+      input.periodStart,
+      input.periodEnd,
+      JSON.stringify(input.questions),
+    ],
+  );
+  // null = an existing canonical report won the staff/week identity. The
+  // transaction stays usable, so the caller re-reads the winner row.
+  return result.rows[0] ?? null;
+}
+
 export type WeeklyDraftRowUpdate = {
   organizationId: string;
   reportId: string;
@@ -300,11 +358,9 @@ export class PostgresWeeklyReportRepository {
    * PRECONDITION — NOT WIRED INTO ANY PRODUCTION COMMAND. Do not wire it
    * without first adding the ordered user lock.
    *
-   * Every production writer of `weekly_reports`
-   * (`JobCardService.createWeeklyReport` and `bulkRequestWeeklyReports`) goes
-   * through the private creation core, which takes
-   * `lockUsersInOrder` → `getAssigneeForUpdate` before inserting, so two
-   * concurrent creates for the same staff/week serialize on the `users` row.
+   * Both production creation commands in `weekly-reports/create.ts` acquire
+   * the ordered user lock through JobCard before inserting, so concurrent
+   * creates for the same staff/week serialize on the `users` row.
    * This method instead issues a bare `INSERT … RETURNING *` with no such
    * lock: on a lost race it depends entirely on the `weekly_reports` unique
    * constraint and maps the resulting 23505 to `WEEKLY_REPORT_ALREADY_EXISTS`
@@ -384,12 +440,7 @@ export class PostgresWeeklyReportRepository {
     staffUserId: string,
     periodStart: string,
   ): Promise<WeeklyReport | null> {
-    const result = await this.pool.query<WeeklyReportRow>(
-      `SELECT * FROM weekly_reports
-        WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3 AND removed_at IS NULL`,
-      [organizationId, staffUserId, periodStart],
-    );
-    const row = result.rows[0];
+    const row = await findWeeklyReportByStaffWeek(this.pool, organizationId, staffUserId, periodStart);
     return row ? mapReport(row) : null;
   }
 
