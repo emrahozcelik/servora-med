@@ -1016,7 +1016,7 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
       });
     });
 
-    it('rejects a Staff non-SALES_MEETING follow-up type on the mandatory loop', async () => {
+    it('rejects a non-SALES_MEETING follow-up type on the mandatory loop for Staff and Manager', async () => {
       const org = await seedOrganization(pool, 'F05 staff type');
       const baseline = baselineAlignedToGrid(await readDbBaseline(pool));
       const service = new JobCardService(new PostgresJobCardRepository(pool));
@@ -1040,6 +1040,32 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
           type: 'GENERAL_TASK',
           assignedTo: org.staffId,
           followUpInstructions: 'Serbest görev olarak takip.',
+        },
+      })).rejects.toMatchObject({
+        code: 'FOLLOW_UP_PROPOSAL_INVALID',
+        statusCode: 400,
+      });
+
+      // The same loop also binds a manager override: the persisted SYSTEM
+      // proposal may change date/assignee/instructions, not the card type.
+      const submitted = await service.submitForApproval(org.staff, visit.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: details.jobCardVersion,
+        note: 'Görüşme tamamlandı.',
+        followUpProposal: {
+          type: 'SALES_MEETING',
+          assignedTo: org.staffId,
+          followUpInstructions: 'Takip ziyareti planla.',
+        },
+      });
+      await expect(service.approve(org.manager, visit.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        note: 'Onaylandı.',
+        followUp: {
+          type: 'GENERAL_TASK',
+          assignedTo: org.staffId,
+          followUpInstructions: 'Genel görev olarak takip.',
         },
       })).rejects.toMatchObject({
         code: 'FOLLOW_UP_PROPOSAL_INVALID',
