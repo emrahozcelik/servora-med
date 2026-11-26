@@ -1956,6 +1956,9 @@ Response `200`:
     {
       "key": "OVERVIEW",
       "label": "Genel Bakış",
+      "description": "Dönem özeti, onay kuyruğu, yaklaşan ve tamamlanan işleri tek ekranda gösteren başlangıç sayfası.",
+      "whenDisabled": ["Genel Bakış menüsü ve sayfası", "Genel Bakış'ın açılış sayfası olarak kullanılması"],
+      "preserved": ["İşler, onaylar ve raporlar", "Geçmiş kayıtlar ve audit kayıtları"],
       "enabled": true,
       "version": 3,
       "source": "OPERATOR",
@@ -1965,7 +1968,9 @@ Response `200`:
 }
 ```
 
-`source` is `ENV_TAKEOVER` or `OPERATOR`. Errors: `401 OPERATOR_UNAUTHENTICATED`,
+`source` is `ENV_TAKEOVER`, `OPERATOR` or `FRESH_INSTALL` (module without a legacy env
+key, MOD-003). `description`, `whenDisabled` and `preserved` are Turkish operator copy
+from the code registry; the `PUT` response carries the same fields. Errors: `401 OPERATOR_UNAUTHENTICATED`,
 `403 FORBIDDEN` (no `MODULE_MANAGEMENT`), `503 MODULE_STATE_UNAVAILABLE`.
 
 #### PUT `/api/operator/modules/:key`

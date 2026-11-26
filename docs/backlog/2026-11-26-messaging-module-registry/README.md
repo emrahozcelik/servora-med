@@ -1,10 +1,10 @@
 # Mesajlaşma → kurulum modül kaydı (MOD-002 deseni) — araştırma paketi
 
 - **Tarih:** 2026-11-26
-- **Durum:** Araştırma. Kabul edilmiş bir sözleşme değildir; uygulama izni vermez.
-  MOD-002 §7 açıkça yalnızca Overview'u taşır ("diğer her modül kendi dilim ve
-  sözleşmesine kadar env anahtarını korur", `DECISIONS.md:3778-3779`). Mesajlaşma için
-  ürün sahibi kararları ve ayrı bir sözleşme gerekir.
+- **Durum:** Tarihsel araştırma. Kararlar sonradan kabul edildi ve uygulandı:
+  `DECISIONS.md` MOD-003 (R0, PR #520) ve MOD-004 (MSG-001 PR #521, MSG-002 PR #523).
+  Geçerli sözleşme [docs/features/messaging-module-registry.md](../../features/messaging-module-registry.md);
+  bu paket ve `05-slice-contract-draft.md` yalnızca bağlam içindir, politika sahibi değildir.
 - **Taban:** `origin/main` @ `fca614b`.
 - **Kaynak araştırma:** [2026-11-25 çekirdek/modül mimari araştırması](../2026-11-25-core-modules-architecture-research.md)
   §4 madde 4 (kapatma semantiği), §5 adım 2 (Messaging dilimi), bulgular V4, V6, V7.
@@ -99,7 +99,7 @@ değişiklik yok (`git status` yalnızca bu klasörü gösterir).
 
 ## Ürün sahibi incelemesi (2026-11-26)
 
-Sonuç: `RESEARCH_ACCEPTABLE — CONTRACT_REVISION_REQUIRED`. Revize sözleşme taslağı:
+Sonuç: `RESEARCH_ACCEPTABLE — CONTRACT_REVISION_REQUIRED`. Kabul edilen sözleşme (inceleme kararlarıyla revize edildi):
 [docs/features/messaging-module-registry.md](../../features/messaging-module-registry.md).
 
 | Karar | Araştırma önerisi | Ürün sahibi |
@@ -185,7 +185,11 @@ onay metni ve migration head'i sabitleyen 18 test dosyasına dokunur. Takvim 2.0
 planladığı takvim→registry taşıması ve Depo/Muhasebe/Bakım dilimleri aynı dosyalara
 gelecek. Karar 6 bu sırayı belirler.
 
-## Takip (bu dilimin dışında)
+## Takip (araştırma anındaki liste)
+
+G1, G2, G4, iptal/geçersiz iş testleri ve pasif katılımcı bildirimi MSG-002'de (#523),
+pilot durum satırı ve `docs/README.md` satırı R0/MSG-001'de kapandı.
+
 
 - G1/G2: M9 yeniden deneme yolu ve yetki farkı (04 §7).
 - G4: Offboarding'in eklediği katılımcı okundu işaretçisi almıyor (04 §7).

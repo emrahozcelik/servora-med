@@ -1,8 +1,8 @@
 # Messaging as an installation module — contract
 
-Status: **draft contract, owner review** (2026-11-26). Not yet accepted. It does not
-authorize implementation until the owner approves it. Once approved, it ships as
-`DECISIONS.md` MOD-003 with the first implementing PR.
+Status: **accepted contract** (owner, 2026-11-26: "r0 tamamlandı. sıradaki işlere
+geçebiliriz. Önerin mantıklı böyle devam edelim."). Decision record: `DECISIONS.md`
+MOD-004. R0 shipped separately as MOD-003 (PR #520).
 
 Inputs:
 
@@ -31,7 +31,7 @@ Messaging work.
 
 The job-cards read port (research V4) and a broader Messaging refactor are deferred.
 
-## 2. R0 — shared registry widening
+## 2. R0 — shared registry widening (shipped: PR #520, MOD-003)
 
 Goal: the registry and its tables accept further modules without another schema change.
 The allowed module keys stay fixed in code and verifiable.
@@ -104,7 +104,10 @@ The allowed module keys stay fixed in code and verifiable.
 
 - While `MESSAGING` is disabled, or its state is unreadable, notification rows with
   `entity_type = 'conversation'` are **excluded** from the notification list, the unread
-  count and bulk mark-read operations. Rows are not modified or deleted.
+  count and the bulk operations (`clear-read`, `clear-all`). Single-row `read`,
+  `dismiss` and `read-by-entity` on such a row answer `404 NOTIFICATION_NOT_FOUND`, the
+  same answer as for a notification that does not exist. Rows are not
+  modified or deleted.
 - After re-enable, the rows are visible again with their original read state. No push and
   no realtime signal is produced for them.
 - No new message notifications can be created while disabled, because sending is behind
@@ -116,7 +119,8 @@ The allowed module keys stay fixed in code and verifiable.
 - **Disabled:** pending message deliveries (deliveries whose notification has
   `entity_type = 'conversation'`, state `PENDING`) are set to `ABANDONED` with
   `last_error_code = 'MODULE_DISABLED'` in the dispatcher's own transaction, and none are
-  claimed. Other deliveries (jobs, tasks, reports, system) are unaffected.
+  claimed. A `CLAIMED` message delivery whose lease has expired is abandoned the same
+  way, so it cannot be re-claimed after re-enable. Other deliveries (jobs, tasks, reports, system) are unaffected.
 - **Transition rule:**
   - A delivery already `CLAIMED` and being sent when the module is disabled may finish.
   - A message already delivered to a device cannot be recalled. Its click opens the app,
@@ -163,15 +167,20 @@ The allowed module keys stay fixed in code and verifiable.
 
 ## 9. MSG-002 — participant lifecycle
 
-- **Later assignee sync.** The canonical JOB conversation lookup reports
-  `assigneeSync: { transitionId } | null`. It is non-null when the latest `JOB_ASSIGNED`
-  activity names a STAFF assignee who is not a participant, and the job is not terminal.
-  JobDetail then shows a persistent sync action, not only the one-time offer after PATCH.
+- **Later assignee sync.** `GET /api/messaging/conversations/job/:jobId` reports
+  `assigneeSync: { transitionId, previousAssignee: { id, name } | null, newAssignee: { id,
+  name } } | null`. It is non-null only for an ADMIN/MANAGER actor, on a non-terminal job,
+  when the latest assignment activity is `JOB_ASSIGNED`, its new assignee is the current
+  `assigned_to`, is STAFF and is not a participant. Always `null` for STAFF.
+  JobDetail then shows a persistent, non-modal notice with a "Konuşmaya ekle" action
+  (ADMIN/MANAGER only) that opens the M9 confirmation; it never opens a dialog on its own.
+  The one-time offer after PATCH stays as it is.
   It reuses the M9 endpoint with that transition id, keeping M9's security properties:
   immutable transition id, STAFF-only candidate, terminal rejection, unread 0 on join,
   one audit row, one realtime event, idempotent replay. Assignment itself stays
   independent of messaging. There is no automatic membership sync (PR #131 rule kept).
-- **Sync authority.** Owner decision pending (§12 Q2).
+- **Sync authority.** Any same-organization ADMIN/MANAGER who can read the JOB
+  conversation (#143) may perform the sync; participant membership is not required.
 - **Offboarding replacement:** the replacement participant gets
   `last_read_message_id = latest message`, the same as M9, and only STAFF are inserted.
   Offboarding keeps working while Messaging is disabled.
@@ -232,19 +241,14 @@ takeover.
 
 ## 11. Docs updated with the code
 
-`DECISIONS.md` MOD-003; this contract set to accepted; `operator-module-pilot.md` status
-line (draft → accepted, research C6); `SERVORA_MED_SCHEMA_DRAFT.md` (075);
-`SERVORA_MED_API_DRAFT.md` (operator module fields, messaging error contract,
-`assigneeSync`); `server/.env.example` legacy note; `docs/README.md` row for Messaging.
+R0 (PR #520) already updated MOD-003, the pilot status line and the 075 schema notes.
+MSG-001: `DECISIONS.md` MOD-004; this contract; `server/.env.example` legacy note;
+`docs/README.md` row for Messaging. MSG-002's `assigneeSync` field is
+owned by §9 of this contract (the API draft has no messaging section).
 
-## 12. Open questions for the owner
+## 12. Resolved owner questions
 
-1. **R0 ownership.** Proposed: this Messaging session implements R0 as its own small core
-   PR first, owning 075. The Warehouse, Accounting, Maintenance and Calendar sessions are
-   told to build on it and not to write their own key migration.
-2. **Sync authority (research G2).** Today any ADMIN/MANAGER can read the JOB conversation
-   (#143), and so is offered the sync, but only a participant may perform it, so a
-   non-participant manager gets an error.
-   - **A (proposed):** any same-org ADMIN/MANAGER who can read the conversation may sync,
-     in line with #143.
-   - B: offer the sync only to participants.
+1. **R0 ownership:** R0 was implemented as its own core PR (#520, MOD-003, migration
+   075). Other module slices build on it and write no key migration.
+2. **Sync authority:** option A, any same-org ADMIN/MANAGER who can read the
+   conversation (§9).

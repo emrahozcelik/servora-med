@@ -32,7 +32,15 @@ import { PostgresNotificationRepository } from './modules/notifications/reposito
 import { createShutdown } from './shutdown.js';
 import { PostgresWebPushRepository } from './modules/web-push/repository.js';
 import { createProductionAppDependencies } from './app-dependencies.js';
-import { takeOverInstallationModules } from './modules/installation-modules/takeover.js';
+import {
+  PostgresModuleStateReader,
+  readModuleEnabledOrFalse,
+  type ModuleStateLogger,
+} from './modules/installation-modules/state.js';
+import {
+  legacyModuleValues,
+  takeOverInstallationModules,
+} from './modules/installation-modules/takeover.js';
 import { PostgresOverviewRepository } from './modules/overview/repository.js';
 import { PostgresCalendarRepository } from './modules/calendar/repository.js';
 import { PostgresStaffConfidentialNotesRepository } from './modules/staff-confidential-notes/repository.js';
@@ -129,9 +137,21 @@ async function main() {
     const realtimeRepository = new PostgresRealtimeEventRepository(
       database.pool,
     );
+    const moduleStateReader = new PostgresModuleStateReader(database.pool);
+    const moduleStateLogger: ModuleStateLogger = {
+      error: (fields, message) => {
+        if (app) {
+          app.log.error(fields, message);
+        } else {
+          console.error(message, fields);
+        }
+      },
+    };
     const realtimeService = new RealtimeService(
       realtimeRepository,
       realtimeBus,
+      undefined,
+      () => readModuleEnabledOrFalse(moduleStateReader, 'MESSAGING', moduleStateLogger),
     );
 
     const appDependencies = createProductionAppDependencies(config, database.pool, {
@@ -280,6 +300,7 @@ async function main() {
       realtimePublisher: realtimeBus,
       notificationRepository: new PostgresNotificationRepository(database.pool),
       webPushRepository: new PostgresWebPushRepository(database.pool),
+      moduleStateReader,
       pool: database.pool,
     });
     app = await buildApp(config, appDependencies);
@@ -318,12 +339,10 @@ async function main() {
     // SD2: startup fail-fast — only COMPATIBLE may proceed to listen.
     await assertStartupSchemaCompatible({ pool: database.pool, catalog, logger: app.log });
 
-    // MOD-002: one-time takeover of the legacy OVERVIEW_DASHBOARD_ENABLED env
-    // value into installation_module_state. API process only (never the backup
-    // worker); any failure stops startup and the server never listens.
-    await takeOverInstallationModules(database.pool, {
-      overviewDashboard: config.capabilities?.overviewDashboard ?? false,
-    });
+    // MOD-002 / R0: one-time takeover / initialization of installation module
+    // state. API process only (never the backup worker); any failure stops
+    // startup and the server never listens.
+    await takeOverInstallationModules(database.pool, legacyModuleValues(config.capabilities));
 
     // Migrations are applied only via migrate / migrate:prod — never on process start.
     await app.listen({ host: config.host, port: config.port });

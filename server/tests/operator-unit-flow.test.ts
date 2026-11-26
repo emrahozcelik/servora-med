@@ -62,7 +62,7 @@ beforeAll(async () => {
   await admin.query(`CREATE SCHEMA ${schema}`);
   pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public` });
   await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
-  await takeOverInstallationModules(pool, { overviewDashboard: false });
+  await takeOverInstallationModules(pool, { OVERVIEW: false, MESSAGING: false });
   const org = (await pool.query<{ id: string }>("INSERT INTO organizations (name) VALUES ('Op flow') RETURNING id")).rows[0]!.id;
   await pool.query(
     "INSERT INTO users (organization_id, name, email, password_hash, role) VALUES ($1, 'Customer Admin', 'admin@example.com', $2, 'ADMIN')",
@@ -148,8 +148,9 @@ describe.skipIf(!databaseUrl)('operator CLI, session and module toggle (MOD-002)
     expect((await app!.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: token } })).statusCode).toBe(401);
 
     const modules = (await app!.inject({ method: 'GET', url: '/api/operator/modules', headers })).json().modules;
-    expect(modules).toHaveLength(1);
+    expect(modules).toHaveLength(2);
     expect(modules[0]).toMatchObject({ key: 'OVERVIEW', enabled: false, version: 1 });
+    expect(modules[1]).toMatchObject({ key: 'MESSAGING', enabled: false, version: 1 });
 
     const put = (payload: object, key = 'OVERVIEW') => app!.inject({ method: 'PUT', url: `/api/operator/modules/${key}`, headers, payload });
     expect((await put({ enabled: true, expectedVersion: 1 }, 'NOPE')).statusCode).toBe(404);
@@ -178,17 +179,19 @@ describe.skipIf(!databaseUrl)('operator CLI, session and module toggle (MOD-002)
 
   it('fails closed with 503 when the state row is missing', async () => {
     const token = cookieOf(await operatorLogin()).split(';')[0]!;
-    const saved = (await pool!.query('SELECT * FROM installation_module_state')).rows[0];
+    const saved = (await pool!.query('SELECT * FROM installation_module_state')).rows;
     await pool!.query('DELETE FROM installation_module_state');
     try {
       const response = await app!.inject({ method: 'GET', url: '/api/operator/modules', headers: { cookie: token } });
       expect(response.statusCode).toBe(503);
       expect(response.json().code).toBe('MODULE_STATE_UNAVAILABLE');
     } finally {
-      await pool!.query(
-        'INSERT INTO installation_module_state (module_key, enabled, version, source, updated_at, updated_by_operator_id) VALUES ($1,$2,$3,$4,$5,$6)',
-        [saved.module_key, saved.enabled, saved.version, saved.source, saved.updated_at, saved.updated_by_operator_id],
-      );
+      for (const row of saved) {
+        await pool!.query(
+          'INSERT INTO installation_module_state (module_key, enabled, version, source, updated_at, updated_by_operator_id) VALUES ($1,$2,$3,$4,$5,$6)',
+          [row.module_key, row.enabled, row.version, row.source, row.updated_at, row.updated_by_operator_id],
+        );
+      }
     }
   });
 

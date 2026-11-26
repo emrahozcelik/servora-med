@@ -172,8 +172,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(74);
-      expect(firstRun.appliedVersions.at(-1)).toBe('074_installation_operator_and_module_state');
+      expect(firstRun.appliedVersions).toHaveLength(75);
+      expect(firstRun.appliedVersions.at(-1)).toBe('075_installation_module_registry_widening');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -272,6 +272,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident', '068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start',
           '073_assignment_offer_time_proposal',
           '074_installation_operator_and_module_state',
+          '075_installation_module_registry_widening',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -296,7 +297,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '053_overdue_submission_reminders.sql'
           && file !== '054_job_action_locations_submit_approval.sql'
           && file !== '055_job_submit_location_comparison.sql'
-          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql' && file !== '062_follow_up_cycle_end_reason.sql' && file !== '063_job_card_early_start_authorizations.sql' && file !== '064_job_card_change_requests.sql' && file !== '065_job_card_assignment_offers.sql' && file !== '066_overdue_correction_deadline_and_extension.sql' && file !== '067_overdue_delivery_identity_per_incident.sql' && file !== '068_weekly_report_workweek.sql' && file !== '069_lateness_alerts_and_quiet_hours.sql' && file !== '070_overdue_incident_invalidation_closure.sql' && file !== '071_sale_standalone_and_delivery_link.sql' && file !== '072_sale_submit_without_start.sql' && file !== '073_assignment_offer_time_proposal.sql' && file !== '074_installation_operator_and_module_state.sql')
+          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql' && file !== '062_follow_up_cycle_end_reason.sql' && file !== '063_job_card_early_start_authorizations.sql' && file !== '064_job_card_change_requests.sql' && file !== '065_job_card_assignment_offers.sql' && file !== '066_overdue_correction_deadline_and_extension.sql' && file !== '067_overdue_delivery_identity_per_incident.sql' && file !== '068_weekly_report_workweek.sql' && file !== '069_lateness_alerts_and_quiet_hours.sql' && file !== '070_overdue_incident_invalidation_closure.sql' && file !== '071_sale_standalone_and_delivery_link.sql' && file !== '072_sale_submit_without_start.sql' && file !== '073_assignment_offer_time_proposal.sql' && file !== '074_installation_operator_and_module_state.sql' && file !== '075_installation_module_registry_widening.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -340,6 +341,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident', '068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start',
           '073_assignment_offer_time_proposal',
           '074_installation_operator_and_module_state',
+          '075_installation_module_registry_widening',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

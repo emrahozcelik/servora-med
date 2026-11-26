@@ -31,7 +31,15 @@
 .operator-module-row + .operator-module-row { border-top: 1px solid var(--rule); padding-top: 0.85rem; margin-top: 0.5rem; }
 .operator-module-body { min-width: 0; }
 .operator-module-name { margin: 0; font-size: 1.125rem; line-height: 1.3; }
-.operator-module-meta { margin: 0.3rem 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
+.operator-module-description { margin: 0.35rem 0 0; color: var(--ink); font-size: 0.9375rem; line-height: 1.5; overflow-wrap: anywhere; }
+.operator-module-meta { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
+
+.operator-confirm-lead { display: block; color: var(--muted); }
+.operator-confirm-section { display: block; margin-top: 0.85rem; }
+.operator-confirm-heading { display: block; color: var(--ink); font-weight: 700; }
+.operator-confirm-list { display: block; margin: 0.35rem 0 0; padding-left: 1.2rem; color: var(--ink); line-height: 1.5; }
+.operator-confirm-list-item { display: list-item; list-style-type: disc; margin: 0.25rem 0; }
+.operator-confirm-note { display: block; margin-top: 0.85rem; color: var(--ink); font-weight: 600; }
 
 /* Native button with role="switch": 44px target, state in text and in position. */
 .operator-switch {

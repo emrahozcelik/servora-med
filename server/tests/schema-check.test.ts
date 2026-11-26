@@ -32,7 +32,7 @@ describe('schema-check compatibility classifications', () => {
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('BEHIND');
     if (cmp.status === 'BEHIND') {
-      expect(cmp.pendingVersions).toContain('074_installation_operator_and_module_state');
+      expect(cmp.pendingVersions).toContain('075_installation_module_registry_widening');
     }
   });
 
@@ -44,7 +44,7 @@ describe('schema-check compatibility classifications', () => {
 
   it('classifies AHEAD for valid future version', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '075_future_feature'];
+    const applied = [...catalog.entries.map((e) => e.version), '076_future_feature'];
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('AHEAD');
   });
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
       const migrPool = new Pool({ connectionString: dbUrl });
       try {
         await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
-        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('075_future_feature')");
+        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('076_future_feature')");
       } finally {
         await migrPool.end();
       }
@@ -300,10 +300,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 74 head 074', async () => {
+  it('produces dist catalog 75 head 075', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
-    expect(distCatalog.count).toBe(74);
-    expect(distCatalog.head?.version).toBe('074_installation_operator_and_module_state');
+    expect(distCatalog.count).toBe(75);
+    expect(distCatalog.head?.version).toBe('075_installation_module_registry_widening');
   });
 
   it('resource cleanup: pool closed after success and failure', async () => {

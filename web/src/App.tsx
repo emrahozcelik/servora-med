@@ -154,10 +154,10 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
   );
 }
 
-function ProtectedShell({ user, onSignedOut, onOverviewUnavailable }: {
+function ProtectedShell({ user, onSignedOut, onModuleUnavailable }: {
   user: CurrentUser;
   onSignedOut: () => void;
-  onOverviewUnavailable: () => void;
+  onModuleUnavailable: () => void;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -184,7 +184,7 @@ function ProtectedShell({ user, onSignedOut, onOverviewUnavailable }: {
           <AppRouter user={user}
             notice={notice}
             onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')}
-            onOverviewUnavailable={onOverviewUnavailable}
+            onModuleUnavailable={onModuleUnavailable}
             onSessionEnded={onSignedOut} />
           {error && <div className="shell-error form-error" role="alert">{error}</div>}
         </AppShell>
@@ -232,5 +232,5 @@ function CustomerApp({ initialUser }: AppProps) {
   if (user === undefined) return <LoadingScreen />;
   if (user === null) return <LoginScreen onAuthenticated={setUser} initialError={identityError} />;
   if (user.mustChangePassword) return <PasswordChangeScreen user={user} onChanged={() => setUser(null)} onSignedOut={() => setUser(null)} />;
-  return <ProtectedShell user={user} onSignedOut={() => setUser(null)} onOverviewUnavailable={revalidateIdentity} />;
+  return <ProtectedShell user={user} onSignedOut={() => setUser(null)} onModuleUnavailable={revalidateIdentity} />;
 }

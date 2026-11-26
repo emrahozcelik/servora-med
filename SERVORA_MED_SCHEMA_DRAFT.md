@@ -624,10 +624,10 @@ One typed row per registry key. It is not a generic settings bag (UI-002).
 
 | Column | Type | Rules |
 | --- | --- | --- |
-| module_key | TEXT PK | CHECK `IN ('OVERVIEW')` |
+| module_key | TEXT PK | CHECK `IN ('OVERVIEW')` (shape CHECK since 075, §8.2) |
 | enabled | BOOLEAN NOT NULL | effective state |
 | version | INTEGER NOT NULL | default 1; CHECK `>= 1` |
-| source | TEXT NOT NULL | CHECK `IN ('ENV_TAKEOVER', 'OPERATOR')` |
+| source | TEXT NOT NULL | CHECK `IN ('ENV_TAKEOVER', 'OPERATOR')` (`FRESH_INSTALL` added in 075, §8.2) |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_by_operator_id | UUID NULL | FK to `operator_accounts(id)` |
 
@@ -644,7 +644,7 @@ Installation-level audit trail, separate from `audit_events`.
 | operator_id | UUID NULL | FK to `operator_accounts(id)` `ON DELETE RESTRICT`; required iff `actor_kind = 'OPERATOR'` |
 | event_type | TEXT NOT NULL | CHECK `IN` `OPERATOR_GRANTED`, `OPERATOR_PASSWORD_RESET`, `OPERATOR_REVOKED`, `OPERATOR_LOGIN_SUCCEEDED`, `MODULE_STATE_TAKEN_OVER`, `MODULE_STATE_CHANGED`, `OPERATOR_ACCESS_RESET_BY_RESTORE` |
 | target_operator_id | UUID NULL | FK to `operator_accounts(id)` `ON DELETE RESTRICT` |
-| module_key | TEXT NULL | CHECK `NULL` or `'OVERVIEW'` |
+| module_key | TEXT NULL | CHECK `NULL` or `'OVERVIEW'` (shape CHECK since 075, §8.2) |
 | old_value | JSONB NULL | JSON object, text length at most 512 |
 | new_value | JSONB NULL | JSON object, text length at most 512 |
 | occurred_at | TIMESTAMPTZ NOT NULL | default now |
@@ -666,6 +666,25 @@ Indexes:
   on `OPERATOR_LOGIN_SUCCEEDED` (last login in the CLI `list`).
 - `operator_audit_events_takeover_idx` on `(module_key)`, partial on
   `MODULE_STATE_TAKEN_OVER` (fail-closed takeover lookup).
+
+### 8.2 MOD-003 shared registry widening (migration 075)
+
+Migration `075_installation_module_registry_widening.sql`. Decision: `DECISIONS.md`
+MOD-003. It replaces constraints of §8.1 with the same names and adds one index; no
+data is changed.
+
+- `installation_module_state.module_key` and `operator_audit_events.module_key`: shape
+  CHECK `^[A-Z][A-Z0-9_]{1,31}$` (audit column still nullable) instead of
+  `IN ('OVERVIEW')`. The list of valid keys lives in the code registry; startup refuses
+  a row whose key is not registered.
+- `installation_module_state.source`: `IN ('ENV_TAKEOVER', 'OPERATOR', 'FRESH_INSTALL')`.
+  `FRESH_INSTALL` is the first row of a module without a legacy env key (created off).
+- `operator_audit_events.event_type`: adds `MODULE_STATE_INITIALIZED`. It is a module
+  event (requires `module_key`, no `target_operator_id`) and follows the
+  `MODULE_STATE_TAKEN_OVER` value rule (boolean `enabled` in `new_value`, no
+  `old_value`).
+- Index `operator_audit_events_module_idx` on `(module_key, occurred_at)`, partial on
+  `module_key IS NOT NULL`.
 
 ## 9. Explicit Omissions
 

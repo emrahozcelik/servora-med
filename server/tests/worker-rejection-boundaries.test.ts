@@ -295,6 +295,7 @@ describe('web-push dispatcher rejection boundaries', () => {
     });
     const repository = {
       cleanupDueDeliveries: vi.fn(async () => 0),
+      abandonModuleDisabledDeliveries: vi.fn(async () => 0),
       claimDueDeliveries: vi.fn(async () => [pushDelivery()]),
       withDeliveryLifecycleLock: vi.fn(async () => {
         throw new Error('lock boom');
@@ -366,6 +367,7 @@ describe('web-push dispatcher rejection boundaries', () => {
     };
     const repository = {
       cleanupDueDeliveries: vi.fn(async () => 0),
+      abandonModuleDisabledDeliveries: vi.fn(async () => 0),
       claimDueDeliveries: vi.fn(async () => [pushDelivery()]),
       withDeliveryLifecycleLock: vi.fn(async (_delivery: unknown, _at: unknown, work: (guard: typeof guard) => Promise<void>) => work(guard)),
       recordDelivered,

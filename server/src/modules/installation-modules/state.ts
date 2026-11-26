@@ -1,8 +1,12 @@
 import type { Pool } from 'pg';
 
-import type { InstallationModuleKey } from './registry.js';
+import {
+  INSTALLATION_MODULES,
+  type InstallationModuleKey,
+  type ModuleCapabilityField,
+} from './registry.js';
 
-export const MODULE_STATE_SOURCES = ['ENV_TAKEOVER', 'OPERATOR'] as const;
+export const MODULE_STATE_SOURCES = ['ENV_TAKEOVER', 'OPERATOR', 'FRESH_INSTALL'] as const;
 export type ModuleStateSource = (typeof MODULE_STATE_SOURCES)[number];
 
 export type ModuleStateRow = Readonly<{
@@ -64,18 +68,25 @@ export class PostgresModuleStateReader implements ModuleStateReader {
 
 /**
  * Reader for `buildApp` without a database pool (in-memory unit tests only):
- * every module reports the given fixed state.
+ * a boolean reports that fixed state for every module; a map reports listed
+ * keys and returns `null` (missing row, fail closed) for unlisted keys.
  */
-export function staticModuleStateReader(enabled: boolean): ModuleStateReader {
+export function staticModuleStateReader(
+  enabled: boolean | Partial<Record<InstallationModuleKey, boolean>>,
+): ModuleStateReader {
   return {
-    read: async (key) => ({
-      key,
-      enabled,
-      version: 1,
-      source: 'ENV_TAKEOVER',
-      updatedAt: new Date(0),
-      updatedByOperatorId: null,
-    }),
+    read: async (key) => {
+      const value = typeof enabled === 'boolean' ? enabled : enabled[key];
+      if (typeof value !== 'boolean') return null;
+      return {
+        key,
+        enabled: value,
+        version: 1,
+        source: 'ENV_TAKEOVER',
+        updatedAt: new Date(0),
+        updatedByOperatorId: null,
+      };
+    },
   };
 }
 
@@ -99,4 +110,19 @@ export async function readModuleEnabledOrFalse(
     logger.error({ err: error, module: key }, 'Installation module state read failed');
     return false;
   }
+}
+
+/**
+ * Reads runtime enabled state for every registry module, keyed by each
+ * module's `capability` field. Missing rows and read failures fail closed.
+ */
+export async function readModuleCapabilities(
+  reader: ModuleStateReader,
+  logger: ModuleStateLogger,
+): Promise<Partial<Record<ModuleCapabilityField, boolean>>> {
+  const result: Partial<Record<ModuleCapabilityField, boolean>> = {};
+  for (const module of INSTALLATION_MODULES) {
+    result[module.capability] = await readModuleEnabledOrFalse(reader, module.key, logger);
+  }
+  return result;
 }

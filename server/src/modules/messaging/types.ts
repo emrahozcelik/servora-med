@@ -87,6 +87,16 @@ export type ConversationListItem = Readonly<{
   updatedAt: string;
 }>;
 
+export type AssigneeSyncHint = Readonly<{
+  transitionId: string;
+  previousAssignee: { id: string; name: string } | null;
+  newAssignee: { id: string; name: string };
+}>;
+
+export type JobConversationLookup = ConversationListItem & {
+  assigneeSync: AssigneeSyncHint | null;
+};
+
 export type CreateConversationInput = Readonly<{
   /** Legacy single-recipient field. Use participantUserIds for the new contract. */
   recipientUserId?: string | null;

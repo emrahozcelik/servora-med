@@ -150,6 +150,56 @@ function mapActivity(row: MessagingActivityRow): MessagingActivityRecord {
     createdAt: row.created_at,
   };
 }
+type Queryable = Pick<Pool, 'query'> | Pick<PoolClient, 'query'>;
+
+type AssignmentActivityLookupRow = {
+  id: string;
+  eventType: string;
+  oldValue: unknown;
+  newValue: unknown;
+};
+
+async function queryAssignmentActivityById(
+  db: Queryable,
+  organizationId: string,
+  jobId: string,
+  activityId: string,
+): Promise<AssignmentActivityLookupRow | null> {
+  const result = await db.query<{
+    id: string; event_type: string; old_value: unknown; new_value: unknown;
+  }>(
+    `SELECT id, event_type, old_value, new_value
+       FROM job_card_activity_logs
+      WHERE organization_id = $1 AND job_card_id = $2 AND id = $3`,
+    [organizationId, jobId, activityId],
+  );
+  return result.rows[0]
+    ? {
+        id: result.rows[0].id,
+        eventType: result.rows[0].event_type,
+        oldValue: result.rows[0].old_value,
+        newValue: result.rows[0].new_value,
+      }
+    : null;
+}
+
+async function queryLatestAssignmentActivityId(
+  db: Queryable,
+  organizationId: string,
+  jobId: string,
+): Promise<string | null> {
+  const result = await db.query<{ id: string }>(
+    `SELECT id
+       FROM job_card_activity_logs
+      WHERE organization_id = $1 AND job_card_id = $2
+        AND event_type = 'JOB_ASSIGNED'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+    [organizationId, jobId],
+  );
+  return result.rows[0]?.id ?? null;
+}
+
 export interface MessagingRepository {
   findConversationByDirectKey(
     organizationId: string,
@@ -246,6 +296,17 @@ export interface MessagingRepository {
     role: string,
     contextType: ConversationContextType,
   ): Promise<readonly RecipientListItem[]>;
+
+  findAssignmentActivityById(
+    organizationId: string,
+    jobId: string,
+    activityId: string,
+  ): Promise<AssignmentActivityLookupRow | null>;
+
+  findLatestAssignmentActivityId(
+    organizationId: string,
+    jobId: string,
+  ): Promise<string | null>;
 }
 
 export class PostgresMessagingRepository implements MessagingRepository {
@@ -743,6 +804,21 @@ export class PostgresMessagingRepository implements MessagingRepository {
       isActive: row.is_active,
     }));
   }
+
+  async findAssignmentActivityById(
+    organizationId: string,
+    jobId: string,
+    activityId: string,
+  ): Promise<AssignmentActivityLookupRow | null> {
+    return queryAssignmentActivityById(this.pool, organizationId, jobId, activityId);
+  }
+
+  async findLatestAssignmentActivityId(
+    organizationId: string,
+    jobId: string,
+  ): Promise<string | null> {
+    return queryLatestAssignmentActivityId(this.pool, organizationId, jobId);
+  }
 }
 
 export class PostgresMessagingTransaction {
@@ -783,39 +859,15 @@ export class PostgresMessagingTransaction {
     organizationId: string,
     jobId: string,
     activityId: string,
-  ): Promise<{ id: string; eventType: string; oldValue: unknown; newValue: unknown } | null> {
-    const result = await this.client.query<{
-      id: string; event_type: string; old_value: unknown; new_value: unknown;
-    }>(
-      `SELECT id, event_type, old_value, new_value
-         FROM job_card_activity_logs
-        WHERE organization_id = $1 AND job_card_id = $2 AND id = $3`,
-      [organizationId, jobId, activityId],
-    );
-    return result.rows[0]
-      ? {
-          id: result.rows[0].id,
-          eventType: result.rows[0].event_type,
-          oldValue: result.rows[0].old_value,
-          newValue: result.rows[0].new_value,
-        }
-      : null;
+  ): Promise<AssignmentActivityLookupRow | null> {
+    return queryAssignmentActivityById(this.client, organizationId, jobId, activityId);
   }
 
   async findLatestAssignmentActivityId(
     organizationId: string,
     jobId: string,
   ): Promise<string | null> {
-    const result = await this.client.query<{ id: string }>(
-      `SELECT id
-         FROM job_card_activity_logs
-        WHERE organization_id = $1 AND job_card_id = $2
-          AND event_type = 'JOB_ASSIGNED'
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1`,
-      [organizationId, jobId],
-    );
-    return result.rows[0]?.id ?? null;
+    return queryLatestAssignmentActivityId(this.client, organizationId, jobId);
   }
 
   async findLatestMessageId(
@@ -1308,14 +1360,22 @@ export class PostgresMessagingTransaction {
         draft.entityId,
         input.createdAt,
       );
-      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4},
-        $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+      return `($${offset + 1}::uuid, $${offset + 2}::uuid, $${offset + 3}::bigint, $${offset + 4}::text,
+        $${offset + 5}::text, $${offset + 6}::uuid, $${offset + 7}::timestamptz)`;
     });
     const result = await this.client.query<{ id: string }>(
       `INSERT INTO in_app_notifications
         (organization_id, recipient_user_id, source_realtime_event_id, kind,
          entity_type, entity_id, created_at)
-       VALUES ${rows.join(', ')}
+       SELECT d.organization_id, d.recipient_user_id, d.source_realtime_event_id, d.kind,
+              d.entity_type, d.entity_id, d.created_at
+         FROM (VALUES ${rows.join(', ')})
+           AS d(organization_id, recipient_user_id, source_realtime_event_id, kind,
+                entity_type, entity_id, created_at)
+         JOIN users recipient
+           ON recipient.organization_id = d.organization_id
+          AND recipient.id = d.recipient_user_id
+          AND recipient.is_active = TRUE
        ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING
        RETURNING id`,
       values,

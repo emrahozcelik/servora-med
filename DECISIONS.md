@@ -3786,3 +3786,90 @@ organization scope; `audit_events` requires an organization and a user actor.
   `allow_migrations`. The first production operator is granted over the root channel
   with explicit owner approval.
 - `OVERVIEW_DASHBOARD_ENABLED` becomes a legacy takeover input.
+
+## MOD-003 — Shared installation module registry widening (R0)
+
+- **Date:** 2026-11-26
+- **Status:** Accepted by the owner ("Ortak registry genişletmesini tek seferde
+  yapmayı, izin verilen modül anahtarlarının kodda sabit ve doğrulanabilir kalmasını
+  öneriyorum", review of the Messaging research, PR #518; "tamam r0 yeni pr da olsun",
+  2026-11-26). Extends MOD-002 §3–§4; does not add a module and does not change
+  Overview behaviour.
+
+### Context
+
+MOD-002 introduced the registry with exactly one module. Its types, takeover signature
+and database CHECKs are locked to `OVERVIEW`, so every further module (Messaging,
+Calendar, Warehouse, Maintenance, Accounting) would need its own key migration, and
+the research for three of them proposed the same migration number.
+
+### Decision
+
+1. **Keys are fixed in code, the database checks their shape.** The registry array in
+   `installation-modules/registry.ts` is the single list of module keys; key and
+   capability types are derived from it. `module_key` columns carry a shape CHECK
+   (`^[A-Z][A-Z0-9_]{1,31}$`) instead of an enumeration. Startup fails closed when
+   `installation_module_state` holds a key that is not in the registry.
+2. **Modules without a legacy env key.** A descriptor may have `legacyEnvKey: null`.
+   Its first row is created off with `source = FRESH_INSTALL` and a
+   `MODULE_STATE_INITIALIZED` audit event in the takeover transaction. A missing row
+   with an earlier takeover or initialize event still stops startup.
+3. **Operator-facing descriptor copy.** Each descriptor carries a Turkish
+   `description` and short `whenDisabled` / `preserved` lists. The operator panel shows
+   them, and the switch confirmation states "Veriler silinmez." This is operator copy,
+   not menu metadata; MOD-002's exclusions (prerequisites, dependency graph, worker
+   hooks, menu metadata, dynamic loading) still apply.
+4. **Capability projection is per registry module.** `/api/auth/login` and
+   `/api/auth/me` read every registry module once per request; read failure reports
+   that capability off and logs, with no env fallback (MOD-002 §5).
+5. **One migration.** Migration 075 owns this widening. Later module slices add a
+   registry entry and their own tables, never another key migration.
+
+### Consequences
+
+- Migration 075 requires `allow_migrations` on deploy; it only replaces CHECKs and adds
+  one index (no data change).
+- Messaging, Calendar, Warehouse, Maintenance and Accounting slices build on this
+  record; each still needs its own decision and contract before its registry entry.
+
+## MOD-004 — Messaging is a runtime installation module
+
+- **Date:** 2026-11-26
+- **Status:** Accepted by the owner (review of the Messaging research, PR #518,
+  `RESEARCH_ACCEPTABLE — CONTRACT_REVISION_REQUIRED`, with the revisions applied;
+  "r0 tamamlandı. sıradaki işlere geçebiliriz. Önerin mantıklı böyle devam edelim.",
+  2026-11-26). Builds on MOD-002 and MOD-003.
+
+### Context
+
+Messaging is switched by `MESSAGING_ENABLED`, read once at startup. Customers buy
+modules separately, so the installation operator must switch Messaging without a
+restart, and a customer ADMIN must not be able to switch it.
+
+### Decision
+
+1. **Registry module.** `MESSAGING` is an installation module. Its env key is taken
+   over once and then is legacy. There is no env ceiling: Messaging has no secret or
+   infrastructure in env; Web Push stays its own channel.
+2. **Off means absent, data kept.** When off, customers experience the installation as
+   if Messaging did not exist. Messaging API answers `404`, unreadable state `503`.
+   Conversations, messages, participants, read state, notifications, push rows,
+   realtime events, idempotency receipts and audit are never deleted or rewritten by
+   the switch.
+3. **One visibility decision.** While off or unreadable: conversation notifications
+   are hidden from lists, counts and bulk actions; pending message pushes are
+   abandoned with `MODULE_DISABLED` and never revived; messaging realtime events are
+   skipped in live delivery and replay; Overview omits the unread summary.
+4. **Core keeps working.** Staff offboarding, demo-data and backup/restore stay
+   independent of the module state.
+5. **Participant lifecycle (MSG-002).** Job reassignment stays independent of
+   Messaging and membership sync stays explicit (#131), but a pending assignee sync
+   can be performed later, by any same-organization ADMIN/MANAGER who can read the
+   conversation. Offboarding replacements start with unread 0; inactive users get no
+   new message notifications.
+
+### Consequences
+
+- Contract: [docs/features/messaging-module-registry.md](docs/features/messaging-module-registry.md).
+- No migration. Delivered as MSG-001 (runtime module) and MSG-002 (participant
+  lifecycle), then MSG-003 acceptance on staging.

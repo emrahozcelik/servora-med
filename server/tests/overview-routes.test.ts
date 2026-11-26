@@ -74,4 +74,30 @@ describe('Overview HTTP route', () => {
     expect(response.json()).toMatchObject({ code: 'NOT_FOUND' });
     expect(repository.getStaffOverview).not.toHaveBeenCalled();
   });
+
+  it('returns 503 MODULE_STATE_UNAVAILABLE when module state is unreadable', async () => {
+    const app = Fastify({ logger: false });
+    const repository = { getStaffOverview: vi.fn(), getManagementOverview: vi.fn() };
+    app.setErrorHandler((error, _request, reply) => {
+      const response = toErrorResponse(error);
+      reply.code(response.statusCode).send(response.body);
+    });
+    const authenticate = async (request: FastifyRequest) => {
+      request.currentUser = actor;
+    };
+    await app.register(overviewRoutes, {
+      prefix: '/api/overview',
+      service: new OverviewService(
+        { read: async () => { throw new Error('db down'); } },
+        repository as never,
+      ),
+      authenticate,
+    });
+    apps.push(app);
+
+    const response = await app.inject({ method: 'GET', url: '/api/overview' });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ code: 'MODULE_STATE_UNAVAILABLE' });
+    expect(repository.getStaffOverview).not.toHaveBeenCalled();
+  });
 });
