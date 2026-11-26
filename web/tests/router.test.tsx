@@ -170,6 +170,17 @@ describe('application routes', () => {
     expect(disabled).not.toContain('Haftalık planlama');
   });
 
+  it('gates the messages route without redirect loops', async () => {
+    const enabled = {
+      ...staff,
+      capabilities: { ...staff.capabilities, messaging: true },
+    };
+    expect(await render('/messages', enabled)).toContain('Mesajlar yükleniyor');
+    const disabled = await render('/messages', staff);
+    expect(disabled).toContain('İşler');
+    expect(disabled).not.toContain('Mesajlar yükleniyor');
+  });
+
   it('renders configured support links without exposing arbitrary protocols', async () => {
     const html = await render('/help', staff);
     expect(html).toContain('mailto:support@example.com');
