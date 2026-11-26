@@ -1,35 +1,18 @@
 import { AppError } from '../../errors/index.js';
 import type { JobCard, JobCardActor, SubmissionRequirement } from '../job-cards/types.js';
 import { mapReport, type WeeklyReportRow, type WeeklyReportSubmissionRow } from './repository.js';
-import { mapSourceWorkRow, weekInstants } from './source-work.js';
+import { mapSourceWorkRow, readWeeklySourceWork, type WeeklyReportSourceWorkReader } from './source-work.js';
 import type {
   ManagerAnswer,
   ManagerQuestion,
   SourceWorkSnapshotItem,
-  WeeklyReport,
   WeeklyReportSubmittedBody,
-  WeeklySourceWorkRow,
 } from './types.js';
 import {
   validateSourceWorkSnapshot,
   validateSubmissionAnswers,
   validateSubmissionBody,
 } from './validation.js';
-
-interface WeeklyReportSourceWorkReader {
-  getOrganizationTimezone(organizationId: string): Promise<string>;
-  /**
-   * Bounded one-week source-work candidate rows for a Weekly Report
-   * (org-local [weekStart, weekEnd), assigned staff, non-weekly types,
-   * submittable statuses). Single query, deterministic order, no N+1.
-   */
-  listWeeklySourceWorkSnapshot(input: {
-    organizationId: string;
-    staffUserId: string;
-    weekStart: Date;
-    weekEnd: Date;
-  }): Promise<WeeklySourceWorkRow[]>;
-}
 
 export interface WeeklyReportSubmissionReader extends WeeklyReportSourceWorkReader {
   /**
@@ -86,17 +69,6 @@ export interface WeeklyReportSubmissionWriter extends WeeklyReportSourceWorkRead
   insertWeeklyReportSubmissionRow(
     input: WeeklyReportSubmissionInsert,
   ): Promise<{ submission: WeeklyReportSubmissionRow; reportVersion: number }>;
-}
-
-async function readWeeklySourceWork(
-  reader: WeeklyReportSourceWorkReader,
-  organizationId: string,
-  staffUserId: string,
-  report: Pick<WeeklyReport, 'periodStart' | 'periodEnd'>,
-): Promise<WeeklySourceWorkRow[]> {
-  const timezone = await reader.getOrganizationTimezone(organizationId);
-  const { weekStart, weekEnd } = weekInstants(report.periodStart, report.periodEnd, timezone);
-  return reader.listWeeklySourceWorkSnapshot({ organizationId, staffUserId, weekStart, weekEnd });
 }
 
 /**

@@ -9,6 +9,7 @@ import type {
   WeeklyReportDraftBody,
   WeeklyReportSubmittedBody,
   WeeklyReportSubmission,
+  WeeklySourceWorkRow,
 } from './types.js';
 import {
   parsePeriodStart,
@@ -152,6 +153,72 @@ export const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_us
   draft_highlights, draft_field_observations, draft_support_needed,
   manager_questions, manager_answers, version, created_at, updated_at,
   removed_at, removed_by, removal_reason`;
+
+export const WEEKLY_REPORT_SUBMISSION_COLUMNS = `id, organization_id, weekly_report_id,
+  job_card_id, seq_no, submitted_by, submitted_at, period_start, period_end,
+  frozen_body, frozen_questions, frozen_answers, frozen_source_work,
+  job_version, source_activity_id, created_at`;
+
+/**
+ * Shared weekly-report read helpers: the same SQL runs on the pool
+ * (standalone reads) and on a request transaction client (submit path
+ * observes one MVCC snapshot). FOR UPDATE only inside a transaction.
+ */
+export async function selectWeeklyReportByJob(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  jobCardId: string,
+  forUpdate: boolean,
+): Promise<WeeklyReportRow | null> {
+  const result = await executor.query<WeeklyReportRow>(
+    `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
+     WHERE organization_id = $1 AND job_card_id = $2${forUpdate ? ' FOR UPDATE' : ''}`,
+    [organizationId, jobCardId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function selectWeeklySourceWork(
+  executor: WeeklyQueryable,
+  input: {
+    organizationId: string;
+    staffUserId: string;
+    weekStart: Date;
+    weekEnd: Date;
+  },
+): Promise<WeeklySourceWorkRow[]> {
+  const result = await executor.query<WeeklySourceWorkRow>(
+    `SELECT jc.id AS "jobCardId", jc.type AS type, jc.title AS title,
+            c.name AS "customerName",
+            jc.staff_completed_at AS "staffCompletedAt", jc.status AS status
+       FROM job_cards jc
+       LEFT JOIN customers c
+         ON c.organization_id = jc.organization_id AND c.id = jc.customer_id
+      WHERE jc.organization_id = $1
+        AND jc.assigned_to = $2
+        AND jc.type <> 'WEEKLY_REPORT'
+        AND jc.staff_completed_at >= $3
+        AND jc.staff_completed_at < $4
+        AND jc.status IN ('WAITING_APPROVAL', 'COMPLETED')
+      ORDER BY jc.staff_completed_at ASC, jc.id ASC`,
+    [input.organizationId, input.staffUserId, input.weekStart, input.weekEnd],
+  );
+  return result.rows;
+}
+
+export async function selectWeeklyReportSubmissionBySeq(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  reportId: string,
+  seqNo: number,
+): Promise<WeeklyReportSubmissionRow | null> {
+  const result = await executor.query<WeeklyReportSubmissionRow>(
+    `SELECT ${WEEKLY_REPORT_SUBMISSION_COLUMNS} FROM weekly_report_submissions
+      WHERE organization_id = $1 AND weekly_report_id = $2 AND seq_no = $3`,
+    [organizationId, reportId, seqNo],
+  );
+  return result.rows[0] ?? null;
+}
 
 export async function findWeeklyReportByStaffWeek(
   executor: WeeklyQueryable,

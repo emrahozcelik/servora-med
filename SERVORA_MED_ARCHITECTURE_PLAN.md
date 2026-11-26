@@ -131,6 +131,12 @@ staff/week identity and report row. JobCard owns the ordered assignee locks,
 initial card state and `JOB_CREATED` activity. The card, report, activity and
 idempotency receipt commit in one transaction.
 
+Weekly Report detail, submission history and PDF rendering live in
+`weekly-reports/read.ts`. The read service uses the owning JobCard's status
+and assignee to scope access. Detail reads live work for the stored reporting
+period while editable. History and PDF use immutable submissions, with PDF
+selecting the requested sequence and resolving the submitter's display name.
+
 ## 6. Frontend Contract
 
 | Area | Responsibility |

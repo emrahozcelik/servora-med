@@ -3,6 +3,7 @@ import { AppError } from '../../errors/index.js';
 import { addCalendarDaysToDateKey, instantFromLocal } from '../job-cards/local-calendar.js';
 import type {
   SourceWorkSnapshotItem,
+  WeeklyReport,
   WeeklySourceWorkRow,
 } from './types.js';
 
@@ -23,6 +24,32 @@ export function weekInstants(
     weekStart: instantFromLocal(periodStart, 0, 0, timezone),
     weekEnd: instantFromLocal(addCalendarDaysToDateKey(periodEnd, 1), 0, 0, timezone),
   };
+}
+
+export interface WeeklyReportSourceWorkReader {
+  getOrganizationTimezone(organizationId: string): Promise<string>;
+  /**
+   * Bounded one-week source-work candidate rows for a Weekly Report
+   * (org-local [weekStart, weekEnd), assigned staff, non-weekly types,
+   * submittable statuses). Single query, deterministic order, no N+1.
+   */
+  listWeeklySourceWorkSnapshot(input: {
+    organizationId: string;
+    staffUserId: string;
+    weekStart: Date;
+    weekEnd: Date;
+  }): Promise<WeeklySourceWorkRow[]>;
+}
+
+export async function readWeeklySourceWork(
+  reader: WeeklyReportSourceWorkReader,
+  organizationId: string,
+  staffUserId: string,
+  report: Pick<WeeklyReport, 'periodStart' | 'periodEnd'>,
+): Promise<WeeklySourceWorkRow[]> {
+  const timezone = await reader.getOrganizationTimezone(organizationId);
+  const { weekStart, weekEnd } = weekInstants(report.periodStart, report.periodEnd, timezone);
+  return reader.listWeeklySourceWorkSnapshot({ organizationId, staffUserId, weekStart, weekEnd });
 }
 
 function weeklySourceWorkValidation(field: string): AppError {

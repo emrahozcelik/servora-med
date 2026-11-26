@@ -75,6 +75,7 @@ export { runCriticalAction };
 import type { SqlExecutor } from '../../db/executor.js';
 import type { WeeklyReportCreationTransaction } from '../weekly-reports/create.js';
 import type { WeeklyReportDraftTransaction } from '../weekly-reports/draft.js';
+import type { WeeklyReportReadRepository } from '../weekly-reports/read.js';
 import type {
   WeeklyReportSubmissionInsert,
   WeeklyReportSubmissionReader,
@@ -84,8 +85,12 @@ import {
   findWeeklyReportByStaffWeek,
   insertWeeklyReportRow,
   listWeeklyReportSubmissionRows as selectWeeklySubmissions,
+  selectWeeklyReportByJob,
+  selectWeeklyReportSubmissionBySeq,
+  selectWeeklySourceWork,
   updateWeeklyReportDraftRow,
   WEEKLY_REPORT_COLUMNS,
+  WEEKLY_REPORT_SUBMISSION_COLUMNS,
   type WeeklyDraftRowUpdate,
   type WeeklyReportInsert,
   type WeeklyReportRow,
@@ -1641,7 +1646,7 @@ export interface JobCardTransaction
   }): Promise<WeeklyReportRow | null>;
 }
 
-export interface JobCardRepository extends SubmissionReader {
+export interface JobCardRepository extends SubmissionReader, WeeklyReportReadRepository {
   readonly saleReads?: SaleReadPort;
   getCurrentScheduleRevision(
     organizationId: string,
@@ -1655,22 +1660,6 @@ export interface JobCardRepository extends SubmissionReader {
     organizationId: string,
     jobCardId: string,
   ): Promise<readonly AssignmentHistoryRecord[]>;
-  /** Weekly submission rows in seq order (service history read). */
-  listWeeklyReportSubmissionRows(
-    organizationId: string,
-    reportId: string,
-  ): Promise<WeeklyReportSubmissionRow[]>;
-  /**
-   * One immutable submission by its frozen seq for a report. Tenant-scoped;
-   * `null` when the report has no such seq.
-   */
-  getWeeklyReportSubmissionBySeq(
-    organizationId: string,
-    reportId: string,
-    seqNo: number,
-  ): Promise<WeeklyReportSubmissionRow | null>;
-  /** Display name for presentation metadata only (never report content). */
-  getUserDisplayName(organizationId: string, userId: string): Promise<string | null>;
   findCompletedCriticalAction<T>(
     claim: CriticalActionClaim,
   ): Promise<T | null>;
@@ -2224,58 +2213,6 @@ function mapNote(row: NoteRow): JobCardNoteDto {
 const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery_purpose,
   delivered_at, quantity, unit, product_name_snapshot, product_sku_snapshot,
   product_model_snapshot, lot_no, serial_no, expiry_date::text AS expiry_date, delivery_note`;
-const WEEKLY_REPORT_SUBMISSION_COLUMNS = `id, organization_id, weekly_report_id,
-  job_card_id, seq_no, submitted_by, submitted_at, period_start, period_end,
-  frozen_body, frozen_questions, frozen_answers, frozen_source_work,
-  job_version, source_activity_id, created_at`;
-
-/**
- * Shared weekly-report read helpers: the same SQL runs on the pool
- * (standalone reads) and on a request transaction client (submit path
- * observes one MVCC snapshot). FOR UPDATE only inside a transaction.
- */
-async function selectWeeklyReportByJob(
-  executor: SqlExecutor,
-  organizationId: string,
-  jobCardId: string,
-  forUpdate: boolean,
-): Promise<WeeklyReportRow | null> {
-  const result = await executor.query<WeeklyReportRow>(
-    `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
-     WHERE organization_id = $1 AND job_card_id = $2${forUpdate ? ' FOR UPDATE' : ''}`,
-    [organizationId, jobCardId],
-  );
-  return result.rows[0] ?? null;
-}
-
-async function selectWeeklySourceWork(
-  executor: SqlExecutor,
-  input: {
-    organizationId: string;
-    staffUserId: string;
-    weekStart: Date;
-    weekEnd: Date;
-  },
-): Promise<WeeklySourceWorkRow[]> {
-  const result = await executor.query<WeeklySourceWorkRow>(
-    `SELECT jc.id AS "jobCardId", jc.type AS type, jc.title AS title,
-            c.name AS "customerName",
-            jc.staff_completed_at AS "staffCompletedAt", jc.status AS status
-       FROM job_cards jc
-       LEFT JOIN customers c
-         ON c.organization_id = jc.organization_id AND c.id = jc.customer_id
-      WHERE jc.organization_id = $1
-        AND jc.assigned_to = $2
-        AND jc.type <> 'WEEKLY_REPORT'
-        AND jc.staff_completed_at >= $3
-        AND jc.staff_completed_at < $4
-        AND jc.status IN ('WAITING_APPROVAL', 'COMPLETED')
-      ORDER BY jc.staff_completed_at ASC, jc.id ASC`,
-    [input.organizationId, input.staffUserId, input.weekStart, input.weekEnd],
-  );
-  return result.rows;
-}
-
 type WeeklyReportHistoryRow = {
   removed_at: Date | null;
   report_id: string;
@@ -6231,17 +6168,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     return selectWeeklySubmissions(this.pool, organizationId, reportId);
   }
 
-  async getWeeklyReportSubmissionBySeq(
-    organizationId: string,
-    reportId: string,
-    seqNo: number,
-  ): Promise<WeeklyReportSubmissionRow | null> {
-    const result = await this.pool.query<WeeklyReportSubmissionRow>(
-      `SELECT ${WEEKLY_REPORT_SUBMISSION_COLUMNS} FROM weekly_report_submissions
-        WHERE organization_id = $1 AND weekly_report_id = $2 AND seq_no = $3`,
-      [organizationId, reportId, seqNo],
-    );
-    return result.rows[0] ?? null;
+  getWeeklyReportSubmissionBySeq(organizationId: string, reportId: string, seqNo: number) {
+    return selectWeeklyReportSubmissionBySeq(this.pool, organizationId, reportId, seqNo);
   }
 
   async getUserDisplayName(organizationId: string, userId: string): Promise<string | null> {
