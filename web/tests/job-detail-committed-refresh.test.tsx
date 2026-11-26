@@ -673,9 +673,40 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(getComputedStyle(sectionAlert!).display).not.toBe('none');
   });
 
-  it('GET 404 after a committed patch keeps the previous terminal error path', async () => {
+  it('saveJobPatch (page): a 403 on the post-commit read ends in the access-lost state, not a mutation failure', async () => {
+    const card = meetingJob();
+    const { fetch, patches } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) return Response.json({ error: 'Bu işe erişiminiz yok.', code: 'FORBIDDEN' }, { status: 403 });
+      return Response.json(card);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görüşmeyi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.textContent).not.toContain('Görüşme bilgileri güncellendi.');
+    expect(host.textContent).not.toContain('İş güncellenemedi.');
+    expect(host.textContent).not.toContain('Güncel kayıt henüz yüklenemedi.');
+    // The stale record must not stay on screen and the mutation is not retried.
+    expect(host.querySelector('[data-job-detail="true"]')).toBeNull();
+    expect(host.querySelector('[data-job-decision-panel="true"]')).toBeNull();
+    expect(host.querySelector('#meeting-edit-title')).toBeNull();
+    expect(buttonByName(host, 'Tekrar dene')).toBeNull();
+    expect(patches).toHaveLength(1);
+  });
+
+  it('saveJobPatch (errorOwner form): a 404 on the post-commit read never reaches the form as a field error', async () => {
     const card = generalTask();
-    const { fetch } = detailFetch(card, (ordinal) => {
+    const { fetch, patches } = detailFetch(card, (ordinal) => {
       if (ordinal === 2) return Response.json({ error: 'İş bulunamadı.', code: 'NOT_FOUND' }, { status: 404 });
       return Response.json(card);
     });
@@ -690,11 +721,128 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
       await settle();
     });
 
+    expect(patches).toHaveLength(1);
     expect(committedNotice(host)).toBeNull();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('İş bulunamadı.');
-    const formSection = host.querySelector('.general-task-edit-form') as HTMLElement | null;
-    expect(formSection).not.toBeNull();
-    expect(formSection?.textContent).toContain('İş bulunamadı.');
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.querySelector('.general-task-edit-form')).toBeNull();
+    expect(host.querySelector('form.task-form')).toBeNull();
+    expect(host.textContent).not.toContain('İş bulunamadı.');
+    expect(host.textContent).not.toContain('İş güncellenemedi.');
+  });
+
+  it('lifecycle dialog command: a 403 on the post-commit read ends in the access-lost state', async () => {
+    const card = deliveryJob();
+    const cancelled: JobCard = {
+      ...card,
+      status: 'CANCELLED',
+      version: card.version + 1,
+      workflowContext: staffContext('CANCELLED', {
+        cancelledAt: '2026-11-12T12:00:00.000Z',
+        cancelReason: 'Müşteri vazgeçti',
+        cancelledFromStatus: 'NEW',
+      }, { allowedActions: [] }),
+    };
+    let cancelCalls = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.includes('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith(`/api/job-cards/${card.id}/cancel`) && method === 'POST') {
+        cancelCalls += 1;
+        if (cancelCalls === 1) throw new TypeError('network');
+        return Response.json(cancelled);
+      }
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        if (detailGets === 2) return Response.json({ error: 'Bu işe erişiminiz yok.', code: 'FORBIDDEN' }, { status: 403 });
+        return Response.json(card);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reason = Array.from(dialog.querySelectorAll<HTMLTextAreaElement>('textarea')).at(-1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Müşteri vazgeçti');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'İşi iptal et')?.click();
+      await settle();
+    });
+    const retryDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => {
+      buttonByName(retryDialog, 'Özgün isteği tekrar dene')?.click();
+      await settle();
+    });
+
+    // The exact retained attempt was replayed once; the failed read never
+    // re-sends it and never renders the old record as a live one.
+    expect(cancelCalls).toBe(2);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.textContent).not.toContain('İş iptal edildi.');
+    expect(host.textContent).not.toContain('İşlem tamamlanamadı');
+    expect(host.querySelector('[data-job-detail="true"]')).toBeNull();
+  });
+
+  it('saveMeeting: a 404 on the post-commit read ends in the access-lost state without a section error', async () => {
+    const card = meetingJob();
+    let meetingPatches = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.includes('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/meeting-details') && method === 'PATCH') {
+        meetingPatches += 1;
+        return Response.json({ ...meetingDetails, jobCardVersion: card.version + 1 });
+      }
+      if (url.includes('/meeting-details')) {
+        return Response.json({ ...meetingDetails, jobCardVersion: card.version });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        if (detailGets === 2) return Response.json({ error: 'İş bulunamadı.', code: 'NOT_FOUND' }, { status: 404 });
+        return Response.json(card);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    const summary = host.querySelector('#meeting-summary') as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(summary, 'Güncel görüşme özeti');
+      summary.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşme sonucunu kaydet')?.click();
+      await settle();
+    });
+
+    expect(meetingPatches).toBe(1);
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.textContent).not.toContain('Görüşme sonucu kaydedildi.');
+    expect(host.textContent).not.toContain('Görüşme sonucu kaydedilemedi.');
+    expect(host.querySelector('.meeting-details')).toBeNull();
   });
 
   it('mutation 400 and 403 still fail inline without a committed notice', async () => {
@@ -880,6 +1028,314 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(committedNotice(host)).toBeNull();
     expect(patches).toHaveLength(1);
     expect(detailGets).toBe(4);
+  });
+
+  it('a committed-stale record cannot start new critical actions until the reload clears it', async () => {
+    const card = generalTask();
+    const newest: JobCard = { ...card, version: 6, title: 'Yenilemeden sonraki güncel görev' };
+    const { fetch, patches } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) throw new TypeError('network');
+      return Response.json(newest);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
+    expect(patches).toHaveLength(1);
+    const lockedActions = Array.from(
+      host.querySelectorAll<HTMLButtonElement>('[data-job-decision-panel="true"] button'),
+    );
+    expect(lockedActions.length).toBeGreaterThan(0);
+    expect(lockedActions.every((button) => button.disabled)).toBe(true);
+    const editButton = host.querySelector<HTMLButtonElement>('.detail-action-record-edit button');
+    expect(editButton).not.toBeNull();
+    expect(editButton!.disabled).toBe(true);
+    const reload = buttonByName(notice!, 'Güncel durumu yenile') as HTMLButtonElement;
+    expect(reload).not.toBeNull();
+    expect(reload.disabled).toBe(false);
+
+    await act(async () => {
+      reload.click();
+      await settle();
+    });
+
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('Yenilemeden sonraki güncel görev');
+    const unlockedEdit = host.querySelector<HTMLButtonElement>('.detail-action-record-edit button');
+    expect(unlockedEdit).not.toBeNull();
+    expect(unlockedEdit!.disabled).toBe(false);
+    expect(unlockedEdit!.textContent).toContain('Görevi düzenle');
+    expect(Array.from(host.querySelectorAll<HTMLButtonElement>('[data-job-decision-panel="true"] button'))
+      .every((button) => !button.disabled)).toBe(true);
+    expect(patches).toHaveLength(1);
+  });
+
+  it('saveJobPatch: a failed realtime drain after a fresh read keeps the committed receipt', async () => {
+    const card = generalTask();
+    const source = new FakeRealtimeEventSource();
+    const { fetch, patches, detailGets } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) {
+        // The invalidation arrives while the canonical issued re-read is in
+        // flight, so that read cannot reconcile it; the drain must.
+        source.emitJobUpdate('1');
+        return Response.json(card);
+      }
+      if (ordinal === 3) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+      return Response.json(card);
+    });
+    await renderScreen(card, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    expect(patches).toHaveLength(1);
+    const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain('Görev bilgileri güncellendi.');
+    expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(patches).toHaveLength(1);
+    expect(detailGets()).toBe(3);
+  });
+
+  it('schedule save: a failed realtime drain after a fresh read keeps the committed receipt', async () => {
+    const card = deliveryJob();
+    const source = new FakeRealtimeEventSource();
+    const { fetch, patches, detailGets } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) {
+        source.emitJobUpdate('1');
+        return Response.json(card);
+      }
+      if (ordinal === 3) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+      return Response.json(card);
+    });
+    await renderScreen(card, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'Planlanan zamanı kaydet')?.click();
+      await settle();
+    });
+
+    expect(patches).toHaveLength(1);
+    const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain('Planlanan zaman güncellendi.');
+    expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(host.textContent).not.toContain('Planlanan zaman kaydedilemedi.');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(patches).toHaveLength(1);
+    expect(detailGets()).toBe(3);
+  });
+
+  it('single delivered-at save: committed with a failed read shows the action receipt', async () => {
+    const card = deliveryJob();
+    const pendingItem: DeliveryItem = {
+      ...item, id: 'i1', productNameSnapshot: 'İmplant Seti', deliveredAt: null,
+    };
+    let itemPatches = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.endsWith('/delivery-items/i1') && method === 'PATCH') {
+        itemPatches += 1;
+        return Response.json({
+          item: { ...pendingItem, deliveredAt: '2026-11-20T12:00:00.000Z' },
+          jobCardVersion: card.version + 1,
+        });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [pendingItem] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        if (detailGets === 2) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+        return Response.json(card);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    const input = host.querySelector('#delivery-actual-at-i1') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(input, '2026-11-20T12:00');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.delivery-actual-time-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    expect(itemPatches).toBe(1);
+    const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain('Gerçekleşen teslim zamanı kaydedildi.');
+    expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(host.textContent).not.toContain('Gerçekleşen teslim zamanı kaydedilemedi.');
+    expect(document.activeElement).toBe(notice);
+  });
+
+  it('batch delivered-at save: all items saved with a failed read shows the batch receipt', async () => {
+    const card = deliveryJob();
+    const pendingItems: DeliveryItem[] = [
+      { ...item, id: 'i1', productNameSnapshot: 'İmplant Seti', deliveredAt: null },
+      { ...item, id: 'i2', productNameSnapshot: 'Abutment Seti', deliveredAt: null },
+    ];
+    let itemPatches = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.includes('/delivery-items/i') && method === 'PATCH') {
+        itemPatches += 1;
+        const target = pendingItems[itemPatches - 1]!;
+        return Response.json({
+          item: { ...target, deliveredAt: '2026-11-20T12:00:00.000Z' },
+          jobCardVersion: card.version + itemPatches,
+        });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: pendingItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        if (detailGets === 2) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+        return Response.json({ ...card, version: card.version + 2 });
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Boş kalemlere şimdiki saati uygula')?.click();
+      await settle();
+    });
+
+    expect(itemPatches).toBe(2);
+    const notice = committedNotice(host);
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain('2 kalem için gerçekleşen teslim zamanı kaydedildi.');
+    expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(host.textContent).not.toContain('kalem kaydedilemedi');
+  });
+
+  it('batch delivered-at save: a definitive per-item error keeps the partial count message', async () => {
+    const card = deliveryJob();
+    const pendingItems: DeliveryItem[] = [
+      { ...item, id: 'i1', productNameSnapshot: 'İmplant Seti', deliveredAt: null },
+      { ...item, id: 'i2', productNameSnapshot: 'Abutment Seti', deliveredAt: null },
+    ];
+    let itemPatches = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.endsWith('/delivery-items/i1') && method === 'PATCH') {
+        itemPatches += 1;
+        return Response.json({
+          item: { ...pendingItems[0], deliveredAt: '2026-11-20T12:00:00.000Z' },
+          jobCardVersion: card.version + 1,
+        });
+      }
+      if (url.endsWith('/delivery-items/i2') && method === 'PATCH') {
+        itemPatches += 1;
+        return Response.json({ error: 'İş başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT' }, { status: 409 });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: pendingItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        return Response.json(card);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Boş kalemlere şimdiki saati uygula')?.click();
+      await settle();
+    });
+
+    expect(itemPatches).toBe(2);
+    expect(detailGets).toBe(2);
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain('1/2 kalem kaydedildi; sonraki adımda hata oluştu:');
+    expect(host.textContent).toContain('İş başka bir işlemle güncellendi.');
+    expect(host.textContent).not.toContain('doğrulanamadı');
+  });
+
+  it('batch delivered-at save: an ambiguous per-item error reports an unknown outcome without a retry', async () => {
+    const card = deliveryJob();
+    const pendingItems: DeliveryItem[] = [
+      { ...item, id: 'i1', productNameSnapshot: 'İmplant Seti', deliveredAt: null },
+      { ...item, id: 'i2', productNameSnapshot: 'Abutment Seti', deliveredAt: null },
+    ];
+    let itemPatches = 0;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/notifications/read-by-entity')) return Response.json({});
+      if (url.endsWith('/delivery-items/i1') && method === 'PATCH') {
+        itemPatches += 1;
+        return Response.json({
+          item: { ...pendingItems[0], deliveredAt: '2026-11-20T12:00:00.000Z' },
+          jobCardVersion: card.version + 1,
+        });
+      }
+      if (url.endsWith('/delivery-items/i2') && method === 'PATCH') {
+        itemPatches += 1;
+        throw new TypeError('network');
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: pendingItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (detailUrlMatches(url, card.id)) {
+        detailGets += 1;
+        return Response.json(card);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Boş kalemlere şimdiki saati uygula')?.click();
+      await settle();
+    });
+
+    // The ambiguous attempt is never retried automatically.
+    expect(itemPatches).toBe(2);
+    expect(detailGets).toBe(2);
+    expect(committedNotice(host)).toBeNull();
+    expect(host.textContent).toContain(
+      '1/2 kalem kaydedildi; sonraki kalemin sonucu doğrulanamadı. Güncel durumu yenileyip kontrol edin.',
+    );
+    expect(host.textContent).not.toContain('Gerçekleşen teslim zamanı kaydedilemedi.');
   });
 
   it('styles the notice with warning tokens, rem type and a 44px-class action', () => {

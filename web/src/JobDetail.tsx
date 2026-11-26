@@ -172,7 +172,7 @@ import {
   StaffFollowUpProposalNotice,
   SystemSelectedFollowUpNotice,
 } from './jobs/FollowUpContinuity';
-import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
+import { isAmbiguousMutationError, isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 
 type StaffCommand = 'start' | 'submit';
 type CommandDependencies = {
@@ -2049,10 +2049,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   /**
    * UI-FEEDBACK/A: keep the committed receipt separate from its canonical
    * re-read. `refreshTruth` stays the single serialized reconciliation path;
-   * this wrapper only classifies its outcome. A 403/404 keeps the handler's
-   * previous terminal path (the caller re-reads it as before). Any other read
-   * failure is not a mutation failure: the notice offers the existing serialized
-   * reload instead of starting a second read pipeline or retrying the mutation.
+   * this wrapper only classifies its outcome. A 403/404 after a committed
+   * mutation means access to the current record was lost: the screen becomes
+   * the terminal error state, never a mutation failure and never the stale
+   * record. Any other read failure is not a mutation failure: the notice offers
+   * the existing serialized reload instead of starting a second read pipeline
+   * or retrying the mutation.
    */
   async function refreshAfterCommit(successMessage: string): Promise<'fresh' | 'stale' | 'inactive'> {
     const operationJobId = jobId;
@@ -2062,12 +2064,38 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     } catch (caught) {
       if (!isOperationCurrent(operationSession, operationJobId)) return 'inactive';
       if (caught instanceof ApiError && (caught.status === 403 || caught.status === 404)) {
-        throw caught;
+        setState({
+          kind: 'error',
+          message: 'İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.',
+          retryable: false,
+        });
+        setCommittedStale(null);
+        setMessage('');
+        setMessageIsError(false);
+        return 'inactive';
       }
       setCommittedStale({ message: successMessage });
       setMessage('');
       return 'stale';
     }
+  }
+
+  /**
+   * UI-FEEDBACK/A P2-a: a successful canonical read does not by itself settle
+   * queued realtime invalidations. `requestRealtimeDrain` reports whether this
+   * continuation is still current, not whether its chain reconciled; a failed
+   * chain leaves the invalidation pending and sets the realtime-stale state. The
+   * committed receipt must not disappear in that case, so this wrapper moves it
+   * to the committed-stale notice. The drain itself is unchanged.
+   */
+  async function drainAfterCommit(successMessage: string): Promise<'settled' | 'stale' | 'inactive'> {
+    if (!(await requestRealtimeDrain())) return 'inactive';
+    if (hasPendingRealtimeInvalidation()) {
+      setCommittedStale({ message: successMessage });
+      setMessage('');
+      return 'stale';
+    }
+    return 'settled';
   }
 
   async function reconcileInvalidationAttempt(
@@ -2508,7 +2536,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (retained || (state.detail.kind === 'SALES_MEETING' && command === 'START')) {
         read = await refreshAfterCommit(committedMessage);
         if (read === 'inactive') return;
-        if (read === 'fresh' && !(await requestRealtimeDrain())) return;
+        if (read === 'fresh') {
+          const drain = await drainAfterCommit(committedMessage);
+          if (drain === 'inactive') return;
+          if (drain === 'stale') read = 'stale';
+        }
       } else {
         setState({
           kind: 'ready',
@@ -2720,11 +2752,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     try {
       const meetingDetails = await patchMeetingDetails(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return meetingDetails;
-      const read = await refreshAfterCommit('Görüşme sonucu kaydedildi.');
+      let read = await refreshAfterCommit('Görüşme sonucu kaydedildi.');
+      if (read === 'inactive') return meetingDetails;
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit('Görüşme sonucu kaydedildi.');
+        if (drain === 'inactive') return meetingDetails;
+        if (drain === 'stale') read = 'stale';
+      }
       // The page notice now owns this receipt; the section skips its own note.
       meetingReceiptOnPageRef.current = read === 'stale';
-      if (read === 'inactive') return meetingDetails;
-      if (read === 'fresh' && !(await requestRealtimeDrain())) return meetingDetails;
       setTimelineKey((value) => value + 1);
       if (read === 'stale') setFeedbackFocusRequest((value) => value + 1);
       onChanged();
@@ -2743,7 +2779,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     } finally { endMutationOperation(owner); }
   }
   function openRecordEditDialog(action: RecordEditPresentation['action'], trigger: HTMLElement) {
-    if (state.kind !== 'ready'
+    if (state.kind !== 'ready' || committedStale !== null
       || !['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'].includes(state.detail.kind)) return;
     if (action === 'EDIT_JOB_FIELDS') {
       setDeadlineExtensionError(null);
@@ -2882,15 +2918,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         ? { ...input, ...pastStartAcknowledgementPayload(acknowledgement) }
         : input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return false;
-      const read = await refreshAfterCommit(successMessage);
+      let read = await refreshAfterCommit(successMessage);
       if (read === 'inactive') return false;
       setEditing(false); setTimelineKey((value) => value + 1);
       if (read === 'fresh') {
-        if (!(await requestRealtimeDrain())) return false;
-        setMessage(successMessage);
-      } else {
-        setFeedbackFocusRequest((value) => value + 1);
+        const drain = await drainAfterCommit(successMessage);
+        if (drain === 'inactive') return false;
+        if (drain === 'stale') read = 'stale';
       }
+      if (read === 'fresh') setMessage(successMessage);
+      else setFeedbackFocusRequest((value) => value + 1);
       onChanged();
       if (
         patched.assignmentTransitionId
@@ -3018,9 +3055,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         ...pastStartAcknowledgementPayload(acknowledgement),
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      const read = await refreshAfterCommit('Planlanan zaman güncellendi.');
+      let read = await refreshAfterCommit('Planlanan zaman güncellendi.');
       if (read === 'inactive') return;
-      if (read === 'fresh' && !(await requestRealtimeDrain())) return;
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit('Planlanan zaman güncellendi.');
+        if (drain === 'inactive') return;
+        if (drain === 'stale') read = 'stale';
+      }
       setTimelineKey((value) => value + 1);
       if (read === 'fresh') setMessage('Planlanan zaman güncellendi.');
       else setScheduleCommittedSignal((value) => value + 1);
@@ -3103,9 +3144,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         deliveredAt,
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      const read = await refreshAfterCommit('Gerçekleşen teslim zamanı kaydedildi.');
+      let read = await refreshAfterCommit('Gerçekleşen teslim zamanı kaydedildi.');
       if (read === 'inactive') return;
-      if (read === 'fresh' && !(await requestRealtimeDrain())) return;
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit('Gerçekleşen teslim zamanı kaydedildi.');
+        if (drain === 'inactive') return;
+        if (drain === 'stale') read = 'stale';
+      }
       setTimelineKey((value) => value + 1);
       if (read === 'fresh') setMessage('Gerçekleşen teslim zamanı kaydedildi.');
       else setFeedbackFocusRequest((value) => value + 1);
@@ -3155,6 +3200,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setCommittedStale(null);
     let expectedVersion = state.detail.job.version;
     let savedCount = 0;
+    const receipt = `${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`;
     try {
       for (const entry of entries) {
         const updated = await patchDeliveryItem(operationJobId, entry.id, {
@@ -3165,11 +3211,14 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         expectedVersion = updated.jobCardVersion;
         savedCount += 1;
       }
-      const read = await refreshAfterCommit(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
+      const read = await refreshAfterCommit(receipt);
       if (read === 'inactive') return;
-      if (read === 'fresh' && !(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
-      if (read === 'fresh') setMessage(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit(receipt);
+        if (drain === 'inactive') return;
+        if (drain !== 'stale') setMessage(receipt);
+      }
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
@@ -3190,10 +3239,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         : caught instanceof ApiError
           ? caught.message
           : 'Gerçekleşen teslim zamanı kaydedilemedi.';
+      // An ambiguous per-item outcome may already be committed on the server:
+      // never report it as a failure, and never retry it automatically.
+      const ambiguous = isAmbiguousMutationError(caught);
       setMessage(
         savedCount > 0
-          ? `${savedCount}/${entries.length} kalem kaydedildi; sonraki adımda hata oluştu: ${errorText}`
-          : errorText,
+          ? ambiguous
+            ? `${savedCount}/${entries.length} kalem kaydedildi; sonraki kalemin sonucu doğrulanamadı. Güncel durumu yenileyip kontrol edin.`
+            : `${savedCount}/${entries.length} kalem kaydedildi; sonraki adımda hata oluştu: ${errorText}`
+          : ambiguous
+            ? 'Gerçekleşen teslim zamanının sonucu doğrulanamadı. Güncel durumu yenileyip kontrol edin.'
+            : errorText,
       );
       setMessageIsError(true);
     } finally {
@@ -3201,7 +3257,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
-    if (state.kind !== 'ready' || saleCorrectionLockedRef.current) return;
+    if (state.kind !== 'ready' || saleCorrectionLockedRef.current || committedStale !== null) return;
     const presentation = presentationFor(state.detail);
     if (commandName === 'APPROVE') {
       const transition = findTransition(presentation, 'APPROVE');
@@ -3724,7 +3780,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const invalidationMutationLocked = invalidationMutation.kind === 'submitting'
     || invalidationMutation.kind === 'reconciling'
     || invalidationMutation.kind === 'retry-ready';
-  const invalidationLocked = pending || uncertain || invalidationMutationLocked || saleCorrectionLocked;
+  const invalidationLocked = pending || uncertain || invalidationMutationLocked
+    || saleCorrectionLocked || committedStale !== null;
   // JOB-010 recovery: the assignment guidance reuses the one record-edit
   // reassignment flow the decision panel already offers.
   const assignmentRecordEdit = presentationFor(detail).recordEditAction;
@@ -3738,7 +3795,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     />}
     {detail.kind === 'SALE' && detail.job.customerId && (actions.includes('EDIT_JOB_FIELDS') || saleCorrectionLocked)
       && <SaleCorrectionSection details={detail.saleDetails} customerId={detail.job.customerId}
-        disabled={pending || uncertain || invalidationMutationLocked || !actions.includes('EDIT_JOB_FIELDS')}
+        disabled={pending || uncertain || invalidationMutationLocked || committedStale !== null
+          || !actions.includes('EDIT_JOB_FIELDS')}
         onLockChange={(locked) => { saleCorrectionLockedRef.current = locked; setSaleCorrectionLocked(locked); }}
         onChanged={async () => {
           try { if (!(await refreshTruth())) throw new Error('Güncel kayıt yüklenemedi.'); onChanged(); }
@@ -3891,7 +3949,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     deadlineExtensionError={deadlineExtensionError}
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
-    mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked}
+    mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked || committedStale !== null}
     pairGuidance={pairGuidance ? <SalePairGuidanceNotice guidance={pairGuidance} /> : undefined}
     pairManagedCommand={detail.kind === 'SALE' && !saleOriginPending
       && detail.saleDetails.sourceVisit.kind === 'SALE_FROM_VISIT'

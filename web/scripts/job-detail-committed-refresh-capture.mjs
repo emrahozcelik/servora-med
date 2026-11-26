@@ -75,8 +75,9 @@ async function startServer() {
   });
 }
 
-async function openCase(browser, url, viewport) {
+async function openCase(browser, url, viewport, options = {}) {
   const page = await browser.newPage({ viewport });
+  if (options.reducedMotion) await page.emulateMedia({ reducedMotion: options.reducedMotion });
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error?.message ?? error)));
   await page.goto(url, { waitUntil: 'load' });
@@ -108,6 +109,22 @@ async function measure(page) {
         ...box(element),
       };
     };
+    // P3: the notice must render without depending on motion. Record the
+    // computed shorthand and its longhands so reduced-motion evidence can prove
+    // that no transition/animation is carrying the message.
+    const motion = (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const style = getComputedStyle(element);
+      return {
+        transition: style.transition,
+        transitionProperty: style.transitionProperty,
+        transitionDuration: style.transitionDuration,
+        animation: style.animation,
+        animationName: style.animationName,
+        animationDuration: style.animationDuration,
+      };
+    };
     const notice = document.querySelector('[data-job-detail-committed-refresh="true"]');
     const button = notice?.querySelector('button') ?? null;
     return {
@@ -124,6 +141,8 @@ async function measure(page) {
       help: type('.detail-feedback-stale-help'),
       button: type('.detail-feedback-stale > button'),
       buttonLabel: button?.textContent?.trim() ?? null,
+      noticeMotion: motion('[data-job-detail-committed-refresh="true"]'),
+      buttonMotion: motion('.detail-feedback-stale > button'),
     };
   });
 }
@@ -196,6 +215,31 @@ try {
     `200% retry target must grow past 88px, got ${text200Measure.button?.height}`);
   invariant((text200Measure.notice?.scrollWidth ?? 0) <= (text200Measure.notice?.clientWidth ?? 0) + 1,
     'notice must not clip at 200% text');
+
+  // P3: `prefers-reduced-motion: reduce` must not change or hide the result:
+  // the copy, the action and its 44px target stay rendered, and the notice and
+  // button carry no motion of their own.
+  const reduced = await openCase(browser, url, MOBILE, { reducedMotion: 'reduce' });
+  const reducedMeasure = await measure(reduced.page);
+  await capture(reduced.page, 'job-detail-committed-refresh-390-reduced-motion');
+  rows.push({ case: 'reduced-motion-390', ...reducedMeasure });
+  invariant(reduced.errors.length === 0, `reduced-motion page errors: ${reduced.errors.join(' | ')}`);
+  invariant(reducedMeasure.notice?.text?.includes('Planlanan zaman güncellendi.'),
+    'reduced-motion notice must keep the committed receipt');
+  invariant(reducedMeasure.notice?.text?.includes('Güncel kayıt henüz yüklenemedi.'),
+    'reduced-motion notice must keep the failed-read statement');
+  invariant(reducedMeasure.buttonLabel === 'Güncel durumu yenile',
+    'reduced-motion action must stay the serialized reload');
+  invariant((reducedMeasure.button?.height ?? 0) >= 44,
+    `reduced-motion retry target must be >= 44px, got ${reducedMeasure.button?.height}`);
+  invariant(reducedMeasure.noticeMotion?.transitionProperty === 'none',
+    `reduced-motion notice transition must be none, got ${reducedMeasure.noticeMotion?.transition}`);
+  invariant(reducedMeasure.noticeMotion?.animationName === 'none',
+    `reduced-motion notice animation must be none, got ${reducedMeasure.noticeMotion?.animation}`);
+  invariant(reducedMeasure.buttonMotion?.transitionProperty === 'none',
+    `reduced-motion button transition must be none, got ${reducedMeasure.buttonMotion?.transition}`);
+  invariant(reducedMeasure.buttonMotion?.animationName === 'none',
+    `reduced-motion button animation must be none, got ${reducedMeasure.buttonMotion?.animation}`);
 } finally {
   await browser.close();
   await new Promise((resolveClose) => server.close(resolveClose));
