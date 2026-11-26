@@ -6,6 +6,8 @@ import Fastify, { type preHandlerHookHandler } from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 
+import { moduleGate } from '../src/modules/installation-modules/gate.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { MessagingService } from '../src/modules/messaging/service.js';
 import { messagingRoutes } from '../src/modules/messaging/routes.js';
 import { toErrorResponse } from '../src/errors/index.js';
@@ -148,6 +150,7 @@ async function withLookupApp(pool: Pool, actor: SafeUser) {
     prefix: '/api/messaging',
     service: svc,
     authenticate,
+    gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
   });
   return app;
 }
@@ -161,7 +164,7 @@ async function getLookup(app: Awaited<ReturnType<typeof withLookupApp>>, jobId: 
 }
 
 function service(pool: Pool): MessagingService {
-  return new MessagingService(pool, true);
+  return new MessagingService(pool);
 }
 
 async function createCanonical(
@@ -334,12 +337,29 @@ describe('M5 exact JOB conversation lookup (GET /api/messaging/conversations/job
     });
   });
 
-  itSlow('service-level: messaging disabled returns 404 and no metadata', async () => {
+  itSlow('route-level: messaging disabled returns 404 and no metadata', async () => {
     await withFixture(async ({ pool, adminA, activeJob1A }) => {
-      const disabled = new MessagingService(pool, false);
-      await expect(
-        disabled.getJobConversation(adminA, activeJob1A),
-      ).rejects.toMatchObject({ statusCode: 404 });
+      const app = Fastify({ logger: false });
+      app.setErrorHandler((error, _request, reply) => {
+        const response = toErrorResponse(error);
+        reply.code(response.statusCode).send(response.body);
+      });
+      const authenticate: preHandlerHookHandler = async (request) => {
+        (request as { currentUser?: SafeUser }).currentUser = adminA;
+      };
+      await app.register(messagingRoutes, {
+        prefix: '/api/messaging',
+        service: new MessagingService(pool),
+        authenticate,
+        gate: moduleGate(staticModuleStateReader({ MESSAGING: false }), 'MESSAGING'),
+      });
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/messaging/conversations/job/${activeJob1A}`,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(JSON.parse(res.body)).toMatchObject({ code: 'NOT_FOUND' });
+      await app.close();
     });
   });
 });

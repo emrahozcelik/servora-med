@@ -143,12 +143,25 @@ function createErrorText(errors: CreateErrors): string | null {
   return first ?? null;
 }
 
+function isNotFoundStatus(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 404;
+}
+
 let clientActionCounter = 0;
 function nextClientActionId(userId: string): string {
   return `msg-${userId}-${Date.now()}-${++clientActionCounter}`;
 }
 
-export function MessagingPage({ user }: { user: CurrentUser }) {
+export function MessagingPage({
+  user,
+  onUnavailable,
+}: {
+  user: CurrentUser;
+  /** Called when the server answers 404: the module may have been switched off (MSG-001). */
+  onUnavailable?: () => void;
+}) {
+  const onUnavailableRef = useRef(onUnavailable);
+  useEffect(() => { onUnavailableRef.current = onUnavailable; });
   const [searchParams] = useSearchParams();
   const [listState, setListState] = useState<ListState>({ kind: 'loading' });
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -267,6 +280,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         kind: 'error',
         message: error instanceof Error ? error.message : 'Konuşmalar yüklenemedi.',
       });
+      if (isNotFoundStatus(error)) onUnavailableRef.current?.();
     }
   }, [conversationView]);
 
@@ -358,6 +372,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         } else {
           setThreadError(error instanceof Error ? error.message : 'Mesajlar yüklenemedi.');
         }
+        if (isNotFoundStatus(error)) onUnavailableRef.current?.();
       }
       return [];
     } finally {
@@ -410,6 +425,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     } catch (error) {
       if (pendingOlderRef.current?.gen === gen && pendingOlderRef.current?.convId === selectedId) {
         setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
+        if (isNotFoundStatus(error)) onUnavailableRef.current?.();
       }
     } finally {
       if (pendingOlderRef.current?.gen === gen) {
@@ -588,7 +604,10 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   }, [listState.kind, conversations, searchParams, selectConversation]);
 
   // Cleanup on unmount
-  useEffect(() => () => { invalidateThread(); }, [invalidateThread]);
+  useEffect(() => () => {
+    listLoadGenRef.current++;
+    invalidateThread();
+  }, [invalidateThread]);
 
   // --- Send ---
 
@@ -644,6 +663,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         pendingSendRef.current = null;
         setDraft({ body: text, clientActionId: effectiveActionId, status: 'error', error: error instanceof Error ? error.message : 'Gönderilemedi.' });
         setSendError(error instanceof Error ? error.message : 'Mesaj gönderilemedi.');
+        if (isNotFoundStatus(error)) onUnavailableRef.current?.();
       }
     },
     [composerText, selectedId, user.id, draft, loadConversations, loadUnreadCount],
