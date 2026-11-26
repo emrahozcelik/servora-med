@@ -172,7 +172,9 @@ The allowed module keys stay fixed in code and verifiable.
   name } } | null`. It is non-null only for an ADMIN/MANAGER actor, on a non-terminal job,
   when the latest assignment activity is `JOB_ASSIGNED`, its new assignee is the current
   `assigned_to`, is STAFF and is not a participant. Always `null` for STAFF.
-  JobDetail then shows a persistent sync action, not only the one-time offer after PATCH.
+  JobDetail then shows a persistent, non-modal notice with a "Konuşmaya ekle" action
+  (ADMIN/MANAGER only) that opens the M9 confirmation; it never opens a dialog on its own.
+  The one-time offer after PATCH stays as it is.
   It reuses the M9 endpoint with that transition id, keeping M9's security properties:
   immutable transition id, STAFF-only candidate, terminal rejection, unread 0 on join,
   one audit row, one realtime event, idempotent replay. Assignment itself stays
