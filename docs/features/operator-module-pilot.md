@@ -1,9 +1,12 @@
 # Installation operator and runtime module state — Overview pilot
 
-Status: **draft contract** (owner direction 2026-11-25: separate operator account and
-session; first module = Overview; later the operator may receive powerful
-capabilities such as customer delete or staff permanent delete). Decision record:
-DECISIONS.md MOD-002 (drafted on this branch, ships with the implementing PR).
+Status: **accepted contract**, implemented in PR #511 (owner direction 2026-11-25:
+separate operator account and session; first module = Overview; later the operator may
+receive powerful capabilities such as customer delete or staff permanent delete).
+Decision record: DECISIONS.md MOD-002. The registry, its CHECKs and the takeover were
+widened for further modules by DECISIONS.md MOD-003 (migration 075); §5 below describes
+the pilot as shipped, and MOD-003 / `SERVORA_MED_SCHEMA_DRAFT.md` §8.2 own the widened
+rules.
 Research: [docs/backlog/2026-11-25-core-modules-architecture-research.md](../backlog/2026-11-25-core-modules-architecture-research.md) §4–§6.
 Independent review: Sol advisor run `20261125-232041-sol-37b0` (AGREE_WITH_CHANGES; all
 changes incorporated below).
