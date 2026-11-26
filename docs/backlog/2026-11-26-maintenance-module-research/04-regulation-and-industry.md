@@ -1,5 +1,7 @@
 # 04 — Regulation and industry practice: what a Maintenance (Bakım) module must or should record
 
+> **Owner review update (2026-11-26):** Historical regulation research, not a legal determination. [07](07-owner-approved-product-direction.md) makes official-source verification of the applicable legal scope, report, signature, retention and transition date a regulated-pilot gate. Unverified claims below are not accepted legal requirements.
+
 Status: research note, 2026-11-26. Read-only work against `origin/main` @ `89bf6b1`; nothing was
 implemented, installed, migrated or deployed. Access date for every URL: **2026-11-26**.
 
