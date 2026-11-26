@@ -32,4 +32,7 @@ FLOW-001, ENG-001, FLOW-002, SALE-003, CRM-FLOW, REPORT-FLOW, MOD-FLOW, RESCUE-0
 ## Başarı ölçütü
 A genuine visit can have multiple different next actions without duplicate commitments; a failed visit attempt is not a failed sale or a held visit; links survive replacement/cancellation/invalidation; users see only authorized data; core paths work when optional modules are disabled. Management can distinguish visit type, outcome, source, actual dates, follow-up health and fulfillment. A refused assignment becomes a visible management decision, not a lost customer commitment; every manager decision gives an unambiguous committed/pending/error/unknown outcome. Preserve existing sale/visit joint commands, approval, JOB-010 assignment, REPORT-002 attribution, audit and existing records.
 
+## Independent review reconciliation (2026-11-26)
+See [08 — review reconciliation](08-review-reconciliation.md): code-agent findings, explicit amendments and scope decisions. Docs-only review correction follows owner’s docs-only [skip ci] convention for PR title and new commit; earlier commits are retained without history rewrite. Normal CI remains required for implementation PRs.
+
 No application code, migration, tests, deploy, feature flags or production data changed by this package.

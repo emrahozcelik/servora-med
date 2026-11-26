@@ -29,13 +29,13 @@ Owner approved overall product direction in this chat; the following specific de
 | --- | --- | --- |
 | D01 | Separate occurrence HELD/NOT_HELD/UNKNOWN_LEGACY, outcome and next action; no fake meetingAt. | DOM-007/JOB-010, ENG-A |
 | D02 | Held meeting can be interested/decision pending/not interested/noncommercial completed; confirmed sale derived only from linked approved SALE; legacy POSITIVE not automatically mapped to interest. | ENG-A |
-| D03 | Routine follow-up defaults continue 7/14 days with explicit next date; other types may propose follow-up, not mandatory by default. Explicit stop reason for routine cycle; no silent closure. | JOB-008/009, ENG-B |
+| D03 | Routine CUSTOMER_VISIT/FOLLOW_UP: 7 days for NOT_HELD or DECISION_PENDING, 14 days for INTERESTED (legacy FOLLOW_UP_REQUIRED + reason / POSITIVE unchanged); routine continuation required unless management explicitly ends cycle with reason. NOT_INTERESTED / noncommercial/OTHER need explicit cycle disposition; nonroutine types opt in. Separate proposedFollowUpAt for NOT_HELD; keep migration 007 CHECK and legacy nextFollowUpAt null. | DOM-007, JOB-008/009/010, ENG-B; explicit predicate extension |
 | D04 | Multiple distinct next actions, default to staff proposals where reassignment/delivery/module action needs manager; no extra approval for existing allowed sale creation. | FLOW-A |
-| D05 | TRAINING can produce sale via existing sale rules; OTHER stays closed until a clear type is selected. | SALE-001/002, FLOW-B |
-| D06 | Approved sale with no delivery can later open one; cancelled/invalidated delivery replacement allowed only after explicit manager reconciliation; no duplicate active or successfully fulfilled delivery. | SALE-002 Q4, FLOW-C |
-| D07 | No partial/multi shipment initially; evidence of delivered quantities on cancelled/invalidated attempts blocks automatic replacement, human reconciliation; WH contract owns remaining quantities later. | FLOW-C / WH integration |
+| D05 | TRAINING can produce sale via existing sale rules; OTHER stays closed. Approved SALE may initiate a typed post-sale visit relation (not source_job_card_id or ordinary follow-up). Explicitly amend SALE-002 follow-up exclusion only for that new relation, not the existing source check. | SALE-001/002, FLOW-B |
+| D06 | Approved sale with no delivery can later open one; cancelled/invalidated delivery replacement only after manager verifies no physical execution or unresolved evidence. Any recorded physical evidence blocks replacement in this slice even after review; no duplicate active or successfully fulfilled delivery. | SALE-002 Q4, FLOW-C |
+| D07 | No partial/multi shipment initially; recorded physical execution, stock posting or unresolved evidence blocks all linked replacement in this slice. Review may record disposition, not override; future WH/SALE decision owns any remaining quantities or proven reversal. | FLOW-C / WH integration |
 | D08 | Product interest is structured and optional, distinct from sale/quote/delivery; optional channel, blockers, feedback, expected decision date and training details. No free-form custom schema. | ENG-C |
-| D09 | Reports expose held/attempted/unknown, kind, channel, follow-up kind/provenance, direct conversion and fulfillment; 30/60/90 day windows are separately labelled and matured cohorts. | REPORT-FLOW |
+| D09 | Reports expose held/attempted/unknown, kind, channel, follow-up kind/provenance, direct conversion and fulfillment. Preserve REPORT-001: no elapsed-time success cutoff or matured-window denominator; observe linked conversion duration separately. | REPORT-001/002, REPORT-FLOW |
 | D10 | CRM read timeline + derived open actions first; commercial opportunity entity/quotation workflow deferred until separately accepted (do not invent financial data). | CRM-FLOW |
 | D11 | Technical need capture works in core; module-specific service/stock/finance mutations gated by module policy, no implicit creation. Optional-module off history retained and protected. | MOD-FLOW |
 | D12 | Current permission/assignee constraints and REPORT-002 preserved, no automatic cascade; corrections append evidence; no production activation without separate gate. | all |
@@ -48,9 +48,9 @@ Owner accepted the recovery recommendations and explicitly requested clear manag
 | ID | Proposed default | Amends / gate |
 | --- | --- | --- |
 | D13 | Reason and proposed solution independent; future alternative time possible for city-out/leave and other eligible reasons; no staff cancellation. | JOB-010/012, RESCUE-002 |
-| D14 | Purpose-built manager decision form: accept proposal, reschedule, transfer, combined transfer/time, reoffer, actual correction or reasoned cancellation; atomic request resolution when supported. | JOB-010/012, OVR-5, JOB-009, RESCUE-003 |
+| D14 | Purpose-built manager decision form: accept proposal, reschedule, transfer, combined transfer/time, reoffer, actual correction or reasoned cancellation; atomic request resolution when supported; new record-only acknowledgement must not qualify as OVR-7 operational resolution. | JOB-010/012, OVR-5/7, JOB-009, RESCUE-003 |
 | D15 | Candidate staff/slots based on canonical availability; separate customer appointment from reservation; explicit occupancy amendment before release of declined/released time. | SCH-001, RESCUE-004 |
-| D16 | Core Jobs Intervention Center accessible with Overview off, priority/risk/age ordering, full pagination and episode history. | MOD-002/003, OVR-6, RESCUE-005 |
+| D16 | Core Jobs Intervention Center accessible with Overview off, priority/risk/age ordering, full pagination and episode history. | JOB-010 queue order/compact overflow link (explicit amendment), MOD-002/003, OVR-6, RESCUE-005 |
 | D17 | Operational refusal/recovery metrics separate from performance; distinguish decision vs acceptance vs execution. | JOB-010/REPORT-002, RESCUE-006 |
 | D18 | All manager decision paths provide unambiguous pending, committed, definitive failure, uncertain/refresh-failure and conflict feedback; persistent authoritative result, not toast alone. | UI-001/003, DESIGN.md, UI-FEEDBACK |
 

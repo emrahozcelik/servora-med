@@ -8,13 +8,13 @@ Status: proposed delivery sequence; no runtime changes in this PR. Start from fr
 | FLOW-001/A audit | Reproduce F01–F09 in PG fixtures; inventory every job creation, follow-up, approval, cancellation/invalidation, reassignment, read projection, calendar/overview/report/weekly report consumer, module gate and event. State/role/type matrix with exact source lines; reconcile S4 status. | Start immediately; evidence and classified defects, no speculative rewrite. |
 | FLOW-001/B report repairs | Add scheduled-overdue follow-up metric and explicit follow-up kind vs source metric; keep old labels/contracts, prove against canonical OVR/JOB-010 semantics. | A; REPORT-FLOW metric acceptance, regression and UI evidence. |
 | ENG-A occurrence/result | Add compatible typed data and UI, validation, migration, historical unknown read adapter, approval snapshot. | A + D01/D02 acceptance; held vs not-held tests and legacy upgrade. |
-| ENG-B next action/loop | Separate routine cycle disposition and explicit follow-up intent, preserve JOB-008/009 mechanics; handle absent meetingAt target, manager adjustment. | ENG-A + D03; no lost continuation, slot/late approval/retry tests. |
+| ENG-B next action/loop | Separate routine cycle disposition and explicit follow-up intent, preserve JOB-008/009 mechanics; separate NOT_HELD proposedFollowUpAt from legacy nextFollowUpAt; explicit JOB-008/009/010 amendment, keep 007 CHECK; manager adjustment. | ENG-A + D03; no lost continuation, slot/late approval/retry tests. |
 | ENG-C interest fields | Product interest rows, optional channel/blocker/needs/feedback/training fields, mobile progressive disclosure. | ENG-A + D08; scoped catalog and history tests. |
-| FLOW-A contextual actions | Server-produced typed actions; reuse existing commands; proposal lifecycle for concrete non-sale target (demo/training first); no generic engine. | ENG-B + D04; role/state matrix, concurrent retry, approval/cancel. |
-| FLOW-B sale source expansion | TRAINING source eligibility, post-sale follow-up via explicit typed action, only approved scope. | FLOW-A + D05; preserve SALE-002 pair and independent orders; update sale readers and tests. |
+| FLOW-A contextual actions | Server-produced typed actions; reuse existing commands; proposal lifecycle for concrete non-sale target (demo/training first); no generic engine. | ENG-B + D04; role/state matrix, concurrent retry, approval/cancel; changed-field-only audit and no sensitive values. |
+| FLOW-B sale source expansion | TRAINING source eligibility, post-sale visit via distinct POST_SALE_VISIT relation, explicit narrow SALE-002 amendment; ordinary follow-up SALE exclusion remains. | FLOW-A + D05; preserve SALE-002 pair and independent orders; update sale readers and tests. |
 | FLOW-C SALE-003 delivery continuation | Late delivery creation/replacement with physical evidence guard, new typed attempt history, migration, UI manager exception. | A + D06/D07; can proceed independently of ENG-C; no partial fulfillment, test races. |
 | CRM-A customer lifecycle | Read timeline + open actions/interest, permission-safe links, customer summary, paging. | ENG-A/C, FLOW-A/C; existing customer/duplicate and enrichment tests. |
-| REPORT-A outcome and conversion | New type/occurrence/channel reports, matured direct conversion, independent orders, product interest. | ENG-A/C + D09; may ship held/type earlier; verify exact cohort fixture. |
+| REPORT-A outcome and conversion | New type/occurrence/channel reports, REPORT-001-compliant direct conversion without time cutoff, independent orders, product interest. | ENG-A/C + D09; may ship held/type earlier; verify exact cohort fixture. |
 | REPORT-B fulfillment and chain | Delivery attempt status, exception queue, optional explicit root-chain metric, drill-down. | FLOW-C/CRM-A + D09; no double counting. |
 | MOD-A integrations | Individually designed WH/MNT/ACC actions/ports, messaging/Calendar independence; no duplicate registry migrations. | Owning module first slices accepted/tested; D11 and separate per-integration decisions. |
 
@@ -36,9 +36,9 @@ Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, 
 ## 2. Canonical document change map
 | Owner | Update at implementation |
 | --- | --- |
-| DECISIONS.md | Amend DOM-007 and JOB-008/009 for ENG-A/B; SALE-001/002 only eligible sources/replacement as appropriate; DOM-003 event vocabulary and JOB-004 review snapshot; preserve REPORT-002 and SCH-001; proposed ENG-001/FLOW-002/SALE-003/REPORT-FLOW/MOD-FLOW IDs checked for collision. |
+| DECISIONS.md | Amend DOM-007 and JOB-008/009/010 for ENG-A/B (explicit NOT_HELD proposal extension and continuation predicate); SALE-001/002 eligible sources, distinct post-sale relation and replacement as appropriate; preserve REPORT-001 no-threshold rule; DOM-003 event vocabulary and JOB-004 review snapshot; preserve REPORT-002 and SCH-001; proposed ENG-001/FLOW-002/SALE-003/REPORT-FLOW/MOD-FLOW IDs checked for collision. |
 | PRODUCT_REQUIREMENTS.md §§ Core Workflows, JobCard Types, Reports, Scope | Actual result capture, linked actions, delivery continuation, CRM/report scope; no implied new full modules. |
-| SERVORA_MED_SCHEMA_DRAFT.md §§ vocabularies, 6, 8 | Typed nullable fields, interest rows, relation/attempt constraints, migration groups, historical compatibility, no assigned migration numbers now. |
+| SERVORA_MED_SCHEMA_DRAFT.md §§ vocabularies, 6, 8 | Typed nullable fields, interest rows, relation/attempt constraints, separate proposedFollowUpAt for ENG-B (new migration; preserve meeting_details_follow_up_check from 007), migration groups, historical compatibility, no assigned migration numbers now. |
 | SERVORA_MED_API_DRAFT.md §§ 2,3,7,10,12,14,16 | Existing critical command envelope, meeting result API, available actions/proposal/attempt contracts, customer timeline/report metrics, errors and compatibility. |
 | SERVORA_MED_ARCHITECTURE_PLAN.md §§ 5,7,11 | Core ownership, CRM read ports, named relations, optional module boundary, no duplicate SSOT. |
 | SERVORA_MED_MVP_SLICES.md | Append accepted vertical slice/order and verification only, no retroactive rewriting historical MVP. |
@@ -49,8 +49,8 @@ Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, 
 | DESIGN.md / PRODUCT.md | Apply existing UI rules; change only if genuinely new accepted standard. |
 | #515/#516/#517/#518 owning feature docs | Reconcile before integration; do not mutate their branches from this PR, no duplicate 075. |
 | AGENTS.md | No change needed; engineering rules remain. |
-| docs/features/assignment-acceptance-sla.md, assignment-time-proposal.md | JOB-010/012 amendments, reason/suggestion and manager recovery contracts, compatibility, offer deadline/replay. |
-| Existing OVR-5/6/7 and scheduling/occupancy owning docs | Atomic resolution and queue ownership; explicit SCH-001 amendment only if accepted, no historical accountability rewrite. |
+| docs/features/assignment-acceptance-sla.md, assignment-time-proposal.md | JOB-010/012 amendments, not-held proposal extension (sla §2a/586–589 and assignment-time proposal where applicable), reason/suggestion and manager recovery contracts; RESCUE-005 expressly supersedes oldest-deadline ordering and >3 Overview overflow link (sla 845–873); compatibility, offer deadline/replay. |
+| Existing OVR-5/6/7 and scheduling/occupancy owning docs | Atomic resolution and queue ownership; explicit OVR-7 amendment for a neutral record-only acknowledgement if introduced, preserving historic qualifying resolution codes and existing classifications; explicit SCH-001 amendment only if accepted, no historical accountability rewrite. |
 | DESIGN.md / DECISIONS.md UI records | Accepted manager feedback standard, one action result, receipt vs refresh/uncertain outcome, UI-003 tests; no competing feedback infrastructure. |
 
 ## 3. Acceptance matrix (minimum)
@@ -59,8 +59,8 @@ Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, 
 | A01 | Existing active visit+sale submitted, manager approves | both terminal atomically; optional follow-up+delivery once; version/receipt unchanged |
 | A02 | Pair revision/withdraw/resume, stale participant | both coordinated or no change; replay and legacy mixed/cross-owner behavior preserved |
 | A03 | Held interested + follow-up | no unsuccessful reason; actual time retained |
-| A04 | Not held + reason, no actual time | no fake visit/sale; attempt count and valid future plan |
-| A05 | Routine positive/negative/decision pending | exact accepted continuation/stop reasons, no silent loss |
+| A04 | Not held + reason, no actual time | legacy nextFollowUpAt null and 007 CHECK preserved; new separate proposedFollowUpAt optional, valid future plan and approval; no fake visit/sale |
+| A05 | Routine positive/negative/decision pending/not held | legacy 7/14 mapping and new D03 predicate/defaults, explicit management stop, no silent loss |
 | A06 | Late approval, slots full, Calendar off | canonical core occupancy, manual fallback; no lost proposal |
 | A07 | Manual FOLLOW_UP with no source and linked non-FOLLOW_UP | kind/provenance metrics distinct |
 | A08 | Scheduled follow-up past planned time, dueDate null | scheduled metric correct; old due-date counter still labelled; unaccepted/late separated |
@@ -71,17 +71,17 @@ Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, 
 | A13 | Training source eligibility / OTHER | only accepted kinds create SALE; no generic create bypass |
 | A14 | Approved standalone or visit sale without delivery | manager can late-create exactly one eligible linked attempt |
 | A15 | Cancelled attempt without physical evidence | explicit replacement links old and new; old history retained |
-| A16 | Cancelled/invalidated attempt with actual delivery evidence | blocked and reconciliation queue, no automatic replacement/reversal |
+| A16 | Cancelled/invalidated attempt with actual delivery evidence | all replacements blocked even after review in FLOW-C; reconciliation queue, no override or reversal |
 | A17 | Two concurrent delivery creates/replacements/approval replay | at most one live attempt, no partial commit, consistent receipt |
 | A18 | Completed delivery, invalidated source sale | no duplicate delivery; no cascade or physical reversal |
 | A19 | Product renamed/deactivated, customer/contact updated | snapshot preserved, new selection eligibility enforced |
 | A20 | Demo and BUSINESS isolation | no mixed links or leakage; purge/restore remains compatible |
-| A21 | Cohort 30/60/90, zero denominator, pending/late approvals, standalone orders | correct matured denominator, unique visit numerator, actual timestamps |
+| A21 | Source cohort, sale after >90 days or outside visit range, zero denominator, pending/late approvals, standalone orders | no elapsed cutoff, unique visit numerator, approved link as of read, actual timestamps and unknown duration separated |
 | A22 | Multiple attempts / sales and cross-staff delivery | no join inflation; REPORT-002 independently assigned ownership |
 | A23 | CRM timeline pagination/realtime/permissions | stable ordering, no duplicate rows, authorized link visibility |
 | A24 | All optional modules OFF, individually ON and state flip during action | core works, module writes gated, data preserved, no duplicate replay/catch-up |
 | A25 | Legacy API/client mixed deployment and migration upgrade | compatible reads/writes, fail closed on unsupported payload, no destructive migration |
-| A26 | 390/768/desktop, keyboard, 200% zoom, slow response | no clipping, focus stable, errors recoverable; UI-003 evidence |
+| A26 | 390/768/desktop, keyboard, 200% text, 400% reflow, reduced motion, slow response | no clipping, focus stable, errors recoverable; UI-003 evidence |
 | A27 | Backup/restore and retry after restoration | relation and receipts consistent; owning module restore tests, no production data used |
 | A28 | Weekly report/overview/calendar/notifications/data management | existing counts, occupancy, link permissions and purge regressions pass |
 | A29 | Performance representative fixture | indexed bounded queries, EXPLAIN evidence, no N+1 or unbounded recursion |
@@ -98,7 +98,7 @@ Do not start quotation/pricing/revenue/opportunity lifecycle, partial shipment, 
 | R-A06 | Two managers act concurrently or same-key retry | one valid result, stale rejected, no duplicate offers or closure. |
 | R-A07 | Proposal expires/conflicts/assignee becomes inactive | safe coded error, refresh, alternatives, no partial state. |
 | R-A08 | Started job change request | no pre-start release or rewrite; management decision and audit only. |
-| R-A09 | Actual correction/reschedule resolves request | mutation and closure atomic; record-only closure clearly labelled. |
+| R-A09 | Actual correction/reschedule resolves request | mutation and closure atomic; neutral record-only closure clearly labelled and not qualifying under OVR-7; legacy classification unchanged. |
 | R-A10 | Follow-up cancel/reschedule/end | JOB-009 lineage/continuity preserved, no duplicate replacement. |
 | R-A11 | Sale-pair or sale-linked delivery recovery | existing pair constraints, no duplicate physical fulfillment or financial write. |
 | R-A12 | Decline/release vs OPEN/ACCEPTED occupancy | verify existing behavior, then accepted SCH-001 amendment only; customer appointment remains visible. |
