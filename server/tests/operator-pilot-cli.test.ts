@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 
@@ -118,7 +118,11 @@ async function auditCount(): Promise<number> {
 }
 
 /** A live session row for the account (the HTTP layer is covered elsewhere). */
-async function seedSession(operatorId: string, tokenHash = randomUUID().replaceAll('-', '')): Promise<void> {
+// token_hash is CHECKed as a SHA-256 hex digest (migration 074).
+async function seedSession(
+  operatorId: string,
+  tokenHash = createHash('sha256').update(randomUUID()).digest('hex'),
+): Promise<void> {
   await pool.query(
     `INSERT INTO operator_sessions (operator_id, token_hash, created_at, expires_at)
      VALUES ($1, $2, now(), now() + interval '2 hours')`, [operatorId, tokenHash]);
@@ -472,7 +476,8 @@ describe.skipIf(!databaseUrl)('operator CLI: list', { timeout: 60_000 }, () => {
     const a = await grantOk('alpha@example.com', 'Alpha Operator');
     await grantOk('beta@example.com', 'Beta Operator');
     expect((await cli(['revoke', '--email', 'beta@example.com'])).code).toBe(0);
-    await seedSession(a.id, 'live-session-token-hash');
+    const liveTokenHash = createHash('sha256').update('live-session-token').digest('hex');
+    await seedSession(a.id, liveTokenHash);
     const accountsBefore = (await pool.query(`SELECT * FROM operator_accounts ORDER BY email`)).rows;
     const eventsBefore = await auditCount();
 
@@ -486,7 +491,7 @@ describe.skipIf(!databaseUrl)('operator CLI: list', { timeout: 60_000 }, () => {
     expect(alphaLine).toContain('Alpha Operator');
     expect(alphaLine).toContain('MODULE_MANAGEMENT');
     expect(betaLine).toContain('Beta Operator');
-    expectNoSecretOutput(result, PASSWORD, 'live-session-token-hash');
+    expectNoSecretOutput(result, PASSWORD, liveTokenHash);
     expect(result.stdout).not.toContain(a.password_hash);
     // Read-only: no account, session or audit change.
     expect((await pool.query(`SELECT * FROM operator_accounts ORDER BY email`)).rows).toEqual(accountsBefore);

@@ -742,7 +742,10 @@ describe.skipIf(!databaseUrl)('OP4 session validity', { timeout: 60_000 }, () =>
   it('an expired session is 401 everywhere and cannot change state', async () => {
     const { app, cookie, id } = await operatorFixture();
     await pool.query(
-      `UPDATE operator_sessions SET expires_at = now() - interval '1 minute' WHERE operator_id = $1`, [id]);
+      // expires_at > created_at is CHECKed (migration 074): move both back.
+      `UPDATE operator_sessions
+          SET created_at = now() - interval '2 hours 1 minute', expires_at = now() - interval '1 minute'
+        WHERE operator_id = $1`, [id]);
 
     await expectDead(app, cookie);
     expect(await stateRow()).toMatchObject({ enabled: false, version: 1 });

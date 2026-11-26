@@ -68,7 +68,8 @@ function parseArgs(argv: string[]): ParsedArgs {
   const flags = new Set<string>();
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index]!;
-    if (!token.startsWith('--')) throw new UsageError(`Unexpected argument: ${token}`);
+    // Never echo the value: a positional argument may be a mistyped password.
+    if (!token.startsWith('--')) throw new UsageError('Unexpected positional argument (value not shown).');
     const [rawName, inlineValue] = token.slice(2).split(/=(.*)/s, 2) as [string, string | undefined];
     if (!allowed.includes(rawName)) throw new UsageError(`Unknown option: --${rawName}`);
     if (FLAG_OPTIONS.has(rawName)) {
