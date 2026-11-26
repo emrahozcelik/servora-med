@@ -1,5 +1,8 @@
 # Warehouse / Stock — domain model options (research, not a decision)
 
+> **Historical options, not current schema. See [owner-approved direction](README.md) and [WH-A](07-wh-a-implementation-contract.md). Ledger + atomic balance retained; opening count is not receipt, normal receipt belongs in initial standalone operations. Readiness is generation- and stock-key-scoped; tracked-product policy must be explicit, stale stock cannot be authoritative. Old DDL and lock order are sketches, not migrations.**
+
+
 - **Status:** research report. Nothing here is accepted policy and nothing is implemented.
 - **Date:** 2026-11-26
 - **Scope:** domain model, storage shape, idempotency, audit and V1 subset for the future
