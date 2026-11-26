@@ -1,5 +1,7 @@
 # 03 — Maintenance (Bakım) ownership boundary and integration points
 
+> **Supersession (2026-11-26 owner review):** [07 — Owner-approved product direction](07-owner-approved-product-direction.md) governs the proposed product scope and disabled-state contract. This note preserves historical research at 89bf6b1. Use MOD-003 (#520 merged), `legacyEnvKey: null`, `FRESH_INSTALL`, migration 075; no new registry key migration. #513 is merged but does not make all dispatch exhaustive. Add a service-case layer (asset → case → visits/JobCards); disabled standalone management is denied, scoped active-visit completion writes and authorized historical evidence reads remain available. See 07 §§2–4 for the precise boundary; the proposed generic API and site model below are not accepted implementation details.
+
 Research note. **Nothing here is implemented or approved.** All code claims are
 against `origin/main` @ `89bf6b1` unless another ref is named. Everything marked
 **inference** or **recommendation** is mine, not policy.
