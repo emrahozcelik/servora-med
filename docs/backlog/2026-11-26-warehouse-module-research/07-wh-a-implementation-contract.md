@@ -57,7 +57,7 @@ WH-A initial release is internal/synthetic until standalone operations, exact-he
 | WA01 | Fresh startup: default-off WAREHOUSE state, exactly one initialization event; restart no duplication; Overview unchanged; deleted state with init history fails closed. |
 | WA02 | Off route 404 and capability false; unreadable 503, no env fallback; non-Warehouse Core unaffected; desktop/mobile menu/direct URL refresh gated. |
 | WA03 | Fresh enable empty/unknown, explicit zero count verifies one key only; other products/locations remain unknown; readiness never globally inferred. |
-| WA04 | Enable 100, disable, physical removal 30, re-enable: 100 historical not usable; normal movement rejected until counted; count 70 creates -30 exactly once, then valid receipt/issue operations; no backfill. |
+| WA04 | Enable 100, disable, physical removal 30, re-enable: 100 historical not usable; normal movement rejected until counted; count 70 creates -30 exactly once, then valid receipt/transfer/correction operations; no backfill. |
 | WA05 | Concurrent mutation vs disable in both orders; commit serialized before disable or no write/receipt after disable; same-value toggle does not invalidate generation. Replay while disabled denied even if receipt exists; re-enabled authorized replay returns old minimal receipt without new movement. |
 | WA06 | Role revocation/deactivation/session invalidation vs mutation/replay both orders; no stale unauthorized write or data disclosure; cross-org ID substitution and demo user denied. |
 | WA07 | Opening count nonzero and zero, duplicate replay, stale baseline/version, future date, old generation; no duplicate or stale count overwrites; partial count only its keys. |
