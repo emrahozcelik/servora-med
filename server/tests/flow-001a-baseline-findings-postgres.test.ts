@@ -24,6 +24,7 @@ import { runMigrations } from '../src/db/migrate-runner.js';
 import { normalizeFollowUpDueDate } from '../src/modules/job-cards/create-input.js';
 import { requiresMandatoryFollowUpProposal } from '../src/modules/job-cards/follow-up-policy.js';
 import { localDateKey } from '../src/modules/job-cards/local-calendar.js';
+import { PostgresOverdueBreachScannerRepository } from '../src/modules/job-cards/overdue-breach-scanner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type {
@@ -263,10 +264,12 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
   let adminPool: Pool;
   let pool: Pool;
   let reports: PostgresReportsRepository;
+  let schemaCreated = false;
 
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: databaseUrl });
     await adminPool.query(`CREATE SCHEMA ${schema}`);
+    schemaCreated = true;
     pool = new Pool({
       connectionString: databaseUrl,
       options: `-c search_path=${schema},public`,
@@ -279,9 +282,13 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
   });
 
   afterAll(async () => {
-    await pool.end();
-    await adminPool.query(`DROP SCHEMA ${schema} CASCADE`);
-    await adminPool.end();
+    // Never mask the original setup failure with a second teardown error: the
+    // pool and the schema only exist if their own step got that far.
+    if (pool) await pool.end();
+    if (schemaCreated) {
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    }
+    await adminPool?.end();
   });
 
   // ---------------------------------------------------------------------------
@@ -677,6 +684,33 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
         followUpsWithSale: 1,
       });
 
+      // Discriminating cohorts: the same requestTime, one day at a time. The
+      // sale belongs to the child, so the 5 Sep root has visitsWithSale = 0
+      // while the 12 Sep child has 1. A query that moved attribution to the
+      // root would produce the opposite numbers.
+      const rootDay = await reports.getBusinessTrend({
+        organizationId: org.organizationId,
+        requestedRange: { from: '2026-09-05', to: '2026-09-05' },
+        requestTime,
+        includeSaleCapability: true,
+      });
+      expect(rootDay.relationships).toEqual({
+        visitsWithFollowUp: 1,
+        visitsWithSale: 0,
+        followUpsWithSale: 0,
+      });
+      const childDay = await reports.getBusinessTrend({
+        organizationId: org.organizationId,
+        requestedRange: { from: '2026-09-12', to: '2026-09-12' },
+        requestTime,
+        includeSaleCapability: true,
+      });
+      expect(childDay.relationships).toEqual({
+        visitsWithFollowUp: 0,
+        visitsWithSale: 1,
+        followUpsWithSale: 1,
+      });
+
       // A completed delivery (and its item) linked to the sale adds no metric.
       const delivery = await insertCard(pool, {
         organizationId: org.organizationId, assignedTo: org.staffId, createdBy: org.managerId,
@@ -788,7 +822,9 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
   //        web/src/reports/SalesFollowUpReport.tsx OVERDUE_HINT.
   // A SALES_MEETING follow-up child may not carry a dueDate, and the report's
   // "overdue" counter is due-date-only, so an approval-created follow-up whose
-  // planned start has passed is not counted as overdue.
+  // planned start has passed is not counted as overdue. The canonical
+  // LATE_START scanner still finds the same child; the gap is report/UI
+  // exposure, not missing operational evidence.
   // ---------------------------------------------------------------------------
   describe('F04 due-date-only overdue metric excludes scheduled follow-up children', () => {
     it('rejects a dueDate on a SALES_MEETING follow-up and does not count a past-start automatic child', async () => {
@@ -884,8 +920,8 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
       expect(noDueDateReport.current.followUpChildren.total).toBe(1);
       expect(noDueDateReport.current.followUpChildren.overdueDueDatedFollowUpChildren).toBe(0);
 
-      // No other current operational list covers an accepted past start either:
-      // the JOB-010 list is NEW-only (unaccepted past start).
+      // The JOB-010 unaccepted list is NEW-only, so the past-start ACCEPTED
+      // child is absent there too.
       const laterService = new JobCardService(
         new PostgresJobCardRepository(pool), () => reportTime,
       );
@@ -893,6 +929,28 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
         limit: 50, offset: 0,
       });
       expect(unaccepted.total).toBe(0);
+
+      // The canonical clock-only scanner DOES own the accepted past start:
+      // LATE_START discovery returns the child and materializes one incident.
+      // So the child is not invisible operationally; only the due-date report
+      // counter (and the due-date-based UI hint) excludes it.
+      const scannerRepository = new PostgresOverdueBreachScannerRepository(
+        new PostgresJobCardRepository(pool),
+      );
+      const lateStartCandidates = await scannerRepository.listCandidates({
+        delayType: 'LATE_START', scanTime: reportTime, limit: 50,
+      });
+      const childCandidate = lateStartCandidates.find((candidate) => candidate.jobCardId === child.id);
+      expect(childCandidate).toBeDefined();
+      await expect(scannerRepository.scanCandidate({
+        delayType: 'LATE_START', candidate: childCandidate!, scanTime: reportTime,
+      })).resolves.toEqual({ kind: 'inserted' });
+      const childIncidents = (await pool.query<{ delay_type: string }>(
+        `SELECT delay_type FROM job_card_overdue_incidents
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [org.organizationId, child.id],
+      )).rows;
+      expect(childIncidents).toEqual([{ delay_type: 'LATE_START' }]);
 
       // Control: the same counter does see an active child that has a past due date.
       await insertCard(pool, {
@@ -1044,6 +1102,69 @@ describe.skipIf(!databaseUrl)('FLOW-001/A baseline findings (PostgreSQL)', () =>
       });
       expect(submitted.status).toBe('WAITING_APPROVAL');
       expect(submitted.followUpProposal).toBeNull();
+    });
+
+    it('lets a manager change a stored legacy non-loop proposal to GENERAL_TASK', async () => {
+      // The mandatory-loop type rule does not cover a persisted proposal on a
+      // non-loop meeting (a legacy row current code can no longer produce).
+      // For that shape the manager override is accepted; this is why the
+      // JOB-008 §Consequences "type" wording is broader than the loop rule.
+      const org = await seedOrganization(pool, 'F05 legacy proposal');
+      const baseline = baselineAlignedToGrid(await readDbBaseline(pool));
+      const service = new JobCardService(new PostgresJobCardRepository(pool));
+      const demo = await createStartedMeeting(service, org.staff, org.customerId, {
+        clientActionId: randomUUID(),
+        engagementKind: 'PRODUCT_DEMO',
+        scheduledAt: baselineIso(baseline, -HOUR_MS),
+      });
+      const details = await service.patchMeetingDetails(org.staff, demo.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: demo.version,
+        meetingAt: baselineIso(baseline, -30 * MINUTE_MS),
+        outcome: 'POSITIVE',
+        meetingSummary: 'Demo yapıldı.',
+      });
+      const submitted = await service.submitForApproval(org.staff, demo.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: details.jobCardVersion,
+        note: 'Demo tamamlandı.',
+      });
+      expect(submitted.status).toBe('WAITING_APPROVAL');
+
+      const proposedAt = baselineIso(baseline, 7 * DAY_MS);
+      await pool.query(
+        `UPDATE job_cards
+            SET follow_up_proposed_at = $2,
+                follow_up_proposed_type = 'SALES_MEETING',
+                follow_up_proposed_assignee = $3,
+                follow_up_proposal_instructions = 'Eski takip önerisi',
+                follow_up_proposal_origin = 'STAFF_ADJUSTED',
+                follow_up_proposed_by = $3
+          WHERE organization_id = $1 AND id = $4`,
+        [org.organizationId, proposedAt, org.staffId, demo.id],
+      );
+      const dueDate = localDateKey(new Date(baseline.getTime() + 20 * DAY_MS), TIMEZONE);
+      const approved = await service.approve(org.manager, demo.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        note: 'Onaylandı.',
+        followUp: {
+          type: 'GENERAL_TASK',
+          assignedTo: org.staffId,
+          followUpInstructions: 'Genel görev olarak takip.',
+          dueDate,
+        },
+      });
+      expect(approved.status).toBe('COMPLETED');
+      const child = (await pool.query<{
+        type: string; due_date: string; engagement_kind: string | null;
+      }>(
+        `SELECT type, to_char(due_date, 'YYYY-MM-DD') AS due_date, engagement_kind
+           FROM job_cards
+          WHERE organization_id = $1 AND source_job_card_id = $2`,
+        [org.organizationId, demo.id],
+      )).rows;
+      expect(child).toEqual([{ type: 'GENERAL_TASK', due_date: dueDate, engagement_kind: null }]);
     });
   });
 
