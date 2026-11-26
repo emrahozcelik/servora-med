@@ -1,5 +1,7 @@
 # Ön Muhasebe (Accounting) — genişletilmiş araştırma paketi (2026-11-26)
 
+**ACC-1/2 sözleşmesi:** [08-acc-a-implementation-contract.md](08-acc-a-implementation-contract.md) ilk dilim için karar seçeneklerini somutlaştırır: varsayılan kapalı başlatma, üç tipli finansal yetki, ADMIN açık self-grant, tek yasal düzenleyen, kaynak uygunluğu, düzeltme/void/reopen, API, kilit sırası, replay yetkilendirmesi ve 18 ayrıntılı kabul testi. 08 ilk dilimde 06/07'deki açık seçeneklere üstün gelir; ürün yönünü değiştirmez. Teknik varsayımlar ürün sahibi kabulüne hazır; gerçek pilot verisi ve mevzuat/retention doğrulaması canlı açılış öncesi kapıdır, sentetik geliştirmeyi engellemez. Henüz uygulama izni verilmiş sayılmaz.
+
 **Durum:** Ürün sahibi kapsamın genişletilmesini ve belge düzenlemesini onayladı. Bu PR hâlâ araştırma ve karar girdisidir; uygulama, migration, deploy, resmî e-belge kesimi veya dış entegrasyon izni vermez. `DECISIONS.md` değişmez. MOD-001, MOD-002 ve AGENTS.md §13 bağlayıcıdır.
 
 ## Ürün yönü
@@ -22,6 +24,7 @@ A ilk teknik dilimdir, satışa hazır ön muhasebe değildir. Geniş ürün hed
 
 | Dosya | İçerik |
 | --- | --- |
+| [08-acc-a-implementation-contract.md](08-acc-a-implementation-contract.md) | **İlk dilim ayrıntılı sözleşmesi:** kabul öncesi son öneri, API, veri bütünlüğü, 18 ilave test |
 | [07-expanded-product-scope.md](07-expanded-product-scope.md) | **Güncel ana öneri:** ürün kapsamı, yetki, veri sahipliği, aç/kapat sözleşmesi, finansal bütünlük, aşamalar, 18 kabul senaryosu |
 | [06-decision-brief.md](06-decision-brief.md) | **Güncel karar taslağı:** D1–D17, eski taslakla çelişkilerin çözümü ve ilk dilim kapıları |
 | [01-codebase-touchpoints.md](01-codebase-touchpoints.md) | Orijinal kaynak araştırması: Core temas noktaları, mevcut kod ve borçlar |
