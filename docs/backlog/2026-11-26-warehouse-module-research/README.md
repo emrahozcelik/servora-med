@@ -1,3 +1,75 @@
+# Depo/Stok — ürün sahibi onayı ve revize uygulama planı (2026-11-26)
+
+**Status: OWNER-APPROVED PRODUCT DIRECTION; implementation pending.** The owner approved the review recommendations and authorized file changes and implementation on 2026-11-26 ("Önerilerini mantıklı buldum. Uygulamayı yapabiliriz. Dosya ve diğer değişiklikleri yapabilirsin."). This removes the AGENTS.md §13 scope prohibition for the described Warehouse product. It does not authorize merge, production deploy, live migrations, external integrations or unrelated Core changes.
+
+This section supersedes conflicting **research proposals** below and in 01–06, not accepted Core rules. The original research is retained for traceability. For each implementation PR, record the applicable accepted decision in DECISIONS.md and update the owning product/API/schema/architecture/slice documents with the code and tests. Do not treat historical example DDL, W0 migration numbers or acceptance scenarios as current implementation instructions. No feature has shipped as a result of this document.
+
+## A. Accepted product direction and implementation guardrails
+
+| ID | Direction |
+|---|---|
+| WH-D01 | Warehouse is a full optional, independently useful operational stock module, delivered in small vertical slices. Core product catalog and JobCard remain independent; no duplicate stock authority or financial ledger. |
+| WH-D02 | Use merged #520 / MOD-003 (R0, migration 075). Add Warehouse registry entry only with working module slice; no duplicate widening, fake env source, empty UI or hard-coded future migration number. New module defaults off (FRESH_INSTALL). |
+| WH-D03 | Append-only movements are authoritative; materialized balances update atomically in the same transaction. Immutable source references, tenant-safe FKs, no negative balances, integer piece quantities within validated bounds; old fractional data never rounded. |
+| WH-D04 | Stock movements represent physical goods, not accounting documents or generic job status. SALE/SAMPLE may issue after explicit physical delivery and confirmed source. OTHER never auto-issues merely by purpose. RETURN/CONSIGNMENT remain excluded until explicit DOM-001 supersession and physical-direction contracts. |
+| WH-D05 | Unknown/uninitialized/stale stock is not zero and not authoritative. Only a verified active perimeter may enforce an insufficient-stock conflict. Known-disabled module never blocks Core work; unreadable state follows MOD-002 for Warehouse routes and fails closed for stock-dependent commands, not unrelated Core work. |
+| WH-D06 | Administrative JobCard invalidation does not prove physical return. No unconditional automatic positive reversal. Proven erroneous posting can be corrected once; actual goods returned are a distinct physical receipt/return; confirmed customer-held goods stay deducted; uncertain cases enter reconciliation. Preserve original evidence and idempotency. |
+| WH-D07 | Offboarding remains possible; former staff's locations and stock/history survive and are source-only for recovery; permanent delete blocked for business-history references even when module off. |
+| WH-D08 | Module-owned audit, atomic with critical writes; operator module toggle stays in operator audit. No secrets in logs. |
+| WH-D09 | Operator enable/disable is independent from operational readiness. Disable hides module routes/navigation, retains all data, stops new stock postings and does not interrupt Core approvals. Re-enable requires reconciliation before balances are treated as current. No automatic historic deduction or reset. |
+| WH-D10 | First release supports off / Servora authority only. External ERP is a later explicit authority cutover, never a concurrent writer for the same quantity. |
+| WH-D11 | Normal goods receipt belongs in the initial operational slice, not a workaround through count. Support depot/vehicle locations, transfer, receipt, count/correction, scoped balances and movement history independently of sales. |
+| WH-D12 | At approval-time posting distinguish physical handover time, posting time, confirmed physical source (depot or vehicle), recorded balance and pending-delivered quantity. No source inferred solely from current assignee; no double issue across counts or retries. |
+| WH-D13 | Plan stock identity for product-specific quantity/lot/serial/expiry policies from the start. Do not advertise aggregate-only stock as full traceability for tracked medical products. Full lot/serial/SKT enforcement, quarantine, expiry block and FEFO precede regulated-product rollout where required. |
+| WH-D14 | Maintenance and Accounting are optional peers. Maintenance can record parts without Warehouse; when both are ready, confirmed consumption/return uses a narrow Warehouse-owned posting contract. Commercial references do not themselves post physical stock; ERP/e-doc ownership separately agreed. |
+
+## B. Safety contracts to carry into implementation
+
+**Readiness and toggle:** Warehouse owns operational readiness independently from the MOD-003 boolean. Derived/user-visible states: DISABLED, SETUP_REQUIRED, ACTIVE, RECONCILIATION_REQUIRED. Readiness must be scoped to organization and actual location/product coverage (and activation generation); a partial count cannot mark unrelated stock verified. Every disable/re-enable invalidates prior coverage for authoritative use; old balances are retained and explicitly labeled last recorded / stale. No enabled-but-unready negative-stock gate or automatic posting into stale stock. Count/receipt/transfer/reconciliation rules must explicitly distinguish unverified locations; never create a trustworthy balance by silently assuming zero. Synchronize toggle/readiness and posting inside transaction with a documented lock order so no stock write can cross the disable boundary. On reactivation establish a new verified count baseline, resolve in-flight physical deliveries, and retain exceptions for missed events. No generic dependency graph or cross-module worker hooks.
+
+**Posting and counts:** use confirmed source location at actual handover, durable per-line source identity and posted quantity snapshot. Manager approval may be the final posting boundary; sale approval that only creates a delivery posts nothing. Record physical event time separately from server-controlled posting time. Reject or explicitly resolve impossible/future physical dates before relying on them for stock; never use a UI warning as sole correctness protection. A count and pending handover must share the same location/product identity and serialized boundary. If a physically verified count already includes the absence of goods, mark that fact durably as accounted by count, not as a new issue. If unknown, persist a reviewable exception. Keep original non-posting reason, module activation generation and resolution evidence (not just a recomputed anti-join with current reason). Do not replay a missed approval blindly after enablement. Pending delivered quantity is advisory, separately labeled and not a reservation, and must not double-subtract a count-covered line. Handle multiple lines of same product, source changes, concurrent count/approval/transfer, approval retries and historical fractional quantities.
+
+**Invalidation:** job invalidation remains an administrative Core action; it must not invent goods or silently rewrite movement history. If a posted source becomes invalid, record or derive a durable exception from the original movement and invalidation evidence even if the module is currently off; reconcile when enabled. For false/duplicate posting, authorized correction references the original movement exactly once and uses the physical/current reconciliation boundary (avoid re-adding stock already captured by a later count). For real returned goods, post separate inspected return to actual destination; for goods still with customer, retain issue and close exception with reason. Uncertain physical state remains visible; no automatic reversal on status alone. Corrections and returns must be idempotent, auditable and retain source snapshots.
+
+**Permissions/data:** ADMIN manages location configuration; MANAGER/ADMIN may post receipt, transfer, count and correction; STAFF reads own allowed locations only (any wider depot visibility must be explicitly scoped). Never trust client organization/actor. Preserve historical owner, product and actor references, offboarding/restore behavior and demo isolation. All module writes require transactional authorization, version/idempotency as appropriate, and audit. Validate both directions of ledger vs balances on restore, even when off; validate pair completeness, orphaned source links, readiness/cutover provenance and no negative balances. Do not auto-repair restore. Extend existing ARC-003 lock order with module state and stock keys after verifying every affected path. Preserve canonical pagination standard (default 6), mobile UI and UI-003 visual acceptance.
+
+**Scope boundary:** no full general ledger, stock valuation/official invoices, e-İrsaliye generation or automatic ÜTS/ERP calls in Warehouse initial scope. Legal research remains unverified; consult authorized advisers before regulated production use. Demo data is excluded from real stock; a future isolated demo slice needs separate design. Reservations/partial delivery require explicit SALE-002 amendment; not inferred from advisory quantities.
+
+## C. Revised delivery order (working IDs; allocate repository decision/slice IDs against latest main)
+
+| Slice | Code + owning documents + acceptance |
+|---|---|
+| WH-001 / WH-002 | Confirm decision contract and current main; first working vertical Warehouse slice: MOD-003 descriptor/capability, gated APIs and usable UI, locations, movement ledger, balances, readiness/cutover and initial count. No duplicate R0. Include deletion/restore/isolation checks with first tables, not later. |
+| WH-003 | Complete standalone initial operations: receipt (supplier/document reference without financial authority), transfers both directions, count/correction, scoped balance/history, reconciliation, mobile and pagination. No production rollout before receipt and readiness are complete. |
+| WH-004 | Delivery integration after standalone operations: confirmed depot/vehicle source, pending-delivered advisory, approval-time issue with verified count coverage, durable exceptions, correction workflow. No unconditional reversal. |
+| WH-005 | Product-specific lot/serial/SKT policies, traceable movements/balances, expiry, returns, quarantine, consignment; explicit DOM-001 change where needed. Restrict tracked product use until supported. |
+| WH-006 | Maintenance parts consumption/returns and optional-module matrix with #516; no forced module dependency. |
+| WH-007 | Reservations, replenishment alerts, reporting and advanced stock operations; reservation/partial delivery policy separately recorded. |
+| WH-008 | Explicit ERP authority and cutover, Accounting/#515 reference boundary, ÜTS integration after legal/API validation; no dual authority. |
+
+WH-D01–14 are the owner-approved direction. Concrete DDL, API fields, error codes, time tolerances, source capture UI, readiness persistence/locking, correction authorization, lot/serial stock-key shape and regulated roll-out criteria must be specified with the applicable implementation slice; do not silently invent them. No fake module entry that appears operational before usable endpoints/data exist. Do not assume migration 076 is free; inspect migration catalog at implementation time.
+
+## D. Required acceptance evidence (in addition to applicable unchanged 06 scenarios)
+
+- Disabled route 404, capability false, no new postings; state unreadable route 503, no env fallback; unrelated Core workflows still work.
+- Fresh enable starts unready; re-enable with old balance 100 and 30 units physically removed cannot claim current 100 or issue from it before reconciliation; partial count verifies only its scope; toggle/approval races linearize.
+- Standalone receipt increases quantity once; same action ID different payload conflicts; paired transfer all-or-nothing; count delta and zero-difference count are audited; ledger equals balance after each command.
+- Last-unit race never negative; concurrent multi-line commands follow canonical lock order; duplicate products aggregate correctly for insufficiency.
+- Pending handover from main depot and vehicle, count-before/after approval, future/invalid dates, reassignment and repeated approval; no double deduction or implicit source inference.
+- Invalidate after real customer handover: no fabricated stock; false posting correction once; return to actual depot distinct; invalidation while off is discoverable on re-enable; later count cannot cause double credit.
+- OTHER without explicit physical direction: no automatic issue; no delivery generated from sale may post before actual handover/approval; RETURN/CONSIGNMENT retain current Core meaning until explicitly amended.
+- Offboarding source-only recovery and deletion blockers with module off, cross-org and role attacks rejected, demo purge remains isolated, restore catches mismatch/missing tables even disabled.
+- Tracked products cannot be represented as fully verified aggregate-only stock; Maintenance/Accounting each independently available, no dual ERP authority.
+- Exact-head hosted CI with server/web builds/tests and real PostgreSQL 17 concurrency/restore cases; UI-003 rendered mobile/desktop and accessibility evidence. No [skip ci] on implementation commits. No merge/deploy without separate authorization and applicable release gates.
+
+## E. Implementation handoff
+
+Start from latest main, not this historical research branch; carry only this approved direction into the first implementation PR. Read AGENTS.md, MOD-001/002/003, DOM-001/004/006, ARC-001/002/003, SALE/DELIVERY-QTY, PRODUCT_REQUIREMENTS.md, architecture/API/schema drafts, slice plan, DESIGN.md/PRODUCT.md/UI-001/003 and current migration catalog. Inspect actual module-state writer, product/people deletion, demo isolation, restore validators and JobCard hooks. Implement one tested vertical slice at a time; update decision and contract with code; no unrelated refactor or new dependencies. Report exact base/head, changed files, acceptance results, blockers, migration impact and explicit no-merge/no-deploy status.
+
+---
+
+## Historical research snapshot (pre-owner approval; not implementation authority)
+
 # Depo/Stok modülü araştırması — 2026-11-26
 
 Durum: **araştırma raporu, karar değildir.** Hiçbir kod, migration veya karar kaydı
