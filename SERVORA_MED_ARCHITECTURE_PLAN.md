@@ -115,6 +115,11 @@ reports
 health
 ```
 
+Weekly Report submit readiness rules and immutable submission assembly live in
+`weekly-reports/submission.ts`. JobCard orchestrates the lifecycle transition
+and canonical activity, then calls the Weekly Report append through a narrow
+port on the same transaction.
+
 ## 6. Frontend Contract
 
 | Area | Responsibility |

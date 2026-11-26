@@ -125,14 +125,22 @@ async function submit(
 }
 
 describe.skipIf(!databaseUrl)('weekly report atomic submission (PostgreSQL)', () => {
-  it('commits transition, activity and immutable seq-1 submission together', async () => {
+  it('commits transition, activity and immutable seq-1 submission together across an exact retry', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const staffId = await insertUser(pool, organizationId, 'STAFF');
       const service = buildService(pool);
       const created = await prepareSubmittable(pool, service, organizationId, staffId);
-      const submitted = await submit(service, organizationId, staffId, created.jobCardId, 2);
+      const staff = actor(organizationId, staffId, 'STAFF');
+      const input = {
+        clientActionId: randomUUID(), expectedVersion: 2, note: 'Onaya gönderildi.',
+      };
+      const submitted = await service.submitForApproval(staff, created.jobCardId, input);
       expect(submitted.status).toBe('WAITING_APPROVAL');
+      const beforeRetry = await service.listWeeklyReportSubmissions(staff, created.jobCardId);
+
+      const replayed = await service.submitForApproval(staff, created.jobCardId, input);
+      expect(replayed).toMatchObject({ status: 'WAITING_APPROVAL', version: submitted.version });
 
       const job = (await pool.query(
         `SELECT status, staff_completed_at, staff_completed_by FROM job_cards WHERE id = $1`,
@@ -149,10 +157,9 @@ describe.skipIf(!databaseUrl)('weekly report atomic submission (PostgreSQL)', ()
       )).rows;
       expect(activities).toHaveLength(1);
 
-      const history = await service.listWeeklyReportSubmissions(
-        actor(organizationId, staffId, 'STAFF'), created.jobCardId,
-      );
+      const history = await service.listWeeklyReportSubmissions(staff, created.jobCardId);
       expect(history).toHaveLength(1);
+      expect(history).toEqual(beforeRetry);
       const first = history[0]!;
       expect(first.seqNo).toBe(1);
       // Authoritative server clock: the submission shares the exact request

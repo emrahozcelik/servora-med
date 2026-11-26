@@ -74,10 +74,12 @@ export type {
 export { runCriticalAction };
 import type { SqlExecutor } from '../../db/executor.js';
 import type {
-  ManagerAnswer,
+  WeeklyReportSubmissionInsert,
+  WeeklyReportSubmissionReader,
+  WeeklyReportSubmissionWriter,
+} from '../weekly-reports/submission.js';
+import type {
   ManagerQuestion,
-  SourceWorkSnapshotItem,
-  WeeklyReportSubmittedBody,
   WeeklySourceWorkRow,
 } from '../weekly-reports/types.js';
 import type {
@@ -1118,7 +1120,7 @@ export type PersistedFollowUpListItem = PersistedJobCardListItem & {
   sourceJobCardId: string;
 };
 
-export interface SubmissionReader {
+export interface SubmissionReader extends WeeklyReportSubmissionReader {
   getSubmissionSale(organizationId: string, jobCardId: string): Promise<SaleSubmissionSnapshot | null>;
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;  getSubmissionCustomer(
     organizationId: string,
@@ -1132,30 +1134,9 @@ export interface SubmissionReader {
     organizationId: string,
     jobCardId: string,
   ): Promise<SubmissionDeliveryItem[]>;
-  getOrganizationTimezone(organizationId: string): Promise<string>;
-  /**
-   * Weekly Report backing row for a JobCard submission check, or null when
-   * the job has no report. Implemented by the request transaction so the
-   * submit path observes the same row it later freezes.
-   */
-  getWeeklyReportByJobId(
-    organizationId: string,
-    jobCardId: string,
-  ): Promise<WeeklyReportRow | null>;
-  /**
-   * Bounded one-week source-work candidate rows for a Weekly Report
-   * (org-local [weekStart, weekEnd), assigned staff, non-weekly types,
-   * submittable statuses). Single query, deterministic order, no N+1.
-   */
-  listWeeklySourceWorkSnapshot(input: {
-    organizationId: string;
-    staffUserId: string;
-    weekStart: Date;
-    weekEnd: Date;
-  }): Promise<WeeklySourceWorkRow[]>;
 }
 
-export interface JobCardTransaction extends SubmissionReader {
+export interface JobCardTransaction extends SubmissionReader, WeeklyReportSubmissionWriter {
   readonly sale: SaleTransaction;
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
@@ -1651,15 +1632,6 @@ export interface JobCardTransaction extends SubmissionReader {
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
   /** Draft replacement on this client; caller holds User, JobCard and report locks. */
   updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate): Promise<WeeklyReportRow | null>;
-  /**
-   * Weekly Report row locked for a submit freeze. The caller holds the JobCard
-   * lock; this adds the report-row lock so draft edits serialize against the
-   * submission freeze.
-   */
-  getWeeklyReportByJobForUpdate(
-    organizationId: string,
-    jobCardId: string,
-  ): Promise<WeeklyReportRow | null>;
   /** Removal metadata update; caller holds User, JobCard and report locks. */
   removeWeeklyReportRow(input: {
     organizationId: string; reportId: string; expectedVersion: number;
@@ -1671,14 +1643,6 @@ export interface JobCardTransaction extends SubmissionReader {
     staffUserId: string,
     periodStart: string,
   ): Promise<WeeklyReportRow | null>;
-  /**
-   * Next submission seq, serialized under the caller's report-row lock
-   * (getWeeklyReportByJobForUpdate first).
-   */
-  getNextWeeklyReportSubmissionSeqNo(
-    organizationId: string,
-    weeklyReportId: string,
-  ): Promise<number>;
   /**
    * Insert the WeeklyReport row as part of an atomic job+report creation.
    *
@@ -1697,27 +1661,6 @@ export interface JobCardTransaction extends SubmissionReader {
     periodEnd: string;
     questions: ManagerQuestion[];
   }): Promise<WeeklyReportRow | null>;
-  /**
-   * Append one immutable submission row and bump the report draft version in
-   * the same statement pair, so a concurrent draft PATCH with a stale
-   * expectedVersion deterministically conflicts after a submit freeze.
-   */
-  insertWeeklyReportSubmissionRow(input: {
-    organizationId: string;
-    weeklyReportId: string;
-    jobCardId: string;
-    seqNo: number;
-    submittedBy: string;
-    submittedAt: Date;
-    periodStart: string;
-    periodEnd: string;
-    body: WeeklyReportSubmittedBody;
-    questions: ManagerQuestion[];
-    answers: ManagerAnswer[];
-    sourceWork: SourceWorkSnapshotItem[];
-    jobVersion: number;
-    sourceActivityId: string;
-  }): Promise<{ submission: WeeklyReportSubmissionRow; reportVersion: number }>;
 }
 
 export interface JobCardRepository extends SubmissionReader {
@@ -5310,22 +5253,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ?? null;
   }
 
-  async insertWeeklyReportSubmissionRow(input: {
-    organizationId: string;
-    weeklyReportId: string;
-    jobCardId: string;
-    seqNo: number;
-    submittedBy: string;
-    submittedAt: Date;
-    periodStart: string;
-    periodEnd: string;
-    body: WeeklyReportSubmittedBody;
-    questions: ManagerQuestion[];
-    answers: ManagerAnswer[];
-    sourceWork: SourceWorkSnapshotItem[];
-    jobVersion: number;
-    sourceActivityId: string;
-  }) {
+  async insertWeeklyReportSubmissionRow(input: WeeklyReportSubmissionInsert) {
     const inserted = await this.client.query<WeeklyReportSubmissionRow>(
       `INSERT INTO weekly_report_submissions
          (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by,
