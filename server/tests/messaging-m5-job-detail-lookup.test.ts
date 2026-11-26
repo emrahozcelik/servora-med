@@ -333,7 +333,115 @@ describe('M5 exact JOB conversation lookup (GET /api/messaging/conversations/job
       const { body } = res;
       expect(body.id).toBe(canonicalId);
       expect(body.jobId).toBe(terminalJobA);
+      expect(body.assigneeSync).toBeNull();
       await app.close();
+    });
+  });
+
+  itSlow('P1: returns assigneeSync hint for ADMIN/MANAGER when latest JOB_ASSIGNED names non-participant STAFF on non-terminal job', async () => {
+    await withFixture(async ({ pool, orgA, adminA, managerB, staff1A, staff2A, activeJob1A }) => {
+      const canonicalId = await createCanonical(pool, adminA, activeJob1A, staff1A);
+      await pool.query(
+        `UPDATE job_cards SET assigned_to = $1 WHERE id = $2`,
+        [staff2A.id, activeJob1A],
+      );
+      const transitionId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_activity_logs
+           (organization_id, job_card_id, actor_id, event_type, old_value, new_value)
+         VALUES ($1, $2, $3, 'JOB_ASSIGNED', $4::jsonb, $5::jsonb)
+         RETURNING id`,
+        [
+          orgA, activeJob1A, adminA.id,
+          JSON.stringify({ assignedTo: staff1A.id }),
+          JSON.stringify({ assignedTo: staff2A.id }),
+        ],
+      )).rows[0]!.id;
+
+      // Non-participant MANAGER gets the hint.
+      const managerApp = await withLookupApp(pool, managerB);
+      const managerRes = await getLookup(managerApp, activeJob1A);
+      expect(managerRes.status).toBe(200);
+      expect(managerRes.body.assigneeSync).toEqual({
+        transitionId,
+        previousAssignee: { id: staff1A.id, name: staff1A.name },
+        newAssignee: { id: staff2A.id, name: staff2A.name },
+      });
+      await managerApp.close();
+
+      // Sync clears the hint.
+      const svc = service(pool);
+      await svc.syncJobAssignee(managerB, canonicalId, {
+        clientActionId: `sync-${randomUUID()}`,
+        assignmentTransitionId: transitionId,
+      });
+
+      const adminApp = await withLookupApp(pool, adminA);
+      const afterSyncRes = await getLookup(adminApp, activeJob1A);
+      expect(afterSyncRes.status).toBe(200);
+      expect(afterSyncRes.body.assigneeSync).toBeNull();
+      await adminApp.close();
+
+      // STAFF always receives null.
+      const staffApp = await withLookupApp(pool, staff2A);
+      const staffRes = await getLookup(staffApp, activeJob1A);
+      expect(staffRes.status).toBe(200);
+      expect(staffRes.body.assigneeSync).toBeNull();
+      await staffApp.close();
+    });
+  });
+
+  itSlow('P1: returns assigneeSync null when terminal, stale JOB_ASSIGNED, or new assignee is non-STAFF', async () => {
+    await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, staff2A, activeJob1A, terminalJobA }) => {
+      // 1. Terminal job with pending non-participant assignment activity -> null
+      await createCanonical(pool, adminA, terminalJobA, staff2A);
+      await pool.query(
+        `UPDATE job_cards SET assigned_to = $1 WHERE id = $2`,
+        [staff1A.id, terminalJobA],
+      );
+      await pool.query(
+        `INSERT INTO job_card_activity_logs
+           (organization_id, job_card_id, actor_id, event_type, old_value, new_value)
+         VALUES ($1, $2, $3, 'JOB_ASSIGNED', $4::jsonb, $5::jsonb)`,
+        [
+          orgA, terminalJobA, adminA.id,
+          JSON.stringify({ assignedTo: staff2A.id }),
+          JSON.stringify({ assignedTo: staff1A.id }),
+        ],
+      );
+      const adminApp = await withLookupApp(pool, adminA);
+      expect((await getLookup(adminApp, terminalJobA)).body.assigneeSync).toBeNull();
+
+      // 2. Stale activity (new_value != job_cards.assigned_to) -> null
+      await createCanonical(pool, adminA, activeJob1A, staff1A);
+      await pool.query(
+        `INSERT INTO job_card_activity_logs
+           (organization_id, job_card_id, actor_id, event_type, old_value, new_value)
+         VALUES ($1, $2, $3, 'JOB_ASSIGNED', $4::jsonb, $5::jsonb)`,
+        [
+          orgA, activeJob1A, adminA.id,
+          JSON.stringify({ assignedTo: staff1A.id }),
+          JSON.stringify({ assignedTo: staff2A.id }),
+        ],
+      );
+      expect((await getLookup(adminApp, activeJob1A)).body.assigneeSync).toBeNull();
+
+      // 3. New assignee is MANAGER (non-STAFF) -> null
+      await pool.query(
+        `UPDATE job_cards SET assigned_to = $1 WHERE id = $2`,
+        [managerA.id, activeJob1A],
+      );
+      await pool.query(
+        `INSERT INTO job_card_activity_logs
+           (organization_id, job_card_id, actor_id, event_type, old_value, new_value)
+         VALUES ($1, $2, $3, 'JOB_ASSIGNED', $4::jsonb, $5::jsonb)`,
+        [
+          orgA, activeJob1A, adminA.id,
+          JSON.stringify({ assignedTo: staff1A.id }),
+          JSON.stringify({ assignedTo: managerA.id }),
+        ],
+      );
+      expect((await getLookup(adminApp, activeJob1A)).body.assigneeSync).toBeNull();
+      await adminApp.close();
     });
   });
 

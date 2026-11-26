@@ -4,20 +4,22 @@ import { ApiError, type CurrentUser } from '../services/api';
 import {
   createOrGetConversation,
   getJobConversation,
+  type AssigneeSyncHint,
 } from '../services/messaging-api';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { JobCard } from './jobs-api';
+import './reassignment-sync.css';
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'CANCELLED', 'INVALIDATED']);
 
 type Resolution =
   | { kind: 'resolving' }
-  | { kind: 'open'; conversationId: string }
+  | { kind: 'open'; conversationId: string; assigneeSync: AssigneeSyncHint | null }
   | { kind: 'start' }
   | { kind: 'none' };
 
 /**
- * Restrained Job Detail entry into the canonical JOB conversation (M5).
+ * Restrained Job Detail entry into the canonical JOB conversation (M5 / MSG-002).
  *
  * - Authorized persisted participant: "Konuşmayı aç" → deep link.
  * - Admin/Manager with no authorized conversation on an eligible active Job:
@@ -25,6 +27,9 @@ type Resolution =
  *   stays the authority. Organization-wide MANAGER RBAC: a same-org accessible
  *   Job resolves its canonical thread even without persisted membership
  *   (non-participants are never inserted; membership stays immutable).
+ * - Admin/Manager when the canonical lookup reports `assigneeSync`: renders a
+ *   calm inline notice with a secondary "Konuşmaya ekle" action that opens the
+ *   explicit confirmation dialog without auto-interrupting page load.
  * - Staff / terminal / no-assignee without an authorized conversation: no action.
  */
 export function JobConversationAction({
@@ -32,12 +37,16 @@ export function JobConversationAction({
   user,
   onOpenMessaging,
   onVisibilityChange,
+  onRequestAssigneeSync,
+  refreshKey = 0,
   disabled = false,
 }: {
   job: JobCard;
   user: CurrentUser;
   onOpenMessaging: (conversationId: string) => void;
   onVisibilityChange?: (visible: boolean) => void;
+  onRequestAssigneeSync?: (conversationId: string, hint: AssigneeSyncHint) => void;
+  refreshKey?: number;
   disabled?: boolean;
 }) {
   const [resolution, setResolution] = useState<Resolution>({ kind: 'resolving' });
@@ -58,7 +67,11 @@ export function JobConversationAction({
       const conversation = await getJobConversation(jobId);
       if (seq !== lookupSeqRef.current) return;
       if (conversation) {
-        setResolution({ kind: 'open', conversationId: conversation.id });
+        setResolution({
+          kind: 'open',
+          conversationId: conversation.id,
+          assigneeSync: conversation.assigneeSync,
+        });
       } else {
         setResolution({ kind: canCreate ? 'start' : 'none' });
       }
@@ -69,10 +82,13 @@ export function JobConversationAction({
       // existing canonical thread back, a non-participant is denied safely.
       setResolution({ kind: canCreate ? 'start' : 'none' });
     }
-  }, [job.id, canCreate]);
+  }, [job.id, canCreate, refreshKey]);
 
   useEffect(() => {
     setResolution({ kind: 'resolving' });
+  }, [job.id]);
+
+  useEffect(() => {
     void resolve();
   }, [resolve]);
 
@@ -119,6 +135,9 @@ export function JobConversationAction({
   }
 
   const label = effective.kind === 'open' ? 'Konuşmayı aç' : 'Konuşma başlat';
+  const pendingHint = effective.kind === 'open' && canManage && onRequestAssigneeSync
+    ? effective.assigneeSync
+    : null;
 
   return (
     <div
@@ -136,6 +155,27 @@ export function JobConversationAction({
         {busy ? 'Açılıyor…' : label}
       </button>
       {error && <p className="field-error" role="alert">{error}</p>}
+      {pendingHint && effective.kind === 'open' && (
+        <section
+          className="job-assignee-sync-notice"
+          aria-label="Konuşma katılımcısı güncellemesi"
+          data-job-assignee-sync-notice="true"
+        >
+          <p>
+            {`İşin yeni sorumlusu ${pendingHint.newAssignee.name} bu iş konuşmasının katılımcısı değil.`}
+          </p>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              onRequestAssigneeSync?.(effective.conversationId, pendingHint);
+            }}
+          >
+            Konuşmaya ekle
+          </button>
+        </section>
+      )}
     </div>
   );
 }
