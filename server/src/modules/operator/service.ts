@@ -48,6 +48,9 @@ function toModuleView(row: ModuleStateRow): OperatorModuleView {
   return {
     key: row.key,
     label: descriptor.label,
+    description: descriptor.description,
+    whenDisabled: [...descriptor.whenDisabled],
+    preserved: [...descriptor.preserved],
     enabled: row.enabled,
     version: row.version,
     source: row.source,

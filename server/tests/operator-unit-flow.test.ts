@@ -62,7 +62,7 @@ beforeAll(async () => {
   await admin.query(`CREATE SCHEMA ${schema}`);
   pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public` });
   await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
-  await takeOverInstallationModules(pool, { overviewDashboard: false });
+  await takeOverInstallationModules(pool, { OVERVIEW: false });
   const org = (await pool.query<{ id: string }>("INSERT INTO organizations (name) VALUES ('Op flow') RETURNING id")).rows[0]!.id;
   await pool.query(
     "INSERT INTO users (organization_id, name, email, password_hash, role) VALUES ($1, 'Customer Admin', 'admin@example.com', $2, 'ADMIN')",

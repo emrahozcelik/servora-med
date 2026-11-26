@@ -178,7 +178,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 1 — early start and tolerance',
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]?.version).toBe('074_installation_operator_and_module_state');
+      expect(head.rows[0]?.version).toBe('075_installation_module_registry_widening');
       const table = await pool.query<{ table: string | null }>(
         "SELECT to_regclass('job_card_early_start_authorizations')::text AS table",
       );
