@@ -58,6 +58,38 @@ function mapNotification(row: NotificationRow): NotificationRecord {
 const NOTIFICATION_COLUMNS = `id, organization_id, recipient_user_id,
   source_realtime_event_id, kind, entity_type, entity_id, created_at, read_at`;
 
+type WebPushAbandonReason = 'READ' | 'DISMISSED';
+
+/**
+ * The reason is a closed union mapped to a fixed SQL literal, so a value that
+ * does not match one of these codes can never reach the statement text.
+ */
+const WEB_PUSH_ABANDON_ERROR_CODE_SQL: Record<WebPushAbandonReason, string> = {
+  READ: `'READ'`,
+  DISMISSED: `'DISMISSED'`,
+};
+
+/**
+ * CTE that abandons the PENDING push deliveries of every notification updated
+ * by the enclosing statement's `updated` CTE. It must stay in the same
+ * statement as the notification update so both effects commit atomically.
+ */
+function abandonPendingPushesCte(reason: WebPushAbandonReason): string {
+  return `abandoned AS (
+         UPDATE web_push_deliveries
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                last_error_code = ${WEB_PUSH_ABANDON_ERROR_CODE_SQL[reason]},
+                abandoned_at = NOW(),
+                updated_at = NOW()
+           FROM updated
+          WHERE web_push_deliveries.organization_id = updated.organization_id
+            AND web_push_deliveries.notification_id = updated.id
+            AND web_push_deliveries.state = 'PENDING'
+       )`;
+}
+
 export class PostgresNotificationTransaction {
   constructor(private readonly client: Pick<PoolClient, 'query'>) {}
 
@@ -163,19 +195,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
          RETURNING id, organization_id, recipient_user_id, source_realtime_event_id,
                    kind, entity_type, entity_id, created_at, read_at
        ),
-       abandoned AS (
-         UPDATE web_push_deliveries
-            SET state = 'ABANDONED',
-                lease_token = NULL,
-                lease_until = NULL,
-                last_error_code = 'READ',
-                abandoned_at = NOW(),
-                updated_at = NOW()
-           FROM updated
-          WHERE web_push_deliveries.organization_id = updated.organization_id
-            AND web_push_deliveries.notification_id = updated.id
-            AND web_push_deliveries.state = 'PENDING'
-       )
+       ${abandonPendingPushesCte('READ')}
        SELECT id, organization_id, recipient_user_id, source_realtime_event_id,
               kind, entity_type, entity_id, created_at, read_at
          FROM updated`,
@@ -202,19 +222,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
             AND read_at IS NULL
          RETURNING id, organization_id
        ),
-       abandoned AS (
-         UPDATE web_push_deliveries
-            SET state = 'ABANDONED',
-                lease_token = NULL,
-                lease_until = NULL,
-                last_error_code = 'READ',
-                abandoned_at = NOW(),
-                updated_at = NOW()
-           FROM updated
-          WHERE web_push_deliveries.organization_id = updated.organization_id
-            AND web_push_deliveries.notification_id = updated.id
-            AND web_push_deliveries.state = 'PENDING'
-       )
+       ${abandonPendingPushesCte('READ')}
        SELECT COUNT(*)::text AS marked_count
          FROM updated`,
       [viewer.organizationId, viewer.userId, entityType, entityId],
@@ -241,19 +249,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
             AND id = $3
          RETURNING id, organization_id
        ),
-       abandoned AS (
-         UPDATE web_push_deliveries
-            SET state = 'ABANDONED',
-                lease_token = NULL,
-                lease_until = NULL,
-                last_error_code = 'DISMISSED',
-                abandoned_at = NOW(),
-                updated_at = NOW()
-           FROM updated
-          WHERE web_push_deliveries.organization_id = updated.organization_id
-            AND web_push_deliveries.notification_id = updated.id
-            AND web_push_deliveries.state = 'PENDING'
-       )
+       ${abandonPendingPushesCte('DISMISSED')}
        SELECT id FROM updated`,
       [viewer.organizationId, viewer.userId, notificationId],
     );
@@ -289,19 +285,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
             AND dismissed_at IS NULL
          RETURNING id, organization_id
        ),
-       abandoned AS (
-         UPDATE web_push_deliveries
-            SET state = 'ABANDONED',
-                lease_token = NULL,
-                lease_until = NULL,
-                last_error_code = 'DISMISSED',
-                abandoned_at = NOW(),
-                updated_at = NOW()
-           FROM updated
-          WHERE web_push_deliveries.organization_id = updated.organization_id
-            AND web_push_deliveries.notification_id = updated.id
-            AND web_push_deliveries.state = 'PENDING'
-       )
+       ${abandonPendingPushesCte('DISMISSED')}
        SELECT COUNT(*)::text AS cleared_count
          FROM updated`,
       [viewer.organizationId, viewer.userId],
