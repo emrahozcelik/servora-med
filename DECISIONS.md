@@ -3731,3 +3731,58 @@ turning a module off must not weaken a core workflow rule.
 - Research and owner answers:
   [docs/backlog/2026-11-25-core-modules-architecture-research.md](docs/backlog/2026-11-25-core-modules-architecture-research.md)
   §2 V10/V10+, §5a and §5b.
+
+## MOD-002 — Installation operator and runtime module state (Overview pilot)
+
+- **Date:** 2026-11-26
+- **Status:** Accepted by the owner ("ayrı hesap + oturum seçeneği mantıklı",
+  2026-11-25; "Onaylıyorum, başla", 2026-11-26, with the proposed defaults: 2-hour
+  absolute operator session, fresh installs take the env value). Extends UI-002 with
+  a typed installation module state; does not change MOD-001 or ARC-002.
+
+### Context
+
+Product modules are switched with `*_ENABLED` env keys read once at startup. The
+owner, who installs and operates Servora-Med for each customer, needs to switch
+modules from inside the application, and later to hold operations that the
+customer's own ADMIN should not perform. Customer roles live in `users` with
+organization scope; `audit_events` requires an organization and a user actor.
+
+### Decision
+
+1. **Installation operator.** A separate, installation-level identity
+   (`operator_accounts`, `operator_sessions`, `operator_account_capabilities`) with
+   its own login, cookie and session under `/api/operator`. It is never a customer
+   user and never grants or receives customer roles. Customer ADMIN cannot see,
+   grant or reach it. Accounts are granted, reset and revoked only through a host
+   CLI. Capabilities are a fixed in-code list; this decision introduces only
+   `MODULE_MANAGEMENT`. Each further capability (e.g. customer delete) needs its own
+   decision, including how it is recorded in the owning module's audit.
+2. **Session security.** Two-hour absolute sessions, `SameSite=Strict`, path-scoped
+   cookie, exact-`Origin` enforcement on operator writes in every environment,
+   uniform `401` with fixed KDF work, per-IP and per-email login limits, and
+   in-transaction re-validation of session and capability on mutations.
+3. **Module registry and state.** Modules switchable by the operator are fixed
+   registry entries in code. Their state is one typed row per module in
+   `installation_module_state` (not a generic settings bag; UI-002 still forbids
+   that). Every change is version-checked and recorded in `operator_audit_events` in
+   the same transaction.
+4. **Env takeover.** On the first start with this release, a module's current legacy
+   env value is taken over once into the database; afterwards the database is the
+   only source and the env key is legacy. Env acts as a ceiling only for modules
+   whose secrets or infrastructure live in env (future slices), not for Overview.
+5. **Fail closed.** When module state cannot be read, the module's API answers
+   `503` and its capability is reported as off; there is no env fallback.
+6. **Restore.** A database restore revokes all operator sessions and deactivates all
+   operator accounts before traffic is opened; the host re-grants access.
+7. **Pilot scope.** Only Overview moves in this decision. Every other module keeps
+   its env key until its own slice and contract.
+
+### Consequences
+
+- Contract, API and acceptance scenarios:
+  [docs/features/operator-module-pilot.md](docs/features/operator-module-pilot.md).
+- Migration 074 adds the operator and module-state tables; deploy needs
+  `allow_migrations`. The first production operator is granted over the root channel
+  with explicit owner approval.
+- `OVERVIEW_DASHBOARD_ENABLED` becomes a legacy takeover input.
