@@ -418,6 +418,26 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
       const serviceCalOff = buildService(pool, clock, { calendar: CALENDAR_OFF, assignmentWindow: WINDOW_ON }).service;
       const serviceCalOn = buildService(pool, clock, { calendar: CALENDAR_ON, assignmentWindow: WINDOW_ON }).service;
 
+      const releaseSlotEnd = new Date(Date.parse(slots.laterFreeStart) + HOUR_MS).toISOString();
+
+      // Positive baseline: before creating the jobs, both intervals are returned for seed.staff.
+      const availableBefore = await serviceCalOff.availableSlots(seed.manager, {
+        type: 'SALES_MEETING',
+        customerId: seed.secondCustomerId,
+        assignedTo: seed.staff.id,
+        scheduledAt: slots.searchFrom,
+        scheduledEndsAt: slots.searchEnds,
+        jobCardId: null,
+      });
+      expect(availableBefore.slots).toContainEqual({
+        startsAt: slots.slotStart,
+        endsAt: slots.slotEnd,
+      });
+      expect(availableBefore.slots).toContainEqual({
+        startsAt: slots.laterFreeStart,
+        endsAt: releaseSlotEnd,
+      });
+
       // 1) DECLINED job still occupies staff interval.
       const declinedJob = await serviceCalOff.create(seed.manager, meetingInput({
         customerId: seed.customerId,
@@ -470,7 +490,14 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
         scheduledEndsAt: slots.searchEnds,
         jobCardId: null,
       });
-      expect(availableAfterDecline.slots.some((s) => s.startsAt === slots.slotStart)).toBe(false);
+      expect(availableAfterDecline.slots).not.toContainEqual({
+        startsAt: slots.slotStart,
+        endsAt: slots.slotEnd,
+      });
+      expect(availableAfterDecline.slots).toContainEqual({
+        startsAt: slots.laterFreeStart,
+        endsAt: releaseSlotEnd,
+      });
 
       // Control: another staff member is free on that interval.
       const otherStaffJob = await serviceCalOff.create(seed.manager, meetingInput({
@@ -483,7 +510,6 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
       expect(otherStaffJob.status).toBe('NEW');
 
       // 2) RELEASED job returns to NEW and still occupies staff interval.
-      const releaseSlotEnd = new Date(Date.parse(slots.laterFreeStart) + HOUR_MS).toISOString();
       const toRelease = await serviceCalOff.create(seed.manager, meetingInput({
         customerId: seed.thirdCustomerId,
         assignedTo: seed.staff.id,
@@ -526,7 +552,11 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
         scheduledEndsAt: slots.searchEnds,
         jobCardId: null,
       });
-      expect(availableAfterRelease.slots.some((s) => s.startsAt === slots.laterFreeStart)).toBe(false);
+      expect(availableAfterRelease.slots).not.toContainEqual({
+        startsAt: slots.laterFreeStart,
+        endsAt: releaseSlotEnd,
+      });
+      expect(availableAfterRelease.slots.length).toBeGreaterThan(0);
     });
   });
 
@@ -579,7 +609,32 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
       )).rows[0]!.count;
       expect(Number(revCountA)).toBe(1);
 
+      // Persisted closure and activity evidence for record-only resolution.
+      const reqARow = (await pool.query<{
+        state: string; resolution: string | null; resolved_by: string | null; resolved_at: Date | null;
+      }>(
+        `SELECT state, resolution, resolved_by, resolved_at FROM job_card_change_requests WHERE id = $1`,
+        [reqA.changeRequestId],
+      )).rows[0]!;
+      expect(reqARow.state).toBe('CLOSED');
+      expect(reqARow.resolution).toBe('RESCHEDULED');
+      expect(reqARow.resolved_by).toBe(seed.manager.id);
+      expect(reqARow.resolved_at).not.toBeNull();
+
+      const activityA = (await pool.query<{ event_type: string; metadata: Record<string, unknown> }>(
+        `SELECT event_type, metadata FROM job_card_activity_logs
+          WHERE job_card_id = $1 AND event_type = 'JOB_CHANGE_REQUEST_RESOLVED'`,
+        [jobA.id],
+      )).rows;
+      expect(activityA).toHaveLength(1);
+      expect(activityA[0]?.metadata).toMatchObject({
+        requestId: reqA.changeRequestId,
+        resolution: 'RESCHEDULED',
+      });
+
       // Case 2: real reschedule with changeRequestResolution updates schedule & closes request atomically.
+      const initialStartB = iso(baseline, 6 * HOUR_MS);
+      const initialEndB = iso(baseline, 7 * HOUR_MS);
       const jobB = await insertRawJob(pool, {
         organizationId: seed.organizationId,
         type: 'SALES_MEETING',
@@ -587,8 +642,8 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
         assignedTo: seed.staff.id,
         createdBy: seed.manager.id,
         customerId: seed.customerId,
-        scheduledAt: iso(baseline, 6 * HOUR_MS),
-        scheduledEndsAt: iso(baseline, 7 * HOUR_MS),
+        scheduledAt: initialStartB,
+        scheduledEndsAt: initialEndB,
       });
       const reqB = await service.createChangeRequest(seed.staff, jobB.id, {
         clientActionId: randomUUID(),
@@ -596,7 +651,7 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
         reasonText: 'Saat değişmeli.',
       });
 
-      // Control: patch without actual schedule revision rejects atomic closure.
+      // Control 2a: patch without actual schedule revision rejects atomic closure.
       const rejectedPatch = await rejectionOf(() => service.patch(seed.manager, jobB.id, {
         expectedVersion: jobB.version,
         title: 'Sadece başlık',
@@ -607,8 +662,42 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
       }));
       expect(rejectedPatch.statusCode).toBe(400);
 
+      // Control 2b: atomicity check — real schedule change paired with nonexistent changeRequestId
+      // rejects with 404 CHANGE_REQUEST_NOT_FOUND and rolls back the schedule mutation.
       const movedStart = iso(baseline, 9 * HOUR_MS);
       const movedEnd = iso(baseline, 10 * HOUR_MS);
+      const badReqPatch = await rejectionOf(() => service.patch(seed.manager, jobB.id, {
+        expectedVersion: jobB.version,
+        scheduledAt: movedStart,
+        scheduledEndsAt: movedEnd,
+        changeRequestResolution: {
+          changeRequestId: randomUUID(),
+          resolution: 'RESCHEDULED',
+        },
+      }));
+      expect(badReqPatch.code).toBe('CHANGE_REQUEST_NOT_FOUND');
+      expect(badReqPatch.statusCode).toBe(404);
+
+      const jobBAfterRollback = (await pool.query<{
+        version: number; scheduled_at: Date; scheduled_ends_at: Date;
+      }>(
+        `SELECT version, scheduled_at, scheduled_ends_at FROM job_cards WHERE id = $1`,
+        [jobB.id],
+      )).rows[0]!;
+      expect(jobBAfterRollback.version).toBe(jobB.version);
+      expect(jobBAfterRollback.scheduled_at.toISOString()).toBe(initialStartB);
+      expect(jobBAfterRollback.scheduled_ends_at.toISOString()).toBe(initialEndB);
+      const revCountBBefore = (await pool.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM job_card_schedule_revisions WHERE job_card_id = $1`,
+        [jobB.id],
+      )).rows[0]!.count;
+      expect(Number(revCountBBefore)).toBe(1);
+      const reqBStillOpen = (await pool.query<{ state: string }>(
+        `SELECT state FROM job_card_change_requests WHERE id = $1`,
+        [reqB.changeRequestId],
+      )).rows[0]!;
+      expect(reqBStillOpen.state).toBe('OPEN');
+
       const patchedB = await service.patch(seed.manager, jobB.id, {
         expectedVersion: jobB.version,
         scheduledAt: movedStart,
@@ -948,17 +1037,57 @@ describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () 
       expect(generalCancelErr.statusCode).toBe(409);
 
       // 2) Offer expiry closes offer as EXPIRED and leaves JobCard NEW (never auto-cancels).
+      const offeredStart = iso(baseline, 10 * HOUR_MS);
       const offered = await service.create(seed.manager, meetingInput({
         customerId: seed.customerId,
         assignedTo: seed.staff.id,
-        scheduledAt: iso(baseline, 10 * HOUR_MS),
+        scheduledAt: offeredStart,
         scheduledEndsAt: iso(baseline, 11 * HOUR_MS),
         title: 'Süresi dolacak teklif',
       }));
-      const offerBefore = (await pool.query<{ id: string; acceptance_due_at: Date }>(
-        `SELECT id, acceptance_due_at FROM job_card_assignment_offers WHERE job_card_id = $1`,
+      const offerBefore = (await pool.query<{
+        id: string; assignee_user_id: string; state: string; acceptance_due_at: Date;
+      }>(
+        `SELECT id, assignee_user_id, state, acceptance_due_at
+           FROM job_card_assignment_offers WHERE job_card_id = $1`,
         [offered.id],
       )).rows[0]!;
+      expect(offerBefore.state).toBe('OPEN');
+
+      // STAFF cannot CANCEL a real in-window NEW job with an OPEN offer before expiry.
+      const allowedOnOffered = getAllowedLifecycleCommands(
+        seed.staff,
+        {
+          id: offered.id,
+          organizationId: seed.organizationId,
+          type: 'SALES_MEETING',
+          status: 'NEW',
+          assignedTo: seed.staff.id,
+          scheduledAt: offeredStart,
+          assignmentOffer: {
+            state: 'OPEN',
+            assigneeUserId: offerBefore.assignee_user_id,
+            acceptanceDueAt: offerBefore.acceptance_due_at.toISOString(),
+          },
+        },
+        baseline,
+        { assignmentWindowEnabled: true },
+      );
+      expect(allowedOnOffered).not.toContain('CANCEL');
+
+      const offeredCancelErr = await rejectionOf(() => service.cancel(seed.staff, offered.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: offered.version,
+        cancelReason: 'Teklif varken personel iptal denemesi',
+      }));
+      expect(offeredCancelErr.code).toBe('INVALID_TRANSITION');
+      expect(offeredCancelErr.statusCode).toBe(409);
+
+      const offerStillOpen = (await pool.query<{ state: string }>(
+        `SELECT state FROM job_card_assignment_offers WHERE id = $1`,
+        [offerBefore.id],
+      )).rows[0]!;
+      expect(offerStillOpen.state).toBe('OPEN');
 
       const worker = createAssignmentOfferExpiryWorker(
         new PostgresAssignmentOfferExpiryRepository(new PostgresJobCardRepository(pool)),

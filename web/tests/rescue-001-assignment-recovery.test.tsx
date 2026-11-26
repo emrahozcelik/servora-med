@@ -26,7 +26,7 @@ vi.mock('../src/overview/OverviewPage', () => ({
 }));
 
 import { AppRouter } from '../src/AppRouter';
-import { JobDetailPanel } from '../src/JobDetail';
+import { JobDetailScreen } from '../src/JobDetail';
 import { AssignmentOfferSection } from '../src/jobs/AssignmentOffer';
 import { JobAttentionPanel } from '../src/jobs/JobAttentionPanel';
 import { parseJobSearch } from '../src/jobs/job-search';
@@ -34,12 +34,13 @@ import type {
   AssignmentOffer,
   AssignmentOfferNeedingActionItem,
   JobCard,
+  JobCardListItem,
   OpenChangeRequestItem,
   UnacceptedPastStartItem,
 } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
 import { buildNavigationModel, resolveHomePath } from '../src/shell/navigation-model';
-import { workflowContext } from './fixtures/job-workflow';
+import { withoutSaleCapability, workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -74,7 +75,7 @@ function makeChangeRequest(index: number): OpenChangeRequestItem {
   };
 }
 
-function makeOfferItem(index: number): AssignmentOfferNeedingActionItem {
+function makeOnLeaveOfferItem(index: number): AssignmentOfferNeedingActionItem {
   return {
     jobCardId: `offer-job-${index}`,
     jobTitle: `Reddedilen Atama ${index}`,
@@ -82,7 +83,26 @@ function makeOfferItem(index: number): AssignmentOfferNeedingActionItem {
     offerId: `offer-${index}`,
     state: 'DECLINED',
     closeReason: 'ON_LEAVE',
-    closeText: `Gizli red metni ${index}`,
+    closeText: `Gizli izin metni ${index}`,
+    acceptanceDueAt: `2026-11-26T1${index}:00:00.000Z`,
+    urgentReason: null,
+    scheduledAt: `2026-11-26T1${index}:30:00.000Z`,
+    proposedScheduledAt: null,
+    assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+    customer: { id: 'cust-1', name: 'Klinik' },
+    jobPath: `/jobs/offer-job-${index}`,
+  };
+}
+
+function makeScheduleConflictOfferItem(index: number): AssignmentOfferNeedingActionItem {
+  return {
+    jobCardId: `offer-job-${index}`,
+    jobTitle: `Reddedilen Atama ${index}`,
+    jobType: 'PRODUCT_DELIVERY',
+    offerId: `offer-${index}`,
+    state: 'DECLINED',
+    closeReason: 'SCHEDULE_CONFLICT',
+    closeText: `Gizli çakışma metni ${index}`,
     acceptanceDueAt: `2026-11-26T1${index}:00:00.000Z`,
     urgentReason: null,
     scheduledAt: `2026-11-26T1${index}:30:00.000Z`,
@@ -103,6 +123,29 @@ function makeUnacceptedItem(index: number): UnacceptedPastStartItem {
     scheduledAt: `2026-11-26T0${index}:30:00.000Z`,
     elapsedSeconds: 3600,
     hasOpenChangeRequest: false,
+  };
+}
+
+function makeJobListItem(id: string, title: string): JobCardListItem {
+  return {
+    id,
+    type: 'PRODUCT_DELIVERY',
+    status: 'NEW',
+    version: 2,
+    title,
+    priority: 'normal',
+    dueDate: null,
+    scheduledAt: '2026-11-26T14:30:00.000Z',
+    scheduledEndsAt: '2026-11-26T15:00:00.000Z',
+    engagementKind: null,
+    createdAt: '2026-11-26T08:00:00.000Z',
+    updatedAt: '2026-11-26T08:30:00.000Z',
+    staffCompletedAt: null,
+    customer: { id: 'cust-1', name: 'Klinik' },
+    contact: null,
+    assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+    deliveryItemCount: 1,
+    allowedCommands: ['CANCEL'],
   };
 }
 
@@ -168,6 +211,10 @@ function declinedJob(offerOverrides: Partial<AssignmentOffer> = {}): JobCard {
       ...workflowContext,
       allowedCommands: ['CANCEL'],
       allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      lifecycle: {
+        ...workflowContext.lifecycle,
+        startedAt: null,
+      },
     },
     followUpContext: null,
     followUpProposal: null,
@@ -180,6 +227,36 @@ function declinedJob(offerOverrides: Partial<AssignmentOffer> = {}): JobCard {
   };
 }
 
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function mockDetailFetch(card: JobCard) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = withoutSaleCapability(String(input));
+    const path = url.split('?')[0] ?? url;
+    if (url.endsWith('/delivery-items')) return json({ items: [] });
+    if (url.startsWith('/api/staff?')) return json([]);
+    if (url.includes('/notes?')) return json({ items: [], total: 0, limit: 25, offset: 0, nextCursor: null });
+    if (url.includes('/activity?')) return json({ items: [], total: 0, limit: 50, offset: 0 });
+    if (url.includes('/submission-lateness')) return json({ open: null });
+    if (url.includes('/overdue-incidents')) return json({ items: [], total: 0, limit: 25, offset: 0 });
+    if (url.includes('/follow-ups')) return json({ items: [], total: 0, limit: 25, offset: 0 });
+    if (path.endsWith(`/api/job-cards/${card.id}`)) return json(card);
+    throw new Error(`Unexpected request: ${url}`);
+  });
+}
+
+async function settle() {
+  await act(async () => {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 describe('RESCUE-001 web characterization (R05 & R02)', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -189,12 +266,12 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ items: [], total: 0, limit: 25, offset: 0 }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    ));
+    vi.stubGlobal('fetch', vi.fn(async () => json({
+      items: [makeJobListItem('offer-job-4', 'Reddedilen Atama 4')],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    })));
   });
 
   afterEach(async () => {
@@ -204,9 +281,13 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     vi.restoreAllMocks();
   });
 
-  it('R05: JobAttentionPanel caps each group at 3 compact rows, omits close reason/text/proposal, and links to /overview even when Overview is off (dead end)', async () => {
+  it('R05: JobAttentionPanel caps groups at 3 compact rows (omitting close reason/text/proposal) and its overflow link loops back to /jobs when Overview is off', async () => {
     const crPage = [1, 2, 3].map(makeChangeRequest);
-    const offerPage = [1, 2, 3].map(makeOfferItem);
+    const offerPage = [
+      makeOnLeaveOfferItem(1),
+      makeScheduleConflictOfferItem(2),
+      makeOnLeaveOfferItem(3),
+    ];
     const unaccPage = [1, 2, 3].map(makeUnacceptedItem);
 
     const loadChangeRequests = vi.fn().mockResolvedValue({ items: crPage, total: 5, limit: 3, offset: 0 });
@@ -239,30 +320,55 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     expect(groups[1]?.querySelectorAll('[data-job-attention-row="true"]')).toHaveLength(3);
     expect(groups[2]?.querySelectorAll('[data-job-attention-row="true"]')).toHaveLength(3);
 
-    // Compact offer rows show offer state + acceptanceDueAt, NOT closeReason/closeText/proposedScheduledAt.
+    // Compact offer rows show state + acceptanceDueAt:
+    // - ON_LEAVE row omits closeReason ('İzinli') and closeText
+    // - SCHEDULE_CONFLICT row omits closeReason ('Plan çakışması'), closeText, and proposedScheduledAt ('27 Kas')
     const offerGroupText = groups[1]?.textContent ?? '';
     expect(offerGroupText).toContain('Reddedildi');
     expect(offerGroupText).not.toContain('İzinli');
-    expect(offerGroupText).not.toContain('Gizli red metni');
+    expect(offerGroupText).not.toContain('Gizli izin metni');
+    expect(offerGroupText).not.toContain('Plan çakışması');
+    expect(offerGroupText).not.toContain('Gizli çakışma metni');
     expect(offerGroupText).not.toContain('27 Kas');
-
-    // Overflow link still points unconditionally to /overview even when overviewDashboard=false.
-    const overflowLink = container.querySelector<HTMLAnchorElement>('.job-attention-overview-link a');
-    expect(overflowLink?.getAttribute('href')).toBe('/overview');
-    expect(overflowLink?.textContent).toBe('Tümünü Genel bakışta gör');
-
-    // Now prove the dead end inside AppRouter with overviewDashboard=false (same pattern as overview-module-switch.test.tsx).
-    const offUser = managerUser(false);
-    expect(buildNavigationModel(offUser).destinations.some((d) => d.id === 'overview')).toBe(false);
-    expect(resolveHomePath(offUser)).toBe('/jobs');
 
     routerMocks.attentionLoaders.loadChangeRequests.mockResolvedValue({ items: crPage, total: 5, limit: 3, offset: 0 });
     routerMocks.attentionLoaders.loadAssignmentOffers.mockResolvedValue({ items: offerPage, total: 5, limit: 3, offset: 0 });
     routerMocks.attentionLoaders.loadUnacceptedPastStart.mockResolvedValue({ items: unaccPage, total: 4, limit: 3, offset: 0 });
 
+    // Positive control: when Overview is ON, clicking the overflow link reaches /overview.
+    const onUser = managerUser(true);
+    expect(buildNavigationModel(onUser).destinations.some((d) => d.id === 'overview')).toBe(true);
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/jobs']}>
+        <MemoryRouter key="router-overview-on" initialEntries={['/jobs']}>
+          <LocationProbe />
+          <AppRouter
+            user={onUser}
+            notice=""
+            onDeliveryCreated={() => {}}
+            onSessionEnded={() => {}}
+          />
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => { await vi.dynamicImportSettled(); });
+    await settle();
+
+    const onOverflowLink = container.querySelector<HTMLAnchorElement>('.job-attention-overview-link a');
+    expect(onOverflowLink?.getAttribute('href')).toBe('/overview');
+    await act(async () => { onOverflowLink!.click(); });
+    await act(async () => { await vi.dynamicImportSettled(); });
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/overview');
+    expect(container.querySelector('[data-page="overview"]')).not.toBeNull();
+
+    // Overview OFF: direct /overview route redirects to /jobs.
+    const offUser = managerUser(false);
+    expect(buildNavigationModel(offUser).destinations.some((d) => d.id === 'overview')).toBe(false);
+    expect(resolveHomePath(offUser)).toBe('/jobs');
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter key="router-overview-off-direct" initialEntries={['/overview']}>
           <LocationProbe />
           <AppRouter
             user={offUser}
@@ -274,33 +380,36 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
       );
     });
     await act(async () => { await vi.dynamicImportSettled(); });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/jobs');
+    expect(container.querySelector('[data-page="overview"]')).toBeNull();
 
-    const routerOverflowLink = container.querySelector<HTMLAnchorElement>('.job-attention-overview-link a');
-    expect(routerOverflowLink?.getAttribute('href')).toBe('/overview');
-
-    await act(async () => {
-      routerOverflowLink!.click();
-    });
+    // Overview OFF on /jobs: clicking "Tümünü Genel bakışta gör" redirects straight back to /jobs,
+    // leaving the intervention queue continuation (items 4+) unreachable as a queue.
+    const offOverflowLink = container.querySelector<HTMLAnchorElement>('.job-attention-overview-link a');
+    expect(offOverflowLink?.getAttribute('href')).toBe('/overview');
+    await act(async () => { offOverflowLink!.click(); });
     await act(async () => { await vi.dynamicImportSettled(); });
-
-    // Clicking "Tümünü Genel bakışta gör" routes to /overview, which immediately redirects back to /jobs!
+    await settle();
     expect(container.querySelector('[data-location]')?.textContent).toBe('/jobs');
     expect(container.querySelector('[data-page="overview"]')).toBeNull();
     expect(container.querySelectorAll('[data-job-attention-row="true"]')).toHaveLength(9);
 
-    // No Jobs query parameter exists to filter by declined offers, open change requests, or unaccepted past-start.
+    // Individual known jobs (e.g. item #4) remain reachable only via the general /jobs list/search,
+    // while parseJobSearch offers no intervention-queue filter.
+    expect(container.querySelector('a[href="/jobs/offer-job-4"]')?.textContent)
+      .toContain('Reddedilen Atama 4');
     const search = parseJobSearch(new URLSearchParams(
       'assignmentOffer=DECLINED&changeRequest=OPEN&unaccepted=true',
     ));
     expect(Object.keys(search)).toEqual(['view', 'offset', 'status']);
   });
 
-  it('R02: renders reason-ordered manager recovery actions after DECLINE and delegates to separate editors/actions', async () => {
+  it('R02: JobDetailScreen renders reason-ordered manager recovery actions after DECLINE and wires clicks to existing editors', async () => {
     const manager = managerUser(true);
 
-    // 1) Non-schedule reasons (ON_LEAVE, TOO_FAR, MISSING_STOCK_OR_EQUIPMENT, OTHER): reassign first.
-    for (const closeReason of ['ON_LEAVE', 'TOO_FAR', 'MISSING_STOCK_OR_EQUIPMENT', 'OTHER'] as const) {
+    // 1) Component check for remaining non-schedule reasons and SCHEDULE_CONFLICT edge cases.
+    for (const closeReason of ['TOO_FAR', 'MISSING_STOCK_OR_EQUIPMENT', 'OTHER'] as const) {
       await act(async () => {
         root.render(
           <AssignmentOfferSection
@@ -319,11 +428,8 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
         'Aynı zamanla yeniden teklif et',
       ]);
       expect(buttons[0]?.className).toContain('primary-button');
-      expect(buttons[1]?.className).toContain('secondary-button');
-      expect(buttons[2]?.className).toContain('secondary-button');
     }
 
-    // 2) SCHEDULE_CONFLICT without a proposal: new-time first.
     await act(async () => {
       root.render(
         <AssignmentOfferSection
@@ -333,45 +439,14 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
         />,
       );
     });
-    const noProposalButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(
+    expect(Array.from(container.querySelectorAll<HTMLButtonElement>(
       '[data-assignment-offer-recovery="DECLINED"] [data-assignment-offer-action]',
-    ));
-    expect(noProposalButtons.map((b) => b.textContent?.trim())).toEqual([
+    )).map((b) => b.textContent?.trim())).toEqual([
       'Yeni zaman belirle',
       'Sorumlu personeli değiştir',
       'Aynı zamanla yeniden teklif et',
     ]);
-    expect(noProposalButtons[0]?.className).toContain('primary-button');
 
-    // 3) SCHEDULE_CONFLICT with valid future proposal (JOB-012): accept-proposal is primary first.
-    const futureStart = new Date(Date.now() + 2 * 86_400_000).toISOString();
-    const futureEnd = new Date(Date.parse(futureStart) + 30 * 60_000).toISOString();
-    await act(async () => {
-      root.render(
-        <AssignmentOfferSection
-          job={declinedJob({
-            closeReason: 'SCHEDULE_CONFLICT',
-            proposedScheduledAt: futureStart,
-            proposedScheduledEndsAt: futureEnd,
-          })}
-          user={manager}
-          onReassign={vi.fn()}
-        />,
-      );
-    });
-    const proposalButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(
-      '[data-assignment-offer-recovery="DECLINED"] [data-assignment-offer-action]',
-    ));
-    expect(proposalButtons.map((b) => b.textContent?.trim())).toEqual([
-      'Önerilen zamanı onayla',
-      'Yeni zaman belirle',
-      'Sorumlu personeli değiştir',
-      'Aynı zamanla yeniden teklif et',
-    ]);
-    expect(proposalButtons[0]?.className).toContain('primary-button');
-    expect(proposalButtons.slice(1).every((b) => b.className.includes('secondary-button'))).toBe(true);
-
-    // 4) SCHEDULE_CONFLICT with expired proposal: confirm hidden, expired text shown, new-time primary.
     await act(async () => {
       root.render(
         <AssignmentOfferSection
@@ -389,35 +464,93 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     expect(container.querySelector('[data-assignment-offer-proposal-expired="true"]')?.textContent)
       .toContain('Önerilen zaman geçti');
 
-    // 5) Full JobDetailPanel composition: recovery sits in AssignmentOfferSection while CANCEL stays in the decision panel.
-    const onCommand = vi.fn();
-    const onRecordEdit = vi.fn();
+    // 2) Full JobDetailScreen integration (ON_LEAVE): verifies real button order,
+    // clicking "Sorumlu personeli değiştir" opens the shared DeliveryAssigneeEditForm,
+    // and "İşi iptal et" sits separately in the İşlemler decision panel.
+    const onLeaveCard = declinedJob({ closeReason: 'ON_LEAVE' });
+    vi.stubGlobal('fetch', mockDetailFetch(onLeaveCard));
     await act(async () => {
       root.render(
-        <JobDetailPanel
-          job={declinedJob({ closeReason: 'ON_LEAVE' })}
-          items={[]}
+        <JobDetailScreen
+          jobId={onLeaveCard.id}
           user={manager}
-          pending={false}
-          message=""
-          messageIsError={false}
-          assignmentOffer={
-            <AssignmentOfferSection
-              job={declinedJob({ closeReason: 'ON_LEAVE' })}
-              user={manager}
-              onReassign={(trigger) => onRecordEdit('EDIT_JOB_FIELDS', trigger)}
-            />
-          }
-          onCommand={onCommand}
-          onRecordEdit={onRecordEdit}
+          onBack={() => {}}
+          onChanged={() => {}}
         />,
       );
     });
-    expect(container.querySelector('[data-assignment-offer-recovery="DECLINED"]')).not.toBeNull();
-    // Separate lifecycle cancel button lives outside AssignmentOfferSection.
-    const allButtons = Array.from(container.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(allButtons).toContain('İşi iptal et');
-    expect(container.querySelector('[data-assignment-offer-recovery="DECLINED"]')?.textContent)
-      .not.toContain('İşi iptal et');
+    await settle();
+
+    const recoveryBlock = container.querySelector('[data-assignment-offer-recovery="DECLINED"]');
+    expect(recoveryBlock).not.toBeNull();
+    const screenButtons = Array.from(recoveryBlock!.querySelectorAll<HTMLButtonElement>(
+      '[data-assignment-offer-action]',
+    ));
+    expect(screenButtons.map((b) => b.textContent?.trim())).toEqual([
+      'Sorumlu personeli değiştir',
+      'Yeni zaman belirle',
+      'Aynı zamanla yeniden teklif et',
+    ]);
+    expect(screenButtons[0]?.className).toContain('primary-button');
+    expect(recoveryBlock!.textContent).not.toContain('İşi iptal et');
+    expect(Array.from(container.querySelectorAll('button')).map((b) => b.textContent?.trim()))
+      .toContain('İşi iptal et');
+
+    await act(async () => {
+      recoveryBlock!.querySelector<HTMLButtonElement>('[data-assignment-offer-action="reassign"]')!.click();
+    });
+    await settle();
+    expect(container.querySelector('.delivery-assignee-details')).not.toBeNull();
+    expect(container.textContent).toContain('Sorumlu personel düzenleme alanı açıldı.');
+
+    // 3) Full JobDetailScreen integration (SCHEDULE_CONFLICT with future proposal):
+    // verifies "Önerilen zamanı onayla" is primary first and clicking "Yeni zaman belirle"
+    // opens and focuses the real #job-scheduled-at planned-time editor.
+    const futureStart = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    const futureEnd = new Date(Date.parse(futureStart) + 30 * 60_000).toISOString();
+    const proposalCard = declinedJob({
+      closeReason: 'SCHEDULE_CONFLICT',
+      proposedScheduledAt: futureStart,
+      proposedScheduledEndsAt: futureEnd,
+    });
+    vi.stubGlobal('fetch', mockDetailFetch(proposalCard));
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    });
+
+    await act(async () => {
+      root.render(
+        <JobDetailScreen
+          key="proposal-card"
+          jobId={proposalCard.id}
+          user={manager}
+          onBack={() => {}}
+          onChanged={() => {}}
+        />,
+      );
+    });
+    await settle();
+
+    const proposalButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(
+      '[data-assignment-offer-recovery="DECLINED"] [data-assignment-offer-action]',
+    ));
+    expect(proposalButtons.map((b) => b.textContent?.trim())).toEqual([
+      'Önerilen zamanı onayla',
+      'Yeni zaman belirle',
+      'Sorumlu personeli değiştir',
+      'Aynı zamanla yeniden teklif et',
+    ]);
+    expect(proposalButtons[0]?.className).toContain('primary-button');
+    expect(proposalButtons.slice(1).every((b) => b.className.includes('secondary-button'))).toBe(true);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-assignment-offer-action="new-time"]')!.click();
+    });
+    await settle();
+    expect(container.querySelector('#job-scheduled-at')).not.toBeNull();
+    expect(document.activeElement?.id).toBe('job-scheduled-at');
   });
 });
