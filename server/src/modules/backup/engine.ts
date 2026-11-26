@@ -387,7 +387,15 @@ export class LocalBackupEngine {
       const retryable = this.options.deferRetryableFailures === true
         && isRetryableBackupFailure(failure.failureCode);
       if (!retryable) {
-        await service.markFailed(runId, failure.failureCode, failure.summary);
+        // Terminal failures persisted here commit with their SYSTEM audit in
+        // the same statement; no caller can append it afterwards.
+        await service.markFailed(
+          runId,
+          failure.failureCode,
+          failure.summary,
+          undefined,
+          { eventType: 'BACKUP_FAILED' },
+        );
       }
       // LOCAL FAILURE CLEANUP (deliberately distinct from the state-machine
       // CLEANUP phase): best-effort removal of THIS run's partial workspace.
