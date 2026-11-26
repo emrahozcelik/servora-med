@@ -480,7 +480,7 @@ describe('M5 Job Detail Messaging action', () => {
       });
     }
 
-    it('shows prompt for MANAGER on load, confirms sync, disappears and refetches lookup', async () => {
+    it('renders non-modal inline notice for MANAGER on load (no auto-open), opens dialog on click, confirms and refetches', async () => {
       let synced = false;
       let lookupCalls = 0;
       const syncPayloads: Array<Record<string, unknown>> = [];
@@ -501,8 +501,27 @@ describe('M5 Job Detail Messaging action', () => {
       });
       await renderScreen(card, messagingUser, fetch as unknown as ReturnType<typeof mockFetch>);
 
+      // Never auto-opens a modal on page load.
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+      const notice = host.querySelector('[data-job-assignee-sync-notice="true"]');
+      expect(notice).not.toBeNull();
+      expect(notice?.getAttribute('role')).toBeNull();
+      expect(notice?.textContent).toContain(
+        'İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.',
+      );
+      const openDialogBtn = Array.from(notice?.querySelectorAll('button') ?? [])
+        .find((b) => b.textContent?.trim() === 'Konuşmaya ekle');
+      expect(openDialogBtn).toBeTruthy();
+
+      await act(async () => {
+        openDialogBtn!.click();
+        await Promise.resolve();
+      });
+
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog).not.toBeNull();
+      expect(dialog?.textContent).toContain('Konuşma katılımcısı güncel değil');
       expect(dialog?.textContent).toContain(
         'İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.',
       );
@@ -514,7 +533,7 @@ describe('M5 Job Detail Messaging action', () => {
       const confirmBtn = Array.from(dialog?.querySelectorAll('button') ?? [])
         .find((b) => b.textContent?.includes('Ayşe Personel yerine Burak Personel ekle'))!;
       await act(async () => {
-        confirmBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        confirmBtn.click();
         await Promise.resolve();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
@@ -523,56 +542,57 @@ describe('M5 Job Detail Messaging action', () => {
       expect(syncPayloads[0]?.assignmentTransitionId).toBe(hint.transitionId);
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       expect(lookupCalls).toBe(callsBeforeConfirm + 1);
+      expect(host.querySelector('[data-job-assignee-sync-notice="true"]')).toBeNull();
     });
 
-    it('Şimdi değil hides prompt for current view only and shows again on next load', async () => {
+    it('cancelling the dialog closes it without sync and keeps the inline notice visible', async () => {
       const card = reassignedCard();
+      const syncPosts: unknown[] = [];
       const fetch = mockSyncFetch({
         card,
         lookupHandler: () => Response.json({ ...conversation, assigneeSync: hint }),
+        onSyncPost: (body) => syncPosts.push(body),
       });
       await renderScreen(card, adminUser, fetch as unknown as ReturnType<typeof mockFetch>);
 
-      const dialog = document.querySelector('[role="dialog"]');
-      expect(dialog).not.toBeNull();
-      const dismissBtn = Array.from(dialog?.querySelectorAll('button') ?? [])
-        .find((b) => b.textContent?.trim() === 'Şimdi değil')!;
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      const openDialogBtn = Array.from(host.querySelectorAll('[data-job-assignee-sync-notice="true"] button'))
+        .find((b) => b.textContent?.trim() === 'Konuşmaya ekle') as HTMLButtonElement;
+      expect(openDialogBtn).toBeTruthy();
+
       await act(async () => {
-        dismissBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        openDialogBtn.click();
         await Promise.resolve();
       });
-      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 
-      // Re-rendering the same mounted screen does not reopen the dismissed hint.
+      const cancelBtn = Array.from(document.querySelectorAll('[role="dialog"] button'))
+        .find((b) => b.textContent?.trim() === 'Şimdi değil') as HTMLButtonElement;
       await act(async () => {
-        root.render(<StrictMode><JobDetailScreen
-          jobId={card.id}
-          user={adminUser}
-          onBack={() => {}}
-          onChanged={() => {}}
-          onOpenMessaging={(conversationId) => openedConversations.push(conversationId)}
-        /></StrictMode>);
+        cancelBtn.click();
         await Promise.resolve();
-        await new Promise((resolve) => setTimeout(resolve, 0));
       });
-      expect(document.querySelector('[role="dialog"]')).toBeNull();
 
-      // Next load (fresh mount) shows the prompt again while the hint is still present.
-      await act(async () => root.unmount());
-      root = createRoot(host);
-      await renderScreen(card, adminUser, fetch as unknown as ReturnType<typeof mockFetch>);
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-        'İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.',
-      );
+      expect(syncPosts).toHaveLength(0);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      // Inline notice stays visible while the hint is present and can re-open the dialog.
+      const noticeAgain = host.querySelector('[data-job-assignee-sync-notice="true"]');
+      expect(noticeAgain).not.toBeNull();
+      await act(async () => {
+        (noticeAgain?.querySelector('button') as HTMLButtonElement).click();
+        await Promise.resolve();
+      });
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     });
 
-    it('never shows hint prompt to STAFF even if response carries assigneeSync', async () => {
+    it('never shows inline notice or hint dialog to STAFF even if response carries assigneeSync', async () => {
       const card = reassignedCard();
       const fetch = mockSyncFetch({
         card,
         lookupHandler: () => Response.json({ ...conversation, assigneeSync: hint }),
       });
       await renderScreen(card, staffUser, fetch as unknown as ReturnType<typeof mockFetch>);
+      expect(host.querySelector('[data-job-assignee-sync-notice="true"]')).toBeNull();
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 

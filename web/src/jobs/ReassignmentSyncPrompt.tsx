@@ -2,6 +2,7 @@ import type { ReactNode, RefObject } from 'react';
 
 import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
 import type { ReassignmentSyncState } from './useReassignmentConversationSync';
+import './reassignment-sync.css';
 
 export type ReassignmentSyncPromptProps = {
   state: ReassignmentSyncState;
@@ -67,28 +68,17 @@ export function ReassignmentSyncPrompt({
       title={title}
       description={
         <>
-          <span style={{ display: 'block' }}>{body}</span>
-          <span
-            className="reassignment-sync-helper"
-            style={{ display: 'block', marginTop: '0.75rem' }}
-          >
+          <span className="reassignment-sync-body">{body}</span>
+          <span className="reassignment-sync-helper">
             {DURABLE_MEMBERSHIP_HELPER}
           </span>
           {state.kind === 'failure' && (
-            <span
-              className="form-error"
-              role="alert"
-              style={{ display: 'block', marginTop: '0.75rem' }}
-            >
+            <span className="form-error reassignment-sync-error" role="alert">
               {state.message}
             </span>
           )}
           {state.kind === 'stale' && (
-            <span
-              className="form-error"
-              role="alert"
-              style={{ display: 'block', marginTop: '0.75rem' }}
-            >
+            <span className="form-error reassignment-sync-error" role="alert">
               Atama yeniden değişti. Konuşma katılımcıları güncellenmedi.
             </span>
           )}

@@ -4,21 +4,22 @@ import { ApiError, type CurrentUser } from '../services/api';
 import {
   createOrGetConversation,
   getJobConversation,
-  type JobConversationLookup,
+  type AssigneeSyncHint,
 } from '../services/messaging-api';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { JobCard } from './jobs-api';
+import './reassignment-sync.css';
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'CANCELLED', 'INVALIDATED']);
 
 type Resolution =
   | { kind: 'resolving' }
-  | { kind: 'open'; conversationId: string }
+  | { kind: 'open'; conversationId: string; assigneeSync: AssigneeSyncHint | null }
   | { kind: 'start' }
   | { kind: 'none' };
 
 /**
- * Restrained Job Detail entry into the canonical JOB conversation (M5).
+ * Restrained Job Detail entry into the canonical JOB conversation (M5 / MSG-002).
  *
  * - Authorized persisted participant: "Konuşmayı aç" → deep link.
  * - Admin/Manager with no authorized conversation on an eligible active Job:
@@ -26,6 +27,9 @@ type Resolution =
  *   stays the authority. Organization-wide MANAGER RBAC: a same-org accessible
  *   Job resolves its canonical thread even without persisted membership
  *   (non-participants are never inserted; membership stays immutable).
+ * - Admin/Manager when the canonical lookup reports `assigneeSync`: renders a
+ *   calm inline notice with a secondary "Konuşmaya ekle" action that opens the
+ *   explicit confirmation dialog without auto-interrupting page load.
  * - Staff / terminal / no-assignee without an authorized conversation: no action.
  */
 export function JobConversationAction({
@@ -33,7 +37,7 @@ export function JobConversationAction({
   user,
   onOpenMessaging,
   onVisibilityChange,
-  onLookupResolved,
+  onRequestAssigneeSync,
   refreshKey = 0,
   disabled = false,
 }: {
@@ -41,7 +45,7 @@ export function JobConversationAction({
   user: CurrentUser;
   onOpenMessaging: (conversationId: string) => void;
   onVisibilityChange?: (visible: boolean) => void;
-  onLookupResolved?: (conversation: JobConversationLookup | null) => void;
+  onRequestAssigneeSync?: (conversationId: string, hint: AssigneeSyncHint) => void;
   refreshKey?: number;
   disabled?: boolean;
 }) {
@@ -49,8 +53,6 @@ export function JobConversationAction({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const lookupSeqRef = useRef(0);
-  const onLookupResolvedRef = useRef(onLookupResolved);
-  onLookupResolvedRef.current = onLookupResolved;
 
   const canManage = user.role === 'ADMIN' || user.role === 'MANAGER';
   const canCreate = canManage
@@ -65,11 +67,13 @@ export function JobConversationAction({
       const conversation = await getJobConversation(jobId);
       if (seq !== lookupSeqRef.current) return;
       if (conversation) {
-        setResolution({ kind: 'open', conversationId: conversation.id });
-        onLookupResolvedRef.current?.(conversation);
+        setResolution({
+          kind: 'open',
+          conversationId: conversation.id,
+          assigneeSync: conversation.assigneeSync,
+        });
       } else {
         setResolution({ kind: canCreate ? 'start' : 'none' });
-        onLookupResolvedRef.current?.(null);
       }
     } catch {
       if (seq !== lookupSeqRef.current) return;
@@ -77,7 +81,6 @@ export function JobConversationAction({
       // decision-maker: a legitimate participant creating again gets the
       // existing canonical thread back, a non-participant is denied safely.
       setResolution({ kind: canCreate ? 'start' : 'none' });
-      onLookupResolvedRef.current?.(null);
     }
   }, [job.id, canCreate, refreshKey]);
 
@@ -132,6 +135,9 @@ export function JobConversationAction({
   }
 
   const label = effective.kind === 'open' ? 'Konuşmayı aç' : 'Konuşma başlat';
+  const pendingHint = effective.kind === 'open' && canManage && onRequestAssigneeSync
+    ? effective.assigneeSync
+    : null;
 
   return (
     <div
@@ -149,6 +155,27 @@ export function JobConversationAction({
         {busy ? 'Açılıyor…' : label}
       </button>
       {error && <p className="field-error" role="alert">{error}</p>}
+      {pendingHint && effective.kind === 'open' && (
+        <section
+          className="job-assignee-sync-notice"
+          aria-label="Konuşma katılımcısı güncellemesi"
+          data-job-assignee-sync-notice="true"
+        >
+          <p>
+            {`İşin yeni sorumlusu ${pendingHint.newAssignee.name} bu iş konuşmasının katılımcısı değil.`}
+          </p>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              onRequestAssigneeSync?.(effective.conversationId, pendingHint);
+            }}
+          >
+            Konuşmaya ekle
+          </button>
+        </section>
+      )}
     </div>
   );
 }

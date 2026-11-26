@@ -1,5 +1,6 @@
 /**
- * UI-003 rendered capture for MSG-002 P5: persistent assigneeSync prompt on Job Detail.
+ * UI-003 rendered capture for MSG-002 P5: persistent assigneeSync inline notice
+ * and confirmation dialog on Job Detail.
  *
  * Uses the real React entry (`index.html` + `src/main.tsx`), `ServoraAntProvider`,
  * `BrowserRouter`, `App`, `AppShell`, `AppRouter`, `JobDetailScreen`,
@@ -7,8 +8,10 @@
  * with deterministic mocked `/api/**` responses via Playwright route interception.
  *
  * Outputs into `$FLEET_EVIDENCE_DIR` (or `.ui-evidence/job-detail-assignee-sync` fallback):
- * - job-detail-assignee-sync-390.png
- * - job-detail-assignee-sync-1440.png
+ * - job-detail-assignee-sync-390.png          (inline notice visible, no modal)
+ * - job-detail-assignee-sync-1440.png         (inline notice visible, no modal)
+ * - job-detail-assignee-sync-dialog-390.png   (confirmation dialog open after click)
+ * - job-detail-assignee-sync-dialog-1440.png  (confirmation dialog open after click)
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -448,16 +451,75 @@ async function openMockedJobDetail(browser, baseUrl, { width, height }) {
 
   await page.goto(`${baseUrl}/jobs/${JOB_ID}`, { waitUntil: 'load' });
   await page.locator('[data-job-detail="true"]').waitFor({ state: 'visible' });
-  await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+  await page.locator('[data-job-assignee-sync-notice="true"]').waitFor({ state: 'visible' });
   await page.evaluate(() => document.fonts.ready);
 
   return { context, page, state };
 }
 
-async function assertDialogAndPageHealth(page, state, label) {
-  assert.deepEqual(state.unexpectedRequests, [], `${label}: unexpectedRequests`);
-  assert.deepEqual(state.pageErrors, [], `${label}: pageErrors`);
-  assert.deepEqual(state.consoleIssues, [], `${label}: consoleIssues`);
+async function assertInlineNoticeHealth(page, state, label) {
+  assert.deepEqual(state.unexpectedRequests, [], `${label}-inline: unexpectedRequests`);
+  assert.deepEqual(state.pageErrors, [], `${label}-inline: pageErrors`);
+  assert.deepEqual(state.consoleIssues, [], `${label}-inline: consoleIssues`);
+
+  const metrics = await page.evaluate(() => {
+    const notice = document.querySelector('[data-job-assignee-sync-notice="true"]');
+    const noticeRect = notice?.getBoundingClientRect();
+    const button = notice?.querySelector('button');
+    const buttonRect = button?.getBoundingClientRect();
+    const openBtn = document.querySelector('[data-job-detail-messaging="true"] > button');
+    const openBtnRect = openBtn?.getBoundingClientRect();
+    return {
+      dialogCount: document.querySelectorAll('[role="dialog"]').length,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      noticeRole: notice?.getAttribute('role') ?? null,
+      noticeAriaLabel: notice?.getAttribute('aria-label') ?? null,
+      noticeText: notice?.textContent ?? '',
+      noticeWidth: Math.round((noticeRect?.width ?? 0) * 10) / 10,
+      noticeScrollWidth: notice?.scrollWidth ?? 0,
+      noticeClientWidth: notice?.clientWidth ?? 0,
+      openButtonText: openBtn?.textContent?.trim() ?? '',
+      openButtonHeight: Math.round((openBtnRect?.height ?? 0) * 10) / 10,
+      syncButtonText: button?.textContent?.trim() ?? '',
+      syncButtonHeight: Math.round((buttonRect?.height ?? 0) * 10) / 10,
+      syncButtonWidth: Math.round((buttonRect?.width ?? 0) * 10) / 10,
+    };
+  });
+
+  assert.equal(metrics.dialogCount, 0, `${label}-inline: must NOT auto-open modal dialog on load`);
+  assert.equal(metrics.noticeRole, null, `${label}-inline: role="status" not needed`);
+  assert.ok(
+    metrics.noticeText.includes('İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.'),
+    `${label}-inline: explanation copy`,
+  );
+  assert.equal(metrics.openButtonText, 'Konuşmayı aç', `${label}-inline: Konuşmayı aç button`);
+  assert.equal(metrics.syncButtonText, 'Konuşmaya ekle', `${label}-inline: Konuşmaya ekle button`);
+  assert.ok(
+    metrics.openButtonHeight >= 44,
+    `${label}-inline: Konuşmayı aç height ${metrics.openButtonHeight}px < 44px`,
+  );
+  assert.ok(
+    metrics.syncButtonHeight >= 44,
+    `${label}-inline: Konuşmaya ekle height ${metrics.syncButtonHeight}px < 44px`,
+  );
+  assert.ok(
+    metrics.scrollWidth <= metrics.clientWidth + 1,
+    `${label}-inline: horizontal overflow (${metrics.scrollWidth} > ${metrics.clientWidth})`,
+  );
+  assert.ok(
+    metrics.noticeScrollWidth <= metrics.noticeClientWidth + 1,
+    `${label}-inline: notice horizontal overflow (${metrics.noticeScrollWidth} > ${metrics.noticeClientWidth})`,
+  );
+  return metrics;
+}
+
+async function assertDialogHealth(page, state, label) {
+  assert.deepEqual(state.unexpectedRequests, [], `${label}-dialog: unexpectedRequests`);
+  assert.deepEqual(state.pageErrors, [], `${label}-dialog: pageErrors`);
+  assert.deepEqual(state.consoleIssues, [], `${label}-dialog: consoleIssues`);
 
   const metrics = await page.evaluate(() => {
     const dlg = document.querySelector('[role="dialog"]');
@@ -472,6 +534,7 @@ async function assertDialogAndPageHealth(page, state, label) {
       };
     });
     return {
+      dialogCount: document.querySelectorAll('[role="dialog"]').length,
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
       scrollWidth: document.documentElement.scrollWidth,
@@ -488,32 +551,33 @@ async function assertDialogAndPageHealth(page, state, label) {
     };
   });
 
-  assert.equal(metrics.dialogTitle, 'Konuşma katılımcısı güncel değil', `${label}: dialog title`);
+  assert.equal(metrics.dialogCount, 1, `${label}-dialog: single dialog`);
+  assert.equal(metrics.dialogTitle, 'Konuşma katılımcısı güncel değil', `${label}-dialog: dialog title`);
   assert.ok(
     metrics.dialogText.includes('İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.'),
-    `${label}: hint explanation copy`,
+    `${label}-dialog: hint explanation copy`,
   );
   assert.ok(
     metrics.dialogText.includes('Ayşe Personel yerine Burak Personel ekle'),
-    `${label}: confirm label`,
+    `${label}-dialog: confirm label`,
   );
-  assert.ok(metrics.dialogText.includes('Şimdi değil'), `${label}: cancel label`);
+  assert.ok(metrics.dialogText.includes('Şimdi değil'), `${label}-dialog: cancel label`);
   assert.ok(
     metrics.scrollWidth <= metrics.clientWidth + 1,
-    `${label}: horizontal overflow (${metrics.scrollWidth} > ${metrics.clientWidth})`,
+    `${label}-dialog: horizontal overflow (${metrics.scrollWidth} > ${metrics.clientWidth})`,
   );
   assert.ok(
     metrics.dialogScrollWidth <= metrics.dialogClientWidth + 1,
-    `${label}: dialog internal overflow (${metrics.dialogScrollWidth} > ${metrics.dialogClientWidth})`,
+    `${label}-dialog: dialog internal overflow (${metrics.dialogScrollWidth} > ${metrics.dialogClientWidth})`,
   );
   assert.ok(
     metrics.dialogTop >= 0 && metrics.dialogBottom <= metrics.viewportHeight + 1,
-    `${label}: dialog outside viewport (${metrics.dialogTop}..${metrics.dialogBottom} vs ${metrics.viewportHeight})`,
+    `${label}-dialog: dialog outside viewport (${metrics.dialogTop}..${metrics.dialogBottom} vs ${metrics.viewportHeight})`,
   );
   for (const btn of metrics.buttons) {
     assert.ok(
       btn.height >= 44,
-      `${label}: button "${btn.text}" height ${btn.height}px < 44px`,
+      `${label}-dialog: button "${btn.text}" height ${btn.height}px < 44px`,
     );
   }
   return metrics;
@@ -531,50 +595,64 @@ let browser;
 try {
   browser = await chromium.launch(launchOptions);
 
-  // 1) 390x844 mobile viewport with persistent assigneeSync prompt open
+  // 1) 390x844 mobile viewport: inline notice (no modal) + dialog on click
   {
     const { context, page, state } = await openMockedJobDetail(browser, url, {
       width: 390,
       height: 844,
     });
     try {
-      geometryReport['390'] = await assertDialogAndPageHealth(page, state, '390');
-      const shot390 = resolve(outDir, 'job-detail-assignee-sync-390.png');
-      await page.screenshot({ path: shot390 });
-      captures.push(shot390);
+      const messagingSection = page.locator('[data-job-detail-section="messaging"]');
+      await messagingSection.scrollIntoViewIfNeeded();
+      geometryReport['390-inline'] = await assertInlineNoticeHealth(page, state, '390');
+      const inline390 = resolve(outDir, 'job-detail-assignee-sync-390.png');
+      await page.screenshot({ path: inline390 });
+      captures.push(inline390);
+
+      await page.getByRole('button', { name: 'Konuşmaya ekle' }).click();
+      await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+      geometryReport['390-dialog'] = await assertDialogHealth(page, state, '390');
+      const dialog390 = resolve(outDir, 'job-detail-assignee-sync-dialog-390.png');
+      await page.screenshot({ path: dialog390 });
+      captures.push(dialog390);
     } finally {
       await context.close();
     }
   }
 
-  // 2) 1440x900 desktop viewport + dismiss/reload/confirm verification
+  // 2) 1440x900 desktop viewport: inline notice + dialog + cancel keeps notice + confirm hides notice
   {
     const { context, page, state } = await openMockedJobDetail(browser, url, {
       width: 1440,
       height: 900,
     });
     try {
-      geometryReport['1440'] = await assertDialogAndPageHealth(page, state, '1440');
-      const shot1440 = resolve(outDir, 'job-detail-assignee-sync-1440.png');
-      await page.screenshot({ path: shot1440 });
-      captures.push(shot1440);
+      await page.locator('[data-job-detail-section="messaging"]').scrollIntoViewIfNeeded();
+      geometryReport['1440-inline'] = await assertInlineNoticeHealth(page, state, '1440');
+      const inline1440 = resolve(outDir, 'job-detail-assignee-sync-1440.png');
+      await page.screenshot({ path: inline1440 });
+      captures.push(inline1440);
 
-      // Verify "Şimdi değil" dismisses without POST
+      await page.getByRole('button', { name: 'Konuşmaya ekle' }).click();
+      await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+      geometryReport['1440-dialog'] = await assertDialogHealth(page, state, '1440');
+      const dialog1440 = resolve(outDir, 'job-detail-assignee-sync-dialog-1440.png');
+      await page.screenshot({ path: dialog1440 });
+      captures.push(dialog1440);
+
+      // Cancel closes dialog and leaves inline notice visible
       await page.getByRole('button', { name: 'Şimdi değil' }).click();
       await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
-      assert.equal(state.syncCalls.length, 0, 'dismiss must not call job-assignee-sync');
+      assert.equal(state.syncCalls.length, 0, 'cancel must not call job-assignee-sync');
+      await page.locator('[data-job-assignee-sync-notice="true"]').waitFor({ state: 'visible' });
 
-      // Reload page -> hint still present -> prompt appears again
-      await page.reload({ waitUntil: 'load' });
-      await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
-
-      // Confirm sync -> POST + refetch + prompt disappears
+      // Re-open and confirm sync -> POST + refetch + notice disappears
       const lookupsBeforeConfirm = state.lookupCalls;
+      await page.getByRole('button', { name: 'Konuşmaya ekle' }).click();
+      await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
       await page.getByRole('button', { name: 'Ayşe Personel yerine Burak Personel ekle' }).click();
       await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
-      await page.waitForFunction(
-        () => document.querySelectorAll('[role="dialog"]').length === 0,
-      );
+      await page.locator('[data-job-assignee-sync-notice="true"]').waitFor({ state: 'detached' });
       assert.equal(state.syncCalls.length, 1, 'confirm must call job-assignee-sync once');
       assert.equal(state.syncCalls[0].assignmentTransitionId, TRANSITION_ID);
       assert.ok(state.lookupCalls > lookupsBeforeConfirm, 'confirm must refetch job conversation');

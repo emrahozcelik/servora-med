@@ -250,7 +250,7 @@ describe('M9: useReassignmentConversationSync', () => {
     expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('idle');
   });
 
-  it('MSG-002: offerFromHint opens without extra lookup, notifies onSynced, and stays hidden after dismiss for same transition only', async () => {
+  it('MSG-002: offerFromHint opens without extra lookup, dismisses cleanly for re-open, and notifies onSynced', async () => {
     const onSynced = vi.fn();
     messagingApi.jobAssigneeSync.mockResolvedValue({ conversationId: 'conv-1', synced: true, changed: true });
     await renderHook(onSynced);
@@ -270,19 +270,13 @@ describe('M9: useReassignmentConversationSync', () => {
     });
     expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('idle');
 
-    // Re-offering the same dismissed transition in this page view stays hidden.
+    // User can re-open the same hint by clicking the inline notice button again.
     await act(async () => {
       container.querySelector('[data-testid="offer-hint"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await Promise.resolve();
     });
-    expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('idle');
-
-    // A different transition opens and confirms with onSynced callback.
-    await act(async () => {
-      container.querySelector('[data-testid="offer-hint-2"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await Promise.resolve();
-    });
     expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('offer');
+
     await act(async () => {
       container.querySelector('[data-testid="confirm"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await Promise.resolve();
@@ -291,7 +285,7 @@ describe('M9: useReassignmentConversationSync', () => {
     expect(onSynced).toHaveBeenCalledTimes(1);
     expect(messagingApi.jobAssigneeSync).toHaveBeenCalledWith('conv-1', {
       clientActionId: expect.any(String),
-      assignmentTransitionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      assignmentTransitionId: TRANSITION_A_TO_B,
     });
   });
 

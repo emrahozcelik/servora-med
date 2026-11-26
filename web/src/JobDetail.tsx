@@ -37,7 +37,7 @@ import {
 } from 'react';
 
 import { ApiError, type CurrentUser } from './services/api';
-import type { JobConversationLookup } from './services/messaging-api';
+import type { AssigneeSyncHint } from './services/messaging-api';
 import { markNotificationsReadByEntity } from './services/notifications-api';
 import {
   acceptJobCard, approveJobCard, cancelJobCard, declineAssignment, releaseAssignment,
@@ -1595,9 +1595,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       setMessagingLookupKey((value) => value + 1);
     },
   });
-  const handleConversationLookup = useCallback((conversation: JobConversationLookup | null) => {
-    if (!conversation?.assigneeSync || !isManagementUser(user)) return;
-    reassignmentSync.offerFromHint(conversation.id, conversation.assigneeSync);
+  const handleRequestAssigneeSync = useCallback((conversationId: string, hint: AssigneeSyncHint) => {
+    if (!isManagementUser(user)) return;
+    reassignmentSync.offerFromHint(conversationId, hint);
   }, [reassignmentSync.offerFromHint, user]);
   const [pending, setPending] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<LifecycleCommand | null>(null);
@@ -2769,6 +2769,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         && input.assignedTo !== undefined
         && input.assignedTo !== state.detail.job.assignedTo
       ) {
+        setMessagingLookupKey((value) => value + 1);
         void reassignmentSync.offerSync({
           transitionId: patched.assignmentTransitionId,
           oldAssignee: { id: state.detail.job.assignedTo, name: state.detail.job.assignee.name },
@@ -3779,7 +3780,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         refreshKey={messagingLookupKey}
         onOpenMessaging={onOpenMessaging}
         onVisibilityChange={setMessagingActionVisible}
-        onLookupResolved={handleConversationLookup}
+        onRequestAssigneeSync={handleRequestAssigneeSync}
       />
     ) : undefined}
     messagingActionVisible={messagingActionVisible}

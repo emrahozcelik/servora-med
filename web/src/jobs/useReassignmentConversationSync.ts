@@ -41,11 +41,11 @@ export type ReassignmentSyncController = {
  * M9 / MSG-002: explicit JOB assignee conversation sync orchestration.
  *
  * Job reassignment itself is always independent. After a successful assignment
- * PATCH (`offerSync`), or when Job Detail's canonical lookup reports a pending
- * `assigneeSync` hint (`offerFromHint`), the caller offers a sync. Dismissing
- * a hint hides it for the current page view only; succeeding triggers `onSynced`
- * so the caller can refetch the lookup. The immutable JOB_ASSIGNED activity ID
- * is the only security identity the server relies on.
+ * PATCH (`offerSync`), the caller auto-opens the prompt; when Job Detail's
+ * inline notice is clicked (`offerFromHint`), the caller opens confirmation
+ * for that hint without re-fetching. Succeeding triggers `onSynced` so Job
+ * Detail can refetch the lookup. The immutable JOB_ASSIGNED activity ID is the
+ * only security identity the server relies on.
  */
 export function useReassignmentConversationSync(
   jobId: string,
@@ -56,8 +56,6 @@ export function useReassignmentConversationSync(
   stateRef.current = state;
   const clientActionIdRef = useRef<string | null>(null);
   const patchOfferPendingRef = useRef(0);
-  const dismissedHintIdsRef = useRef<Set<string>>(new Set());
-  const syncedHintIdsRef = useRef<Set<string>>(new Set());
   const onSyncedRef = useRef(options?.onSynced);
   onSyncedRef.current = options?.onSynced;
 
@@ -80,12 +78,6 @@ export function useReassignmentConversationSync(
     if (patchOfferPendingRef.current > 0) return;
     const current = stateRef.current;
     if (current.kind !== 'idle' && current.kind !== 'done') return;
-    if (
-      dismissedHintIdsRef.current.has(hint.transitionId)
-      || syncedHintIdsRef.current.has(hint.transitionId)
-    ) {
-      return;
-    }
     clientActionIdRef.current = crypto.randomUUID();
     setState({
       kind: 'offer',
@@ -111,7 +103,6 @@ export function useReassignmentConversationSync(
         clientActionId,
         assignmentTransitionId: offer.transitionId,
       });
-      syncedHintIdsRef.current.add(offer.transitionId);
       clientActionIdRef.current = null;
       setState({ kind: 'done' });
       onSyncedRef.current?.();
@@ -131,10 +122,6 @@ export function useReassignmentConversationSync(
   }, []);
 
   const dismiss = useCallback(() => {
-    const current = stateRef.current;
-    if ('offer' in current) {
-      dismissedHintIdsRef.current.add(current.offer.transitionId);
-    }
     clientActionIdRef.current = null;
     setState({ kind: 'idle' });
   }, []);
