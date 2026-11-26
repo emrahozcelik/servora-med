@@ -1,5 +1,7 @@
 # Accounting module scope options — light commercial documents inside MOD-001 §3
 
+> **Revision notice (2026-11-26): historical research, not current implementation scope.** The owner-approved expanded product direction is documented in [07-expanded-product-scope.md](07-expanded-product-scope.md), with revised decisions in [06-decision-brief.md](06-decision-brief.md). The sales-only A/B/C scope below is preserved as evidence, not as the final product boundary. ACC-5 adds supplier, purchase, payable, payment, expense and manual cash/bank tracking; ACC-6 adds reporting. Cut A is identity-only (no amounts, currency, due date or tax), no fixed overdue worklist or implied invoiced status, with many-to-many source links and finance grants. Any conflicting design, permissions, number, migration or runtime proposals below are superseded by 07/06. No implementation authorization.
+
 Status: research input for Accounting A0 and the owner's explicit approval (AGENTS.md §13).
 Date: 2026-11-26. No code, migration, `DECISIONS.md` entry or production data was changed.
 No test suite was run: this is a documentation-only research task.
