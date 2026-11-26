@@ -1839,3 +1839,185 @@ type DeliveryItemDto = {
 - public unauthenticated CRM endpoints
 - restaurant tables, orders, payments, shifts, and printer routes
 - WebSocket as an MVP requirement
+
+## 20. Installation operator API (MOD-002)
+
+Contract: [docs/features/operator-module-pilot.md](docs/features/operator-module-pilot.md)
+§3, §6, §7 and §12. The installation operator is an installation-level identity
+(migration 074, see [SERVORA_MED_SCHEMA_DRAFT.md](SERVORA_MED_SCHEMA_DRAFT.md) §8.1).
+It is never a `users` row and has no customer role. Customer APIs and
+`/api/health` expose nothing about operators.
+
+### Session, transport and origin
+
+- Prefix: `/api/operator`. The operator cookie authenticates only these routes.
+  The customer session cookie is rejected here with `401 OPERATOR_UNAUTHENTICATED`;
+  the operator cookie is not accepted by customer routes.
+- Cookie `servora_operator_session`: `HttpOnly`, `SameSite=Strict`,
+  `Path=/api/operator`, `Secure` in production, `Max-Age=7200`. Two hours
+  absolute; sessions are never renewed. Logout clears the cookie with the same
+  `Path`.
+- Only the SHA-256 hash of the opaque token is stored (`operator_sessions.token_hash`).
+  Login JSON does not return the token.
+- Origin: every non-safe method under `/api/operator` (including `POST /login` and
+  `POST /logout`) requires an `Origin` header equal to `CORS_ORIGIN`. A missing,
+  `null` or different origin returns `403 INVALID_ORIGIN`. This applies in every
+  environment, and the check runs before rate limiting and body parsing.
+- Every operator response carries `Cache-Control: no-store`.
+- Body limits: login 2,048 bytes; `PUT /modules/:key` 1,024 bytes. An oversized body
+  returns `413 PAYLOAD_TOO_LARGE`; a malformed body returns `400 VALIDATION_ERROR`.
+- Each authenticated request checks that the session is not expired, not revoked and
+  that its account is active. Mutations re-check the session and the capability inside
+  their transaction, under the account row lock.
+
+### Rate limits and login
+
+- Login is limited per client address (`request.ip`, proxy-aware) and per normalized
+  email (SHA-256 of the trimmed, lower-cased address as the key). Both limits are
+  evaluated before any password work and use the same configuration as the customer
+  login limit (`LOGIN_RATE_LIMIT_MAX`, default 5, per `RATE_LIMIT_WINDOW_MS`, default
+  60000) in counter groups separate from the customer login.
+- Every login request counts, not only failed ones. An exceeded limit returns
+  `429 RATE_LIMIT_EXCEEDED`.
+- Unknown email, inactive account and wrong password perform the same fixed password
+  work and return the same `401 INVALID_CREDENTIALS` body.
+- Successful login locks the account row, re-checks the hash and `is_active`, then writes
+  the session and the `OPERATOR_LOGIN_SUCCEEDED` audit event in one transaction. Failed
+  logins are not audited.
+
+### Endpoints
+
+| Method | Path | Auth | Behavior |
+| --- | --- | --- | --- |
+| POST | `/login` | public | email/password; sets the operator cookie |
+| POST | `/logout` | cookie (optional) | revokes the session when present, clears the cookie, `204` |
+| GET | `/me` | operator session | current operator |
+| GET | `/modules` | operator session + `MODULE_MANAGEMENT` | installation module state list |
+| PUT | `/modules/:key` | operator session + `MODULE_MANAGEMENT` | sets `enabled` with an optimistic `expectedVersion` |
+
+Check order for `PUT /modules/:key`: Origin, body limit, session, capability, key
+lookup (`404` for an unknown key), body validation, then the transaction.
+
+#### POST `/api/operator/login`
+
+Request:
+
+```json
+{
+  "email": "operator@example.com",
+  "password": "operator-supplied-secret"
+}
+```
+
+Response `200` (plus `Set-Cookie: servora_operator_session=...`):
+
+```json
+{
+  "operator": {
+    "id": "uuid",
+    "name": "Kurulum Operatörü",
+    "email": "operator@example.com",
+    "capabilities": ["MODULE_MANAGEMENT"]
+  }
+}
+```
+
+Errors: `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS`, `403 INVALID_ORIGIN`,
+`413 PAYLOAD_TOO_LARGE`, `429 RATE_LIMIT_EXCEEDED`.
+
+#### POST `/api/operator/logout`
+
+No body. Response `204` with the cookie cleared. Errors: `403 INVALID_ORIGIN`.
+
+#### GET `/api/operator/me`
+
+Response `200`:
+
+```json
+{
+  "operator": {
+    "id": "uuid",
+    "name": "Kurulum Operatörü",
+    "email": "operator@example.com",
+    "capabilities": ["MODULE_MANAGEMENT"]
+  }
+}
+```
+
+Errors: `401 OPERATOR_UNAUTHENTICATED`.
+
+#### GET `/api/operator/modules`
+
+Response `200`:
+
+```json
+{
+  "modules": [
+    {
+      "key": "OVERVIEW",
+      "label": "Genel Bakış",
+      "enabled": true,
+      "version": 3,
+      "source": "OPERATOR",
+      "updatedAt": "2026-11-26T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+`source` is `ENV_TAKEOVER` or `OPERATOR`. Errors: `401 OPERATOR_UNAUTHENTICATED`,
+`403 FORBIDDEN` (no `MODULE_MANAGEMENT`), `503 MODULE_STATE_UNAVAILABLE`.
+
+#### PUT `/api/operator/modules/:key`
+
+Request:
+
+```json
+{
+  "enabled": false,
+  "expectedVersion": 3
+}
+```
+
+Response `200`:
+
+```json
+{
+  "module": {
+    "key": "OVERVIEW",
+    "label": "Genel Bakış",
+    "enabled": false,
+    "version": 4,
+    "source": "OPERATOR",
+    "updatedAt": "2026-11-26T09:05:00.000Z"
+  }
+}
+```
+
+Semantics, in one transaction:
+
+- `expectedVersion` differs from the stored version → `409 MODULE_VERSION_CONFLICT`,
+  also when the requested value equals the stored one.
+- Current version and same value → `200` with the current row; no version bump and no
+  audit event.
+- Current version and different value → update, `version + 1`, and a
+  `MODULE_STATE_CHANGED` audit event in the same transaction.
+
+Errors: `400 VALIDATION_ERROR`, `401 OPERATOR_UNAUTHENTICATED`,
+`403 FORBIDDEN` (no `MODULE_MANAGEMENT`) or `403 INVALID_ORIGIN`, `404 NOT_FOUND`
+(unknown key), `409 MODULE_VERSION_CONFLICT`, `413 PAYLOAD_TOO_LARGE`,
+`503 MODULE_STATE_UNAVAILABLE`.
+
+The `413` code is returned by the operator routes but is not listed in
+contract §12.
+
+### Customer contract changes (MOD-002)
+
+- `POST /api/auth/login` and `GET /api/auth/me` compute
+  `user.capabilities.overviewDashboard` per request from the `OVERVIEW` row of
+  `installation_module_state`. A read failure (or a missing row) returns `false` and logs
+  the error. There is no environment fallback after takeover.
+- `GET /api/overview`:
+  - `enabled = false` → `404 NOT_FOUND` ("Sayfa bulunamadı.") as before.
+  - Missing row or failed state read → `503 MODULE_STATE_UNAVAILABLE`.
+  - A request that has already passed the gate may complete. The route stays registered.
