@@ -105,7 +105,8 @@ The allowed module keys stay fixed in code and verifiable.
 - While `MESSAGING` is disabled, or its state is unreadable, notification rows with
   `entity_type = 'conversation'` are **excluded** from the notification list, the unread
   count and the bulk operations (`clear-read`, `clear-all`). Single-row `read`,
-  `dismiss` and `read-by-entity` on such a row answer `404 NOT_FOUND`. Rows are not
+  `dismiss` and `read-by-entity` on such a row answer `404 NOTIFICATION_NOT_FOUND`, the
+  same answer as for a notification that does not exist. Rows are not
   modified or deleted.
 - After re-enable, the rows are visible again with their original read state. No push and
   no realtime signal is produced for them.
