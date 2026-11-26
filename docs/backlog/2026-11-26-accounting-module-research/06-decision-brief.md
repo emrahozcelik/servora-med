@@ -1,5 +1,7 @@
 # Accounting A0 — revised owner decision brief
 
+> **ACC-A contract follow-up:** [08-acc-a-implementation-contract.md](08-acc-a-implementation-contract.md) resolves first-slice options in this document and takes precedence for ACC-1/2 design details (not over accepted repository decisions). It fixes a single outbound issuer per organization, strict normalized number and optional ETTN, no URL/amount, three explicit finance grants with audited ADMIN self-grant, no STAFF finance access, source eligibility, correction/reopen/replace, replay admission and transaction order. Owner acceptance and real-data pilot verification remain separate gates; later ACC-3–7 scope is unchanged.
+
 **2026-11-26 — Research / decision input, not implementation authorization.** The owner approved expansion of product direction and this documentation revision. No runtime change, full accounting module, statutory document issuance, deployment or integration was authorized. Accepted MOD-001 and MOD-002 remain binding; AGENTS.md §13 applies. The [expanded product scope](07-expanded-product-scope.md) is the controlling proposal within this research package. This brief replaces the [original decision draft](https://github.com/emrahozcelik/servora-med/blob/00be58d0ad5848f3a8f7083cfa155541d236327e/docs/backlog/2026-11-26-accounting-module-research/06-decision-brief.md); preserve historical research but do not implement superseded proposals.
 
 ## Decisions D1–D10 (revised recommendations)
