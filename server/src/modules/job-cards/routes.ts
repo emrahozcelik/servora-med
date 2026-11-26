@@ -1,39 +1,20 @@
 import type { FastifyPluginAsync, preHandlerHookHandler } from 'fastify';
 
 import { createJobCardHandlers } from './handlers.js';
+import { securedJobCardRoutes } from './http-access.js';
 import type { JobCardService } from './service.js';
 
 export type JobCardRoutesOptions = { service: JobCardService; authenticate: preHandlerHookHandler };
 
 export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (app, options) => {
   const h = createJobCardHandlers(options.service);
-  const legacySaleGuard: preHandlerHookHandler = async (request) => {
-    const id = (request.params as { id?: string }).id;
-    if (!id) return;
-    const user = request.currentUser!;
-    await options.service.assertSaleCapability(user, id,
-      (request.query as Record<string, unknown>).includeSaleCapability === 'true');
-  };
-  const secured = { preHandler: [options.authenticate, legacySaleGuard] };
+  const secured = securedJobCardRoutes(options.authenticate, options.service);
   app.get('/', secured, h.list);
   app.post('/', secured, h.create);
   app.post('/product-deliveries', secured, h.createProductDelivery);
   // SALE-002 §6.1: standalone sale creation is a static one-segment path. It is
   // registered with the other collection creates, before the '/:id' readers.
   app.post('/sales', secured, h.createStandaloneSale);
-  app.post('/weekly-reports', secured, h.createWeeklyReport);
-  app.post('/weekly-reports/bulk-request', secured, h.bulkRequestWeeklyReports);
-  app.get('/weekly-reports/reference', secured, h.getWeeklyReportReference);
-  app.get<{ Params: { id: string } }>('/:id/weekly-report', secured, h.getWeeklyReport);
-  app.patch<{ Params: { id: string } }>('/:id/weekly-report', secured, h.updateWeeklyReportDraft);
-  app.get<{ Params: { id: string } }>('/:id/weekly-report/removal-preview', secured, h.weeklyReportRemovalPreview);
-  app.post<{ Params: { id: string } }>('/:id/weekly-report/remove', secured, h.removeWeeklyReport);
-  app.get<{ Params: { id: string } }>('/:id/weekly-report/submissions', secured, h.listWeeklyReportSubmissions);
-  app.get<{ Params: { id: string; seq: string } }>(
-    '/:id/weekly-report/submissions/:seq/pdf',
-    secured,
-    h.downloadWeeklyReportSubmissionPdf,
-  );
   app.post('/customer-schedule/evaluate', secured, h.previewCustomerSchedule);
   app.post('/available-slots', secured, h.availableSlots);
   app.get('/board', secured, h.board);

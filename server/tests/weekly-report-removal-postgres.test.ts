@@ -8,7 +8,7 @@ import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresJobCardRepository, PostgresJobCardTransaction } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
+import { weeklyReportRoutes } from '../src/modules/weekly-reports/routes.js';
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import { parseWeeklyReportBulkRequestInput, parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
@@ -593,7 +593,7 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
   }, 20000);
 
   it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {
-    await withFixture(async ({ service, admin, staff, manager }) => {
+    await withFixture(async ({ pool, service, admin, staff, manager }) => {
       const original = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
       let current: JobCardActor | null = null;
@@ -601,7 +601,8 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       app.setErrorHandler((error,_request,reply) => {
         const result = toErrorResponse(error);reply.code(result.statusCode).send(result.body);
       });
-      await app.register(jobCardRoutes,{ prefix: '/api/job-cards',service,authenticate: async request => {
+      await app.register(weeklyReportRoutes,{ prefix: '/api/job-cards',service,
+        timezones: new PostgresJobCardRepository(pool),authenticate: async request => {
         if (!current) throw new AppError('UNAUTHORIZED',401,'Oturum açın.');
         request.currentUser = { ...current,name:'Test user',email:'test@example.test',isActive:true,mustChangePassword:false,version:1 };
       } });

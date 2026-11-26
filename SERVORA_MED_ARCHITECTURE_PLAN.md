@@ -149,6 +149,11 @@ live in `weekly-reports/removal.ts`. The command uses the same JobCard
 transaction for invalidation, overdue closure, removal metadata, audit and
 realtime events. JobCard owns the lifecycle transition and calendar cleanup.
 
+The Weekly Report HTTP plugin in `weekly-reports/routes.ts` registers the
+existing `/api/job-cards` URLs with the same authentication and JobCard
+visibility checks. The period reference reads the authenticated organization's
+timezone through `weekly-reports/reference.ts`.
+
 ## 6. Frontend Contract
 
 | Area | Responsibility |

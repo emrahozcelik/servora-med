@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
+import { weeklyReportRoutes } from '../src/modules/weekly-reports/routes.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 
 const actor: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
@@ -61,10 +62,7 @@ function serviceDouble() {
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
     invalidate: vi.fn().mockResolvedValue({ ...result, status: 'INVALIDATED' }),
     getWeeklyReport: vi.fn().mockResolvedValue({ id: 'report-1' }),
-    weeklyReportReference: vi.fn().mockResolvedValue({
-      timezone: 'Europe/Istanbul', today: '2026-08-05', periodStart: '2026-08-03',
-      periodEnd: '2026-08-08', dueDate: '2026-08-10',
-    }),
+    getOrganizationTimezone: vi.fn().mockResolvedValue('Europe/Istanbul'),
     updateWeeklyReportDraft: vi.fn().mockResolvedValue({ id: 'report-1', version: 2 }),
     listWeeklyReportSubmissions: vi.fn().mockResolvedValue([]),
     listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
@@ -84,6 +82,13 @@ async function createApp(authenticated = true) {
     request.currentUser = { ...actor, name: 'Staff', email: 'staff@example.com', mustChangePassword: false };
   };
   await app.register(jobCardRoutes, { prefix: '/api/job-cards', service: service as never, authenticate });
+  await app.register(weeklyReportRoutes, {
+    prefix: '/api/job-cards',
+    service: service as never,
+    authenticate,
+    timezones: service,
+    now: () => new Date('2026-08-04T21:30:00.000Z'),
+  });
   apps.push(app); return { app, service };
 }
 
@@ -888,9 +893,8 @@ describe('JobCard routes', () => {
       method: 'GET', url: '/api/job-cards/weekly-reports/reference',
     });
     expect(response.statusCode).toBe(200);
-    expect(service.weeklyReportReference).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
-    );
+    expect(service.getOrganizationTimezone).toHaveBeenCalledExactlyOnceWith('org-1');
+    expect(service.assertSaleCapability).not.toHaveBeenCalled();
     // The job-scoped route's second segment is the literal `weekly-report`, so it
     // cannot match `reference`; this pins the reference handler to the path and
     // guards against a future wildcard route swallowing it.

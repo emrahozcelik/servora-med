@@ -21,6 +21,19 @@ export type WeeklyReportReference = {
   dueDate: string;
 };
 
+export interface WeeklyReportTimezoneReader {
+  getOrganizationTimezone(organizationId: string): Promise<string>;
+}
+
+export async function readWeeklyReportReference(
+  timezones: WeeklyReportTimezoneReader,
+  organizationId: string,
+  now: () => Date = () => new Date(),
+): Promise<WeeklyReportReference> {
+  const timezone = await timezones.getOrganizationTimezone(organizationId);
+  return currentWeeklyReportPeriod(now(), timezone);
+}
+
 /**
  * Canonical server-only submission deadline for a Weekly Report: the Monday
  * after the period (`periodEnd + 2`), or `requestDateKey` when created after

@@ -20,6 +20,7 @@ import { AppError } from './errors/index.js';
 import type { JobCardRepository } from './modules/job-cards/repository.js';
 import type { JobHistoryReadPort } from './modules/job-cards/history-port.js';
 import type { WeeklyReportHistoryReadPort } from './modules/weekly-reports/history-port.js';
+import { weeklyReportRoutes } from './modules/weekly-reports/routes.js';
 import { JobCardService } from './modules/job-cards/service.js';
 import { jobCardRoutes } from './modules/job-cards/routes.js';
 import { requireAuthentication, requirePasswordChanged } from './modules/auth/middleware.js';
@@ -286,6 +287,12 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         prefix: '/api/job-cards',
         service: jobCardService,
         authenticate: authenticateDomain,
+      });
+      await app.register(weeklyReportRoutes, {
+        prefix: '/api/job-cards',
+        service: jobCardService,
+        authenticate: authenticateDomain,
+        timezones: dependencies.jobCardRepository,
       });
       // JOB-010 release 2b: the expiry / reminder worker is a clock-only
       // system producer. It shares the process lifecycle so shutdown waits for

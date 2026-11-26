@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp, LOGGER_REDACT_PATHS } from '../src/app.js';
 import type { AppDependencies } from '../src/app.js';
@@ -72,6 +72,49 @@ describe('logger security defaults', () => {
 });
 
 describe('AppDependencies', () => {
+  it('mounts all dedicated Weekly Report routes with the domain authentication and password gate', async () => {
+    let mustChangePassword = true;
+    const getOrganizationTimezone = vi.fn().mockResolvedValue('Europe/Istanbul');
+    const app = await buildApp(testConfig, {
+      authRepository: {
+        findSessionWithUser: async () => ({
+          session: { id: 'session-1', revokedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+          user: { id: 'staff-1', organizationId: 'org-1', role: 'STAFF', isActive: true, mustChangePassword },
+        }),
+      } as never,
+      jobCardRepository: { getOrganizationTimezone } as never,
+    });
+    apps.push(app);
+
+    const report = '/api/job-cards/job-1/weekly-report';
+    const reference = '/api/job-cards/weekly-reports/reference';
+    const routes = [
+      ['POST', '/api/job-cards/weekly-reports'],
+      ['POST', '/api/job-cards/weekly-reports/bulk-request'],
+      ['GET', reference],
+      ['GET', report],
+      ['PATCH', report],
+      ['GET', `${report}/removal-preview`],
+      ['POST', `${report}/remove`],
+      ['GET', `${report}/submissions`],
+      ['GET', `${report}/submissions/1/pdf`],
+    ] as const;
+    const cookies = { servora_session: 'test-session' };
+    for (const [method, url] of routes) {
+      expect((await app.inject({ method, url })).statusCode, `${method} ${url}`).toBe(401);
+      const passwordBlocked = await app.inject({ method, url, cookies });
+      expect(passwordBlocked.statusCode, `${method} ${url}`).toBe(403);
+      expect(passwordBlocked.json()).toMatchObject({ code: 'PASSWORD_CHANGE_REQUIRED' });
+    }
+    expect(getOrganizationTimezone).not.toHaveBeenCalled();
+
+    mustChangePassword = false;
+    const response = await app.inject({ method: 'GET', url: reference, cookies });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ timezone: 'Europe/Istanbul' });
+    expect(getOrganizationTimezone).toHaveBeenCalledExactlyOnceWith('org-1');
+  });
+
   it('accepts the optional CRM repository dependency', () => {
     const dependencies = { crmRepository: {} as AppDependencies['crmRepository'] } satisfies AppDependencies;
     expect(dependencies.crmRepository).toBeDefined();

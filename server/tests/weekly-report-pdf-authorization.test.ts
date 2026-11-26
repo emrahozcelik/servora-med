@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
+import { weeklyReportRoutes } from '../src/modules/weekly-reports/routes.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 import type {
   WeeklyReportRow,
@@ -221,7 +221,12 @@ async function createApp(service: ReturnType<typeof routesServiceDouble>) {
       role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
     };
   };
-  await app.register(jobCardRoutes, { prefix: '/api/job-cards', service: service as never, authenticate });
+  await app.register(weeklyReportRoutes, {
+    prefix: '/api/job-cards',
+    service: service as never,
+    authenticate,
+    timezones: { getOrganizationTimezone: async () => 'Europe/Istanbul' },
+  });
   apps.push(app);
   return app;
 }

@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
-import type { JobCardActor } from './types.js';
+import { jobCardActor as actor, saleCapability } from './http-access.js';
 import {
   parseAvailableSlotsInput,
   parseFollowUpCreateInput,
@@ -12,11 +12,6 @@ import {
 } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import {
-  parseWeeklyReportBulkRequestInput,
-  parseWeeklyReportCreateInput,
-  parseWeeklyReportDraftPatch,
-} from '../weekly-reports/create-input.js';
-import {
   isoInstant,
   operationalNoteCursorTimestamp,
   uuidString,
@@ -24,15 +19,8 @@ import {
 } from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
 import { parseJobCardInvalidationInput } from './invalidation-input.js';
-import { parseWeeklyReportRemovalInput } from '../weekly-reports/removal-input.js';
-import type { WeeklyReportDetail } from '../weekly-reports/types.js';
 
 type Params = { id: string; itemId?: string };
-
-function actor(request: FastifyRequest): JobCardActor {
-  const user = request.currentUser!;
-  return { id: user.id, organizationId: user.organizationId, role: user.role };
-}
 
 function body(request: FastifyRequest, allowed: readonly string[]) {
   if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
@@ -86,30 +74,8 @@ function includeMetContactCapability(raw: unknown) {
   return (raw as Record<string, unknown>).includeMetContactCapability === 'true';
 }
 
-function saleCapability(raw: unknown) {
-  return !!raw && typeof raw === 'object' && !Array.isArray(raw)
-    && (raw as Record<string, unknown>).includeSaleCapability === 'true';
-}
-function removalCapability(raw: unknown) {
-  return !!raw && typeof raw === 'object'
-    && (raw as Record<string, unknown>).includeWeeklyReportRemovalCapability === 'true';
-}
-
-function weeklyReportResponse(report: WeeklyReportDetail, query: unknown) {
-  if (removalCapability(query)) return report;
-  const { removal: _removal, canRemove: _canRemove, ...legacy } = report;
-  return legacy;
-}
 function requireSaleCapability(request: FastifyRequest) {
   if (!saleCapability(request.query)) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-}
-
-/** Positive-integer route parameter (e.g. an immutable submission seq). */
-function positiveIntegerParam(raw: unknown, field: string) {
-  if (typeof raw !== 'string' || !/^\d+$/.test(raw)) throw validation(field);
-  const parsed = Number(raw);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) throw validation(field);
-  return parsed;
 }
 
 function notePage(raw: unknown, defaultLimit: number) {
@@ -203,49 +169,6 @@ export function createJobCardHandlers(service: JobCardService) {
         actor(request),
         parseProductDeliveryCreateInput(request.body),
       )),
-    createWeeklyReport: async (request: FastifyRequest, reply: FastifyReply) =>
-      reply.code(201).send(await service.createWeeklyReport(
-        actor(request),
-        parseWeeklyReportCreateInput(request.body),
-      )),
-    bulkRequestWeeklyReports: async (request: FastifyRequest, reply: FastifyReply) =>
-      reply.code(201).send(await service.bulkRequestWeeklyReports(
-        actor(request),
-        parseWeeklyReportBulkRequestInput(request.body),
-      )),
-    getWeeklyReport: async (request: FastifyRequest<{ Params: Params }>) =>
-      weeklyReportResponse(await service.getWeeklyReport(actor(request), request.params.id, saleCapability(request.query)),request.query),
-    weeklyReportRemovalPreview: (request: FastifyRequest<{ Params: Params }>) =>
-      service.weeklyReportRemovalPreview(actor(request),uuidString(request.params.id,'id')),
-    removeWeeklyReport: (request: FastifyRequest<{ Params: Params }>) =>
-      service.removeWeeklyReport(actor(request),uuidString(request.params.id,'id'),parseWeeklyReportRemovalInput(request.body)),
-    getWeeklyReportReference: async (request: FastifyRequest) =>
-      service.weeklyReportReference(actor(request)),
-    updateWeeklyReportDraft: async (request: FastifyRequest<{ Params: Params }>) =>
-      weeklyReportResponse(await service.updateWeeklyReportDraft(
-        actor(request),
-        request.params.id,
-        parseWeeklyReportDraftPatch(request.body),
-        saleCapability(request.query),
-      ),request.query),
-    listWeeklyReportSubmissions: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.listWeeklyReportSubmissions(actor(request), request.params.id, saleCapability(request.query)),
-    downloadWeeklyReportSubmissionPdf: async (
-      request: FastifyRequest<{ Params: { id: string; seq: string } }>,
-      reply: FastifyReply,
-    ) => {
-      const pdf = await service.weeklyReportSubmissionPdf(
-        actor(request),
-        request.params.id,
-        positiveIntegerParam(request.params.seq, 'seq'),
-      );
-      return reply
-        .header('content-type', 'application/pdf')
-        .header('content-disposition', `attachment; filename="${pdf.fileName}"`)
-        .header('cache-control', 'private, no-store')
-        .header('x-content-type-options', 'nosniff')
-        .send(pdf.buffer);
-    },
     createFollowUp: async (
       request: FastifyRequest<{ Params: Params }>,
       reply: FastifyReply,

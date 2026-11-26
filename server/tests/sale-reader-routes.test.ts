@@ -1,9 +1,10 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest } from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
 import { toErrorResponse } from '../src/errors/index.js';
 import { withSaleFixture } from './support/sale-harness.js';
 import { parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
+import { weeklyReportRoutes } from '../src/modules/weekly-reports/routes.js';
 
 describe('Sale capability on public readers', () => {
   it('keeps normal JobCard, meeting, delivery and weekly read shapes identical with either capability', async () => {
@@ -95,12 +96,20 @@ describe('Sale capability on public readers', () => {
       app.setErrorHandler((error, _request, reply) => {
         const response = toErrorResponse(error); return reply.code(response.statusCode).send(response.body);
       });
-      await app.register(jobCardRoutes, { prefix: '/api/job-cards', service: f.service,
-        authenticate: async (request) => { request.currentUser = { ...f.staff } as never; } });
+      const options = {
+        prefix: '/api/job-cards',
+        service: f.service,
+        authenticate: async (request: FastifyRequest) => {
+          request.currentUser = { ...f.staff } as never;
+        },
+      };
+      await app.register(jobCardRoutes, options);
+      await app.register(weeklyReportRoutes, { ...options, timezones: f.repository });
       const routes = [
         ['GET', ''], ['HEAD', ''], ['PATCH', ''], ['GET', '/activity'], ['HEAD', '/activity'], ['GET', '/notes'], ['POST', '/notes'],
         ['GET', '/submission-lateness'], ['GET', '/overdue-incidents'], ['POST', '/submission-reminder'],
         ['GET', '/weekly-report'], ['PATCH', '/weekly-report'], ['GET', '/weekly-report/submissions'],
+        ['GET', '/weekly-report/removal-preview'], ['POST', '/weekly-report/remove'],
         ['GET', '/weekly-report/submissions/1/pdf'], ['GET', '/follow-ups'], ['POST', '/follow-ups'],
         ['GET', '/follow-up-suggestion'], ['GET', '/meeting-details'], ['PATCH', '/meeting-details'],
         ['GET', '/delivery-items'], ['POST', '/delivery-items'],

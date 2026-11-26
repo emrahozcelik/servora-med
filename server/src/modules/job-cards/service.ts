@@ -214,10 +214,6 @@ import type {
   WeeklyReportDetail,
   WeeklyReportSubmission,
 } from '../weekly-reports/types.js';
-import {
-  currentWeeklyReportPeriod,
-  type WeeklyReportReference,
-} from '../weekly-reports/reference.js';
 import type {
   WeeklyReportBulkRequestInput,
   WeeklyReportCreateInput,
@@ -1982,17 +1978,6 @@ export class JobCardService {
       this.publishRealtime(result.realtimeEvents);
     }
     return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
-  }
-
-  /**
-   * Canonical create-screen reference: the organization-local current
-   * reporting week and its default due date. The date is derived from the
-   * organization timezone, never from the browser's device clock, so a
-   * staff member in a different zone still sees the organization's week.
-   */
-  async weeklyReportReference(actor: JobCardActor): Promise<WeeklyReportReference> {
-    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
-    return currentWeeklyReportPeriod(this.now(), timezone);
   }
 
   createWeeklyReport(
