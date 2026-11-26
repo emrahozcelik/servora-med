@@ -114,7 +114,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
 }
 
 function service(pool: Pool): MessagingService {
-  return new MessagingService(pool, true, undefined);
+  return new MessagingService(pool, undefined);
 }
 
 describe('Message sender attribution projection (multiparty repair)', () => {
@@ -224,7 +224,7 @@ describe('Message sender attribution projection (multiparty repair)', () => {
       const publisher: RealtimeEventPublisher = {
         publish: (event) => { published.push(event); },
       };
-      const svc = new MessagingService(pool, true, publisher);
+      const svc = new MessagingService(pool, publisher);
       const conv = await svc.createOrGetConversation(adminA, {
         contextType: 'GENERAL',
         title: 'Gizlilik',

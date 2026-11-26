@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
+import { staticModuleStateReader, type ModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { OverviewService } from '../src/modules/overview/service.js';
 
 const staff = {
@@ -101,5 +101,61 @@ describe('OverviewService', () => {
       to: '2026-07-31',
       staffUserId: null,
     });
+  });
+
+  it('includes messageUnreadSummary only when MESSAGING is enabled; omits when disabled or unreadable', async () => {
+    const repository = {
+      getStaffOverview: vi.fn().mockResolvedValue({ scope: 'staff' }),
+      getManagementOverview: vi.fn(),
+    };
+    const messagingRead = {
+      getUnreadCount: vi.fn().mockResolvedValue(4),
+    };
+    const logger = { error: vi.fn() };
+
+    const enabledService = new OverviewService(
+      staticModuleStateReader({ OVERVIEW: true, MESSAGING: true }),
+      repository as never,
+      undefined,
+      () => new Date('2026-07-26T08:00:00.000Z'),
+      false,
+      messagingRead,
+    );
+    const enabledRes = await enabledService.getOverview(staff, { requestedRange: null }, logger);
+    expect(enabledRes.messageUnreadSummary).toEqual({ unreadTotal: 4 });
+    expect(messagingRead.getUnreadCount).toHaveBeenCalledTimes(1);
+
+    const disabledService = new OverviewService(
+      staticModuleStateReader({ OVERVIEW: true, MESSAGING: false }),
+      repository as never,
+      undefined,
+      () => new Date('2026-07-26T08:00:00.000Z'),
+      false,
+      messagingRead,
+    );
+    const disabledRes = await disabledService.getOverview(staff, { requestedRange: null }, logger);
+    expect('messageUnreadSummary' in disabledRes).toBe(false);
+    expect(messagingRead.getUnreadCount).toHaveBeenCalledTimes(1);
+
+    const unreadableReader: ModuleStateReader = {
+      read: async (key) => {
+        if (key === 'OVERVIEW') {
+          return { key, enabled: true, version: 1, source: 'ENV_TAKEOVER', updatedAt: new Date(0), updatedByOperatorId: null };
+        }
+        throw new Error('messaging read failed');
+      },
+    };
+    const unreadableService = new OverviewService(
+      unreadableReader,
+      repository as never,
+      undefined,
+      () => new Date('2026-07-26T08:00:00.000Z'),
+      false,
+      messagingRead,
+    );
+    const unreadableRes = await unreadableService.getOverview(staff, { requestedRange: null }, logger);
+    expect('messageUnreadSummary' in unreadableRes).toBe(false);
+    expect(messagingRead.getUnreadCount).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledTimes(1);
   });
 });

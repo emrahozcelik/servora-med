@@ -53,6 +53,7 @@ function makePayload() {
 function makeDeps() {
   const repository = {
     cleanupDueDeliveries: vi.fn().mockResolvedValue(0),
+    abandonModuleDisabledDeliveries: vi.fn().mockResolvedValue(0),
     claimDueDeliveries: vi.fn().mockResolvedValue([]),
     recordDelivered: vi.fn().mockResolvedValue(true),
     recordRetry: vi.fn().mockResolvedValue(true),
@@ -947,6 +948,67 @@ function abortAwarePending() {
     expect(source).not.toMatch(/300_000|300000/);
     expect(source).toContain('WEB_PUSH_RETRY_DELAYS_MS');
     expect(source).toContain('retryDelayForAttempt');
+  });
+
+  // === Runtime messaging module tick branches ===
+
+  it('when readMessagingEnabled returns true, does not abandon and claims with excludedEntityTypes: []', async () => {
+    const at = new Date('2026-07-22T10:00:00.000Z');
+    const base = makeDeps();
+    const deps = { ...base, clock: () => at, readMessagingEnabled: vi.fn().mockResolvedValue(true) };
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(base.repository.abandonModuleDisabledDeliveries).not.toHaveBeenCalled();
+    expect(base.repository.claimDueDeliveries).toHaveBeenCalled();
+    expect(base.repository.claimDueDeliveries.mock.calls[0]![0]).toMatchObject({
+      excludedEntityTypes: [],
+    });
+  });
+
+  it('when readMessagingEnabled returns false, abandons conversation deliveries with MODULE_DISABLED and claims excluding conversation', async () => {
+    const at = new Date('2026-07-22T10:00:00.000Z');
+    const base = makeDeps();
+    const deps = { ...base, clock: () => at, readMessagingEnabled: vi.fn().mockResolvedValue(false) };
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(base.repository.abandonModuleDisabledDeliveries).toHaveBeenCalledWith({
+      entityTypes: ['conversation'],
+      at,
+      errorCode: 'MODULE_DISABLED',
+    });
+    expect(base.repository.claimDueDeliveries).toHaveBeenCalled();
+    expect(base.repository.claimDueDeliveries.mock.calls[0]![0]).toMatchObject({
+      excludedEntityTypes: ['conversation'],
+    });
+  });
+
+  it('when readMessagingEnabled throws (UNREADABLE), never abandons and still claims excluding conversation', async () => {
+    const at = new Date('2026-07-22T10:00:00.000Z');
+    const base = makeDeps();
+    const deps = {
+      ...base,
+      clock: () => at,
+      readMessagingEnabled: vi.fn().mockRejectedValue(new Error('module state unreadable')),
+    };
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(base.repository.abandonModuleDisabledDeliveries).not.toHaveBeenCalled();
+    expect(base.repository.claimDueDeliveries).toHaveBeenCalled();
+    expect(base.repository.claimDueDeliveries.mock.calls[0]![0]).toMatchObject({
+      excludedEntityTypes: ['conversation'],
+    });
   });
 });
 

@@ -54,6 +54,25 @@ export const INSTALLATION_MODULES = [
       'Geçmiş kayıtlar ve audit kayıtları',
     ],
   },
+  {
+    key: 'MESSAGING',
+    label: 'Mesajlaşma',
+    description: 'İş ve konu merkezli kurum içi iletişim.',
+    capability: 'messaging',
+    legacyEnvKey: 'MESSAGING_ENABLED',
+    whenDisabled: [
+      'Mesajlar menüsü ve sayfası',
+      'Mesajlaşma API erişimi',
+      'İş detayından mesajlaşma',
+      'Mesaj bildirimleri ve mesaj Web Push teslimatı',
+      'Okunmamış mesaj sayacı',
+    ],
+    preserved: [
+      'Konuşmalar ve mesaj geçmişi',
+      'Arşiv ve audit kayıtları',
+      'Personel devir ve offboarding işlemleri',
+    ],
+  },
 ] as const satisfies readonly InstallationModuleDescriptor[];
 
 export type InstallationModuleKey = (typeof INSTALLATION_MODULES)[number]['key'];

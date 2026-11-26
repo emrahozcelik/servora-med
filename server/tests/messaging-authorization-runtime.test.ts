@@ -133,7 +133,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
 }
 
 function service(pool: Pool): MessagingService {
-  return new MessagingService(pool, true);
+  return new MessagingService(pool);
 }
 
 async function completeJob(pool: Pool, orgA: string, jobId: string, staffId: string, adminId: string) {

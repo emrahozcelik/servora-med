@@ -115,7 +115,6 @@ export class MessagingService {
 
   constructor(
     private readonly pool: Pool,
-    private readonly enabled: boolean,
     private readonly realtimePublisher?: RealtimeEventPublisher,
   ) {
     this.repository = new PostgresMessagingRepository(pool);
@@ -127,7 +126,6 @@ export class MessagingService {
     limit: number,
     view: ConversationListView = 'active',
   ): Promise<ConversationListPage> {
-    this.requireEnabled();
     return this.repository.listConversations(
       actor.organizationId, actor.id, actor.role, cursor, limit,
       view,
@@ -146,7 +144,6 @@ export class MessagingService {
     actor: SafeUser,
     jobId: string,
   ): Promise<ConversationListItem> {
-    this.requireEnabled();
     const canonical = await this.repository.findCanonicalJobConversation(
       actor.organizationId, jobId,
     );
@@ -194,7 +191,6 @@ export class MessagingService {
     actor: SafeUser,
     input: CreateConversationInput,
   ): Promise<ConversationListItem> {
-    this.requireEnabled();
     const contextType = input.contextType;
     const jobId = input.jobId ?? null;
     const customerId = input.customerId ?? null;
@@ -547,7 +543,6 @@ export class MessagingService {
     body: unknown,
     clientActionId: string,
   ): Promise<MessageRecord & { isDuplicate: boolean }> {
-    this.requireEnabled();
     const trimmedBody = validateBody(body);
 
     if (!clientActionId || typeof clientActionId !== 'string') {
@@ -729,12 +724,10 @@ export class MessagingService {
   }
 
   async archiveConversation(actor: SafeUser, conversationId: string): Promise<void> {
-    this.requireEnabled();
     await this.setConversationArchiveState(actor, conversationId, new Date());
   }
 
   async unarchiveConversation(actor: SafeUser, conversationId: string): Promise<void> {
-    this.requireEnabled();
     await this.setConversationArchiveState(actor, conversationId, null);
   }
 
@@ -744,7 +737,6 @@ export class MessagingService {
     cursor: MessageCursor | null,
     limit: number,
   ): Promise<MessagePage> {
-    this.requireEnabled();
 
     const conversation = await this.repository.findConversationById(
       actor.organizationId, conversationId,
@@ -781,7 +773,6 @@ export class MessagingService {
     conversationId: string,
     input: JobAssigneeSyncInput,
   ): Promise<JobAssigneeSyncResult> {
-    this.requireEnabled();
     if (!input.clientActionId || typeof input.clientActionId !== 'string') {
       throw new AppError('VALIDATION_ERROR', 400, 'clientActionId zorunludur.');
     }
@@ -962,7 +953,6 @@ export class MessagingService {
     conversationId: string,
     messageId: string,
   ): Promise<void> {
-    this.requireEnabled();
 
     const conversation = await this.repository.findConversationById(
       actor.organizationId, conversationId,
@@ -1069,7 +1059,6 @@ export class MessagingService {
   }
 
   async getUnreadCount(actor: SafeUser): Promise<number> {
-    this.requireEnabled();
     return this.repository.getUnreadCount(actor.organizationId, actor.id, actor.role);
   }
 
@@ -1077,14 +1066,9 @@ export class MessagingService {
     actor: SafeUser,
     contextType: ConversationContextType,
   ): Promise<readonly RecipientListItem[]> {
-    this.requireEnabled();
     return this.repository.getAuthorizedRecipients(
       actor.organizationId, actor.id, actor.role, contextType,
     );
-  }
-
-  private requireEnabled(): void {
-    if (!this.enabled) throw notFound();
   }
 
   private async setConversationArchiveState(

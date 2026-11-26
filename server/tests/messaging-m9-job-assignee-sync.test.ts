@@ -9,6 +9,8 @@ import { Pool } from 'pg';
 import { toErrorResponse } from '../src/errors/index.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { moduleGate } from '../src/modules/installation-modules/gate.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { MessagingService } from '../src/modules/messaging/service.js';
 import { messagingRoutes } from '../src/modules/messaging/routes.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
@@ -135,7 +137,7 @@ function jobService(pool: Pool): JobCardService {
 }
 
 function messaging(pool: Pool): MessagingService {
-  return new MessagingService(pool, true);
+  return new MessagingService(pool);
 }
 
 async function createCanonical(
@@ -169,6 +171,7 @@ async function buildApp(service: MessagingService, actor: SafeUser) {
     prefix: '/api/messaging',
     service,
     authenticate,
+    gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
   });
   return app;
 }
@@ -619,6 +622,7 @@ describe('M9: explicit Job assignee sync', () => {
         prefix: '/api/messaging',
         service: messaging(pool),
         authenticate,
+        gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
       });
       const res = await app.inject({
         method: 'POST',

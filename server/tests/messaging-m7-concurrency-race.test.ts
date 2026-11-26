@@ -201,7 +201,7 @@ describe('M7 canonical JOB create concurrency race', () => {
     await withFixture(async ({ pool, adminA, adminB, staff1A, job1A }) => {
       const { pool: barrierPool, waitForBothArrivals } = withInsertBarrier(pool);
       const { publisher, conversationCreatedEvents } = makePublisher();
-      const svc = new MessagingService(barrierPool, true, publisher);
+      const svc = new MessagingService(barrierPool, publisher);
 
       const first = svc.createOrGetConversation(adminA, {
         participantUserIds: [staff1A.id],
@@ -269,7 +269,7 @@ describe('M7 canonical JOB create concurrency race', () => {
     await withFixture(async ({ pool, adminA, staff1A, job1A }) => {
       const { pool: barrierPool, waitForBothArrivals } = withInsertBarrier(pool);
       const { publisher, conversationCreatedEvents } = makePublisher();
-      const svc = new MessagingService(barrierPool, true, publisher);
+      const svc = new MessagingService(barrierPool, publisher);
 
       const first = svc.createOrGetConversation(adminA, {
         participantUserIds: [staff1A.id],
@@ -316,7 +316,7 @@ describe('M7 canonical JOB create concurrency race', () => {
 
   itSlow('pre-existing canonical: non-participant Admin resolves canonical, membership unchanged', async () => {
     await withFixture(async ({ pool, adminA, adminB, staff1A, job1A }) => {
-      const svc = new MessagingService(pool, true);
+      const svc = new MessagingService(pool);
       const created = await svc.createOrGetConversation(adminA, {
         participantUserIds: [staff1A.id],
         contextType: 'JOB',

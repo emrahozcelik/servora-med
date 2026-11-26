@@ -28,17 +28,38 @@ export type NotificationListQuery = Readonly<{
 }>;
 
 export interface NotificationRepository {
-  unreadCount(viewer: NotificationViewer): Promise<number>;
-  list(viewer: NotificationViewer, query: NotificationListQuery): Promise<NotificationPage>;
-  markRead(viewer: NotificationViewer, notificationId: string): Promise<NotificationRecord | null>;
+  unreadCount(
+    viewer: NotificationViewer,
+    excludedEntityTypes?: readonly NotificationEntityType[],
+  ): Promise<number>;
+  list(
+    viewer: NotificationViewer,
+    query: NotificationListQuery,
+    excludedEntityTypes?: readonly NotificationEntityType[],
+  ): Promise<NotificationPage>;
+  markRead(
+    viewer: NotificationViewer,
+    notificationId: string,
+    excludedEntityTypes?: readonly NotificationEntityType[],
+  ): Promise<NotificationRecord | null>;
   markReadByEntity(
     viewer: NotificationViewer,
     entityType: NotificationEntityType,
     entityId: string,
   ): Promise<number>;
-  dismiss(viewer: NotificationViewer, notificationId: string): Promise<boolean>;
-  clearRead(viewer: NotificationViewer): Promise<number>;
-  clearAll(viewer: NotificationViewer): Promise<number>;
+  dismiss(
+    viewer: NotificationViewer,
+    notificationId: string,
+    excludedEntityTypes?: readonly NotificationEntityType[],
+  ): Promise<boolean>;
+  clearRead(
+    viewer: NotificationViewer,
+    excludedEntityTypes?: readonly NotificationEntityType[],
+  ): Promise<number>;
+  clearAll(
+    viewer: NotificationViewer,
+    excludedEntityTypes?: readonly NotificationEntityType[],
+  ): Promise<number>;
 }
 
 function mapNotification(row: NotificationRow): NotificationRecord {
@@ -129,15 +150,24 @@ export class PostgresNotificationTransaction {
 export class PostgresNotificationRepository implements NotificationRepository {
   constructor(private readonly pool: Pick<Pool, 'query'>) {}
 
-  async unreadCount(viewer: NotificationViewer): Promise<number> {
+  async unreadCount(
+    viewer: NotificationViewer,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ): Promise<number> {
+    const values: unknown[] = [viewer.organizationId, viewer.userId];
+    const excludedClause = excludedEntityTypes.length > 0
+      ? 'AND NOT (entity_type = ANY($3))'
+      : '';
+    if (excludedEntityTypes.length > 0) values.push(excludedEntityTypes);
     const result = await this.pool.query<{ unread_count: number }>(
       `SELECT COUNT(*)::int AS unread_count
          FROM in_app_notifications
         WHERE organization_id = $1
           AND recipient_user_id = $2
           AND read_at IS NULL
-          AND dismissed_at IS NULL`,
-      [viewer.organizationId, viewer.userId],
+          AND dismissed_at IS NULL
+          ${excludedClause}`,
+      values,
     );
     return result.rows[0]?.unread_count ?? 0;
   }
@@ -145,11 +175,12 @@ export class PostgresNotificationRepository implements NotificationRepository {
   async list(
     viewer: NotificationViewer,
     query: NotificationListQuery,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
   ): Promise<NotificationPage> {
     const cursorClause = query.cursor
       ? 'AND (created_at, id) < ($3, $4)'
       : '';
-    const values = query.cursor
+    const values: unknown[] = query.cursor
       ? [
         viewer.organizationId,
         viewer.userId,
@@ -159,6 +190,11 @@ export class PostgresNotificationRepository implements NotificationRepository {
       ]
       : [viewer.organizationId, viewer.userId, query.limit + 1];
     const limitParameter = query.cursor ? '$5' : '$3';
+    let excludedClause = '';
+    if (excludedEntityTypes.length > 0) {
+      values.push(excludedEntityTypes);
+      excludedClause = `AND NOT (entity_type = ANY($${values.length}))`;
+    }
     const result = await this.pool.query<NotificationRow>(
       `SELECT id, organization_id, recipient_user_id, source_realtime_event_id,
               kind, entity_type, entity_id, created_at, read_at
@@ -166,6 +202,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
         WHERE organization_id = $1
           AND recipient_user_id = $2
           AND dismissed_at IS NULL
+          ${excludedClause}
           ${cursorClause}
         ORDER BY created_at DESC, id DESC
         LIMIT ${limitParameter}`,
@@ -184,7 +221,13 @@ export class PostgresNotificationRepository implements NotificationRepository {
   async markRead(
     viewer: NotificationViewer,
     notificationId: string,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
   ): Promise<NotificationRecord | null> {
+    const values: unknown[] = [viewer.organizationId, viewer.userId, notificationId];
+    const excludedClause = excludedEntityTypes.length > 0
+      ? 'AND NOT (entity_type = ANY($4))'
+      : '';
+    if (excludedEntityTypes.length > 0) values.push(excludedEntityTypes);
     const result = await this.pool.query<NotificationRow>(
       `WITH updated AS (
          UPDATE in_app_notifications
@@ -192,6 +235,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
           WHERE organization_id = $1
             AND recipient_user_id = $2
             AND id = $3
+            ${excludedClause}
          RETURNING id, organization_id, recipient_user_id, source_realtime_event_id,
                    kind, entity_type, entity_id, created_at, read_at
        ),
@@ -199,7 +243,7 @@ export class PostgresNotificationRepository implements NotificationRepository {
        SELECT id, organization_id, recipient_user_id, source_realtime_event_id,
               kind, entity_type, entity_id, created_at, read_at
          FROM updated`,
-      [viewer.organizationId, viewer.userId, notificationId],
+      values,
     );
     const row = result.rows[0];
     return row ? mapNotification(row) : null;
@@ -239,7 +283,13 @@ export class PostgresNotificationRepository implements NotificationRepository {
   async dismiss(
     viewer: NotificationViewer,
     notificationId: string,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
   ): Promise<boolean> {
+    const values: unknown[] = [viewer.organizationId, viewer.userId, notificationId];
+    const excludedClause = excludedEntityTypes.length > 0
+      ? 'AND NOT (entity_type = ANY($4))'
+      : '';
+    if (excludedEntityTypes.length > 0) values.push(excludedEntityTypes);
     const result = await this.pool.query<{ id: string }>(
       `WITH updated AS (
          UPDATE in_app_notifications
@@ -247,16 +297,25 @@ export class PostgresNotificationRepository implements NotificationRepository {
           WHERE organization_id = $1
             AND recipient_user_id = $2
             AND id = $3
+            ${excludedClause}
          RETURNING id, organization_id
        ),
        ${abandonPendingPushesCte('DISMISSED')}
        SELECT id FROM updated`,
-      [viewer.organizationId, viewer.userId, notificationId],
+      values,
     );
     return result.rows.length > 0;
   }
 
-  async clearRead(viewer: NotificationViewer): Promise<number> {
+  async clearRead(
+    viewer: NotificationViewer,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ): Promise<number> {
+    const values: unknown[] = [viewer.organizationId, viewer.userId];
+    const excludedClause = excludedEntityTypes.length > 0
+      ? 'AND NOT (entity_type = ANY($3))'
+      : '';
+    if (excludedEntityTypes.length > 0) values.push(excludedEntityTypes);
     const result = await this.pool.query<{ id: string }>(
       `UPDATE in_app_notifications
           SET dismissed_at = COALESCE(dismissed_at, NOW())
@@ -264,8 +323,9 @@ export class PostgresNotificationRepository implements NotificationRepository {
           AND recipient_user_id = $2
           AND read_at IS NOT NULL
           AND dismissed_at IS NULL
+          ${excludedClause}
        RETURNING id`,
-      [viewer.organizationId, viewer.userId],
+      values,
     );
     return result.rows.length;
   }
@@ -275,7 +335,15 @@ export class PostgresNotificationRepository implements NotificationRepository {
    * read or unread. read_at is preserved, so unread rows stay historically
    * unread. PENDING pushes of newly dismissed rows are abandoned atomically.
    */
-  async clearAll(viewer: NotificationViewer): Promise<number> {
+  async clearAll(
+    viewer: NotificationViewer,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ): Promise<number> {
+    const values: unknown[] = [viewer.organizationId, viewer.userId];
+    const excludedClause = excludedEntityTypes.length > 0
+      ? 'AND NOT (entity_type = ANY($3))'
+      : '';
+    if (excludedEntityTypes.length > 0) values.push(excludedEntityTypes);
     const result = await this.pool.query<{ cleared_count: string }>(
       `WITH updated AS (
          UPDATE in_app_notifications
@@ -283,12 +351,13 @@ export class PostgresNotificationRepository implements NotificationRepository {
           WHERE organization_id = $1
             AND recipient_user_id = $2
             AND dismissed_at IS NULL
+            ${excludedClause}
          RETURNING id, organization_id
        ),
        ${abandonPendingPushesCte('DISMISSED')}
        SELECT COUNT(*)::text AS cleared_count
          FROM updated`,
-      [viewer.organizationId, viewer.userId],
+      values,
     );
     return Number(result.rows[0]?.cleared_count ?? '0');
   }

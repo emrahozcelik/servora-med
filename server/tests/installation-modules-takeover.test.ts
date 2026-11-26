@@ -63,24 +63,26 @@ describe('installation module pure helpers (R0)', () => {
     const logged: string[] = [];
     const logger = { error: (_fields: object, message: string) => { logged.push(message); } };
 
-    expect(await readModuleCapabilities(staticModuleStateReader({ OVERVIEW: true }), logger)).toEqual({
+    expect(await readModuleCapabilities(staticModuleStateReader({ OVERVIEW: true, MESSAGING: false }), logger)).toEqual({
       overviewDashboard: true,
+      messaging: false,
     });
     expect(await readModuleCapabilities(staticModuleStateReader({}), logger)).toEqual({
       overviewDashboard: false,
+      messaging: false,
     });
-    expect(logged).toHaveLength(1);
+    expect(logged).toHaveLength(2);
   });
 
   it('legacyModuleValues extracts capabilities for modules with legacyEnvKey', () => {
-    expect(legacyModuleValues(undefined)).toEqual({ OVERVIEW: false });
+    expect(legacyModuleValues(undefined)).toEqual({ OVERVIEW: false, MESSAGING: false });
     expect(legacyModuleValues({
       overviewDashboard: true,
       calendar: true,
       messaging: false,
       backup: false,
       demoDatasetCreation: false,
-    })).toEqual({ OVERVIEW: true });
+    })).toEqual({ OVERVIEW: true, MESSAGING: false });
   });
 });
 
@@ -88,18 +90,18 @@ describe.skipIf(!databaseUrl)('installation module takeover (MOD-002)', () => {
   it('takes the env value over once and writes one system audit event', async () => {
     await reset();
     const at = new Date('2026-11-26T10:00:00.000Z');
-    await takeOverInstallationModules(pool!, { OVERVIEW: true }, () => at);
+    await takeOverInstallationModules(pool!, { OVERVIEW: true, MESSAGING: false }, () => at);
     const row = await new PostgresModuleStateReader(pool!).read('OVERVIEW');
     expect(row).toMatchObject({ enabled: true, version: 1, source: 'ENV_TAKEOVER', updatedByOperatorId: null });
 
     // Restart with a different env value: no effect, no second event.
-    await takeOverInstallationModules(pool!, { OVERVIEW: false });
+    await takeOverInstallationModules(pool!, { OVERVIEW: false, MESSAGING: true });
     expect((await new PostgresModuleStateReader(pool!).read('OVERVIEW'))?.enabled).toBe(true);
     const events = await pool!.query(
-      "SELECT actor_kind, operator_id, module_key, new_value, occurred_at FROM operator_audit_events WHERE event_type = 'MODULE_STATE_TAKEN_OVER'",
+      "SELECT actor_kind, operator_id, module_key, new_value, occurred_at FROM operator_audit_events WHERE event_type = 'MODULE_STATE_TAKEN_OVER' ORDER BY module_key",
     );
-    expect(events.rows).toHaveLength(1);
-    expect(events.rows[0]).toMatchObject({
+    expect(events.rows).toHaveLength(2);
+    expect(events.rows.find((r) => r.module_key === 'OVERVIEW')).toMatchObject({
       actor_kind: 'SYSTEM', operator_id: null, module_key: 'OVERVIEW',
       new_value: { enabled: true, source: 'ENV_TAKEOVER' }, occurred_at: at,
     });
@@ -107,28 +109,28 @@ describe.skipIf(!databaseUrl)('installation module takeover (MOD-002)', () => {
 
   it('takes an unset env (false) over as disabled on an empty database', async () => {
     await reset();
-    await takeOverInstallationModules(pool!, { OVERVIEW: false });
+    await takeOverInstallationModules(pool!, { OVERVIEW: false, MESSAGING: false });
     expect((await new PostgresModuleStateReader(pool!).read('OVERVIEW'))?.enabled).toBe(false);
   });
 
   it('concurrent startups produce exactly one row and one event', async () => {
     await reset();
     await Promise.all([
-      takeOverInstallationModules(pool!, { OVERVIEW: true }),
-      takeOverInstallationModules(pool!, { OVERVIEW: true }),
-      takeOverInstallationModules(pool!, { OVERVIEW: true }),
+      takeOverInstallationModules(pool!, { OVERVIEW: true, MESSAGING: false }),
+      takeOverInstallationModules(pool!, { OVERVIEW: true, MESSAGING: false }),
+      takeOverInstallationModules(pool!, { OVERVIEW: true, MESSAGING: false }),
     ]);
-    expect((await pool!.query('SELECT 1 FROM installation_module_state')).rowCount).toBe(1);
+    expect((await pool!.query('SELECT 1 FROM installation_module_state')).rowCount).toBe(2);
     expect((await pool!.query(
       "SELECT 1 FROM operator_audit_events WHERE event_type = 'MODULE_STATE_TAKEN_OVER'",
-    )).rowCount).toBe(1);
+    )).rowCount).toBe(2);
   });
 
   it('fails closed when the row is missing but a takeover event exists', async () => {
     await reset();
-    await takeOverInstallationModules(pool!, { OVERVIEW: true });
+    await takeOverInstallationModules(pool!, { OVERVIEW: true, MESSAGING: false });
     await pool!.query('DELETE FROM installation_module_state');
-    await expect(takeOverInstallationModules(pool!, { OVERVIEW: true })).rejects.toThrow(/controlled recovery/);
+    await expect(takeOverInstallationModules(pool!, { OVERVIEW: true, MESSAGING: false })).rejects.toThrow(/controlled recovery/);
     expect((await pool!.query('SELECT 1 FROM installation_module_state')).rowCount).toBe(0);
   });
 
@@ -136,13 +138,13 @@ describe.skipIf(!databaseUrl)('installation module takeover (MOD-002)', () => {
     await reset();
     await pool!.query(
       `INSERT INTO installation_module_state (module_key, enabled, version, source, updated_at)
-       VALUES ('MESSAGING', true, 1, 'ENV_TAKEOVER', now())`,
+       VALUES ('CALENDAR', true, 1, 'ENV_TAKEOVER', now())`,
     );
-    await expect(takeOverInstallationModules(pool!, { OVERVIEW: true })).rejects.toThrow(
-      /outside the registry: MESSAGING; controlled recovery required/,
+    await expect(takeOverInstallationModules(pool!, { OVERVIEW: true, MESSAGING: false })).rejects.toThrow(
+      /outside the registry: CALENDAR; controlled recovery required/,
     );
     expect((await pool!.query('SELECT module_key FROM installation_module_state')).rows).toEqual([
-      { module_key: 'MESSAGING' },
+      { module_key: 'CALENDAR' },
     ]);
   });
 
