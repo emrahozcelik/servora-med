@@ -33,6 +33,11 @@ import { createShutdown } from './shutdown.js';
 import { PostgresWebPushRepository } from './modules/web-push/repository.js';
 import { createProductionAppDependencies } from './app-dependencies.js';
 import {
+  PostgresModuleStateReader,
+  readModuleEnabledOrFalse,
+  type ModuleStateLogger,
+} from './modules/installation-modules/state.js';
+import {
   legacyModuleValues,
   takeOverInstallationModules,
 } from './modules/installation-modules/takeover.js';
@@ -132,9 +137,21 @@ async function main() {
     const realtimeRepository = new PostgresRealtimeEventRepository(
       database.pool,
     );
+    const moduleStateReader = new PostgresModuleStateReader(database.pool);
+    const moduleStateLogger: ModuleStateLogger = {
+      error: (fields, message) => {
+        if (app) {
+          app.log.error(fields, message);
+        } else {
+          console.error(message, fields);
+        }
+      },
+    };
     const realtimeService = new RealtimeService(
       realtimeRepository,
       realtimeBus,
+      undefined,
+      () => readModuleEnabledOrFalse(moduleStateReader, 'MESSAGING', moduleStateLogger),
     );
 
     const appDependencies = createProductionAppDependencies(config, database.pool, {
@@ -283,6 +300,7 @@ async function main() {
       realtimePublisher: realtimeBus,
       notificationRepository: new PostgresNotificationRepository(database.pool),
       webPushRepository: new PostgresWebPushRepository(database.pool),
+      moduleStateReader,
       pool: database.pool,
     });
     app = await buildApp(config, appDependencies);

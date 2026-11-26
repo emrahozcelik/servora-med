@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
+import { moduleGate } from '../src/modules/installation-modules/gate.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { messagingRoutes } from '../src/modules/messaging/routes.js';
 import type { MessagingService } from '../src/modules/messaging/service.js';
 
@@ -56,6 +58,7 @@ async function buildApp(service: MessagingService) {
     prefix: '/api/messaging',
     service,
     authenticate,
+    gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
   });
   return app;
 }
@@ -287,6 +290,7 @@ describe('M8: Messaging UUID input validation boundary', () => {
       prefix: '/api/messaging',
       service,
       authenticate,
+      gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
     });
     const res = await app401.inject({
       method: 'GET',

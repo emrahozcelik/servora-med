@@ -86,7 +86,7 @@ describe('MessagingService conversation archive', () => {
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // COMMIT
 
-    const service = new MessagingService(pool, true);
+    const service = new MessagingService(pool);
 
     await expect(service.archiveConversation(actor, conversationId)).resolves.toBeUndefined();
 
@@ -142,7 +142,7 @@ describe('MessagingService conversation archive', () => {
     client.query.mockResolvedValueOnce({ rows: [{ unread_count: '1' }], rowCount: 1 });
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
 
-    const service = new MessagingService(pool, true);
+    const service = new MessagingService(pool);
 
     await expect(service.archiveConversation(actor, conversationId)).rejects.toMatchObject({
       code: 'CONVERSATION_UNREAD',
@@ -187,7 +187,7 @@ describe('MessagingService conversation archive', () => {
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // clear archive state
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // COMMIT
 
-    const service = new MessagingService(pool, true);
+    const service = new MessagingService(pool);
 
     await expect(service.unarchiveConversation(actor, conversationId)).resolves.toBeUndefined();
 
@@ -271,7 +271,7 @@ describe('MessagingService conversation archive', () => {
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // notifications
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // COMMIT
 
-    const service = new MessagingService(pool, true);
+    const service = new MessagingService(pool);
 
     await service.sendMessage(actor, conversationId, 'Yeni mesaj', 'message-1');
 
