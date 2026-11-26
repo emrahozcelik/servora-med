@@ -15,32 +15,38 @@ export type OperatorProfile = {
   capabilities: string[];
 };
 
-export type InstallationModuleSource = 'ENV_TAKEOVER' | 'OPERATOR';
+export type InstallationModuleSource = 'ENV_TAKEOVER' | 'OPERATOR' | 'FRESH_INSTALL';
 
 export type InstallationModule = {
   key: string;
   label: string;
+  description: string;
   enabled: boolean;
   version: number;
   source: InstallationModuleSource;
   updatedAt: string;
+  whenDisabled: string[];
+  preserved: string[];
 };
 
-const MODULE_SOURCES: readonly InstallationModuleSource[] = ['ENV_TAKEOVER', 'OPERATOR'];
+const MODULE_SOURCES: readonly InstallationModuleSource[] = ['ENV_TAKEOVER', 'OPERATOR', 'FRESH_INSTALL'];
 
 function invalid(field: string): never {
   throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
 }
 
+function stringList(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) invalid(field);
+  return value.map((entry) => string(entry, field));
+}
+
 export function parseOperatorProfile(value: unknown): OperatorProfile {
   const operator = object(value);
-  if (!Array.isArray(operator.capabilities)) invalid('capabilities');
-  const capabilities = operator.capabilities.map((entry) => string(entry, 'capabilities'));
   return {
     id: string(operator.id, 'id'),
     name: string(operator.name, 'name'),
     email: string(operator.email, 'email'),
-    capabilities,
+    capabilities: stringList(operator.capabilities, 'capabilities'),
   };
 }
 
@@ -55,10 +61,13 @@ export function parseInstallationModule(value: unknown): InstallationModule {
   return {
     key: string(entry.key, 'key'),
     label: string(entry.label, 'label'),
+    description: string(entry.description, 'description'),
     enabled: boolean(entry.enabled, 'enabled'),
     version,
     source: source as InstallationModuleSource,
     updatedAt,
+    whenDisabled: stringList(entry.whenDisabled, 'whenDisabled'),
+    preserved: stringList(entry.preserved, 'preserved'),
   };
 }
 

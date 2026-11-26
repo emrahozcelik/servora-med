@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { BuildIdentity } from '../BuildIdentity';
 import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
@@ -14,6 +14,7 @@ import {
   operatorLogout,
   setInstallationModuleEnabled,
   type InstallationModule,
+  type InstallationModuleSource,
   type OperatorProfile,
 } from './operator-api';
 
@@ -28,28 +29,64 @@ type Feedback =
 
 export const OPERATOR_SESSION_ENDED_NOTICE = 'Operatör oturumunuz sona erdi. Lütfen yeniden giriş yapın.';
 
+const MODULE_SOURCE_LABELS: Record<InstallationModuleSource, string> = {
+  ENV_TAKEOVER: 'kurulum ayarından devralındı',
+  OPERATOR: 'operatör tarafından değiştirildi',
+  FRESH_INSTALL: 'kurulumda kapalı olarak başlatıldı',
+};
+
 function formatLastChange(module: InstallationModule): string {
   const date = new Date(module.updatedAt);
   const when = date.toLocaleString('tr-TR', {
     day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   });
-  return module.source === 'ENV_TAKEOVER'
-    ? `${when} · kurulum ayarından devralındı`
-    : `${when} · operatör tarafından değiştirildi`;
+  return `${when} · ${MODULE_SOURCE_LABELS[module.source]}`;
+}
+
+function ConfirmationList({
+  heading,
+  items,
+}: {
+  heading: string;
+  items: readonly string[];
+}) {
+  const headingId = useId();
+  if (items.length === 0) return null;
+  return (
+    <span className="operator-confirm-section">
+      <span id={headingId} className="operator-confirm-heading">{heading}</span>
+      <span role="list" className="operator-confirm-list" aria-labelledby={headingId}>
+        {items.map((item, index) => (
+          <span key={`${index}-${item}`} role="listitem" className="operator-confirm-list-item">
+            {item}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function ModuleConfirmationBody({ module, next }: { module: InstallationModule; next: boolean }) {
+  const lead = next
+    ? `${module.label} modülü yetkili müşteri kullanıcıları için açılacak.`
+    : `Müşteri kullanıcıları ${module.label} modülüne erişemeyecek.`;
+
+  return (
+    <>
+      <span className="operator-confirm-lead">{lead}</span>
+      <ConfirmationList heading={next ? 'Açılacaklar:' : 'Kapanacaklar:'} items={module.whenDisabled} />
+      <ConfirmationList heading="Korunanlar:" items={module.preserved} />
+      <span className="operator-confirm-note">Veriler silinmez.</span>
+    </>
+  );
 }
 
 function confirmationCopy(module: InstallationModule, next: boolean) {
-  return next
-    ? {
-      title: `${module.label} modülü açılsın mı?`,
-      description: `${module.label} sayfası, yetkili müşteri kullanıcılarına görünür olacak. Açık müşteri oturumları kısa süre içinde güncellenir.`,
-      confirmLabel: 'Modülü aç',
-    }
-    : {
-      title: `${module.label} modülü kapatılsın mı?`,
-      description: `Müşteri kullanıcıları ${module.label} sayfasına erişemeyecek. Açık müşteri oturumlarında sayfa kısa süre içinde kaybolur.`,
-      confirmLabel: 'Modülü kapat',
-    };
+  return {
+    title: next ? `${module.label} modülü açılsın mı?` : `${module.label} modülü kapatılsın mı?`,
+    description: <ModuleConfirmationBody module={module} next={next} />,
+    confirmLabel: next ? 'Modülü aç' : 'Modülü kapat',
+  };
 }
 
 export function OperatorModulesPage({ operator, onSessionEnded, onSignedOut }: {
@@ -198,6 +235,7 @@ export function OperatorModulesPage({ operator, onSessionEnded, onSignedOut }: {
                 <li key={module.key} className="operator-module-row">
                   <div className="operator-module-body">
                     <h2 id={headingId} className="operator-module-name">{module.label}</h2>
+                    <p className="operator-module-description">{module.description}</p>
                     <p className="operator-module-meta">Son değişiklik: {formatLastChange(module)}</p>
                   </div>
                   <button

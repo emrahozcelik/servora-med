@@ -17,8 +17,15 @@ const operator = {
   id: 'op-1', name: 'Kurulum Operatörü', email: 'operator@example.com', capabilities: ['MODULE_MANAGEMENT'],
 };
 const overviewModule = {
-  key: 'OVERVIEW', label: 'Genel Bakış', enabled: true, version: 3,
-  source: 'OPERATOR', updatedAt: '2026-11-26T09:30:00.000Z',
+  key: 'OVERVIEW',
+  label: 'Genel Bakış',
+  description: 'Dönem özeti, onay kuyruğu, yaklaşan ve tamamlanan işleri tek ekranda gösteren başlangıç sayfası.',
+  enabled: true,
+  version: 3,
+  source: 'OPERATOR',
+  updatedAt: '2026-11-26T09:30:00.000Z',
+  whenDisabled: ['Genel Bakış menüsü ve sayfası', "Genel Bakış'ın açılış sayfası olarak kullanılması"],
+  preserved: ['İşler, onaylar ve raporlar', 'Geçmiş kayıtlar ve audit kayıtları'],
 };
 
 function respond(status: number, body?: unknown, headers: Record<string, string> = {}) {
@@ -35,6 +42,11 @@ describe('operator DTO parsing', () => {
     expect(parseOperatorProfile(operator)).toEqual(operator);
     expect(parseInstallationModule(overviewModule)).toEqual(overviewModule);
     expect(parseInstallationModule({ ...overviewModule, source: 'ENV_TAKEOVER' }).source).toBe('ENV_TAKEOVER');
+    expect(parseInstallationModule({ ...overviewModule, source: 'FRESH_INSTALL' }).source).toBe('FRESH_INSTALL');
+    expect(parseInstallationModule({ ...overviewModule, whenDisabled: [], preserved: [] })).toMatchObject({
+      whenDisabled: [],
+      preserved: [],
+    });
   });
 
   it('rejects malformed operator profiles', () => {
@@ -53,6 +65,15 @@ describe('operator DTO parsing', () => {
     ['missing source', { source: undefined }],
     ['unparseable timestamp', { updatedAt: 'yesterday' }],
     ['empty label', { label: '' }],
+    ['missing description', { description: undefined }],
+    ['empty description', { description: '' }],
+    ['non-string description', { description: 42 }],
+    ['non-array whenDisabled', { whenDisabled: 'Genel Bakış' }],
+    ['non-string item in whenDisabled', { whenDisabled: [1] }],
+    ['empty item in whenDisabled', { whenDisabled: [''] }],
+    ['non-array preserved', { preserved: null }],
+    ['non-string item in preserved', { preserved: [true] }],
+    ['empty item in preserved', { preserved: [''] }],
   ])('rejects a module row with %s', (_name, override) => {
     expect(() => parseInstallationModule({ ...overviewModule, ...override })).toThrow(ApiError);
   });
