@@ -1,5 +1,7 @@
 # Expanded preliminary accounting — product scope and staged delivery contract (proposal)
 
+> **ACC-A contract follow-up:** [08-acc-a-implementation-contract.md](08-acc-a-implementation-contract.md) resolves first-slice options in this document and takes precedence for ACC-1/2 design details (not over accepted repository decisions). It fixes a single outbound issuer per organization, strict normalized number and optional ETTN, no URL/amount, three explicit finance grants with audited ADMIN self-grant, no STAFF finance access, source eligibility, correction/reopen/replace, replay admission and transaction order. Owner acceptance and real-data pilot verification remain separate gates; later ACC-3–7 scope is unchanged.
+
 - Date: 2026-11-26
 - Status: owner-approved **product direction** (expand the preliminary-accounting scope); implementation design and individual slice approvals remain pending. Research only. No approval to implement a full accounting system, e-document issuance, migrations, production changes or external integrations.
 - Baseline: PR #515 original head `00be58d0ad5848f3a8f7083cfa155541d236327e`; code evidence at base `89bf6b1`. Revalidate against current main before each implementation slice.
