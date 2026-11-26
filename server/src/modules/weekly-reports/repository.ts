@@ -154,7 +154,7 @@ const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_user_id,
   manager_questions, manager_answers, version, created_at, updated_at,
   removed_at, removed_by, removal_reason`;
 
-export const WEEKLY_REPORT_SUBMISSION_COLUMNS = `id, organization_id, weekly_report_id,
+const WEEKLY_REPORT_SUBMISSION_COLUMNS = `id, organization_id, weekly_report_id,
   job_card_id, seq_no, submitted_by, submitted_at, period_start, period_end,
   frozen_body, frozen_questions, frozen_answers, frozen_source_work,
   job_version, source_activity_id, created_at`;
@@ -218,6 +218,86 @@ export async function selectWeeklyReportSubmissionBySeq(
     [organizationId, reportId, seqNo],
   );
   return result.rows[0] ?? null;
+}
+
+export type WeeklyReportSubmissionInsert = {
+  organizationId: string;
+  weeklyReportId: string;
+  jobCardId: string;
+  seqNo: number;
+  submittedBy: string;
+  submittedAt: Date;
+  periodStart: string;
+  periodEnd: string;
+  body: WeeklyReportSubmittedBody;
+  questions: ManagerQuestion[];
+  answers: ManagerAnswer[];
+  sourceWork: SourceWorkSnapshotItem[];
+  jobVersion: number;
+  sourceActivityId: string;
+};
+
+/** The caller already holds the report-row lock on this transaction client. */
+export async function getNextWeeklyReportSubmissionSeqNo(
+  client: PoolClient,
+  organizationId: string,
+  weeklyReportId: string,
+): Promise<number> {
+  const result = await client.query<{ seq_no: number }>(
+    `SELECT COALESCE(MAX(seq_no), 0) + 1 AS seq_no FROM weekly_report_submissions
+     WHERE organization_id = $1 AND weekly_report_id = $2`,
+    [organizationId, weeklyReportId],
+  );
+  return result.rows[0]!.seq_no;
+}
+
+async function insertSubmissionSnapshot(
+  client: PoolClient,
+  input: WeeklyReportSubmissionInsert,
+): Promise<WeeklyReportSubmissionRow | undefined> {
+  const inserted = await client.query<WeeklyReportSubmissionRow>(
+    `INSERT INTO weekly_report_submissions
+       (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by,
+        submitted_at, period_start, period_end, frozen_body, frozen_questions,
+        frozen_answers, frozen_source_work, job_version, source_activity_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     RETURNING ${WEEKLY_REPORT_SUBMISSION_COLUMNS}`,
+    [
+      input.organizationId,
+      input.weeklyReportId,
+      input.jobCardId,
+      input.seqNo,
+      input.submittedBy,
+      input.submittedAt,
+      input.periodStart,
+      input.periodEnd,
+      JSON.stringify(input.body),
+      JSON.stringify(input.questions),
+      JSON.stringify(input.answers),
+      JSON.stringify(input.sourceWork),
+      input.jobVersion,
+      input.sourceActivityId,
+    ],
+  );
+  return inserted.rows[0];
+}
+
+/** Append and bump the draft version on the JobCard transaction's locked client. */
+export async function insertWeeklyReportSubmissionRow(
+  client: PoolClient,
+  input: WeeklyReportSubmissionInsert,
+): Promise<{ submission: WeeklyReportSubmissionRow; reportVersion: number }> {
+  const submission = await insertSubmissionSnapshot(client, input);
+  if (!submission) throw notFound();
+  const bumped = await client.query<{ version: number }>(
+    `UPDATE weekly_reports SET version = version + 1, updated_at = NOW()
+     WHERE organization_id = $1 AND id = $2
+     RETURNING version`,
+    [input.organizationId, input.weeklyReportId],
+  );
+  const reportVersion = bumped.rows[0]?.version;
+  if (reportVersion === undefined) throw notFound();
+  return { submission, reportVersion };
 }
 
 export async function findWeeklyReportByStaffWeek(
@@ -566,38 +646,25 @@ export class PostgresWeeklyReportRepository {
       const body = validateSubmissionBody(validateDraftBody(input.draft));
       const answers = validateSubmissionAnswers(row.manager_questions, input.answers);
       const sourceWork = validateSourceWorkSnapshot(input.sourceWork);
-      const seq = await client.query<{ seq_no: number }>(
-        `SELECT COALESCE(MAX(seq_no), 0) + 1 AS seq_no FROM weekly_report_submissions
-          WHERE organization_id = $1 AND weekly_report_id = $2`,
-        [input.organizationId, input.reportId],
-      );
-      const nextSeq = seq.rows[0]!.seq_no;
-      const inserted = await client.query<WeeklyReportSubmissionRow>(
-        `INSERT INTO weekly_report_submissions
-           (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by,
-            submitted_at, period_start, period_end, frozen_body, frozen_questions,
-            frozen_answers, frozen_source_work, job_version, source_activity_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-         RETURNING *`,
-        [
-          input.organizationId,
-          input.reportId,
-          row.job_card_id,
-          nextSeq,
-          input.submittedBy,
-          input.submittedAt,
-          dateKey(row.period_start),
-          dateKey(row.period_end),
-          JSON.stringify(body),
-          JSON.stringify(row.manager_questions),
-          JSON.stringify(answers),
-          JSON.stringify(sourceWork),
-          input.jobVersion,
-          input.sourceActivityId,
-        ],
-      );
+      const seqNo = await getNextWeeklyReportSubmissionSeqNo(client, input.organizationId, input.reportId);
+      const submission = await insertSubmissionSnapshot(client, {
+        organizationId: input.organizationId,
+        weeklyReportId: input.reportId,
+        jobCardId: row.job_card_id,
+        seqNo,
+        submittedBy: input.submittedBy,
+        submittedAt: input.submittedAt,
+        periodStart: dateKey(row.period_start),
+        periodEnd: dateKey(row.period_end),
+        body,
+        questions: row.manager_questions,
+        answers,
+        sourceWork,
+        jobVersion: input.jobVersion,
+        sourceActivityId: input.sourceActivityId,
+      });
       await client.query('COMMIT');
-      return mapSubmission(inserted.rows[0]!);
+      return mapSubmission(submission!);
     } catch (error) {
       await client.query('ROLLBACK');
       // F2: a source activity from another job/organization (or deleted

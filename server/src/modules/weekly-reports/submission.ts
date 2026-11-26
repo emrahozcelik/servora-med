@@ -1,13 +1,12 @@
 import { AppError } from '../../errors/index.js';
 import type { JobCard, JobCardActor, SubmissionRequirement } from '../job-cards/types.js';
-import { mapReport, type WeeklyReportRow, type WeeklyReportSubmissionRow } from './repository.js';
+import {
+  mapReport,
+  type WeeklyReportRow,
+  type WeeklyReportSubmissionInsert,
+  type WeeklyReportSubmissionRow,
+} from './repository.js';
 import { mapSourceWorkRow, readWeeklySourceWork, type WeeklyReportSourceWorkReader } from './source-work.js';
-import type {
-  ManagerAnswer,
-  ManagerQuestion,
-  SourceWorkSnapshotItem,
-  WeeklyReportSubmittedBody,
-} from './types.js';
 import {
   validateSourceWorkSnapshot,
   validateSubmissionAnswers,
@@ -25,23 +24,6 @@ export interface WeeklyReportSubmissionReader extends WeeklyReportSourceWorkRead
     jobCardId: string,
   ): Promise<WeeklyReportRow | null>;
 }
-
-export type WeeklyReportSubmissionInsert = {
-  organizationId: string;
-  weeklyReportId: string;
-  jobCardId: string;
-  seqNo: number;
-  submittedBy: string;
-  submittedAt: Date;
-  periodStart: string;
-  periodEnd: string;
-  body: WeeklyReportSubmittedBody;
-  questions: ManagerQuestion[];
-  answers: ManagerAnswer[];
-  sourceWork: SourceWorkSnapshotItem[];
-  jobVersion: number;
-  sourceActivityId: string;
-};
 
 export interface WeeklyReportSubmissionWriter extends WeeklyReportSourceWorkReader {
   /**

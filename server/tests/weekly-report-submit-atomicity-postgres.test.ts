@@ -13,6 +13,7 @@ import {
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import { parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
+import * as weeklyReportRepository from '../src/modules/weekly-reports/repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -211,6 +212,44 @@ describe.skipIf(!databaseUrl)('weekly report atomic submission (PostgreSQL)', ()
         [organizationId],
       );
       expect(submissions.rows[0].n).toBe(0);
+    });
+  });
+
+  it('rolls back the repository append and version bump when the JobCard transaction fails', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool);
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const service = buildService(pool);
+      const created = await prepareSubmittable(pool, service, organizationId, staffId);
+      const staff = actor(organizationId, staffId, 'STAFF');
+      const input = {
+        clientActionId: randomUUID(), expectedVersion: 2, note: 'Onaya gönderildi.',
+      };
+      const append = weeklyReportRepository.insertWeeklyReportSubmissionRow;
+      const spy = vi.spyOn(weeklyReportRepository, 'insertWeeklyReportSubmissionRow')
+        .mockImplementationOnce(async (client, snapshot) => {
+          const result = await append(client, snapshot);
+          expect(result.submission.seq_no).toBe(1);
+          expect(result.reportVersion).toBe(3);
+          throw new Error('abort after repository append');
+        });
+      try {
+        await expect(service.submitForApproval(staff, created.jobCardId, input))
+          .rejects.toThrow('abort after repository append');
+      } finally {
+        spy.mockRestore();
+      }
+
+      const report = await service.getWeeklyReport(staff, created.jobCardId);
+      expect(report).toMatchObject({ jobStatus: 'IN_PROGRESS', jobVersion: 2, version: 2 });
+      expect(await service.listWeeklyReportSubmissions(staff, created.jobCardId)).toEqual([]);
+
+      await expect(service.submitForApproval(staff, created.jobCardId, input))
+        .rejects.toMatchObject({ code: 'ACTION_IN_PROGRESS' });
+      const submitted = await submit(service, organizationId, staffId, created.jobCardId, 2);
+      expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+      const history = await service.listWeeklyReportSubmissions(staff, created.jobCardId);
+      expect(history).toMatchObject([{ seqNo: 1, jobVersion: 3 }]);
     });
   });
 

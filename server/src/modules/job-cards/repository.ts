@@ -78,24 +78,24 @@ import type { WeeklyReportDraftTransaction } from '../weekly-reports/draft.js';
 import type { WeeklyReportReadRepository } from '../weekly-reports/read.js';
 import type { WeeklyReportRemovalTransaction } from '../weekly-reports/removal.js';
 import type {
-  WeeklyReportSubmissionInsert,
   WeeklyReportSubmissionReader,
   WeeklyReportSubmissionWriter,
 } from '../weekly-reports/submission.js';
 import {
   findWeeklyReportByStaffWeek,
+  getNextWeeklyReportSubmissionSeqNo,
   insertWeeklyReportRow,
+  insertWeeklyReportSubmissionRow,
   listWeeklyReportSubmissionRows as selectWeeklySubmissions,
   removeWeeklyReportRow,
   selectWeeklyReportByJob,
   selectWeeklyReportSubmissionBySeq,
   selectWeeklySourceWork,
   updateWeeklyReportDraftRow,
-  WEEKLY_REPORT_SUBMISSION_COLUMNS,
   type WeeklyDraftRowUpdate,
   type WeeklyReportInsert,
   type WeeklyReportRemovalUpdate,
-  type WeeklyReportSubmissionRow,
+  type WeeklyReportSubmissionInsert,
 } from '../weekly-reports/repository.js';
 import type { WeeklySourceWorkRow } from '../weekly-reports/types.js';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
@@ -5082,59 +5082,16 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return findWeeklyReportByStaffWeek(this.client, organizationId, staffUserId, periodStart);
   }
 
-  async getNextWeeklyReportSubmissionSeqNo(organizationId: string, weeklyReportId: string) {
-    const result = await this.client.query<{ seq_no: number }>(
-      `SELECT COALESCE(MAX(seq_no), 0) + 1 AS seq_no FROM weekly_report_submissions
-       WHERE organization_id = $1 AND weekly_report_id = $2`,
-      [organizationId, weeklyReportId],
-    );
-    return result.rows[0]!.seq_no;
+  getNextWeeklyReportSubmissionSeqNo(organizationId: string, weeklyReportId: string) {
+    return getNextWeeklyReportSubmissionSeqNo(this.client, organizationId, weeklyReportId);
   }
 
   insertWeeklyReportRow(input: WeeklyReportInsert) {
     return insertWeeklyReportRow(this.client, input);
   }
 
-  async insertWeeklyReportSubmissionRow(input: WeeklyReportSubmissionInsert) {
-    const inserted = await this.client.query<WeeklyReportSubmissionRow>(
-      `INSERT INTO weekly_report_submissions
-         (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by,
-          submitted_at, period_start, period_end, frozen_body, frozen_questions,
-          frozen_answers, frozen_source_work, job_version, source_activity_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-       RETURNING ${WEEKLY_REPORT_SUBMISSION_COLUMNS}`,
-      [
-        input.organizationId,
-        input.weeklyReportId,
-        input.jobCardId,
-        input.seqNo,
-        input.submittedBy,
-        input.submittedAt,
-        input.periodStart,
-        input.periodEnd,
-        JSON.stringify(input.body),
-        JSON.stringify(input.questions),
-        JSON.stringify(input.answers),
-        JSON.stringify(input.sourceWork),
-        input.jobVersion,
-        input.sourceActivityId,
-      ],
-    );
-    const submission = inserted.rows[0];
-    if (!submission) {
-      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-    }
-    const bumped = await this.client.query<{ version: number }>(
-      `UPDATE weekly_reports SET version = version + 1, updated_at = NOW()
-       WHERE organization_id = $1 AND id = $2
-       RETURNING version`,
-      [input.organizationId, input.weeklyReportId],
-    );
-    const reportVersion = bumped.rows[0]?.version;
-    if (reportVersion === undefined) {
-      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-    }
-    return { submission, reportVersion };
+  insertWeeklyReportSubmissionRow(input: WeeklyReportSubmissionInsert) {
+    return insertWeeklyReportSubmissionRow(this.client, input);
   }
 }
 

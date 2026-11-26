@@ -118,7 +118,9 @@ health
 Weekly Report submit readiness rules and immutable submission assembly live in
 `weekly-reports/submission.ts`. JobCard orchestrates the lifecycle transition
 and canonical activity, then calls the Weekly Report append through a narrow
-port on the same transaction.
+port on the same transaction. The JobCard transaction provides the report-row
+lock and passes its client to `weekly-reports/repository.ts` to allocate the
+next sequence, insert the snapshot and bump the report draft version.
 
 Weekly Report draft replacement lives in `weekly-reports/draft.ts`, using the
 JobCard repository transaction to lock the current user, JobCard and report in
