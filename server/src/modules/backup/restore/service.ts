@@ -35,6 +35,7 @@ import {
   type RemoteBackupDescriptor,
   type RestoreRemoteStore,
 } from './remote.js';
+import { resetOperatorAccessInRestoredDatabase } from './operator-reset.js';
 import { createRestoreWorkspace, removeRestoreWorkspace, type RestoreWorkspace } from './workspace.js';
 import type { RestoreMode } from '../types.js';
 import { restoreFullDataArchive } from './files.js';
@@ -395,6 +396,9 @@ export class RestoreService {
       });
       checkSignal(this.options.signal);
       const databaseEvidence = await validateRestoredDatabase(target.targetDatabaseUrl, prepared.manifest, release.catalog);
+      // MOD-002 §9: restored operator accounts/sessions must never carry over
+      // to the cutover; reset them before this target can receive traffic.
+      await resetOperatorAccessInRestoredDatabase(target.targetDatabaseUrl);
       const fullDataRestored = prepared.manifest.contents.files !== null;
       if (fullDataRestored) {
         if (!input.targetFilesRoot) throw new RestoreOperationError('FULL_DATA restore requires a new --target-files-root', 'RESTORE_INTEGRITY_FAILED');

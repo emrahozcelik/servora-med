@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { OverviewService } from '../src/modules/overview/service.js';
 
 const staff = {
@@ -19,7 +20,7 @@ describe('OverviewService', () => {
       getStaffOverview: vi.fn(),
       getManagementOverview: vi.fn(),
     };
-    const service = new OverviewService(false, repository as never);
+    const service = new OverviewService(staticModuleStateReader(false), repository as never);
 
     await expect(service.getOverview(staff, { requestedRange: null }))
       .rejects.toMatchObject({ code: 'NOT_FOUND', statusCode: 404 });
@@ -33,7 +34,7 @@ describe('OverviewService', () => {
       getManagementOverview: vi.fn(),
     };
     const now = new Date('2026-07-26T08:00:00.000Z');
-    const service = new OverviewService(true, repository as never, undefined, () => now);
+    const service = new OverviewService(staticModuleStateReader(true), repository as never, undefined, () => now);
     await expect(service.getOverview(staff, { requestedRange: null }))
       .resolves.toMatchObject({ scope: 'staff' });
     expect(repository.getStaffOverview).toHaveBeenCalledWith(
@@ -52,7 +53,7 @@ describe('OverviewService', () => {
         getStaffOverview: vi.fn(),
         getManagementOverview: vi.fn().mockResolvedValue({ scope: 'management' }),
       };
-      const service = new OverviewService(true, repository as never);
+      const service = new OverviewService(staticModuleStateReader(true), repository as never);
       await expect(service.getOverview(actor, { requestedRange: null }))
         .resolves.toMatchObject({ scope: 'management' });
       expect(repository.getManagementOverview).toHaveBeenCalledWith(
@@ -76,7 +77,7 @@ describe('OverviewService', () => {
       getUpcomingWork: vi.fn().mockResolvedValue(null),
     };
     const now = new Date('2026-07-26T08:00:00.000Z');
-    const service = new OverviewService(true, repository as never, reports, () => now, true);
+    const service = new OverviewService(staticModuleStateReader(true), repository as never, reports, () => now, true);
 
     const manager = { ...staff, role: 'MANAGER' as const };
     await service.getOverview(manager, { requestedRange: null });

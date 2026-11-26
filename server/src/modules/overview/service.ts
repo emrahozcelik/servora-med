@@ -1,5 +1,6 @@
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
+import type { ModuleStateLogger, ModuleStateReader } from '../installation-modules/state.js';
 import type { OverviewReadModel } from './repository.js';
 import type { ReportsReadModel } from '../reports/ports.js';
 import type { MessagingReadPort } from '../messaging/types.js';
@@ -16,9 +17,15 @@ const overviewUnavailable = () => new AppError(
   'Sayfa bulunamadı.',
 );
 
+const moduleStateUnavailable = () => new AppError(
+  'MODULE_STATE_UNAVAILABLE',
+  503,
+  'Modül durumu şu anda okunamıyor.',
+);
+
 export class OverviewService {
   constructor(
-    private readonly enabled: boolean,
+    private readonly moduleState: ModuleStateReader,
     private readonly repository: OverviewReadModel,
     private readonly reports?: ReportsReadModel,
     private readonly now: () => Date = () => new Date(),
@@ -27,8 +34,12 @@ export class OverviewService {
     private readonly messagingRead?: MessagingReadPort,
   ) {}
 
-  async getOverview(actor: SafeUser, query: OverviewQuery) {
-    if (!this.enabled) throw overviewUnavailable();
+  async getOverview(
+    actor: SafeUser,
+    query: OverviewQuery,
+    logger: ModuleStateLogger = console,
+  ) {
+    await this.assertEnabled(logger);
     const requestTime = this.now();
     const overview = await (actor.role === 'STAFF'
       ? this.repository.getStaffOverview(actor, query, requestTime)
@@ -71,5 +82,21 @@ export class OverviewService {
     }
 
     return {...overview, upcomingWork, ...(actor.role !== 'STAFF' ? { workTypeDistribution } : {}), ...(this.messagingEnabled ? { messageUnreadSummary } : {})};
+  }
+
+  /**
+   * Runtime module gate (MOD-002): disabled → the existing 404; a missing row
+   * or a read failure → 503 (fail closed, no env fallback).
+   */
+  private async assertEnabled(logger: ModuleStateLogger): Promise<void> {
+    let row;
+    try {
+      row = await this.moduleState.read('OVERVIEW');
+    } catch (error) {
+      logger.error({ err: error, module: 'OVERVIEW' }, 'Installation module state read failed');
+      throw moduleStateUnavailable();
+    }
+    if (!row) throw moduleStateUnavailable();
+    if (!row.enabled) throw overviewUnavailable();
   }
 }

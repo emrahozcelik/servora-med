@@ -17,6 +17,17 @@ const DEFAULT_SUPPORT: AuthenticatedSupport = {
   helpUrl: null,
 };
 
+/**
+ * Applies the runtime Overview module state (MOD-002) on top of the static
+ * env-derived capabilities.
+ */
+export function withOverviewDashboard(
+  capabilities: AuthenticatedCapabilities | undefined,
+  overviewDashboard: boolean,
+): AuthenticatedCapabilities {
+  return { ...(capabilities ?? DEFAULT_CAPABILITIES), overviewDashboard };
+}
+
 export function authenticatedUser(
   user: SafeUser,
   capabilities: AuthenticatedCapabilities | undefined,

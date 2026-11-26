@@ -130,7 +130,7 @@ transaction as the change.
 - `PUT /api/operator/modules/:key` in one transaction: lock the operator account and
   re-validate session/capability, lock the state row (`FOR UPDATE`), compare
   `expectedVersion`.
-  - Stale `expectedVersion` → `409 VERSION_CONFLICT` (also when the requested value
+  - Stale `expectedVersion` → `409 MODULE_VERSION_CONFLICT` (also when the requested value
     equals the stored one).
   - Current version and same value → `200` with the row, no new audit event.
   - Current version and different value → update, bump `version`, insert

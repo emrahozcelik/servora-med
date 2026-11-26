@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
 import { overviewRoutes } from '../src/modules/overview/routes.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { OverviewService } from '../src/modules/overview/service.js';
 
 const apps: FastifyInstance[] = [];
@@ -34,7 +35,7 @@ async function createApp(enabled: boolean, authenticated = true) {
   };
   await app.register(overviewRoutes, {
     prefix: '/api/overview',
-    service: new OverviewService(enabled, repository as never, () => new Date('2026-07-26T08:00:00.000Z')),
+    service: new OverviewService(staticModuleStateReader(enabled), repository as never, () => new Date('2026-07-26T08:00:00.000Z')),
     authenticate,
   });
   apps.push(app);

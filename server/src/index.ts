@@ -32,6 +32,7 @@ import { PostgresNotificationRepository } from './modules/notifications/reposito
 import { createShutdown } from './shutdown.js';
 import { PostgresWebPushRepository } from './modules/web-push/repository.js';
 import { createProductionAppDependencies } from './app-dependencies.js';
+import { takeOverInstallationModules } from './modules/installation-modules/takeover.js';
 import { PostgresOverviewRepository } from './modules/overview/repository.js';
 import { PostgresCalendarRepository } from './modules/calendar/repository.js';
 import { PostgresStaffConfidentialNotesRepository } from './modules/staff-confidential-notes/repository.js';
@@ -316,6 +317,13 @@ async function main() {
 
     // SD2: startup fail-fast — only COMPATIBLE may proceed to listen.
     await assertStartupSchemaCompatible({ pool: database.pool, catalog, logger: app.log });
+
+    // MOD-002: one-time takeover of the legacy OVERVIEW_DASHBOARD_ENABLED env
+    // value into installation_module_state. API process only (never the backup
+    // worker); any failure stops startup and the server never listens.
+    await takeOverInstallationModules(database.pool, {
+      overviewDashboard: config.capabilities?.overviewDashboard ?? false,
+    });
 
     // Migrations are applied only via migrate / migrate:prod — never on process start.
     await app.listen({ host: config.host, port: config.port });

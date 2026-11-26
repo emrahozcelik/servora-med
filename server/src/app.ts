@@ -68,6 +68,14 @@ import { buildPushPayload, buildPushTopic } from './modules/web-push/payload.js'
 import type { OverviewReadModel } from './modules/overview/repository.js';
 import { OverviewService } from './modules/overview/service.js';
 import { overviewRoutes } from './modules/overview/routes.js';
+import {
+  PostgresModuleStateReader,
+  staticModuleStateReader,
+  type ModuleStateReader,
+} from './modules/installation-modules/state.js';
+import { PostgresOperatorRepository } from './modules/operator/repository.js';
+import { OperatorService } from './modules/operator/service.js';
+import { operatorRoutes } from './modules/operator/routes.js';
 import type { CalendarRepository } from './modules/calendar/repository.js';
 import { CalendarService } from './modules/calendar/service.js';
 import { calendarRoutes } from './modules/calendar/routes.js';
@@ -184,6 +192,12 @@ export type AppDependencies = {
   backupRepository?: BackupRepository;
   demoDatasetRepository?: DemoDatasetRepository;
   dataManagementRepository?: DataManagementReadModel;
+  /**
+   * Runtime module state (MOD-002). Defaults to a `PostgresModuleStateReader`
+   * when `pool` is present; without a pool (in-memory unit tests) it falls back
+   * to a static reader built from `config.capabilities.overviewDashboard`.
+   */
+  moduleStateReader?: ModuleStateReader;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
   pool?: import('pg').Pool;
@@ -240,6 +254,10 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     releaseSha: config.releaseSha,
     backupReadiness: dependencies.backupHealthReadiness,
   });
+  const moduleStateReader: ModuleStateReader = dependencies.moduleStateReader
+    ?? (dependencies.pool
+      ? new PostgresModuleStateReader(dependencies.pool)
+      : staticModuleStateReader(config.capabilities?.overviewDashboard ?? false));
   if (dependencies.authRepository) {
     // Warm BOTH KDF-class sentinels BEFORE the app can serve any request.
     // Deriving either lazily on the first login would make that one request
@@ -255,6 +273,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       prefix: '/api/auth',
       authService,
       config,
+      moduleStateReader,
     });
     const authenticate = requireAuthentication(authService);
     const passwordChanged = requirePasswordChanged();
@@ -347,7 +366,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       await app.register(overviewRoutes, {
         prefix: '/api/overview',
         service: new OverviewService(
-          config.capabilities?.overviewDashboard ?? false,
+          moduleStateReader,
           dependencies.overviewRepository,
           dependencies.reportsRepository,
           undefined,
@@ -591,6 +610,21 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         storageProbe,
       });
     }
+  }
+
+  if (dependencies.pool) {
+    // The operator login shares the customer fixed-work KDF; both sentinels
+    // must be warm before the first request (memoized, so a repeat is free).
+    await oldCredentialSentinelHash();
+    await v2CredentialSentinelHash();
+    await app.register(operatorRoutes, {
+      prefix: '/api/operator',
+      service: new OperatorService(
+        new PostgresOperatorRepository(dependencies.pool),
+        moduleStateReader,
+      ),
+      config,
+    });
   }
 
   return app;
