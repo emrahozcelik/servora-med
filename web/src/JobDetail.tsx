@@ -510,7 +510,7 @@ function JobScheduleEditForm({
   user,
   deadlineExtensionError = null,
   scheduleShiftSignal,
-  committedStale = false,
+  scheduleCommittedSignal = 0,
   onRequestChange,
   onSave,
 }: {
@@ -521,8 +521,8 @@ function JobScheduleEditForm({
   /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
   deadlineExtensionError?: string | null;
   scheduleShiftSignal?: number;
-  /** UI-FEEDBACK/A: this mutation committed but its canonical re-read failed. */
-  committedStale?: boolean;
+  /** UI-FEEDBACK/A: increments when a schedule save committed but its re-read failed. */
+  scheduleCommittedSignal?: number;
   onRequestChange?: () => void;
   onSave?: (
     scheduledAt: string | null,
@@ -580,15 +580,18 @@ function JobScheduleEditForm({
     setReasonError(deadlineExtensionError);
   }, [deadlineExtensionError]);
 
-  // UI-FEEDBACK/A: a committed-but-stale save supersedes the previous attempt's
-  // inline failure (for example the past-start acknowledgement request). The
-  // page notice, not the old form error, now describes the outcome.
+  // UI-FEEDBACK/A: a schedule save that committed but could not re-read
+  // supersedes this form's previous inline failure (for example the past-start
+  // acknowledgement request). Only a schedule commit clears this form's errors;
+  // other forms' commits leave them untouched.
+  const lastScheduleCommittedSignalRef = useRef(scheduleCommittedSignal);
   useEffect(() => {
-    if (!committedStale) return;
+    if (scheduleCommittedSignal === lastScheduleCommittedSignalRef.current) return;
+    lastScheduleCommittedSignalRef.current = scheduleCommittedSignal;
     setFieldError('');
     setSubmitError('');
     setReasonError('');
-  }, [committedStale]);
+  }, [scheduleCommittedSignal]);
 
   useEffect(() => {
     if (scheduleShiftSignal === undefined || scheduleShiftSignal <= 0) {
@@ -977,7 +980,7 @@ export function CommittedStaleNotice({ message, reloadPending, onReload, feedbac
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
-  onSaveAllDeliveredAtNow, scheduleShiftSignal, onRequestChange,
+  onSaveAllDeliveredAtNow, scheduleShiftSignal, scheduleCommittedSignal, onRequestChange,
   meetingDetails = null, records, realtimeStaleNotice, committedStaleNotice, notes, timeline, children,
   pendingLabel, pendingCommand, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
@@ -1006,6 +1009,7 @@ export function JobDetailPanel({
   onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
   onSaveAllDeliveredAtNow?: () => Promise<void> | void;
   scheduleShiftSignal?: number;
+  scheduleCommittedSignal?: number;
   onRequestChange?: () => void;
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
@@ -1334,7 +1338,7 @@ export function JobDetailPanel({
               user={user}
               deadlineExtensionError={deadlineExtensionError}
               scheduleShiftSignal={scheduleShiftSignal}
-              committedStale={committedStale}
+              scheduleCommittedSignal={scheduleCommittedSignal}
               onRequestChange={onRequestChange}
               onSave={onSaveSchedule}
             />
@@ -1654,6 +1658,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [submitPendingPhase, setSubmitPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
   const [changeRequestSignal, setChangeRequestSignal] = useState(0);
   const [scheduleShiftSignal, setScheduleShiftSignal] = useState(0);
+  const [scheduleCommittedSignal, setScheduleCommittedSignal] = useState(0);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
   /** UI-FEEDBACK/A: a committed mutation whose canonical re-read failed. */
@@ -2712,7 +2717,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     try {
       const meetingDetails = await patchMeetingDetails(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return meetingDetails;
-      const read = await refreshAfterCommit('Görüşme sonucu kaydedildi.');
+      // MeetingDetails announces its own save receipt; the page notice adds only
+      // the stale-read state so the two regions never repeat the same text.
+      const read = await refreshAfterCommit('');
       if (read === 'inactive') return meetingDetails;
       if (read === 'fresh' && !(await requestRealtimeDrain())) return meetingDetails;
       setTimelineKey((value) => value + 1);
@@ -3013,6 +3020,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (read === 'fresh' && !(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
       if (read === 'fresh') setMessage('Planlanan zaman güncellendi.');
+      else setScheduleCommittedSignal((value) => value + 1);
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
@@ -3872,6 +3880,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }}
     onSaveSchedule={saveSchedule}
     scheduleShiftSignal={scheduleShiftSignal}
+    scheduleCommittedSignal={scheduleCommittedSignal}
     onRequestChange={() => setChangeRequestSignal((value) => value + 1)}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     onSaveAllDeliveredAtNow={detail.kind === 'PRODUCT_DELIVERY' ? saveAllDeliveredAtNow : undefined}

@@ -645,25 +645,17 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
 
     expect(meetingPatches).toBe(1);
     const notice = committedNotice(host);
-    expect(notice?.textContent).toContain('Görüşme sonucu kaydedildi.');
     expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
     expect(host.textContent).not.toContain('Görüşme sonucu kaydedilemedi.');
     expect(document.activeElement).toBe(notice);
-    // The meeting child set its own success receipt for the same operation.
-    // The scoped modifier removes that duplicate status from layout and the
-    // accessibility tree so only the page notice announces the result.
-    expect(host.querySelector('[data-job-detail="true"]')
-      ?.getAttribute('data-job-detail-committed-stale')).toBe('true');
+    // The meeting child announces its own save receipt; the page notice adds
+    // only the stale-read state, so the two regions never repeat the same text
+    // and the child form's own feedback (including validation) stays visible.
+    expect(notice?.textContent).not.toContain('Görüşme sonucu kaydedildi.');
     const childFeedback = host.querySelector<HTMLElement>('.meeting-details > .detail-feedback')!;
     expect(childFeedback).not.toBeNull();
     expect(childFeedback.textContent).toContain('Görüşme sonucu kaydedildi.');
-    const duplicateRule = /\[data-job-detail-committed-stale="true"\] \.meeting-details > \.detail-feedback \{([^}]*)\}/.exec(styles);
-    expect(duplicateRule?.[1]).toContain('display: none');
-    const probe = document.createElement('style');
-    probe.textContent = duplicateRule![0];
-    document.head.append(probe);
-    expect(getComputedStyle(childFeedback).display).toBe('none');
-    probe.remove();
+    expect(styles).not.toMatch(/\.meeting-details > \.detail-feedback \{[^}]*display: none/);
   });
 
   it('GET 404 after a committed patch keeps the previous terminal error path', async () => {
