@@ -1,5 +1,7 @@
 # 05 — Accounting module: ownership boundaries and data-model sketch
 
+> **Revision notice (2026-11-26): historical schema exploration only.** [07-expanded-product-scope.md](07-expanded-product-scope.md) and [06-decision-brief.md](06-decision-brief.md) supersede conflicting proposals here. Do not copy this SQL into migrations. Cut A has identity-only references, many-to-many source links, issuer-scoped normalized identity, explicit finance grants, default-off DB initialization (no new env flag), and transactional shared state-row locking against operator disable. Legacy Core commands remain unchanged; no 7-day deadline or inferred invoice state. Supplier/payable, expense and manual cash/bank concepts are later separate slices, not speculative tables now. No migration number is reserved. Accepted decisions remain binding.
+
 **Status:** research / design proposal for the owner's decision. **Not** a migration, not an
 accepted decision, not an implementation authorisation. AGENTS.md §13 (lines 387–406) forbids
 adding a full accounting module without explicit owner approval, and MOD-001 §3–§4
