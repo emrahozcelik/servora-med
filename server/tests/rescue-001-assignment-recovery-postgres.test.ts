@@ -308,7 +308,7 @@ async function insertRawOffer(pool: Pool, input: {
   )).rows[0]!.id;
 }
 
-describe('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () => {
+describe.skipIf(!databaseUrl)('RESCUE-001 PostgreSQL characterization (R01, R03, R04, R06, R07)', () => {
   it('R01: rejects proposedScheduledAt on ON_LEAVE / TOO_FAR / OTHER and requires it on SCHEDULE_CONFLICT (decline & release)', async () => {
     await withSchema(async (pool) => {
       const baseline = await readDbBaseline(pool);
