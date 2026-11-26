@@ -1,5 +1,8 @@
 # 03 — JobCard ↔ Warehouse integration: how a delivery produces or consumes stock
 
+> **Historical research only.** The owner-approved [README §§A–E](README.md) supersedes unconditional reversal, assignee-only source inference, unqualified approval-time posting and the re-enable/no-reconciliation assumptions in this document. Invalidation is not physical return; preserve stock until a verified correction or actual return. Readiness and count coverage must be verified before authoritative posting.
+
+
 Status: **research / design proposal only.** Nothing is implemented. No decision is made
 by this document. `AGENTS.md` §13 still forbids a full Warehouse module without explicit
 owner approval.
