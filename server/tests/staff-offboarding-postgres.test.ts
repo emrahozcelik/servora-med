@@ -1178,4 +1178,38 @@ describe.skipIf(!databaseUrl)('SOF-1 terminal offboarding history integrity', ()
     });
   });
 
+  it('P3: inserts replacement STAFF with last_read_message_id set to latest message (unread 0)', async () => {
+    await withFixture(async (fixture) => {
+      const msg1 = (await fixture.pool.query<{ id: string }>(
+        `INSERT INTO messages (organization_id, conversation_id, sender_user_id, client_action_id, body, created_at)
+         VALUES ($1, $2, $3, $4, 'İlk mesaj', '2026-08-25T08:00:00.000Z')
+         RETURNING id`,
+        [fixture.organizationId, fixture.ids.jobConversation, fixture.admin.id, randomUUID()],
+      )).rows[0]!.id;
+      const msg2 = (await fixture.pool.query<{ id: string }>(
+        `INSERT INTO messages (organization_id, conversation_id, sender_user_id, client_action_id, body, created_at)
+         VALUES ($1, $2, $3, $4, 'Son mesaj', '2026-08-25T08:05:00.000Z')
+         RETURNING id`,
+        [fixture.organizationId, fixture.ids.jobConversation, fixture.admin.id, randomUUID()],
+      )).rows[0]!.id;
+      expect(msg2).not.toBe(msg1);
+
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      const response = await fixture.service.execute(
+        fixture.admin,
+        fixture.target.id,
+        actualDecisions(fixture, plan, randomUUID()),
+      );
+      expect(response.status).toBe('OFFBOARDED');
+
+      const row = (await fixture.pool.query<{ user_id: string; last_read_message_id: string | null }>(
+        `SELECT user_id, last_read_message_id
+           FROM conversation_participants
+          WHERE conversation_id = $1`,
+        [fixture.ids.jobConversation],
+      )).rows;
+      expect(row).toEqual([{ user_id: fixture.replacementB.id, last_read_message_id: msg2 }]);
+    });
+  });
+
 });

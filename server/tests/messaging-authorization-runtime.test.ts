@@ -509,4 +509,54 @@ describe('M3 messaging resource-based authorization', () => {
       ).rejects.toMatchObject({ statusCode: 403 });
     });
   });
+
+  it('P4: skips in_app_notifications for inactive recipients while keeping participant row, history, and prior notifications', async () => {
+    await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, staff2A }) => {
+      const svc = service(pool);
+      const repo = new PostgresMessagingRepository(pool);
+      const t = await svc.createOrGetConversation(adminA, {
+        participantUserIds: [managerA.id, staff1A.id, staff2A.id],
+        contextType: 'GENERAL',
+        title: 'Pasif katılımcı testi',
+      });
+
+      // Active participant sends first message -> staff2A gets an in-app notification.
+      await svc.sendMessage(staff2A, t.id, 'Pasif olmadan önceki mesaj', `c-${randomUUID()}`);
+      await svc.sendMessage(adminA, t.id, 'İlk duyuru', `c-${randomUUID()}`);
+
+      const beforeNotifs = (await pool.query<{ recipient_user_id: string }>(
+        `SELECT recipient_user_id FROM in_app_notifications
+          WHERE organization_id = $1 AND entity_id = $2`,
+        [orgA, t.id],
+      )).rows;
+      expect(beforeNotifs.some((r) => r.recipient_user_id === staff2A.id)).toBe(true);
+      const priorForStaff2Count = beforeNotifs.filter((r) => r.recipient_user_id === staff2A.id).length;
+
+      // Deactivate staff2A.
+      await pool.query(`UPDATE users SET is_active = FALSE WHERE id = $1`, [staff2A.id]);
+
+      // Admin sends another message -> active recipients (managerA, staff1A) get notifications,
+      // inactive staff2A does NOT get a new in_app_notifications row.
+      await svc.sendMessage(adminA, t.id, 'Pasif olduktan sonraki mesaj', `c-${randomUUID()}`);
+
+      const afterNotifs = (await pool.query<{ recipient_user_id: string }>(
+        `SELECT recipient_user_id FROM in_app_notifications
+          WHERE organization_id = $1 AND entity_id = $2`,
+        [orgA, t.id],
+      )).rows;
+      expect(afterNotifs.filter((r) => r.recipient_user_id === staff2A.id)).toHaveLength(priorForStaff2Count);
+      expect(afterNotifs.filter((r) => r.recipient_user_id === staff1A.id)).toHaveLength(3);
+      expect(afterNotifs.filter((r) => r.recipient_user_id === managerA.id)).toHaveLength(3);
+
+      // Participant row and sender identity in history remain intact.
+      const participants = await repo.findParticipantsWithUsers(orgA, t.id);
+      expect(participants).toContainEqual({
+        userId: staff2A.id,
+        name: staff2A.name,
+        isActive: false,
+      });
+      const history = await svc.getMessages(adminA, t.id, null, 20);
+      expect(history.items[0]!.senderName).toBe(staff2A.name);
+    });
+  });
 });

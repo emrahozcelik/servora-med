@@ -250,20 +250,25 @@ describe('M9: explicit Job assignee sync', () => {
     });
   });
 
-  it('rejects nonparticipant Admin/Manager with opaque 404', async () => {
+  it('allows same-org nonparticipant Admin/Manager to sync without adding them as participant', async () => {
     await withFixture(async ({ pool, admin, manager, staffA, staffB }) => {
       const job = await createJob(pool, admin, 'Sync job 2', staffA.id);
       const conversationId = await createCanonical(pool, admin, job.id, staffA);
+      await seedMessage(pool, admin, conversationId, 'Önceki mesaj');
       const jsvc = jobService(pool);
       const patched = await jsvc.patch(admin, job.id, {
         expectedVersion: job.version, assignedTo: staffB.id,
       });
-      const app = await buildApp(messaging(pool), manager);
+      const svc = messaging(pool);
+      const app = await buildApp(svc, manager);
       const res = await syncRequest(app, conversationId, {
         clientActionId: 'm9-nonpart-1',
         assignmentTransitionId: patched.assignmentTransitionId as string,
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ conversationId, synced: true, changed: true });
+      expect(await participantIdsOf(pool, conversationId)).toEqual([admin.id, staffB.id].sort());
+      expect(await svc.getUnreadCount(staffB)).toBe(0);
     });
   });
 
@@ -409,7 +414,7 @@ describe('M9: explicit Job assignee sync', () => {
     });
   });
 
-  it('replay after membership loss is denied', async () => {
+  it('replay after Admin/Manager membership loss still succeeds via org-wide authority', async () => {
     await withFixture(async ({ pool, admin, staffA, staffB }) => {
       const job = await createJob(pool, admin, 'Auth replay job', staffA.id);
       const conversationId = await createCanonical(pool, admin, job.id, staffA);
@@ -426,7 +431,9 @@ describe('M9: explicit Job assignee sync', () => {
         [conversationId, admin.id],
       );
       const replay = await syncRequest(app, conversationId, body);
-      expect(replay.status).toBe(404);
+      expect(replay.status).toBe(200);
+      expect(replay.body).toMatchObject({ conversationId, synced: true, changed: false });
+      expect(await participantIdsOf(pool, conversationId)).toEqual([staffB.id]);
     });
   });
 
