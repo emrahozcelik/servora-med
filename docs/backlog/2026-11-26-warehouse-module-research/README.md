@@ -4,6 +4,8 @@
 
 This section supersedes conflicting **research proposals** below and in 01–06, not accepted Core rules. The original research is retained for traceability. For each implementation PR, record the applicable accepted decision in DECISIONS.md and update the owning product/API/schema/architecture/slice documents with the code and tests. Do not treat historical example DDL, W0 migration numbers or acceptance scenarios as current implementation instructions. No feature has shipped as a result of this document.
 
+**Implementation reading order:** This README §§A–E → [07 — WH-A standalone operations and transactional admission](07-wh-a-implementation-contract.md). WH-A specifies the proposed first operational slice, runtime/readiness generation, physical count baseline, permission and replay admission, database/restore rules, cross-module boundaries and 20 acceptance scenarios. Historical notes 01–06 are evidence only. Implemented decision and owning docs must accompany code on current main; no separate shared-file decision-only merge.
+
 ## A. Accepted product direction and implementation guardrails
 
 | ID | Direction |
