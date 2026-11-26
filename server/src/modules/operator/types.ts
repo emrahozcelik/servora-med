@@ -43,6 +43,9 @@ export type OperatorListEntry = {
 export type OperatorModuleView = {
   key: ModuleStateRow['key'];
   label: string;
+  description: string;
+  whenDisabled: string[];
+  preserved: string[];
   enabled: boolean;
   version: number;
   source: ModuleStateRow['source'];

@@ -68,6 +68,7 @@ import { buildPushPayload, buildPushTopic } from './modules/web-push/payload.js'
 import type { OverviewReadModel } from './modules/overview/repository.js';
 import { OverviewService } from './modules/overview/service.js';
 import { overviewRoutes } from './modules/overview/routes.js';
+import { INSTALLATION_MODULES } from './modules/installation-modules/registry.js';
 import {
   PostgresModuleStateReader,
   staticModuleStateReader,
@@ -257,7 +258,11 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
   const moduleStateReader: ModuleStateReader = dependencies.moduleStateReader
     ?? (dependencies.pool
       ? new PostgresModuleStateReader(dependencies.pool)
-      : staticModuleStateReader(config.capabilities?.overviewDashboard ?? false));
+      : staticModuleStateReader(
+          Object.fromEntries(
+            INSTALLATION_MODULES.map((m) => [m.key, config.capabilities?.[m.capability] ?? false]),
+          ),
+        ));
   if (dependencies.authRepository) {
     // Warm BOTH KDF-class sentinels BEFORE the app can serve any request.
     // Deriving either lazily on the first login would make that one request

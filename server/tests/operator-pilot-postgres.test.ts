@@ -897,6 +897,9 @@ describe.skipIf(!databaseUrl)('OP5 capability enforcement', { timeout: 60_000 },
     expect(modules).toHaveLength(1);
     expect(modules[0]).toMatchObject({ key: 'OVERVIEW', enabled: true, version: 1, source: 'ENV_TAKEOVER' });
     expect(typeof modules[0].label).toBe('string');
+    expect(typeof modules[0].description).toBe('string');
+    expect(Array.isArray(modules[0].whenDisabled)).toBe(true);
+    expect(Array.isArray(modules[0].preserved)).toBe(true);
     expect(typeof modules[0].updatedAt).toBe('string');
   });
 });
@@ -1116,7 +1119,7 @@ describe.skipIf(!databaseUrl)('OP8 state change and audit are one transaction', 
 // ---------------------------------------------------------------- OP9
 
 describe.skipIf(!databaseUrl)('OP9 unknown module key', { timeout: 60_000 }, () => {
-  it.each(['MESSAGING', 'NOPE', 'OVERVIEW2'])('PUT /modules/%s is 404 NOT_FOUND and writes nothing', async (key) => {
+  it.each(['NOPE', 'OVERVIEW2', 'MESSAGING'])('PUT /modules/%s is 404 NOT_FOUND and writes nothing', async (key) => {
     const { app, cookie } = await operatorFixture({ enabled: false });
     const events = await auditCount();
 
@@ -1129,11 +1132,22 @@ describe.skipIf(!databaseUrl)('OP9 unknown module key', { timeout: 60_000 }, () 
     expect(await auditCount()).toBe(events);
   });
 
-  it('the database refuses a module key outside the registry', async () => {
-    await expect(pool.query(
+  it('the database rejects malformed keys with 23514 while a well-formed non-registry key fails takeover closed', async () => {
+    for (const badKey of ['overview', 'X', '1ABC']) {
+      await expect(pool.query(
+        `INSERT INTO installation_module_state (module_key, enabled, version, source, updated_at)
+         VALUES ($1, true, 1, 'ENV_TAKEOVER', now())`,
+        [badKey],
+      )).rejects.toMatchObject({ code: '23514' });
+    }
+
+    await pool.query(
       `INSERT INTO installation_module_state (module_key, enabled, version, source, updated_at)
        VALUES ('MESSAGING', true, 1, 'ENV_TAKEOVER', now())`,
-    )).rejects.toMatchObject({ code: '23514' });
+    );
+    await expect(takeOverInstallationModules(pool, { OVERVIEW: true })).rejects.toThrow(
+      /outside the registry: MESSAGING; controlled recovery required/,
+    );
   });
 });
 
@@ -1146,7 +1160,7 @@ describe.skipIf(!databaseUrl)('OP10 takeover', { timeout: 60_000 }, () => {
       await pool.query(`TRUNCATE operator_audit_events, installation_module_state CASCADE`);
 
       await Promise.all([0, 1, 2, 3, 4, 5].map((i) =>
-        takeOverInstallationModules(pools[i % 2]!, { overviewDashboard: true })));
+        takeOverInstallationModules(pools[i % 2]!, { OVERVIEW: true })));
 
       expect((await pool.query(`SELECT count(*)::int AS n FROM installation_module_state`)).rows[0].n).toBe(1);
       expect(await stateRow()).toMatchObject({ enabled: true, source: 'ENV_TAKEOVER' });
@@ -1158,11 +1172,11 @@ describe.skipIf(!databaseUrl)('OP10 takeover', { timeout: 60_000 }, () => {
   });
 
   it('a restart does not duplicate, and later env changes have no effect', async () => {
-    await takeOverInstallationModules(pool, { overviewDashboard: true });
+    await takeOverInstallationModules(pool, { OVERVIEW: true });
     const first = await stateRow();
 
-    await takeOverInstallationModules(pool, { overviewDashboard: true });
-    await takeOverInstallationModules(pool, { overviewDashboard: false }); // env flipped after takeover
+    await takeOverInstallationModules(pool, { OVERVIEW: true });
+    await takeOverInstallationModules(pool, { OVERVIEW: false }); // env flipped after takeover
 
     expect(await stateRow()).toEqual(first);
     expect(first!.enabled).toBe(true);
@@ -1173,12 +1187,12 @@ describe.skipIf(!databaseUrl)('OP10 takeover', { timeout: 60_000 }, () => {
   it('an operator change survives restarts regardless of the env value', async () => {
     const email = `op-${randomUUID()}@example.com`;
     await grant(email);
-    await takeOverInstallationModules(pool, { overviewDashboard: false });
+    await takeOverInstallationModules(pool, { OVERVIEW: false });
     const app = await createApp();
     const { cookie } = await operatorLogin(app, email);
     expect((await put(app, cookie, { enabled: true, expectedVersion: 1 })).statusCode).toBe(200);
 
-    await takeOverInstallationModules(pool, { overviewDashboard: false });
+    await takeOverInstallationModules(pool, { OVERVIEW: false });
 
     expect(await stateRow()).toMatchObject({ enabled: true, version: 2, source: 'OPERATOR' });
     expect(await auditRows('MODULE_STATE_TAKEN_OVER')).toHaveLength(1);
@@ -1190,7 +1204,7 @@ describe.skipIf(!databaseUrl)('OP11 takeover defaults on an empty database', { t
     ['env unset', false],
     ['env true', true],
   ])('%s -> enabled=%s', async (_label, legacy) => {
-    await takeOverInstallationModules(pool, { overviewDashboard: legacy });
+    await takeOverInstallationModules(pool, { OVERVIEW: legacy });
 
     expect(await stateRow()).toMatchObject({ enabled: legacy, source: 'ENV_TAKEOVER' });
     expect(await auditRows('MODULE_STATE_TAKEN_OVER')).toHaveLength(1);
@@ -1199,7 +1213,7 @@ describe.skipIf(!databaseUrl)('OP11 takeover defaults on an empty database', { t
   it('takeover uses the injected clock for the audit time', async () => {
     const fixed = new Date('2026-11-26T09:30:00.000Z');
 
-    await takeOverInstallationModules(pool, { overviewDashboard: true }, () => fixed);
+    await takeOverInstallationModules(pool, { OVERVIEW: true }, () => fixed);
 
     const [event] = await auditRows('MODULE_STATE_TAKEN_OVER');
     expect(event!.occurred_at.toISOString()).toBe(fixed.toISOString());
@@ -1208,12 +1222,12 @@ describe.skipIf(!databaseUrl)('OP11 takeover defaults on an empty database', { t
 
 describe.skipIf(!databaseUrl)('OP12 fail-closed state reads', { timeout: 60_000 }, () => {
   it('a missing row with an existing takeover event fails startup closed and writes nothing', async () => {
-    await takeOverInstallationModules(pool, { overviewDashboard: true });
+    await takeOverInstallationModules(pool, { OVERVIEW: true });
     await pool.query(`DELETE FROM installation_module_state`);
     const events = await auditCount();
 
-    await expect(takeOverInstallationModules(pool, { overviewDashboard: true })).rejects.toThrow();
-    await expect(takeOverInstallationModules(pool, { overviewDashboard: false })).rejects.toThrow();
+    await expect(takeOverInstallationModules(pool, { OVERVIEW: true })).rejects.toThrow();
+    await expect(takeOverInstallationModules(pool, { OVERVIEW: false })).rejects.toThrow();
 
     expect(await stateRow()).toBeNull();
     expect(await auditCount()).toBe(events);

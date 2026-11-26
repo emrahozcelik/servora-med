@@ -35,6 +35,7 @@ const MIGRATION_071 = '071_sale_standalone_and_delivery_link';
 const MIGRATION_072 = '072_sale_submit_without_start';
 const MIGRATION_073 = '073_assignment_offer_time_proposal';
 const MIGRATION_074 = '074_installation_operator_and_module_state';
+const MIGRATION_075 = '075_installation_module_registry_widening';
 const MIGRATION_070 = '070_overdue_incident_invalidation_closure';
 
 async function withSchema(run: (pool: Pool, schema: string) => Promise<void>): Promise<void> {
@@ -185,26 +186,26 @@ function withoutDeliveryLink(rows: Row[]): Row[] {
 }
 
 describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
-  it('installs 071 under the exact catalog head 072 and moves HEALTH_SCHEMA_VERSION', async () => {
+  it('installs 071 under the exact catalog head 075 and moves HEALTH_SCHEMA_VERSION', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.count).toBe(74);
-    expect(catalog.head?.version).toBe(MIGRATION_074);
+    expect(catalog.count).toBe(75);
+    expect(catalog.head?.version).toBe(MIGRATION_075);
 
     if (existsSync(distMigrationsDirectory)) {
       const distCatalog = await loadMigrationCatalog(distMigrationsDirectory);
-      expect(distCatalog.head?.version).toBe(MIGRATION_074);
+      expect(distCatalog.head?.version).toBe(MIGRATION_075);
     }
 
     await withSchema(async (pool, schema) => {
       const store = new PostgresMigrationStore(pool);
       const applied = await runMigrations({ migrationsDirectory, store });
-      expect(applied.appliedVersions).toHaveLength(74);
+      expect(applied.appliedVersions).toHaveLength(75);
       expect(applied.appliedVersions[70]).toBe(MIGRATION_071);
 
       const history = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows.map((row) => row.version);
-      expect(history).toHaveLength(74);
+      expect(history).toHaveLength(75);
       expect(history[70]).toBe(MIGRATION_071);
 
       expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });
@@ -215,7 +216,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
       if (existsSync(distSchemaCheck)) {
         const url = new URL(databaseUrl as string);
         url.searchParams.set('options', `-c search_path=${schema},public`);
-        const current = runDistSchemaCheck(url.toString(), MIGRATION_074);
+        const current = runDistSchemaCheck(url.toString(), MIGRATION_075);
         expect(current.exitCode).toBe(0);
         expect(current.output).toMatch(/COMPATIBLE/);
 
@@ -302,7 +303,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
         expect(before.jobCards).toHaveLength(3);
 
         const upgrade = await runMigrations({ migrationsDirectory, store });
-        expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072, MIGRATION_073, MIGRATION_074] });
+        expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072, MIGRATION_073, MIGRATION_074, MIGRATION_075] });
 
         const after = await snapshotExistingRows(pool);
         for (const row of after.jobCards) {
