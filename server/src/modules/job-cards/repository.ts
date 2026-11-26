@@ -73,6 +73,7 @@ export type {
 } from '../../db/critical-action.js';
 export { runCriticalAction };
 import type { SqlExecutor } from '../../db/executor.js';
+import type { WeeklyReportDraftTransaction } from '../weekly-reports/draft.js';
 import type {
   WeeklyReportSubmissionInsert,
   WeeklyReportSubmissionReader,
@@ -88,6 +89,7 @@ import type {
 } from '../weekly-reports/repository.js';
 import {
   listWeeklyReportSubmissionRows as selectWeeklySubmissions,
+  updateWeeklyReportDraftRow,
   type WeeklyDraftRowUpdate,
 } from '../weekly-reports/repository.js';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
@@ -1136,7 +1138,8 @@ export interface SubmissionReader extends WeeklyReportSubmissionReader {
   ): Promise<SubmissionDeliveryItem[]>;
 }
 
-export interface JobCardTransaction extends SubmissionReader, WeeklyReportSubmissionWriter {
+export interface JobCardTransaction
+  extends SubmissionReader, WeeklyReportSubmissionWriter, WeeklyReportDraftTransaction {
   readonly sale: SaleTransaction;
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
@@ -1630,8 +1633,6 @@ export interface JobCardTransaction extends SubmissionReader, WeeklyReportSubmis
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   deleteDeliveryItem(itemId: string): Promise<void>;
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
-  /** Draft replacement on this client; caller holds User, JobCard and report locks. */
-  updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate): Promise<WeeklyReportRow | null>;
   /** Removal metadata update; caller holds User, JobCard and report locks. */
   removeWeeklyReportRow(input: {
     organizationId: string; reportId: string; expectedVersion: number;
@@ -3335,29 +3336,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
-  async updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate) {
-    const result = await this.client.query<WeeklyReportRow>(
-      `UPDATE weekly_reports
-          SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
-              draft_highlights = $6, draft_field_observations = $7,
-              draft_support_needed = $8, manager_answers = $9,
-              version = version + 1, updated_at = NOW()
-        WHERE organization_id = $1 AND id = $2 AND version = $10
-        RETURNING *`,
-      [
-        input.organizationId,
-        input.reportId,
-        input.draft.summary,
-        input.draft.blockers,
-        input.draft.nextWeekPlan,
-        input.draft.highlights,
-        input.draft.fieldObservations,
-        input.draft.supportNeeded,
-        JSON.stringify(input.answers),
-        input.expectedVersion,
-      ],
-    );
-    return result.rows[0] ?? null;
+  updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate) {
+    return updateWeeklyReportDraftRow(this.client, input);
   }
 
   async getJobForUpdate(organizationId: string, jobCardId: string) {

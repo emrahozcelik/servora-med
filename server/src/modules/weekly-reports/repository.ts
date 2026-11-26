@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import type {
@@ -154,6 +154,35 @@ export type WeeklyDraftRowUpdate = {
   draft: WeeklyReportDraftBody;
   answers: ManagerAnswer[];
 };
+
+/** The caller is in a transaction and already holds the user, JobCard and report locks. */
+export async function updateWeeklyReportDraftRow(
+  client: PoolClient,
+  input: WeeklyDraftRowUpdate,
+): Promise<WeeklyReportRow | null> {
+  const result = await client.query<WeeklyReportRow>(
+    `UPDATE weekly_reports
+        SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
+            draft_highlights = $6, draft_field_observations = $7,
+            draft_support_needed = $8, manager_answers = $9,
+            version = version + 1, updated_at = NOW()
+      WHERE organization_id = $1 AND id = $2 AND version = $10
+      RETURNING *`,
+    [
+      input.organizationId,
+      input.reportId,
+      input.draft.summary,
+      input.draft.blockers,
+      input.draft.nextWeekPlan,
+      input.draft.highlights,
+      input.draft.fieldObservations,
+      input.draft.supportNeeded,
+      JSON.stringify(input.answers),
+      input.expectedVersion,
+    ],
+  );
+  return result.rows[0] ?? null;
+}
 
 export async function listWeeklyReportSubmissionRows(
   executor: WeeklyQueryable,

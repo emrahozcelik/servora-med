@@ -200,6 +200,7 @@ import {
   priority as normalizePriority,
 } from './create-input.js';
 import { localDateKey } from './local-calendar.js';
+import { updateWeeklyReportDraft } from '../weekly-reports/draft.js';
 import { appendWeeklyReportSubmission } from '../weekly-reports/submission.js';
 import type { ManagerQuestion } from '../weekly-reports/types.js';
 import type {
@@ -223,16 +224,13 @@ import {
   weekInstants,
 } from '../weekly-reports/source-work.js';
 import {
-  validateDraftAnswers,
-  validateDraftBody,
-} from '../weekly-reports/validation.js';
-import {
   weeklyReportAlreadyExists,
   weeklyReportBulkRequestHash,
   weeklyReportCreateRequestHash,
   weeklyReportTitle,
   type WeeklyReportBulkRequestInput,
   type WeeklyReportCreateInput,
+  type WeeklyReportDraftPatchInput,
 } from '../weekly-reports/create-input.js';
 import { validateManagerQuestions } from '../weekly-reports/validation.js';
 import {
@@ -2547,58 +2545,13 @@ export class JobCardService {
     return this.getWeeklyReport(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
   }
 
-  /**
-   * Weekly draft write: owner STAFF only (managers read but never author),
-   * editable in ACCEPTED/IN_PROGRESS, locked once awaiting approval or
-   * beyond. Complete replacement semantics — the validated draft body
-   * replaces all sections atomically, never sparse-merged.
-   */
   async updateWeeklyReportDraft(
     actor: JobCardActor,
     jobCardId: string,
-    input: { expectedVersion: number; draft: unknown; answers: unknown },
+    input: WeeklyReportDraftPatchInput,
     includeSaleCapability = true,
   ): Promise<WeeklyReportDetail> {
-    if (actor.role !== 'STAFF') {
-      throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
-    }
-    await this.repository.executeTransaction(async (tx) => {
-      // User -> JobCard -> WeeklyReport. Reuse the FOR SHARE user snapshot:
-      // it fences role/deactivation changes while remaining compatible with
-      // SUBMIT's note-author SHARE lock under the JobCard lock.
-      const currentActor = await tx.getNoteAuthorSnapshot(actor.organizationId, actor.id);
-      if (!currentActor?.isActive || currentActor.role !== 'STAFF') {
-        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
-      }
-      const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
-      if (!job || job.type !== 'WEEKLY_REPORT' || job.assignedTo !== actor.id) {
-        throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-      }
-      const row = await tx.getWeeklyReportByJobForUpdate(actor.organizationId, jobCardId);
-      if (!row) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-      const report = mapReport(row);
-      if (report.staffUserId !== actor.id) {
-        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
-      }
-      if (job.status !== 'ACCEPTED' && job.status !== 'IN_PROGRESS') {
-        throw new AppError('WEEKLY_REPORT_DRAFT_LOCKED', 409, 'Rapor taslağı bu aşamada düzenlenemez.');
-      }
-      if (report.version !== input.expectedVersion) {
-        throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
-      }
-      const draft = validateDraftBody(input.draft);
-      const answers = validateDraftAnswers(report.questions, input.answers);
-      const updated = await tx.updateWeeklyReportDraftRow({
-        organizationId: actor.organizationId,
-        reportId: report.id,
-        expectedVersion: input.expectedVersion,
-        draft,
-        answers,
-      });
-      if (!updated) {
-        throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
-      }
-    });
+    await updateWeeklyReportDraft(this.repository, actor, jobCardId, input);
     return this.getWeeklyReport(actor, jobCardId, includeSaleCapability);
   }
 

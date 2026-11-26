@@ -315,8 +315,10 @@ describe.skipIf(!databaseUrl)('SOF-2B atomic weekly draft (PostgreSQL)', () => {
     await f.jobs.updateWeeklyReportDraft(f.staff, id, { expectedVersion: 2, draft: { summary: 'Yeni', nextWeekPlan: 'Plan' }, answers: [] });
     expect((await report(f, id)).draft_blockers).toBeNull();
     expect((await report(f, id)).version).toBe(3);
-    expect((await state(f)).job_card_activity_logs).toEqual(original.job_card_activity_logs);
-    expect((await state(f)).processed_actions).toEqual(original.processed_actions);
+    const after = await state(f);
+    expect(after.job_cards).toEqual(original.job_cards);
+    expect(after.job_card_activity_logs).toEqual(original.job_card_activity_logs);
+    expect(after.processed_actions).toEqual(original.processed_actions);
   }));
 
   it('rolls back a draft, version and trigger evidence after a late transaction error', async () => withFixture(async (f) => {

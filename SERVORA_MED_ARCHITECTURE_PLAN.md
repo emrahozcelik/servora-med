@@ -120,6 +120,11 @@ Weekly Report submit readiness rules and immutable submission assembly live in
 and canonical activity, then calls the Weekly Report append through a narrow
 port on the same transaction.
 
+Weekly Report draft replacement lives in `weekly-reports/draft.ts`, using the
+JobCard repository transaction to lock the current user, JobCard and report in
+that order. Its versioned SQL runs on the checked-out client, and JobCard reads
+the response detail after the transaction commits.
+
 ## 6. Frontend Contract
 
 | Area | Responsibility |
