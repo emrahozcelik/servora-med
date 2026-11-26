@@ -3460,7 +3460,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .detail-feedback-stale > button {
   justify-self: start;
-  min-height: 2.75rem;
+  min-height: var(--control-height);
   font-size: 0.95rem;
 }
 .detail-summary {

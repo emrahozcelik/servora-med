@@ -879,7 +879,7 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(paragraph?.[1]).toContain('font-size: 0.95rem');
     const button = /\.detail-feedback-stale > button \{([^}]*)\}/.exec(styles);
     expect(button?.[1]).toContain('font-size: 0.95rem');
-    expect(button?.[1]).toContain('min-height: 2.75rem');
+    expect(button?.[1]).toContain('min-height: var(--control-height)');
     const icon = /\.detail-feedback-stale \.detail-feedback-stale-icon \{([^}]*)\}/.exec(styles);
     expect(icon?.[1]).toContain('width: 1em');
     expect(icon?.[1]).toContain('height: 1em');
