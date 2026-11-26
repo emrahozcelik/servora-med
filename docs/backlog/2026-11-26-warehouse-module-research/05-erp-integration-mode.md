@@ -1,5 +1,8 @@
 # 05 — External ERP as stock authority: integration modes M0–M3
 
+> **Historical ERP research. See [owner-approved direction](README.md) and [WH-A](07-wh-a-implementation-contract.md). Off / Servora-only stock authority in first release; on does not imply verified current stock. Re-enable requires reconciliation; no automatic backfill, no simultaneous writers. Accounting references are not physical receipt/issue evidence. External cutover and API/legal validation deferred.**
+
+
 Status: **research / design note, not a decision.** No code, migration, table or
 configuration was created or changed. Every ERP statement below was read on
 **2026-11-26** (Europe/Istanbul) from the source listed in §8; anything I could not open is
