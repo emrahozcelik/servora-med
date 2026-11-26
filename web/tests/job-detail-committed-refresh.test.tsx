@@ -1222,6 +1222,77 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     expect(detailGets()).toBe(3);
   });
 
+  it('a 403 on the notice reload keeps the committed access-lost wording', async () => {
+    const card = generalTask();
+    const { fetch, patches } = detailFetch(card, (ordinal) => {
+      if (ordinal === 1) return Response.json(card);
+      if (ordinal === 2) return Response.json({ error: 'Sunucu hatası.' }, { status: 500 });
+      return Response.json({ error: 'Bu işe erişiminiz yok.', code: 'FORBIDDEN' }, { status: 403 });
+    });
+    await renderScreen(card, new FakeRealtimeEventSource(), fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+    expect(committedNotice(host)).not.toBeNull();
+
+    await act(async () => {
+      buttonByName(committedNotice(host)!, 'Güncel durumu yenile')?.click();
+      await settle();
+    });
+
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.textContent).not.toContain('Bu işe erişiminiz yok.');
+    expect(host.querySelector('[data-job-detail="true"]')).toBeNull();
+    expect(patches).toHaveLength(1);
+  });
+
+  it('an earlier access loss does not mark a later successful save as access-lost', async () => {
+    const card = generalTask();
+    const restored: JobCard = { ...card, version: card.version + 1, title: 'Erişim geri geldi' };
+    const source = new FakeRealtimeEventSource();
+    const { fetch, patches } = detailFetch(card, (ordinal) => {
+      if (ordinal === 2) return Response.json({ error: 'Bu işe erişiminiz yok.', code: 'FORBIDDEN' }, { status: 403 });
+      return Response.json(restored);
+    });
+    await renderScreen(card, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+
+    // A realtime update restores the record, then a second save succeeds normally.
+    await act(async () => {
+      source.emitJobUpdate('2');
+      await settle();
+    });
+    expect(host.textContent).toContain('Erişim geri geldi');
+    await act(async () => {
+      buttonByName(host, 'Görevi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.task-form') as HTMLFormElement).requestSubmit();
+      await settle();
+    });
+
+    expect(patches).toHaveLength(2);
+    expect(committedNotice(host)).toBeNull();
+    expect(host.querySelector('[data-job-detail="true"]')).not.toBeNull();
+    expect(host.textContent).not.toContain('İşin güncel kaydına artık erişilemiyor.');
+  });
+
   it('a failed retry keeps the committed notice as the only status region', async () => {
     const card = generalTask();
     const { fetch, patches, detailGets } = detailFetch(card, (ordinal) => {
@@ -1652,8 +1723,11 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
     const notice = committedNotice(host);
     expect(notice).not.toBeNull();
     expect(notice?.textContent).toContain(
-      '1/2 kalem kaydedildi; sonraki kalemin sonucu doğrulanamadı. Güncel kayıt henüz yüklenemedi.',
+      '1/2 kalem kaydedildi; sonraki kalemin sonucu doğrulanamadı.',
     );
+    // The canonical read succeeded here: an unknown outcome must not claim it failed.
+    expect(notice?.textContent).not.toContain('Güncel kayıt henüz yüklenemedi.');
+    expect(notice?.textContent).toContain('sonucu kontrol etmek için yenileyin');
     expect(host.textContent).not.toContain('Gerçekleşen teslim zamanı kaydedilemedi.');
     const batchButton = host.querySelector<HTMLButtonElement>('.delivery-bulk-action');
     expect(batchButton).not.toBeNull();

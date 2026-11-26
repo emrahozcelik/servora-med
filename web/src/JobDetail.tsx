@@ -949,8 +949,10 @@ function JobScheduleEditForm({
  * failed. The record on screen may be stale, so this notice never reports a
  * mutation failure and its only action reuses the serialized realtime reload.
  */
-export function CommittedStaleNotice({ message, reloadPending, onReload, feedbackRef }: {
+export function CommittedStaleNotice({ message, kind = 'committed', reloadPending, onReload, feedbackRef }: {
   message: string;
+  /** "unknown": the mutation outcome itself is unverified, not only the read. */
+  kind?: 'committed' | 'unknown';
   reloadPending: boolean;
   onReload: () => void;
   feedbackRef?: Ref<HTMLDivElement>;
@@ -966,10 +968,16 @@ export function CommittedStaleNotice({ message, reloadPending, onReload, feedbac
     >
       <p className="detail-feedback-stale-heading">
         <SignalGlyph name="exclamation" className="detail-feedback-stale-icon" size={16} />
-        <span>{message ? `${message} ` : ''}Güncel kayıt henüz yüklenemedi.</span>
+        <span>
+          {kind === 'unknown'
+            ? message
+            : `${message ? `${message} ` : ''}Güncel kayıt henüz yüklenemedi.`}
+        </span>
       </p>
       <p className="detail-feedback-stale-help">
-        Gösterilen bilgiler eski olabilir; son durumu görmek için yenileyin.
+        {kind === 'unknown'
+          ? 'Kaydın son durumunu görmek ve sonucu kontrol etmek için yenileyin.'
+          : 'Gösterilen bilgiler eski olabilir; son durumu görmek için yenileyin.'}
       </p>
       <button className="secondary-button" type="button" disabled={reloadPending} onClick={onReload}>
         {reloadPending ? 'Yükleniyor…' : 'Güncel durumu yenile'}
@@ -1943,6 +1951,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const owner = { sessionToken, operationToken: ++mutationOperationToken.current };
     mutationOwner.current = owner;
     mutationInFlight.current = true;
+    // A previous access loss belongs to its own operation; a later realtime
+    // read may have restored access, so every new mutation starts clean.
+    accessLostRef.current = false;
     return owner;
   }
 
@@ -2087,6 +2098,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   ): Promise<'fresh' | 'stale' | 'inactive' | 'access-lost'> {
     const operationJobId = jobId;
     const operationSession = sessionLifetime.current.token;
+    accessLostRef.current = false;
     try {
       return (await refreshTruth()) ? 'fresh' : 'inactive';
     } catch (caught) {
@@ -2123,11 +2135,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     // A 403/404 while this known receipt is being reconciled is reported with
     // the committed wording, never as a generic read failure.
     committedReceiptPendingRef.current = true;
+    accessLostRef.current = false;
+    // Only invalidations known when this drain started decide the outcome; one
+    // arriving after a successful drain is ordinary realtime work, not a failed
+    // reconcile of this receipt.
+    const generationAtStart = realtimeInvalidationGeneration.current;
     try {
       const settled = await requestRealtimeDrain();
       if (accessLostRef.current) return 'access-lost';
       if (!settled) return 'inactive';
-      if (hasPendingRealtimeInvalidation()) {
+      if (reconciledRealtimeGeneration.current < generationAtStart) {
         updateCommittedStale({ kind: 'committed', message: successMessage });
         setMessage('');
         return 'stale';
@@ -2328,6 +2345,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           setState({
             kind: 'error',
             message: committedReceiptPendingRef.current
+              || committedStaleRef.current?.kind === 'committed'
               ? 'İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.'
               : error.message,
             retryable: false,
@@ -2628,7 +2646,20 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             : { ...state.detail, job: updated } as LoadedJobDetail,
         });
         if (hasPendingRealtimeInvalidation()) {
-          if (!(await requestRealtimeDrain())) return;
+          // The response already proved the commit; only a 403/404 during this
+          // drain needs the committed wording and the attempt cleanup.
+          committedReceiptPendingRef.current = true;
+          let settled: boolean;
+          try {
+            settled = await requestRealtimeDrain();
+          } finally {
+            committedReceiptPendingRef.current = false;
+          }
+          if (accessLostRef.current) {
+            settleAccessLostLifecycleAttempt(command);
+            return;
+          }
+          if (!settled) return;
         }
       }
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
@@ -3982,6 +4013,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     </div> : undefined}
     committedStaleNotice={committedStale ? <CommittedStaleNotice
       message={committedStale.message}
+      kind={committedStale.kind}
       reloadPending={pending || realtimeReloadPending}
       onReload={() => { void reloadStaleTruth(); }}
       feedbackRef={feedbackRef}
