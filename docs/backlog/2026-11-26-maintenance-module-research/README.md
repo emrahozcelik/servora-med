@@ -21,11 +21,10 @@ Bağlayıcı girdiler: `AGENTS.md`, `DECISIONS.md` MOD-001, MOD-002, SCH-001,
 | [03-ownership-boundary.md](03-ownership-boundary.md) | JobCard ↔ Bakım ↔ CRM ↔ Depo sahiplik sınırı, aç/kapa, restore, offboarding | `20261126-141130-deepseek-2f4b` |
 | [04-regulation-and-industry.md](04-regulation-and-industry.md) | Türk mevzuatı (teknik servis yönetmeliği, ÜTS, garanti, kalibrasyon) ve sektör pratiği | `20261126-141130-deepseek-8c7a` |
 | [05-first-slice-proposal.md](05-first-slice-proposal.md) | En küçük uçtan uca ilk dilim, ön koşullar, sözleşmeler, kabul testleri | `20261126-145240-deepseek-3bb2` |
+| [07-owner-approved-product-direction.md](07-owner-approved-product-direction.md) | Ürün sahibi incelemesi: güncel kapsam, kararlar, aç/kapa ve geliştirme sırası | 2026-11-26 |
 
 Tam worker raporları `~/.claude/model-fleet/runs/<run>/worker-report.md`
 altındadır. 05, diğer beş dosyayı girdi olarak kullandı.
-
-| [07-owner-approved-product-direction.md](07-owner-approved-product-direction.md) | Ürün sahibi incelemesi: güncel kapsam, kararlar, aç/kapa ve geliştirme sırası | 2026-11-26 |
 
 ## 2. Özet
 
@@ -145,7 +144,7 @@ bir hukukçuya sorulmalı.
    *Lead:* DOM-006'ya uygun (ciro yok). Bakım ziyaretinin "üretken iş" sayılıp
    sayılmayacağı ürün kararı.
 
-## 5. Ürün sahibinin vermesi gereken kararlar
+## 5. Tarihsel ürün sahibi karar soruları (07 ile yön olarak yanıtlandı)
 
 Önem sırasına göre. Çoğu cevap ilk dilimin boyutunu doğrudan değiştirir.
 
@@ -182,7 +181,7 @@ bir hukukçuya sorulmalı.
     (lead ve 03 önerisi), yoksa Depo açıkken Depo seri kaydından mı türemeli?
     (Depo/Stok araştırma oturumuyla birlikte karar verilmeli.)
 
-## 6. Önerilen sonraki adımlar (karar sonrasına bağlı)
+## 6. Tarihsel sonraki adım önerileri (güncel sıra: 07 §5)
 
 1. Ürün sahibi §5'i yanıtlar → `DECISIONS.md` MNT-001 karar kaydı (uygulayan PR
    ile birlikte yazılır).
