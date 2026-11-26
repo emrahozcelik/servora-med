@@ -1659,6 +1659,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [changeRequestSignal, setChangeRequestSignal] = useState(0);
   const [scheduleShiftSignal, setScheduleShiftSignal] = useState(0);
   const [scheduleCommittedSignal, setScheduleCommittedSignal] = useState(0);
+  /** UI-FEEDBACK/A: the page notice shows the last meeting save's receipt. */
+  const meetingReceiptOnPageRef = useRef(false);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
   /** UI-FEEDBACK/A: a committed mutation whose canonical re-read failed. */
@@ -2714,12 +2716,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     setCommittedStale(null);
+    meetingReceiptOnPageRef.current = false;
     try {
       const meetingDetails = await patchMeetingDetails(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return meetingDetails;
-      // MeetingDetails announces its own save receipt; the page notice adds only
-      // the stale-read state so the two regions never repeat the same text.
-      const read = await refreshAfterCommit('');
+      const read = await refreshAfterCommit('Görüşme sonucu kaydedildi.');
+      // The page notice now owns this receipt; the section skips its own note.
+      meetingReceiptOnPageRef.current = read === 'stale';
       if (read === 'inactive') return meetingDetails;
       if (read === 'fresh' && !(await requestRealtimeDrain())) return meetingDetails;
       setTimelineKey((value) => value + 1);
@@ -3779,6 +3782,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             mutationPending={invalidationLocked}
             submissionError={meetingSubmissionError}
             onSave={saveMeeting}
+            receiptShownByPage={() => meetingReceiptOnPageRef.current}
           />
           : null}
     <CustomerCompletenessAction job={detail.job} user={user} disabled={invalidationLocked} />

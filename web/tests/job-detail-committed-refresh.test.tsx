@@ -645,17 +645,32 @@ describe('JobDetail committed mutation with a failed canonical read', () => {
 
     expect(meetingPatches).toBe(1);
     const notice = committedNotice(host);
+    expect(notice?.textContent).toContain('Görüşme sonucu kaydedildi.');
     expect(notice?.textContent).toContain('Güncel kayıt henüz yüklenemedi.');
     expect(host.textContent).not.toContain('Görüşme sonucu kaydedilemedi.');
     expect(document.activeElement).toBe(notice);
-    // The meeting child announces its own save receipt; the page notice adds
-    // only the stale-read state, so the two regions never repeat the same text
-    // and the child form's own feedback (including validation) stays visible.
-    expect(notice?.textContent).not.toContain('Görüşme sonucu kaydedildi.');
-    const childFeedback = host.querySelector<HTMLElement>('.meeting-details > .detail-feedback')!;
-    expect(childFeedback).not.toBeNull();
-    expect(childFeedback.textContent).toContain('Görüşme sonucu kaydedildi.');
+    // The page notice owns this receipt, so the meeting section skips its own
+    // success note: the result is announced in exactly one status region.
+    expect(host.querySelector('.meeting-details > .detail-feedback')).toBeNull();
+    expect(Array.from(host.querySelectorAll('[role="status"]'))
+      .filter((region) => region.textContent?.includes('Görüşme sonucu kaydedildi.'))).toHaveLength(1);
     expect(styles).not.toMatch(/\.meeting-details > \.detail-feedback \{[^}]*display: none/);
+
+    // A later local validation error in the section stays visible and focusable.
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(summary, 'x'.repeat(4001));
+      summary.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşme sonucunu kaydet')?.click();
+      await settle();
+    });
+    expect(meetingPatches).toBe(1);
+    const sectionAlert = host.querySelector<HTMLElement>('.meeting-details [role="alert"]');
+    expect(sectionAlert).not.toBeNull();
+    expect(getComputedStyle(sectionAlert!).display).not.toBe('none');
   });
 
   it('GET 404 after a committed patch keeps the previous terminal error path', async () => {

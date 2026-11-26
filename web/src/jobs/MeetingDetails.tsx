@@ -78,11 +78,17 @@ function describedBy(...ids: Array<string | false | undefined>) {
   return ids.filter(Boolean).join(' ') || undefined;
 }
 
-export function MeetingDetailsSection({ job, details, user, canEdit: canEditOverride, mutationPending, submissionError, onSave }: {
+export function MeetingDetailsSection({ job, details, user, canEdit: canEditOverride, mutationPending, submissionError, onSave, receiptShownByPage }: {
   job: JobCard; details: MeetingDetails; user: CurrentUser; mutationPending: boolean;
   canEdit?: boolean;
   submissionError?: ApiError | null;
   onSave: (input: PatchMeetingDetailsInput) => Promise<MeetingDetails>;
+  /**
+   * UI-FEEDBACK/A: true when the page already shows this save's receipt (the
+   * save committed but the page could not re-read the record). The section
+   * then skips its own success note so the result is announced once.
+   */
+  receiptShownByPage?: () => boolean;
 }) {
   const [meetingAt, setMeetingAt] = useState(() => meetingLocalValue(details.meetingAt));
   const [outcome, setOutcome] = useState<MeetingOutcome | ''>(details.outcome ?? '');
@@ -210,7 +216,8 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       // this, an error set by an earlier failed attempt (e.g. an ambiguous
       // attempt retried via the original-retry button, which bypasses the
       // form submit clearing) would remain visible next to the success note.
-      setError(''); setFieldErrors({}); setFeedback('Görüşme sonucu kaydedildi.');
+      setError(''); setFieldErrors({});
+      setFeedback(receiptShownByPage?.() ? '' : 'Görüşme sonucu kaydedildi.');
     } catch (caught) {
       // Fail-safe: only an authoritative non-retryable server response proves
       // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
