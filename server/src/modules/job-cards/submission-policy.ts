@@ -385,9 +385,15 @@ export async function evaluateSubmission(
     return evaluateWeeklyReport(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
   }
   if (jobCard.type === 'SALE') return evaluateSale(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
-  return jobCard.type === 'PRODUCT_DELIVERY'
-    ? evaluateDelivery(reader, actor, jobCard, evaluatedAt, assigneeRequirement)
-    : evaluateMeeting(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
+  if (jobCard.type === 'PRODUCT_DELIVERY') {
+    return evaluateDelivery(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
+  }
+  if (jobCard.type === 'SALES_MEETING') {
+    return evaluateMeeting(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
+  }
+  // A new JobCard type fails this assignment until it is handled explicitly.
+  const unhandledType: never = jobCard.type;
+  throw new Error(`Unhandled JobCard type: ${String(unhandledType)}`);
 }
 
 export function assertSubmissionReady(evaluation: SubmissionEvaluation) {

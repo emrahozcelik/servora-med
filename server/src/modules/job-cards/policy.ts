@@ -3,6 +3,7 @@ import { isManagementRole } from '../auth/types.js';
 import { isAssignmentOfferJobType } from './assignment-offer-policy.js';
 import {
   DELIVERY_PURPOSES,
+  type TERMINAL_JOB_CARD_STATUSES,
   type DeliveryItem,
   type JobCard,
   type JobCardActor,
@@ -39,8 +40,19 @@ function actorCanReachJob(actor: JobCardActor, job: JobPermissionSubject) {
     && (actor.role !== 'STAFF' || actor.id === job.assignedTo);
 }
 
-export function isTerminalJobStatus(status: JobCardStatus): boolean {
+export function isTerminalJobStatus(
+  status: JobCardStatus,
+): status is (typeof TERMINAL_JOB_CARD_STATUSES)[number] {
   return status === 'COMPLETED' || status === 'CANCELLED' || status === 'INVALIDATED';
+}
+
+/**
+ * Compile-time exhaustiveness guard for a JobCard type or status decision.
+ * A new union member fails the build until every decision point handles it
+ * explicitly; the throw only documents the unreachable runtime state.
+ */
+export function assertNeverJobCardValue(value: never, kind: 'type' | 'status'): never {
+  throw new Error(`Unhandled JobCard ${kind}: ${String(value)}`);
 }
 
 /**
@@ -91,6 +103,9 @@ export function getAllowedLifecycleCommands(
 ): LifecycleCommand[] {
   if (!actorCanReachJob(actor, job)
     || isTerminalJobStatus(job.status)) return [];
+  // Terminal statuses returned above; the narrowed capture lets the dispatch
+  // below prove every remaining status is handled explicitly.
+  const status = job.status;
   const assignmentWindowEnabled = flags.assignmentWindowEnabled === true;
   // JOB-010 §2: a job is in the window only when it is a planned
   // PRODUCT_DELIVERY / SALES_MEETING *and* at least one offer was recorded.
@@ -113,7 +128,7 @@ export function getAllowedLifecycleCommands(
     && offer.state === 'ACCEPTED'
     && offer.assigneeUserId === actor.id;
   const commands = (() => {
-    if (job.status === 'NEW') {
+    if (status === 'NEW') {
       if (actor.role !== 'STAFF') return ['CANCEL'];
       // JOB-010 §5: in the window Staff answer the offer; without an open
       // offer they wait for management (no accept, no cancel).
@@ -122,7 +137,7 @@ export function getAllowedLifecycleCommands(
       }
       return ['ACCEPT_ASSIGNMENT', 'CANCEL'];
     }
-    if (job.status === 'ACCEPTED') {
+    if (status === 'ACCEPTED') {
       if (actor.role === 'STAFF' && actor.id === job.assignedTo) {
         // SALE-002 (R9, accepted Q1): a SALE may be submitted straight from
         // ACCEPTED. START asks for location evidence a recorded agreement has
@@ -139,11 +154,14 @@ export function getAllowedLifecycleCommands(
       }
       return ['CANCEL'];
     }
-    if (job.status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
-    if (job.status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
-    return isManagementRole(actor.role)
-      ? ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL']
-      : ['WITHDRAW_FROM_APPROVAL', 'CANCEL'];
+    if (status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
+    if (status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
+    if (status === 'WAITING_APPROVAL') {
+      return isManagementRole(actor.role)
+        ? ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL']
+        : ['WITHDRAW_FROM_APPROVAL', 'CANCEL'];
+    }
+    return assertNeverJobCardValue(status, 'status');
   })() as LifecycleCommand[];
   return commands.filter((command) => timeEligible(command, job, requestTime)
     && !(command === 'CANCEL' && actor.role === 'STAFF'
