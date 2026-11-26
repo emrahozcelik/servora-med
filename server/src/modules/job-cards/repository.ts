@@ -113,12 +113,6 @@ import type {
   PaginatedJobHistory,
   StaffJobHistoryQuery,
 } from './history-port.js';
-import type {
-  PaginatedWeeklyReportHistory,
-  StaffWeeklyReportHistoryQuery,
-  WeeklyReportHistoryItem,
-  WeeklyReportHistoryReadPort,
-} from '../weekly-reports/history-port.js';
 import {
   PostgresRealtimeEventTransaction,
 } from '../realtime/repository.js';
@@ -2209,72 +2203,6 @@ function mapNote(row: NoteRow): JobCardNoteDto {
 const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery_purpose,
   delivered_at, quantity, unit, product_name_snapshot, product_sku_snapshot,
   product_model_snapshot, lot_no, serial_no, expiry_date::text AS expiry_date, delivery_note`;
-type WeeklyReportHistoryRow = {
-  removed_at: Date | null;
-  report_id: string;
-  job_card_id: string;
-  staff_user_id: string;
-  period_start: Date;
-  period_end: Date;
-  created_at: Date;
-  status: JobCardStatus;
-  due_date: Date | null;
-  manager_approved_at: Date | null;
-  submission_count: number;
-  latest_seq_no: number | null;
-  latest_submitted_at: Date | null;
-};
-
-function requiredCalendarDate(value: Date): string {
-  const mapped = mapCalendarDate(value);
-  if (typeof mapped !== 'string') {
-    throw new Error('Expected a non-null DATE column');
-  }
-  return mapped;
-}
-
-function mapWeeklyReportHistoryItem(row: WeeklyReportHistoryRow): WeeklyReportHistoryItem {
-  return {
-    reportId: row.report_id,
-    jobCardId: row.job_card_id,
-    staffUserId: row.staff_user_id,
-    periodStart: requiredCalendarDate(row.period_start),
-    periodEnd: requiredCalendarDate(row.period_end),
-    status: row.status,
-    dueDate: mapCalendarDate(row.due_date),
-    submissionCount: Number(row.submission_count),
-    latestSubmissionSeqNo: row.latest_seq_no === null ? null : Number(row.latest_seq_no),
-    latestSubmittedAt: mapInstant(row.latest_submitted_at),
-    createdAt: row.created_at.toISOString(),
-    completedAt: mapInstant(row.manager_approved_at),
-    removedAt: mapInstant(row.removed_at),
-  };
-}
-
-/**
- * One bounded page of profile Weekly Report history. The submission aggregate
- * is folded in with a LATERAL subquery, so the page costs one row-producing
- * statement no matter how many reports exist — never a query per report.
- * Tenant and owner scope are both enforced in SQL.
- */
-const WEEKLY_REPORT_HISTORY_PAGE_SQL = `SELECT r.id AS report_id, r.job_card_id, r.staff_user_id,
-    r.period_start, r.period_end, r.created_at, r.removed_at,
-    j.status, j.due_date, j.manager_approved_at,
-    COALESCE(agg.submission_count, 0)::int AS submission_count,
-    agg.latest_seq_no, agg.latest_submitted_at
-  FROM weekly_reports r
-  JOIN job_cards j
-    ON j.organization_id = r.organization_id AND j.id = r.job_card_id
-  LEFT JOIN LATERAL (
-    SELECT COUNT(*)::int AS submission_count,
-           MAX(ws.seq_no) AS latest_seq_no,
-           (ARRAY_AGG(ws.submitted_at ORDER BY ws.seq_no DESC))[1] AS latest_submitted_at
-      FROM weekly_report_submissions ws
-     WHERE ws.organization_id = r.organization_id AND ws.weekly_report_id = r.id
-  ) agg ON TRUE
-  WHERE r.organization_id = $1 AND r.staff_user_id = $2
-  ORDER BY r.period_start DESC, (r.removed_at IS NOT NULL), r.created_at DESC, r.id
-  LIMIT $3 OFFSET $4`;
 
 function mapDelivery(row: DeliveryRow): DeliveryItemRecord {
   return { id: row.id, organizationId: row.organization_id, jobCardId: row.job_card_id,
@@ -5186,7 +5114,7 @@ export function unacceptedPastStartSql(refs: {
 }
 
 export class PostgresJobCardRepository
-implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyReportHistoryReadPort {
+implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
   readonly saleReads: SaleReadPort;
   constructor(private readonly pool: Pool) { this.saleReads = new PostgresSaleReader(pool); }
 
@@ -6122,43 +6050,6 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       [organizationId, userId],
     );
     return result.rows[0]?.name ?? null;
-  }
-
-  /**
-   * Profile history read model (WeeklyReportHistoryReadPort). Bounded: a count
-   * statement plus one page statement, independent of the number of reports.
-   *
-   * The two statements are deliberately NOT wrapped in a transaction. They are
-   * therefore not snapshot-consistent with each other: if a report is created
-   * between them, `total` and the rows in `items` can disagree for a moment (and
-   * `offset + items.length < total` can be true on the last page). That is
-   * acceptable here because this is an informational, low-stakes read model that
-   * is refreshed by realtime invalidation and re-read by the user; it is not a
-   * lifecycle authority and nothing is written from it. Do not add a transaction
-   * or a repeatable-read wrapper to close this window — it would hold a
-   * connection open for a list view without changing any user-visible guarantee.
-   */
-  async listForStaff(
-    input: StaffWeeklyReportHistoryQuery,
-  ): Promise<PaginatedWeeklyReportHistory> {
-    // Defense in depth: a STAFF actor is scoped to its own reports in SQL even
-    // if a caller resolves a different target id.
-    const staffUserId = input.actor.role === 'STAFF' ? input.actor.id : input.targetUserId;
-    const total = await this.pool.query<{ total: string }>(
-      `SELECT COUNT(*)::text AS total FROM weekly_reports r
-        WHERE r.organization_id = $1 AND r.staff_user_id = $2`,
-      [input.organizationId, staffUserId],
-    );
-    const page = await this.pool.query<WeeklyReportHistoryRow>(
-      WEEKLY_REPORT_HISTORY_PAGE_SQL,
-      [input.organizationId, staffUserId, input.limit, input.offset],
-    );
-    return {
-      items: page.rows.map(mapWeeklyReportHistoryItem),
-      total: Number(total.rows[0]?.total ?? 0),
-      limit: input.limit,
-      offset: input.offset,
-    };
   }
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {

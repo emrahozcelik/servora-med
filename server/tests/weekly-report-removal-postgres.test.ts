@@ -12,6 +12,7 @@ import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import { parseWeeklyReportBulkRequestInput, parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
+import { PostgresWeeklyReportHistoryRepository } from '../src/modules/weekly-reports/history-repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -382,7 +383,7 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       expect(latest.jobCardId).not.toBe(replacementId);
       expect(await service.createWeeklyReport(staff,input)).toEqual(original);
       expect(await service.bulkRequestWeeklyReports(admin,bulkInput)).toEqual(bulk);
-      const repository = new PostgresJobCardRepository(pool);
+      const repository = new PostgresWeeklyReportHistoryRepository(pool);
       const history = await repository.listForStaff({ organizationId: staff.organizationId,targetUserId: staff.id,actor: staff,limit: 20,offset: 0 });
       expect(history.total).toBe(3);
       expect(history.items[0]).toMatchObject({ jobCardId: latest.jobCardId,removedAt: null });
