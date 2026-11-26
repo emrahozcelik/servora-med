@@ -1,5 +1,8 @@
 # 04 — Turkish medical-device traceability obligations and depot/vehicle stock practice
 
+> **Historical regulatory research, not verified legal advice or implementation authorization. See [owner-approved direction](README.md) and [WH-A](07-wh-a-implementation-contract.md). Regulated product rollout requires verified tracking policy and applicable professional/legal validation; aggregate-only stock is not full traceability. No automatic ÜTS or statutory document issuance in initial slice.**
+
+
 - **Date:** 2026-11-26
 - **Status:** Research input for the future Warehouse/Stock ("Depo/Stok") module. **Not a decision.** Nothing here authorizes implementation.
 - **Scope:** ÜTS (Ürün Takip Sistemi) obligations that touch stock; EU MDR UDI/EUDAMED relevance for Turkey; e-İrsaliye/VUK dispatch documents for vehicle stock; how Turkish distributors and field-sales tools actually run depot + vehicle stock; consequences for Servora-Med.
