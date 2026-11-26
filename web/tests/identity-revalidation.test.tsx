@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
-  latest: { user: null as unknown, onOverviewUnavailable: undefined as undefined | (() => void) },
+  latest: { user: null as unknown, onModuleUnavailable: undefined as undefined | (() => void) },
 }));
 
 vi.mock('../src/services/api', async () => {
@@ -19,9 +19,9 @@ vi.mock('../src/services/api', async () => {
 });
 
 vi.mock('../src/AppRouter', () => ({
-  AppRouter: (props: { user: CurrentUser; onOverviewUnavailable?: () => void }) => {
+  AppRouter: (props: { user: CurrentUser; onModuleUnavailable?: () => void }) => {
     mocks.latest.user = props.user;
-    mocks.latest.onOverviewUnavailable = props.onOverviewUnavailable;
+    mocks.latest.onModuleUnavailable = props.onModuleUnavailable;
     return <div data-router data-overview={String(props.user.capabilities.overviewDashboard)} />;
   },
 }));
@@ -83,7 +83,7 @@ describe('customer identity revalidation', () => {
     mocks.login.mockReset();
     mocks.logout.mockReset();
     mocks.latest.user = null;
-    mocks.latest.onOverviewUnavailable = undefined;
+    mocks.latest.onModuleUnavailable = undefined;
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -217,7 +217,7 @@ describe('customer identity revalidation', () => {
     expect(container.querySelector('[data-router]')).toBeNull();
   });
 
-  it('lets an Overview 404 force one revalidation despite the throttle, but never overlap a running one', async () => {
+  it('lets a module 404 force one revalidation despite the throttle, but never overlap a running one', async () => {
     mocks.getCurrentUser.mockResolvedValue(withOverview(false));
     await focusWindow();
     await vi.waitFor(() => expect(mocks.getCurrentUser).toHaveBeenCalledTimes(1));
@@ -225,11 +225,11 @@ describe('customer identity revalidation', () => {
     // Inside the throttle window, a forced revalidation still goes through.
     const pending = deferred<CurrentUser | null>();
     mocks.getCurrentUser.mockReturnValue(pending.promise);
-    await act(async () => mocks.latest.onOverviewUnavailable!());
+    await act(async () => mocks.latest.onModuleUnavailable!());
     expect(mocks.getCurrentUser).toHaveBeenCalledTimes(2);
 
     // A second forced request while one is running is dropped.
-    await act(async () => mocks.latest.onOverviewUnavailable!());
+    await act(async () => mocks.latest.onModuleUnavailable!());
     expect(mocks.getCurrentUser).toHaveBeenCalledTimes(2);
 
     await act(async () => pending.resolve(withOverview(true)));
