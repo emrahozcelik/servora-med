@@ -43,7 +43,11 @@ export function ReassignmentSyncPrompt({
   let title: string;
   let body: string;
   let confirmLabel: string;
-  if (hasNew && hasOld) {
+  if (offer.source === 'hint') {
+    title = 'Konuşma katılımcısı güncel değil';
+    body = `İşin yeni sorumlusu ${newName} bu iş konuşmasının katılımcısı değil.`;
+    confirmLabel = hasOld ? `${oldName} yerine ${newName} ekle` : `${newName} ekle`;
+  } else if (hasNew && hasOld) {
     title = 'Atanan personel değişti';
     body = 'Konuşmadaki personeli de güncellemek ister misiniz?';
     confirmLabel = `${oldName} yerine ${newName} ekle`;
@@ -62,18 +66,33 @@ export function ReassignmentSyncPrompt({
       open
       title={title}
       description={
-        <div>
-          <p>{body}</p>
-          <p className="reassignment-sync-helper">{DURABLE_MEMBERSHIP_HELPER}</p>
+        <>
+          <span style={{ display: 'block' }}>{body}</span>
+          <span
+            className="reassignment-sync-helper"
+            style={{ display: 'block', marginTop: '0.75rem' }}
+          >
+            {DURABLE_MEMBERSHIP_HELPER}
+          </span>
           {state.kind === 'failure' && (
-            <p className="form-error" role="alert">{state.message}</p>
+            <span
+              className="form-error"
+              role="alert"
+              style={{ display: 'block', marginTop: '0.75rem' }}
+            >
+              {state.message}
+            </span>
           )}
           {state.kind === 'stale' && (
-            <p className="form-error" role="alert">
+            <span
+              className="form-error"
+              role="alert"
+              style={{ display: 'block', marginTop: '0.75rem' }}
+            >
               Atama yeniden değişti. Konuşma katılımcıları güncellenmedi.
-            </p>
+            </span>
           )}
-        </div>
+        </>
       }
       confirmLabel={confirmLabel}
       cancelLabel="Şimdi değil"

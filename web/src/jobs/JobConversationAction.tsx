@@ -4,6 +4,7 @@ import { ApiError, type CurrentUser } from '../services/api';
 import {
   createOrGetConversation,
   getJobConversation,
+  type JobConversationLookup,
 } from '../services/messaging-api';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { JobCard } from './jobs-api';
@@ -32,18 +33,24 @@ export function JobConversationAction({
   user,
   onOpenMessaging,
   onVisibilityChange,
+  onLookupResolved,
+  refreshKey = 0,
   disabled = false,
 }: {
   job: JobCard;
   user: CurrentUser;
   onOpenMessaging: (conversationId: string) => void;
   onVisibilityChange?: (visible: boolean) => void;
+  onLookupResolved?: (conversation: JobConversationLookup | null) => void;
+  refreshKey?: number;
   disabled?: boolean;
 }) {
   const [resolution, setResolution] = useState<Resolution>({ kind: 'resolving' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const lookupSeqRef = useRef(0);
+  const onLookupResolvedRef = useRef(onLookupResolved);
+  onLookupResolvedRef.current = onLookupResolved;
 
   const canManage = user.role === 'ADMIN' || user.role === 'MANAGER';
   const canCreate = canManage
@@ -59,8 +66,10 @@ export function JobConversationAction({
       if (seq !== lookupSeqRef.current) return;
       if (conversation) {
         setResolution({ kind: 'open', conversationId: conversation.id });
+        onLookupResolvedRef.current?.(conversation);
       } else {
         setResolution({ kind: canCreate ? 'start' : 'none' });
+        onLookupResolvedRef.current?.(null);
       }
     } catch {
       if (seq !== lookupSeqRef.current) return;
@@ -68,11 +77,15 @@ export function JobConversationAction({
       // decision-maker: a legitimate participant creating again gets the
       // existing canonical thread back, a non-participant is denied safely.
       setResolution({ kind: canCreate ? 'start' : 'none' });
+      onLookupResolvedRef.current?.(null);
     }
-  }, [job.id, canCreate]);
+  }, [job.id, canCreate, refreshKey]);
 
   useEffect(() => {
     setResolution({ kind: 'resolving' });
+  }, [job.id]);
+
+  useEffect(() => {
     void resolve();
   }, [resolve]);
 

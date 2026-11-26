@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailScreen } from '../src/JobDetail';
-import type { CurrentUser, DeliveryItem } from '../src/services/api';
+import { ApiError, type CurrentUser, type DeliveryItem } from '../src/services/api';
+import { getJobConversation } from '../src/services/messaging-api';
 import type {
   JobCard, JobLifecycleFacts, JobWorkflowContext, LifecycleCommand,
 } from '../src/jobs/jobs-api';
@@ -397,6 +398,337 @@ describe('M5 Job Detail Messaging action', () => {
 
       expect(openedConversations).toEqual([]);
       expect(host.querySelector('[data-job-detail-messaging="true"] [role="alert"]')).toBeTruthy();
+    });
+  });
+
+  describe('MSG-002: persistent assigneeSync prompt on Job Detail', () => {
+    const hint = {
+      transitionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      previousAssignee: { id: 's1', name: 'Ayşe Personel' },
+      newAssignee: { id: 's2', name: 'Burak Personel' },
+    };
+
+    function reassignedCard(): JobCard {
+      return {
+        ...jobWith('ACCEPTED'),
+        assignedTo: 's2',
+        assignee: { id: 's2', name: 'Burak Personel' },
+      };
+    }
+
+    function mockSyncFetch(options: {
+      card: JobCard;
+      lookupHandler: () => Response;
+      onSyncPost?: (body: Record<string, unknown>) => void;
+    }) {
+      return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (url === `/api/messaging/conversations/job/${options.card.id}`) {
+          return options.lookupHandler();
+        }
+        if (url === '/api/messaging/conversations/conv-1/job-assignee-sync' && method === 'POST') {
+          options.onSyncPost?.(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          return Response.json({ conversationId: 'conv-1', synced: true, changed: true });
+        }
+        if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+        if (url.includes('/follow-ups')) return Response.json({ ...emptyPage, limit: 100 });
+        if (url.includes('/notes?')) return Response.json(emptyPage);
+        if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+        if (url.includes('/api/staff?status=')) {
+          return Response.json([
+            {
+              id: 'staff-s1',
+              user: {
+                ...staffUser,
+                email: 'ayse@example.test',
+                lastLoginAt: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+              },
+              title: null, phone: null, region: null, managerUserId: null, managerName: null,
+              version: 1, counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
+            },
+            {
+              id: 'staff-s2',
+              user: {
+                ...staffUser,
+                id: 's2',
+                name: 'Burak Personel',
+                email: 'burak@example.test',
+                lastLoginAt: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+              },
+              title: null, phone: null, region: null, managerUserId: null, managerName: null,
+              version: 1, counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
+            },
+          ]);
+        }
+        if (detailUrlMatches(url, options.card.id) && method === 'PATCH') {
+          const updated = {
+            ...options.card,
+            assignedTo: 's2',
+            assignee: { id: 's2', name: 'Burak Personel' },
+            version: options.card.version + 1,
+            assignmentTransitionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          };
+          return Response.json(updated);
+        }
+        if (detailUrlMatches(url, options.card.id)) return Response.json(options.card);
+        throw new Error(`Unexpected request: ${method} ${url}`);
+      });
+    }
+
+    it('shows prompt for MANAGER on load, confirms sync, disappears and refetches lookup', async () => {
+      let synced = false;
+      let lookupCalls = 0;
+      const syncPayloads: Array<Record<string, unknown>> = [];
+      const card = reassignedCard();
+      const fetch = mockSyncFetch({
+        card,
+        lookupHandler: () => {
+          lookupCalls += 1;
+          return Response.json({
+            ...conversation,
+            assigneeSync: synced ? null : hint,
+          });
+        },
+        onSyncPost: (body) => {
+          synced = true;
+          syncPayloads.push(body);
+        },
+      });
+      await renderScreen(card, messagingUser, fetch as unknown as ReturnType<typeof mockFetch>);
+
+      const dialog = document.querySelector('[role="dialog"]');
+      expect(dialog).not.toBeNull();
+      expect(dialog?.textContent).toContain(
+        'İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.',
+      );
+      expect(dialog?.textContent).toContain('Ayşe Personel yerine Burak Personel ekle');
+      expect(dialog?.textContent).toContain('Şimdi değil');
+      const callsBeforeConfirm = lookupCalls;
+      expect(callsBeforeConfirm).toBeGreaterThanOrEqual(1);
+
+      const confirmBtn = Array.from(dialog?.querySelectorAll('button') ?? [])
+        .find((b) => b.textContent?.includes('Ayşe Personel yerine Burak Personel ekle'))!;
+      await act(async () => {
+        confirmBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(syncPayloads).toHaveLength(1);
+      expect(syncPayloads[0]?.assignmentTransitionId).toBe(hint.transitionId);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(lookupCalls).toBe(callsBeforeConfirm + 1);
+    });
+
+    it('Şimdi değil hides prompt for current view only and shows again on next load', async () => {
+      const card = reassignedCard();
+      const fetch = mockSyncFetch({
+        card,
+        lookupHandler: () => Response.json({ ...conversation, assigneeSync: hint }),
+      });
+      await renderScreen(card, adminUser, fetch as unknown as ReturnType<typeof mockFetch>);
+
+      const dialog = document.querySelector('[role="dialog"]');
+      expect(dialog).not.toBeNull();
+      const dismissBtn = Array.from(dialog?.querySelectorAll('button') ?? [])
+        .find((b) => b.textContent?.trim() === 'Şimdi değil')!;
+      await act(async () => {
+        dismissBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await Promise.resolve();
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+      // Re-rendering the same mounted screen does not reopen the dismissed hint.
+      await act(async () => {
+        root.render(<StrictMode><JobDetailScreen
+          jobId={card.id}
+          user={adminUser}
+          onBack={() => {}}
+          onChanged={() => {}}
+          onOpenMessaging={(conversationId) => openedConversations.push(conversationId)}
+        /></StrictMode>);
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+      // Next load (fresh mount) shows the prompt again while the hint is still present.
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      await renderScreen(card, adminUser, fetch as unknown as ReturnType<typeof mockFetch>);
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+        'İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.',
+      );
+    });
+
+    it('never shows hint prompt to STAFF even if response carries assigneeSync', async () => {
+      const card = reassignedCard();
+      const fetch = mockSyncFetch({
+        card,
+        lookupHandler: () => Response.json({ ...conversation, assigneeSync: hint }),
+      });
+      await renderScreen(card, staffUser, fetch as unknown as ReturnType<typeof mockFetch>);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it('post-PATCH reassignment offer keeps working and never shows two prompts at once', async () => {
+      const baseCard = {
+        ...jobWith('NEW'),
+        workflowContext: contextWith({
+          allowedCommands: ['CANCEL'],
+          allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+          submissionReadiness: null,
+        }),
+      };
+      let currentCard = baseCard;
+      let hasReassigned = false;
+      const postPatchHint = {
+        transitionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        previousAssignee: { id: 's1', name: 'Ayşe Personel' },
+        newAssignee: { id: 's2', name: 'Burak Personel' },
+      };
+      const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (url === `/api/messaging/conversations/job/${baseCard.id}`) {
+          return Response.json({
+            ...conversation,
+            assigneeSync: hasReassigned ? postPatchHint : null,
+          });
+        }
+        if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+        if (url.includes('/follow-ups')) return Response.json({ ...emptyPage, limit: 100 });
+        if (url.includes('/notes?')) return Response.json(emptyPage);
+        if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+        if (url.includes('/api/staff?status=')) {
+          return Response.json([
+            {
+              id: 'staff-s1',
+              user: {
+                ...staffUser,
+                email: 'ayse@example.test',
+                lastLoginAt: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+              },
+              title: null, phone: null, region: null, managerUserId: null, managerName: null,
+              version: 1, counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
+            },
+            {
+              id: 'staff-s2',
+              user: {
+                ...staffUser,
+                id: 's2',
+                name: 'Burak Personel',
+                email: 'burak@example.test',
+                lastLoginAt: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+              },
+              title: null, phone: null, region: null, managerUserId: null, managerName: null,
+              version: 1, counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
+            },
+          ]);
+        }
+        if (detailUrlMatches(url, baseCard.id) && method === 'PATCH') {
+          hasReassigned = true;
+          currentCard = {
+            ...currentCard,
+            assignedTo: 's2',
+            assignee: { id: 's2', name: 'Burak Personel' },
+            version: currentCard.version + 1,
+          };
+          return Response.json({
+            ...currentCard,
+            assignmentTransitionId: postPatchHint.transitionId,
+          });
+        }
+        if (detailUrlMatches(url, baseCard.id)) return Response.json(currentCard);
+        throw new Error(`Unexpected request: ${method} ${url}`);
+      });
+
+      await renderScreen(baseCard, messagingUser, fetch as unknown as ReturnType<typeof mockFetch>);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+      const editBtn = Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes('Görevi düzenle'))!;
+      await act(async () => {
+        editBtn.click();
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const select = host.querySelector('select[name="assignedTo"]') as HTMLSelectElement;
+      expect(select).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')
+          ?.set?.call(select, 's2');
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        await Promise.resolve();
+      });
+
+      const saveBtn = Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes('Değişiklikleri kaydet'))!;
+      await act(async () => {
+        saveBtn.click();
+        for (let i = 0; i < 6; i += 1) {
+          await Promise.resolve();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      });
+
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      expect(dialogs).toHaveLength(1);
+      expect(dialogs[0]?.textContent).toContain('Atanan personel değişti');
+      expect(dialogs[0]?.textContent).toContain('Ayşe Personel yerine Burak Personel ekle');
+    });
+  });
+
+  describe('MSG-002: getJobConversation assigneeSync parser', () => {
+    it('parses assigneeSync null and valid hint objects', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+        ...conversation,
+        assigneeSync: {
+          transitionId: 't-1',
+          previousAssignee: null,
+          newAssignee: { id: 's2', name: 'Burak Personel' },
+        },
+      })));
+      const withHint = await getJobConversation('job-1');
+      expect(withHint?.assigneeSync).toEqual({
+        transitionId: 't-1',
+        previousAssignee: null,
+        newAssignee: { id: 's2', name: 'Burak Personel' },
+      });
+
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+        ...conversation,
+        assigneeSync: null,
+      })));
+      const withoutHint = await getJobConversation('job-1');
+      expect(withoutHint?.assigneeSync).toBeNull();
+    });
+
+    it.each([
+      ['primitive string', 'invalid'],
+      ['array', []],
+      ['missing transitionId', { previousAssignee: null, newAssignee: { id: 's2', name: 'Burak' } }],
+      ['missing newAssignee', { transitionId: 't-1', previousAssignee: null, newAssignee: null }],
+      ['bad previousAssignee', { transitionId: 't-1', previousAssignee: { id: 's1' }, newAssignee: { id: 's2', name: 'Burak' } }],
+    ])('rejects invalid assigneeSync shape (%s) with INVALID_RESPONSE', async (_label, badHint) => {
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+        ...conversation,
+        assigneeSync: badHint,
+      })));
+      await expect(getJobConversation('job-1')).rejects.toMatchObject({
+        name: 'ApiError',
+        code: 'INVALID_RESPONSE',
+      } satisfies Partial<ApiError>);
     });
   });
 });

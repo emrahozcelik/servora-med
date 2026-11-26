@@ -32,11 +32,12 @@ import {
   type SalePairGuidance,
 } from './jobs/sale-pair';
 import {
-  useEffect, useLayoutEffect, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useRef, useState,
   type FormEvent, type ReactNode, type Ref,
 } from 'react';
 
 import { ApiError, type CurrentUser } from './services/api';
+import type { JobConversationLookup } from './services/messaging-api';
 import { markNotificationsReadByEntity } from './services/notifications-api';
 import {
   acceptJobCard, approveJobCard, cancelJobCard, declineAssignment, releaseAssignment,
@@ -1588,7 +1589,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   useEffect(() => {
     setRouteRuntimeLabel(state.kind === 'ready' ? state.detail.job.title : undefined);
   }, [setRouteRuntimeLabel, state]);
-  const reassignmentSync = useReassignmentConversationSync(jobId);
+  const [messagingLookupKey, setMessagingLookupKey] = useState(0);
+  const reassignmentSync = useReassignmentConversationSync(jobId, {
+    onSynced: () => {
+      setMessagingLookupKey((value) => value + 1);
+    },
+  });
+  const handleConversationLookup = useCallback((conversation: JobConversationLookup | null) => {
+    if (!conversation?.assigneeSync || !isManagementUser(user)) return;
+    reassignmentSync.offerFromHint(conversation.id, conversation.assigneeSync);
+  }, [reassignmentSync.offerFromHint, user]);
   const [pending, setPending] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<LifecycleCommand | null>(null);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
@@ -3766,8 +3776,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         disabled={invalidationLocked}
+        refreshKey={messagingLookupKey}
         onOpenMessaging={onOpenMessaging}
         onVisibilityChange={setMessagingActionVisible}
+        onLookupResolved={handleConversationLookup}
       />
     ) : undefined}
     messagingActionVisible={messagingActionVisible}

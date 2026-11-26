@@ -85,8 +85,8 @@ afterEach(() => {
 });
 
 describe('M9: useReassignmentConversationSync', () => {
-  function Harness({ jobId }: { jobId: string }) {
-    const sync = useReassignmentConversationSync(jobId);
+  function Harness({ jobId, onSynced }: { jobId: string; onSynced?: () => void }) {
+    const sync = useReassignmentConversationSync(jobId, onSynced ? { onSynced } : undefined);
     return (
       <div>
         <div data-testid="state">{sync.state.kind}</div>
@@ -102,6 +102,30 @@ describe('M9: useReassignmentConversationSync', () => {
         >
           offer
         </button>
+        <button
+          data-testid="offer-hint"
+          onClick={() => {
+            sync.offerFromHint('conv-1', {
+              transitionId: TRANSITION_A_TO_B,
+              previousAssignee: { id: 'staff-a', name: 'Ayşe Personel' },
+              newAssignee: { id: 'staff-b', name: 'Burak Personel' },
+            });
+          }}
+        >
+          offer-hint
+        </button>
+        <button
+          data-testid="offer-hint-2"
+          onClick={() => {
+            sync.offerFromHint('conv-1', {
+              transitionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              previousAssignee: null,
+              newAssignee: { id: 'staff-c', name: 'Can Personel' },
+            });
+          }}
+        >
+          offer-hint-2
+        </button>
         <button data-testid="confirm" onClick={() => { void sync.confirm(); }}>confirm</button>
         <button data-testid="dismiss" onClick={sync.dismiss}>dismiss</button>
         <ReassignmentSyncPrompt
@@ -113,10 +137,10 @@ describe('M9: useReassignmentConversationSync', () => {
     );
   }
 
-  async function renderHook() {
+  async function renderHook(onSynced?: () => void) {
     root = createRoot(container);
     await act(async () => {
-      root.render(<Harness jobId="job-1" />);
+      root.render(<Harness jobId="job-1" onSynced={onSynced} />);
     });
   }
 
@@ -225,6 +249,69 @@ describe('M9: useReassignmentConversationSync', () => {
     expect(messagingApi.jobAssigneeSync).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('idle');
   });
+
+  it('MSG-002: offerFromHint opens without extra lookup, notifies onSynced, and stays hidden after dismiss for same transition only', async () => {
+    const onSynced = vi.fn();
+    messagingApi.jobAssigneeSync.mockResolvedValue({ conversationId: 'conv-1', synced: true, changed: true });
+    await renderHook(onSynced);
+
+    await act(async () => {
+      container.querySelector('[data-testid="offer-hint"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(messagingApi.getJobConversation).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('offer');
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.');
+
+    await act(async () => {
+      container.querySelector('[data-testid="dismiss"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('idle');
+
+    // Re-offering the same dismissed transition in this page view stays hidden.
+    await act(async () => {
+      container.querySelector('[data-testid="offer-hint"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('idle');
+
+    // A different transition opens and confirms with onSynced callback.
+    await act(async () => {
+      container.querySelector('[data-testid="offer-hint-2"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('offer');
+    await act(async () => {
+      container.querySelector('[data-testid="confirm"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="state"]')!.textContent).toBe('done');
+    expect(onSynced).toHaveBeenCalledTimes(1);
+    expect(messagingApi.jobAssigneeSync).toHaveBeenCalledWith('conv-1', {
+      clientActionId: expect.any(String),
+      assignmentTransitionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    });
+  });
+
+  it('MSG-002: offerFromHint does not clobber an active prompt', async () => {
+    messagingApi.getJobConversation.mockResolvedValue(conversation);
+    await renderHook();
+    await act(async () => {
+      container.querySelector('[data-testid="offer"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+
+    await act(async () => {
+      container.querySelector('[data-testid="offer-hint-2"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    expect(dialogs.length).toBe(1);
+    expect(dialogs[0]?.textContent).toContain('Atanan personel değişti');
+  });
 });
 
 describe('M9: prompt copy variants', () => {
@@ -268,6 +355,44 @@ describe('M9: prompt copy variants', () => {
       },
     });
     expect(dialog?.textContent).toContain('Burak Personel ekle');
+    expect(dialog?.textContent).not.toContain('null');
+  });
+
+  it('MSG-002 hint copy with previousAssignee shows state explanation and replace action', async () => {
+    const dialog = await renderPrompt({
+      kind: 'offer',
+      offer: {
+        transitionId: TRANSITION_A_TO_B,
+        conversationId: 'conv-1',
+        oldAssignee: { id: 'staff-a', name: 'Ayşe Personel' },
+        newAssignee: { id: 'staff-b', name: 'Burak Personel' },
+        source: 'hint',
+      },
+    });
+    expect(dialog?.textContent).toContain('Konuşma katılımcısı güncel değil');
+    expect(dialog?.textContent).toContain(
+      'İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.',
+    );
+    expect(dialog?.textContent).toContain('Ayşe Personel yerine Burak Personel ekle');
+    expect(dialog?.textContent).toContain('Şimdi değil');
+  });
+
+  it('MSG-002 hint copy without previousAssignee avoids null labels', async () => {
+    const dialog = await renderPrompt({
+      kind: 'offer',
+      offer: {
+        transitionId: TRANSITION_A_TO_B,
+        conversationId: 'conv-1',
+        oldAssignee: { id: null, name: null },
+        newAssignee: { id: 'staff-b', name: 'Burak Personel' },
+        source: 'hint',
+      },
+    });
+    expect(dialog?.textContent).toContain(
+      'İşin yeni sorumlusu Burak Personel bu iş konuşmasının katılımcısı değil.',
+    );
+    expect(dialog?.textContent).toContain('Burak Personel ekle');
+    expect(dialog?.textContent).toContain('Şimdi değil');
     expect(dialog?.textContent).not.toContain('null');
   });
 });
