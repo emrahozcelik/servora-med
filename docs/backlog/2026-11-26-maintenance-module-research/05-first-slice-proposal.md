@@ -1,5 +1,7 @@
 # 05 — Smallest end-to-end first slice for the Maintenance (Bakım) module
 
+> **Supersession (2026-11-26 owner review):** [07 — Owner-approved product direction](07-owner-approved-product-direction.md) replaces this historical first-slice recommendation and its assumed scope. Start with asset registry, then case intake, then MAINTENANCE JobCard (one case → multiple work orders); default 60 minutes but management-adjustable planned duration, JOB-010 acceptance/early-start and SCH-001 occupancy. #513 and #520 are merged; no additional shared registry migration or INSTALL_DEFAULT. Section 4.2's blanket PATCH /visits denial must not strand existing active visits: narrow authorized completion/revision writes remain possible through the existing-job contract. Section 5 tests are research inputs, not results or sufficient final acceptance; apply 07 §6 and rebaseline before implementation. PDF and structured evidence are V1, with legal pilot gates.
+
 Status: **research proposal for the owner, not a decision and not implementation
 authorization.** Base: `origin/main` @ `89bf6b1` (worktree
 `maintenance-module-research-b97e8e`). Author: research worker (run
