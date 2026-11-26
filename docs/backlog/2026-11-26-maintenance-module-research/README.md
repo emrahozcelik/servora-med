@@ -1,7 +1,8 @@
 # Bakım (Maintenance) modülü araştırması — 2026-11-26
 
-Durum: **araştırma raporu, karar değildir.** Hiçbir kod değiştirilmedi, hiçbir
-uygulama yetkisi vermez. Kapsam ve sınır kararı ürün sahibinindir (bkz. §5).
+> **26 Kasım ürün sahibi incelemesi — kabul edilen yön:** [07 — Owner-approved product direction](07-owner-approved-product-direction.md) bu araştırma paketinin güncel kapsam ve planlama referansıdır. Aşağıdaki metin 89bf6b1 tarihsel araştırmasını ve o tarihteki açık soruları korur; §5 karar soruları 07 §§1–5 ile yön olarak yanıtlanmıştır. Çelişki halinde 07 geçerlidir. #513 ve #520 main'e birleşmiştir; MOD-003, migration 075, `legacyEnvKey: null` ve `FRESH_INSTALL` esas alınır. Cihaz → servis vakası → birden fazla JobCard, değişken süre, JOB-010/SCH-001 uyumu, açık işlerin kapanış istisnası ve V1–V3 kapsamı 07'de tanımlanır. Uygulama/CI/deploy yapılmadı; bağlayıcı MNT-001 ve sahip dokümanlar ilgili kod PR'ında güncellenecek.
+
+Durum: **araştırma raporu ve kabul edilen ürün yönüne bağlantı.** Hiçbir uygulama kodu değiştirilmedi; tarihsel araştırma tek başına uygulama yetkisi vermez. Güncel ürün yönü için 07, tarihsel sorular için §5.
 
 Taban: `origin/main` @ `89bf6b1`. Yöntem: model-fleet ile altı DeepSeek araştırma
 koşusu; lead (Claude) önemli iddiaları kaynakta yeniden doğruladı (§3).
@@ -23,6 +24,8 @@ Bağlayıcı girdiler: `AGENTS.md`, `DECISIONS.md` MOD-001, MOD-002, SCH-001,
 
 Tam worker raporları `~/.claude/model-fleet/runs/<run>/worker-report.md`
 altındadır. 05, diğer beş dosyayı girdi olarak kullandı.
+
+| [07-owner-approved-product-direction.md](07-owner-approved-product-direction.md) | Ürün sahibi incelemesi: güncel kapsam, kararlar, aç/kapa ve geliştirme sırası | 2026-11-26 |
 
 ## 2. Özet
 
