@@ -3431,6 +3431,38 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-color: var(--border-error);
   background: var(--error-soft);
 }
+/* UI-FEEDBACK/A: a mutation the server already accepted, whose canonical
+   re-read failed. Warning tone (icon + text, never color alone) with the
+   action that reuses the serialized realtime reload. Inner sizes stay in rem
+   so 200% text scales; the existing .detail-feedback rules are unchanged. */
+.detail-feedback.detail-feedback-stale {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 48rem;
+  color: var(--ink);
+  border-color: var(--border-warning);
+  background: var(--warning-wash);
+}
+.detail-feedback-stale > p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.detail-feedback-stale .detail-feedback-stale-heading {
+  color: var(--warning);
+  font-weight: 600;
+}
+.detail-feedback-stale .detail-feedback-stale-icon {
+  width: 1em;
+  height: 1em;
+  margin-right: 0.4rem;
+  vertical-align: -0.15em;
+}
+.detail-feedback-stale > button {
+  justify-self: start;
+  min-height: 2.75rem;
+  font-size: 0.95rem;
+}
 .detail-summary {
   display: block;
   margin: 0;

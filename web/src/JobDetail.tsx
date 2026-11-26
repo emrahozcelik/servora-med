@@ -88,6 +88,7 @@ import { apiFieldError } from './jobs/api-field-error';
 import type { RevisionCorrectionDraft } from './jobs/RevisionCorrectionDueField';
 import { hasValidPlannedIntervalForStart, plannedIntervalShape } from './jobs/job-schedule-integrity';
 import { ResultState } from './ui/antd/ResultState';
+import { SignalGlyph } from './ui/signal-icons';
 import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import { formatWheelDisplay } from './ui/wheel-datetime';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
@@ -925,11 +926,46 @@ function JobScheduleEditForm({
   );
 }
 
+/**
+ * UI-FEEDBACK/A (07-manager-action-feedback §2 "Committed, refresh failed"):
+ * the server already accepted the mutation, but the follow-up canonical read
+ * failed. The record on screen may be stale, so this notice never reports a
+ * mutation failure and its only action reuses the serialized realtime reload.
+ */
+export function CommittedStaleNotice({ message, reloadPending, onReload, feedbackRef }: {
+  message: string;
+  reloadPending: boolean;
+  onReload: () => void;
+  feedbackRef?: Ref<HTMLDivElement>;
+}) {
+  return (
+    <div
+      ref={feedbackRef}
+      className="detail-feedback detail-feedback-stale"
+      role="status"
+      tabIndex={-1}
+      data-job-detail-section="feedback"
+      data-job-detail-committed-refresh="true"
+    >
+      <p className="detail-feedback-stale-heading">
+        <SignalGlyph name="exclamation" className="detail-feedback-stale-icon" size={16} />
+        <span>{message ? `${message} ` : ''}Güncel kayıt henüz yüklenemedi.</span>
+      </p>
+      <p className="detail-feedback-stale-help">
+        Gösterilen bilgiler eski olabilir; son durumu görmek için yenileyin.
+      </p>
+      <button className="secondary-button" type="button" disabled={reloadPending} onClick={onReload}>
+        {reloadPending ? 'Yükleniyor…' : 'Güncel durumu yenile'}
+      </button>
+    </div>
+  );
+}
+
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   onSaveAllDeliveredAtNow, scheduleShiftSignal, onRequestChange,
-  meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
+  meetingDetails = null, records, realtimeStaleNotice, committedStaleNotice, notes, timeline, children,
   pendingLabel, pendingCommand, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
@@ -961,6 +997,8 @@ export function JobDetailPanel({
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
   realtimeStaleNotice?: ReactNode;
+  /** UI-FEEDBACK/A: committed mutation whose canonical re-read failed. */
+  committedStaleNotice?: ReactNode;
   notes?: ReactNode;
   timeline?: ReactNode;
   children?: ReactNode;
@@ -1207,7 +1245,7 @@ export function JobDetailPanel({
       {lifecycleSection}
       {message && (
         <div
-          ref={feedbackRef}
+          ref={committedStaleNotice ? undefined : feedbackRef}
           className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
           role={messageIsError ? 'alert' : 'status'}
           tabIndex={-1}
@@ -1216,9 +1254,10 @@ export function JobDetailPanel({
           {message}
         </div>
       )}
+      {committedStaleNotice}
       {pairGuidance && (
         <div
-          ref={message ? undefined : feedbackRef}
+          ref={message || committedStaleNotice ? undefined : feedbackRef}
           tabIndex={-1}
           data-job-detail-section="feedback"
           data-job-detail-pair-guidance="true"
@@ -1597,6 +1636,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [scheduleShiftSignal, setScheduleShiftSignal] = useState(0);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
+  /** UI-FEEDBACK/A: a committed mutation whose canonical re-read failed. */
+  const [committedStale, setCommittedStale] = useState<{ message: string } | null>(null);
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [timelineKey, setTimelineKey] = useState(0);
@@ -1832,6 +1873,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
     if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
       setRealtimeStale(false);
+      setCommittedStale(null);
       setSaleOriginPending(false);
     }
   }
@@ -1879,6 +1921,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     dialogTriggerRef.current = null;
     dialogFocusRestoreEnabledRef.current = true;
     setRealtimeStale(false);
+    setCommittedStale(null);
     setSaleOriginPending(false);
     setRealtimeReloadPending(false);
     setEditing(false);
@@ -1959,6 +2002,30 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setLifecycleNoteKey((value) => value + 1);
     markReconciledThrough(generationAtStart);
     return true;
+  }
+
+  /**
+   * UI-FEEDBACK/A: keep the committed receipt separate from its canonical
+   * re-read. `refreshTruth` stays the single serialized reconciliation path;
+   * this wrapper only classifies its outcome. A 403/404 keeps the handler's
+   * previous terminal path (the caller re-reads it as before). Any other read
+   * failure is not a mutation failure: the notice offers the existing serialized
+   * reload instead of starting a second read pipeline or retrying the mutation.
+   */
+  async function refreshAfterCommit(successMessage: string): Promise<'fresh' | 'stale' | 'inactive'> {
+    const operationJobId = jobId;
+    const operationSession = sessionLifetime.current.token;
+    try {
+      return (await refreshTruth()) ? 'fresh' : 'inactive';
+    } catch (caught) {
+      if (!isOperationCurrent(operationSession, operationJobId)) return 'inactive';
+      if (caught instanceof ApiError && (caught.status === 403 || caught.status === 404)) {
+        throw caught;
+      }
+      setCommittedStale({ message: successMessage });
+      setMessage('');
+      return 'stale';
+    }
   }
 
   async function reconcileInvalidationAttempt(
@@ -2148,6 +2215,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (state.kind === 'ready' && error instanceof ApiError && error.status === 404) {
           setState({ kind: 'error', message: error.message, retryable: false });
           setRealtimeStale(false);
+          setCommittedStale(null);
         } else setRealtimeStale(true);
       }
       // A failed read cannot settle queued invalidations. Stop this drain;
@@ -2279,6 +2347,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setPendingCommand(command); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
+    setCommittedStale(null);
     setPairGuidance(null);
     const retained = lifecycleAttempt.current;
     const input = retained?.input ?? { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
@@ -2351,9 +2420,46 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!attempt) return;
       const updated = await executeLifecycleCommand(operationJobId, attempt.command, attempt.input, attempt.reason);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      // The receipt text is known before the re-read, so a committed-but-stale
+      // notice can name exactly what the server accepted (UI-FEEDBACK/A).
+      const transition = findTransition(presentation, command);
+      const continuity = attempt.input.followUpContinuity;
+      let committedMessage = transition
+        ? transition.successMessage
+          + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null)
+          + (updated.deliveryJobCardId ? ' Teslim işi oluşturuldu.' : '')
+        : '';
+      if (command === 'CANCEL' && continuity?.decision === 'RESCHEDULE') {
+        committedMessage = `İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
+          dateStyle: 'medium', timeStyle: 'short',
+        }).format(new Date(continuity.scheduledAt))} için planlandı.`;
+      } else if (command === 'CANCEL' && continuity?.decision === 'END_CYCLE') {
+        committedMessage = 'İş iptal edildi ve takip döngüsü sonlandırıldı.';
+      }
+      // #347: location is advisory at both checkpoints. Precedence is
+      // deterministic: the lifecycle already succeeded, an unavailable local
+      // snapshot yields enablement guidance, a captured SUBMIT keeps the
+      // Slice-2 DIFFERENT distance advisory, everything else stays ordinary.
+      const localCapture = attempt.input.locationCapture;
+      if (command === 'START' && localCapture?.outcome === 'unavailable') {
+        committedMessage = startLocationUnavailableAdvisory({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        });
+      } else if (command === 'SUBMIT_FOR_APPROVAL' && localCapture?.outcome === 'unavailable') {
+        committedMessage = submitLocationUnavailableGuidance({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        });
+      } else if (command === 'SUBMIT_FOR_APPROVAL'
+        && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
+        committedMessage = submitComparisonWarning(updated.submitLocationComparison.distanceMeters);
+      }
+      let read: 'fresh' | 'stale' | 'inactive' = 'fresh';
       if (retained || (state.detail.kind === 'SALES_MEETING' && command === 'START')) {
-        if (!(await refreshTruth())) return;
-        if (!(await requestRealtimeDrain())) return;
+        read = await refreshAfterCommit(committedMessage);
+        if (read === 'inactive') return;
+        if (read === 'fresh' && !(await requestRealtimeDrain())) return;
       } else {
         setState({
           kind: 'ready',
@@ -2380,47 +2486,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       setLifecycleNoteKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) {
+        // A committed-but-stale receipt owns focus; the old trigger must not
+        // steal it back after the dialog unmounts.
+        if (read === 'stale') dialogFocusRestoreEnabledRef.current = false;
         setDialog(null);
         resetFollowUpState();
         setCancelContinuity(null);
         setAssignmentReason(null);
         setRevisionCorrection(null);
       }
-      const transition = findTransition(presentation, command);
-      if (transition) {
-        setMessage(
-          transition.successMessage
-          + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null)
-          + (updated.deliveryJobCardId ? ' Teslim işi oluşturuldu.' : ''),
-        );
-      }
-      const continuity = attempt.input.followUpContinuity;
-      if (command === 'CANCEL' && continuity?.decision === 'RESCHEDULE') {
-        setMessage(`İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
-          dateStyle: 'medium', timeStyle: 'short',
-        }).format(new Date(continuity.scheduledAt))} için planlandı.`);
-      } else if (command === 'CANCEL' && continuity?.decision === 'END_CYCLE') {
-        setMessage('İş iptal edildi ve takip döngüsü sonlandırıldı.');
-      }
-      // #347: location is advisory at both checkpoints. Precedence is
-      // deterministic: the lifecycle already succeeded, an unavailable local
-      // snapshot yields enablement guidance, a captured SUBMIT keeps the
-      // Slice-2 DIFFERENT distance advisory, everything else stays ordinary.
-      const localCapture = attempt.input.locationCapture;
-      if (command === 'START' && localCapture?.outcome === 'unavailable') {
-        setMessage(startLocationUnavailableAdvisory({
-          reason: localCapture.reason,
-          device: classifyDevice(readDeviceSignals()),
-        }));
-      } else if (command === 'SUBMIT_FOR_APPROVAL' && localCapture?.outcome === 'unavailable') {
-        setMessage(submitLocationUnavailableGuidance({
-          reason: localCapture.reason,
-          device: classifyDevice(readDeviceSignals()),
-        }));
-      } else if (command === 'SUBMIT_FOR_APPROVAL'
-        && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
-        setMessage(submitComparisonWarning(updated.submitLocationComparison.distanceMeters));
-      }
+      if (read === 'fresh') setMessage(committedMessage);
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
@@ -2591,12 +2666,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
+    setCommittedStale(null);
     try {
       const meetingDetails = await patchMeetingDetails(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return meetingDetails;
-      if (!(await refreshTruth())) return meetingDetails;
-      if (!(await requestRealtimeDrain())) return meetingDetails;
+      const read = await refreshAfterCommit('Görüşme sonucu kaydedildi.');
+      if (read === 'inactive') return meetingDetails;
+      if (read === 'fresh' && !(await requestRealtimeDrain())) return meetingDetails;
       setTimelineKey((value) => value + 1);
+      if (read === 'stale') setFeedbackFocusRequest((value) => value + 1);
       onChanged();
       return meetingDetails;
     } catch (caught) {
@@ -2744,16 +2822,23 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     mutationEpoch.current += 1;
     lastSavePatchErrorRef.current = '';
     setPending(true); setMessage(''); setMessageIsError(false);
+    setCommittedStale(null);
     setDeadlineExtensionError(null);
     try {
       const patched = await patchJobCard(operationJobId, acknowledgement
         ? { ...input, ...pastStartAcknowledgementPayload(acknowledgement) }
         : input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return false;
-      if (!(await refreshTruth())) return false;
+      const read = await refreshAfterCommit(successMessage);
+      if (read === 'inactive') return false;
       setEditing(false); setTimelineKey((value) => value + 1);
-      if (!(await requestRealtimeDrain())) return false;
-      setMessage(successMessage); onChanged();
+      if (read === 'fresh') {
+        if (!(await requestRealtimeDrain())) return false;
+        setMessage(successMessage);
+      } else {
+        setFeedbackFocusRequest((value) => value + 1);
+      }
+      onChanged();
       if (
         patched.assignmentTransitionId
         && input.assignedTo !== undefined
@@ -2860,6 +2945,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    setCommittedStale(null);
     setDeadlineExtensionError(null);
     try {
       await patchJobCard(operationJobId, {
@@ -2879,10 +2965,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         ...pastStartAcknowledgementPayload(acknowledgement),
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      if (!(await refreshTruth())) return;
-      if (!(await requestRealtimeDrain())) return;
+      const read = await refreshAfterCommit('Planlanan zaman güncellendi.');
+      if (read === 'inactive') return;
+      if (read === 'fresh' && !(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
-      setMessage('Planlanan zaman güncellendi.');
+      if (read === 'fresh') setMessage('Planlanan zaman güncellendi.');
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
@@ -2955,16 +3042,19 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    setCommittedStale(null);
     try {
       await patchDeliveryItem(operationJobId, itemId, {
         expectedVersion: state.detail.job.version,
         deliveredAt,
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      if (!(await refreshTruth())) return;
-      if (!(await requestRealtimeDrain())) return;
+      const read = await refreshAfterCommit('Gerçekleşen teslim zamanı kaydedildi.');
+      if (read === 'inactive') return;
+      if (read === 'fresh' && !(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
-      setMessage('Gerçekleşen teslim zamanı kaydedildi.');
+      if (read === 'fresh') setMessage('Gerçekleşen teslim zamanı kaydedildi.');
+      else setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
@@ -3008,6 +3098,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const deliveredAt = localDateTimeToIso(defaultDeliveredAtLocalValue());
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    setCommittedStale(null);
     let expectedVersion = state.detail.job.version;
     let savedCount = 0;
     try {
@@ -3020,10 +3111,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         expectedVersion = updated.jobCardVersion;
         savedCount += 1;
       }
-      if (!(await refreshTruth())) return;
-      if (!(await requestRealtimeDrain())) return;
+      const read = await refreshAfterCommit(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
+      if (read === 'inactive') return;
+      if (read === 'fresh' && !(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
-      setMessage(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
+      if (read === 'fresh') setMessage(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
@@ -3661,11 +3753,17 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     message={message}
     messageIsError={messageIsError}
     feedbackRef={feedbackRef}
-    realtimeStaleNotice={realtimeStale ? <div className="detail-feedback detail-feedback-error" role="status">
+    realtimeStaleNotice={realtimeStale && !committedStale ? <div className="detail-feedback detail-feedback-error" role="status">
       <p>Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.</p>
       <button className="secondary-button" type="button" disabled={pending || realtimeReloadPending}
         onClick={() => void reloadStaleTruth()}>{realtimeReloadPending ? 'Yükleniyor…' : 'En güncel bilgileri yükle'}</button>
     </div> : undefined}
+    committedStaleNotice={committedStale ? <CommittedStaleNotice
+      message={committedStale.message}
+      reloadPending={pending || realtimeReloadPending}
+      onReload={() => { void reloadStaleTruth(); }}
+      feedbackRef={feedbackRef}
+    /> : undefined}
     continuity={detail.kind !== 'SALE' && isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
     submissionLateness={
       detail.job.status === 'IN_PROGRESS' || detail.job.status === 'REVISION_REQUESTED' || isManagementUser(user)
