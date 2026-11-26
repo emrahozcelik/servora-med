@@ -6,13 +6,16 @@ import type { JobCardStatus } from '../job-cards/types.js';
 import type { RealtimeEventPublisher } from '../realtime/event-bus.js';
 import type { RealtimeEventInput } from '../realtime/types.js';
 import type {
+  AssigneeSyncHint,
   ConversationContextType,
   ConversationListCursor,
   ConversationListView,
   ConversationListPage,
   ConversationListItem,
+  ConversationParticipantSummary,
   ConversationRecord,
   CreateConversationInput,
+  JobConversationLookup,
   MessageCursor,
   MessagePage,
   MessageRecord,
@@ -54,17 +57,21 @@ function validateBody(body: unknown): string {
   return body;
 }
 
-function parseAssignee(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'object') {
-    throw new AppError('STALE_REASSIGNMENT', 409, 'Atama geçişi kaydı geçersiz.');
-  }
+function tryParseAssignee(value: unknown): { valid: boolean; userId: string | null } {
+  if (value === null || value === undefined) return { valid: true, userId: null };
+  if (typeof value !== 'object') return { valid: false, userId: null };
   const assignedTo = (value as { assignedTo?: unknown }).assignedTo;
-  if (assignedTo === null || assignedTo === undefined) return null;
-  if (typeof assignedTo !== 'string') {
+  if (assignedTo === null || assignedTo === undefined) return { valid: true, userId: null };
+  if (typeof assignedTo !== 'string') return { valid: false, userId: null };
+  return { valid: true, userId: assignedTo };
+}
+
+function parseAssignee(value: unknown): string | null {
+  const parsed = tryParseAssignee(value);
+  if (!parsed.valid) {
     throw new AppError('STALE_REASSIGNMENT', 409, 'Atama geçişi kaydı geçersiz.');
   }
-  return assignedTo;
+  return parsed.userId;
 }
 function buildDirectKey(
   initiatorUserId: string,
@@ -143,7 +150,7 @@ export class MessagingService {
   async getJobConversation(
     actor: SafeUser,
     jobId: string,
-  ): Promise<ConversationListItem> {
+  ): Promise<JobConversationLookup> {
     const canonical = await this.repository.findCanonicalJobConversation(
       actor.organizationId, jobId,
     );
@@ -168,6 +175,9 @@ export class MessagingService {
         WHERE organization_id = $1 AND id = $2`,
       [actor.organizationId, jobId],
     );
+    const assigneeSync = await this.resolveAssigneeSyncHint(
+      actor, jobId, jobAccess, participants,
+    );
     return {
       id: canonical.id,
       directKey: canonical.directKey,
@@ -184,6 +194,7 @@ export class MessagingService {
       unreadCount: 0,
       lastActivityAt: canonical.updatedAt.toISOString(),
       updatedAt: canonical.updatedAt.toISOString(),
+      assigneeSync,
     };
   }
 
@@ -760,13 +771,14 @@ export class MessagingService {
   }
 
   /**
-   * M9: explicit JOB assignee conversation sync.
+   * M9 / MSG-002: explicit JOB assignee conversation sync.
    *
    * Purpose-specific operation: only the verified Staff assignment transition
    * identified by its immutable JOB_ASSIGNED activity ID may alter membership.
-   * The client never supplies participant IDs. Authorization (participant +
-   * ADMIN/MANAGER + current Job resource auth) is re-evaluated on every request,
-   * including idempotent replay. Admin/Manager membership is immutable here.
+   * The client never supplies participant IDs. Authorization (ADMIN/MANAGER +
+   * current Job resource auth via canReadConversation; persisted membership is
+   * not required) is re-evaluated on every request, including idempotent replay.
+   * Admin/Manager membership is immutable here.
    */
   async syncJobAssignee(
     actor: SafeUser,
@@ -792,7 +804,14 @@ export class MessagingService {
       );
       const isParticipant = participants.some((p) => p.userId === actor.id);
       if (actor.role === 'STAFF') throw forbidden();
-      if (!isParticipant) throw notFound();
+      const jobAccess: JobAccessContext = {
+        organizationId: actor.organizationId,
+        status: job.status as JobCardStatus,
+        assignedTo: job.assignedTo ?? '',
+      };
+      if (!canReadConversation({ actor, conversation, job: jobAccess, isParticipant })) {
+        throw notFound();
+      }
 
       if (isTerminalJobStatus(job.status as JobCardStatus)) {
         throw new AppError('JOB_NOT_EDITABLE', 409, 'Tamamlanan işlerde katılımcı değiştirilemez.');
@@ -1162,6 +1181,56 @@ export class MessagingService {
     } finally {
       client.release();
     }
+  }
+
+  private async resolveAssigneeSyncHint(
+    actor: SafeUser,
+    jobId: string,
+    jobAccess: JobAccessContext | null,
+    participants: readonly ConversationParticipantSummary[],
+  ): Promise<AssigneeSyncHint | null> {
+    if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER') return null;
+    if (!jobAccess || isTerminalJobStatus(jobAccess.status)) return null;
+
+    const latestActivityId = await this.repository.findLatestAssignmentActivityId(
+      actor.organizationId, jobId,
+    );
+    if (!latestActivityId) return null;
+
+    const activity = await this.repository.findAssignmentActivityById(
+      actor.organizationId, jobId, latestActivityId,
+    );
+    if (!activity || activity.eventType !== 'JOB_ASSIGNED') return null;
+
+    const parsedOld = tryParseAssignee(activity.oldValue);
+    const parsedNew = tryParseAssignee(activity.newValue);
+    if (!parsedOld.valid || !parsedNew.valid || !parsedNew.userId) return null;
+
+    const newAssigneeId = parsedNew.userId;
+    if (newAssigneeId !== jobAccess.assignedTo) return null;
+    if (participants.some((p) => p.userId === newAssigneeId)) return null;
+
+    const userIds = parsedOld.userId && parsedOld.userId !== newAssigneeId
+      ? [newAssigneeId, parsedOld.userId]
+      : [newAssigneeId];
+    const usersResult = await this.pool.query<{ id: string; name: string; role: string }>(
+      `SELECT id, name, role
+         FROM users
+        WHERE organization_id = $1 AND id = ANY($2::uuid[])`,
+      [actor.organizationId, userIds],
+    );
+    const newUser = usersResult.rows.find((row) => row.id === newAssigneeId);
+    if (!newUser || newUser.role !== 'STAFF') return null;
+
+    const previousUser = parsedOld.userId
+      ? usersResult.rows.find((row) => row.id === parsedOld.userId) ?? null
+      : null;
+
+    return {
+      transitionId: activity.id,
+      previousAssignee: previousUser ? { id: previousUser.id, name: previousUser.name } : null,
+      newAssignee: { id: newUser.id, name: newUser.name },
+    };
   }
 
   private async fetchJobAccess(
