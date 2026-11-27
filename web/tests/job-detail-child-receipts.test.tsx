@@ -1516,6 +1516,214 @@ describe('JobDetail child decision receipts', () => {
   });
 
   /**
+   * UI-FEEDBACK/B regression (terminal access loss vs older reads): a child
+   * decision's post-commit read is still in flight when an older 403/404
+   * eventually produces a terminal access-lost screen through the recheck.
+   * The late post-commit 200 must not reopen the record or resurrect a receipt.
+   */
+  function terminalAfterRecheckHarness(status: 403 | 404) {
+    const before = offerJob({
+      scheduledAt: '2030-06-10T09:00:00.000Z',
+      scheduledEndsAt: '2030-06-10T09:30:00.000Z',
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    });
+    const error = status === 403
+      ? { error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN' }
+      : { error: 'İş bulunamadı.', code: 'JOB_CARD_NOT_FOUND' };
+    let detailGets = 0;
+    let grantPosts = 0;
+    let reofferPosts = 0;
+    let releaseOld: ((response: Response) => void) | null = null;
+    let releasePostCommit: ((response: Response) => void) | null = null;
+    let releaseRecheck: ((response: Response) => void) | null = null;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = url.split('?')[0] ?? url;
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/delivery-items')) return json({ items: [] });
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'POST' && path.endsWith('/api/job-cards/job-1/early-start-authorization')) {
+        grantPosts += 1;
+        return json({
+          error: 'Bu iş için geçerli bir erken başlama izni zaten var.',
+          code: 'EARLY_START_ALREADY_AUTHORIZED',
+        }, 409);
+      }
+      if (method === 'POST' && path.endsWith('/api/job-cards/job-1/assignment-offers/reoffer')) {
+        reofferPosts += 1;
+        return json({
+          jobCardId: 'job-1', offerId: 'offer-2',
+          acceptanceDueAt: '2030-06-09T12:00:00.000Z', urgentReason: 'START_PASSED',
+        }, 201);
+      }
+      if (method === 'GET' && detailUrlMatches(url, before.id)) {
+        detailGets += 1;
+        if (detailGets === 1) return json(before);
+        if (detailGets === 2) {
+          // The older early-start reload.
+          return new Promise<Response>((resolve) => { releaseOld = resolve; });
+        }
+        if (detailGets === 3) {
+          // The re-offer's post-commit read, held until after the terminal.
+          return new Promise<Response>((resolve) => { releasePostCommit = resolve; });
+        }
+        if (detailGets === 4) {
+          return new Promise<Response>((resolve) => { releaseRecheck = resolve; });
+        }
+        return json(before);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    return {
+      before, fetch, error,
+      detailGets: () => detailGets,
+      grantPosts: () => grantPosts,
+      reofferPosts: () => reofferPosts,
+      oldHeld: () => releaseOld !== null,
+      postCommitHeld: () => releasePostCommit !== null,
+      recheckHeld: () => releaseRecheck !== null,
+      releaseOld: (response: Response) => {
+        if (releaseOld === null) throw new Error('Older read is not held');
+        releaseOld(response);
+      },
+      releasePostCommit: (response: Response) => {
+        if (releasePostCommit === null) throw new Error('Post-commit read is not held');
+        releasePostCommit(response);
+      },
+      releaseRecheck: (response: Response) => {
+        if (releaseRecheck === null) throw new Error('Access recheck is not held');
+        releaseRecheck(response);
+      },
+    };
+  }
+
+  it.each([403, 404] as const)(
+    'keeps the access-lost state when an older 200 arrives after a terminal %s recheck',
+    async (status) => {
+      const harness = terminalAfterRecheckHarness(status);
+      await renderScreen(harness.before, harness.fetch);
+      await click(host, 'Erken başlamaya izin ver');
+      await click(host, 'Erken başlama iznini kaydet');
+      await settle();
+      expect(harness.oldHeld()).toBe(true);
+
+      await click(host, 'Aynı zamanla yeniden teklif et');
+      await settle();
+      expect(harness.postCommitHeld()).toBe(true);
+
+      // The older read lands first and schedules the serialized recheck.
+      await act(async () => {
+        harness.releaseOld(json({
+          error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+        }, 403));
+      });
+      await settle();
+      expect(harness.recheckHeld()).toBe(true);
+
+      // The recheck is terminal; only then does the held post-commit read 200.
+      await act(async () => { harness.releaseRecheck(json(harness.error, status)); });
+      await settle();
+      expect(host.textContent).toContain(harness.error.error);
+      expect(host.querySelector('main[data-job-detail="true"]')).toBeNull();
+
+      await act(async () => {
+        harness.releasePostCommit(json({ ...harness.before, version: 4 }));
+      });
+      await settle();
+
+      expect(harness.detailGets()).toBe(4);
+      expect(host.textContent).toContain(harness.error.error);
+      expect(host.querySelector('main[data-job-detail="true"]')).toBeNull();
+      expect(receiptRegions('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.')).toHaveLength(0);
+    },
+  );
+
+  /**
+   * UI-FEEDBACK/B regression (older 403 after a reconciled read): once the
+   * child decision's post-commit read has reconciled, a late deferred 403 must
+   * not schedule another GET or surface a stale/terminal state. The receipt is
+   * announced exactly once.
+   */
+  it('does not recheck or go stale when a reconciled read already proved access before an older 403', async () => {
+    const before = offerJob({
+      scheduledAt: '2030-06-10T09:00:00.000Z',
+      scheduledEndsAt: '2030-06-10T09:30:00.000Z',
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    });
+    let detailGets = 0;
+    let releaseOld: ((response: Response) => void) | null = null;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = url.split('?')[0] ?? url;
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/delivery-items')) return json({ items: [] });
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'POST' && path.endsWith('/api/job-cards/job-1/early-start-authorization')) {
+        return json({
+          error: 'Bu iş için geçerli bir erken başlama izni zaten var.',
+          code: 'EARLY_START_ALREADY_AUTHORIZED',
+        }, 409);
+      }
+      if (method === 'POST' && path.endsWith('/api/job-cards/job-1/assignment-offers/reoffer')) {
+        return json({
+          jobCardId: 'job-1', offerId: 'offer-2',
+          acceptanceDueAt: '2030-06-09T12:00:00.000Z', urgentReason: 'START_PASSED',
+        }, 201);
+      }
+      if (method === 'GET' && detailUrlMatches(url, before.id)) {
+        detailGets += 1;
+        if (detailGets === 1) return json(before);
+        if (detailGets === 2) {
+          return new Promise<Response>((resolve) => { releaseOld = resolve; });
+        }
+        if (detailGets === 3) return json({ ...before, version: 4 });
+        // Only a wrongly scheduled recheck reaches this read.
+        return json({ error: 'Sunucu hatası.' }, 500);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(before, fetch);
+    await click(host, 'Erken başlamaya izin ver');
+    await click(host, 'Erken başlama iznini kaydet');
+    await settle();
+    expect(releaseOld).not.toBeNull();
+
+    await click(host, 'Aynı zamanla yeniden teklif et');
+    await settle();
+
+    // The post-commit 200 already reconciled; the older 403 is superseded.
+    await act(async () => {
+      releaseOld!(json({
+        error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+      }, 403));
+    });
+    await settle();
+    await settle();
+
+    expect(detailGets).toBe(3);
+    expect(host.querySelector('main[data-job-detail="true"]')).not.toBeNull();
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi.');
+    expect(host.textContent).not.toContain('İş yüklenemedi');
+    expect(receiptRegions('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.')).toHaveLength(1);
+    expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent)
+      .toContain('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
+  });
+
+  /**
    * UI-FEEDBACK/B regression (deferred access loss): an early-start grant is
    * rejected, so its page-owned reload is in flight. A record edit then starts
    * and defers that read's 403 behind the mutation epoch. When the edit ends
