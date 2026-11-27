@@ -362,6 +362,20 @@ If tests do not exist yet, create the smallest useful test harness for the touch
 * Document verification commands and results.
 * Keep examples realistic for medical/dental B2B sales and product delivery usage.
 
+### Decision progress handoff
+
+For every task linked to an accepted product decision or a proposed new module,
+read [decision delivery tracking](docs/decision-tracking/README.md) and the
+relevant entry in [the register](docs/decision-tracking/REGISTER.md), in addition
+to the owning policy/feature contract. The register is a non-normative progress
+ledger, not a new decision authority. Update the entry in the scoped task PR
+when evidence-backed milestones change; never mark a feature **Closed** merely
+because source code exists, CI passed, or a PR merged. Production release,
+activation, and functional acceptance are separate gates. If a gate is not
+verified, leave it unchecked with a concrete pending-proof note. Do not
+retroactively mark unrelated work complete, turn proposals into accepted
+decisions, or let this ledger authorize merges, migrations, or deployment.
+
 ---
 
 ## 12. Task Completion Format
@@ -445,6 +459,7 @@ skill precedence and accessibility completion requirements.
 | Document | Owns | Read when |
 | -------- | ---- | --------- |
 | `DECISIONS.md` | Accepted architectural and domain decisions (UI/DOM/ARC/SEC/SALE/MOD) | Before changing behavior, scope, or boundaries |
+| `docs/decision-tracking/` | Non-normative delivery/verification status per decision | At task intake and whenever an evidence-backed milestone changes |
 | `DESIGN.md` | Visual system, components, interaction and responsive rules | Before any UI/UX/accessibility implementation or review (with PRODUCT.md and UI-001) |
 | `PRODUCT.md` | Users, product context, UX and accessibility expectations | Before any UI/UX/accessibility implementation or review, and product wording |
 | `PRODUCT_REQUIREMENTS.md` | Workflows, JobCard lifecycle diagram, MVP scope | Before workflow, lifecycle, or scope questions |
