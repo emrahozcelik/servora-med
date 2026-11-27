@@ -8,10 +8,11 @@ import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresJobCardRepository, PostgresJobCardTransaction } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
+import { weeklyReportRoutes } from '../src/modules/weekly-reports/routes.js';
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import { parseWeeklyReportBulkRequestInput, parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
+import { PostgresWeeklyReportHistoryRepository } from '../src/modules/weekly-reports/history-repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -303,15 +304,36 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
     });
   });
 
-  it('rolls back removal, invalidation and period release when an audit write fails', async () => {
+  it('rolls back invalidation and period release when the later report audit fails', async () => {
     await withFixture(async ({ pool, service, admin, staff }) => {
       const created = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
-      const spy = vi.spyOn(PostgresJobCardTransaction.prototype,'appendAudit').mockRejectedValueOnce(new Error('forced audit failure'));
+      const actionId = randomUUID();
+      const countRealtime = async () => (await pool.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM realtime_events WHERE organization_id=$1 AND entity_id=$2',
+        [admin.organizationId, created.jobCardId],
+      )).rows[0]!.n;
+      const realtimeBefore = await countRealtime();
+      const appendAudit = PostgresJobCardTransaction.prototype.appendAudit;
+      const spy = vi.spyOn(PostgresJobCardTransaction.prototype, 'appendAudit')
+        .mockImplementation(function (input) {
+          if (input.eventType === 'WEEKLY_REPORT_REMOVED') {
+            return Promise.reject(new Error('forced removal audit failure'));
+          }
+          return appendAudit.call(this, input);
+        });
       try {
-        await expect(service.removeWeeklyReport(admin,created.jobCardId,{ clientActionId: randomUUID(),
-          expectedVersion: 1,expectedReportVersion: 1,reason: 'Hatalı hafta.' })).rejects.toThrow('forced audit failure');
+        await expect(service.removeWeeklyReport(admin, created.jobCardId, { clientActionId: actionId,
+          expectedVersion: 1, expectedReportVersion: 1, reason: 'Hatalı hafta.' }))
+          .rejects.toThrow('forced removal audit failure');
       } finally { spy.mockRestore(); }
+      expect(await countRealtime()).toBe(realtimeBefore);
+      expect((await pool.query(
+        'SELECT count(*)::int AS n FROM processed_actions WHERE client_action_id=$1', [actionId],
+      )).rows[0].n).toBe(0);
+      expect((await pool.query(
+        'SELECT count(*)::int AS n FROM audit_events WHERE subject_id=$1', [created.jobCardId],
+      )).rows[0].n).toBe(0);
       expect(await service.getWeeklyReport(admin,created.jobCardId)).toMatchObject({ removal: null,version: 1,jobVersion: 1,jobStatus: 'ACCEPTED' });
       expect((await pool.query("SELECT count(*)::int AS n FROM job_card_activity_logs WHERE event_type IN ('WEEKLY_REPORT_REMOVED','JOB_INVALIDATED')")).rows[0].n).toBe(0);
       await expect(service.createWeeklyReport(staff,parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart })))
@@ -361,7 +383,7 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       expect(latest.jobCardId).not.toBe(replacementId);
       expect(await service.createWeeklyReport(staff,input)).toEqual(original);
       expect(await service.bulkRequestWeeklyReports(admin,bulkInput)).toEqual(bulk);
-      const repository = new PostgresJobCardRepository(pool);
+      const repository = new PostgresWeeklyReportHistoryRepository(pool);
       const history = await repository.listForStaff({ organizationId: staff.organizationId,targetUserId: staff.id,actor: staff,limit: 20,offset: 0 });
       expect(history.total).toBe(3);
       expect(history.items[0]).toMatchObject({ jobCardId: latest.jobCardId,removedAt: null });
@@ -571,7 +593,7 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
   }, 20000);
 
   it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {
-    await withFixture(async ({ service, admin, staff, manager }) => {
+    await withFixture(async ({ pool, service, admin, staff, manager }) => {
       const original = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
       let current: JobCardActor | null = null;
@@ -579,7 +601,8 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       app.setErrorHandler((error,_request,reply) => {
         const result = toErrorResponse(error);reply.code(result.statusCode).send(result.body);
       });
-      await app.register(jobCardRoutes,{ prefix: '/api/job-cards',service,authenticate: async request => {
+      await app.register(weeklyReportRoutes,{ prefix: '/api/job-cards',service,
+        timezones: new PostgresJobCardRepository(pool),authenticate: async request => {
         if (!current) throw new AppError('UNAUTHORIZED',401,'Oturum açın.');
         request.currentUser = { ...current,name:'Test user',email:'test@example.test',isActive:true,mustChangePassword:false,version:1 };
       } });

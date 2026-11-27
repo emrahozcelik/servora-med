@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
+import { weeklyReportRoutes } from '../src/modules/weekly-reports/routes.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 import type {
   WeeklyReportRow,
@@ -74,7 +74,9 @@ function repositoryDouble(input: {
     findJobCard: vi.fn().mockResolvedValue(job),
     getWeeklyReportByJobId: vi.fn().mockResolvedValue(report),
     getWeeklyReportSubmissionBySeq: vi.fn().mockResolvedValue(submission),
-    getUserDisplayName: vi.fn().mockResolvedValue(input.staffName ?? 'Ayşe Personel'),
+    getUserDisplayName: vi.fn().mockResolvedValue(
+      input.staffName === undefined ? 'Ayşe Personel' : input.staffName,
+    ),
     // Every write surface the download must never touch.
     appendActivity: vi.fn(),
     executeCriticalAction: vi.fn(),
@@ -157,7 +159,8 @@ describe('Weekly Report submission PDF — authorization matrix', () => {
   it('falls back to the submitter id when the display name is unavailable', async () => {
     const repository = repositoryDouble({ staffName: null });
     const result = await serviceWith(repository).weeklyReportSubmissionPdf(managerActor, 'job-1', 2);
-    expect(result.buffer.length).toBeGreaterThan(0);
+    expect(repository.getUserDisplayName).toHaveBeenCalledWith('org-1', 'staff-1');
+    expect(pdfDecodedText(result.buffer)).toMatch(/Personel\s*staff-1/);
   });
 
   it('projects the frozen source-work status end to end, never the live job status', async () => {
@@ -182,6 +185,10 @@ describe('Weekly Report submission PDF — authorization matrix', () => {
     });
     const result = await serviceWith(repository).weeklyReportSubmissionPdf(managerActor, 'job-1', 2);
     const text = pdfDecodedText(result.buffer);
+    expect(text).toContain('Dondurulmuş özet');
+    expect(text).toContain('Dondurulmuş yanıt');
+    expect(text).not.toContain('Canlı taslak özeti');
+    expect(text).not.toContain('Canlı yanıt');
     expect(text).toContain('Tamamlandı');
     expect(text).toContain('Onay bekliyor');
     expect(text).not.toContain('COMPLETED');
@@ -214,7 +221,12 @@ async function createApp(service: ReturnType<typeof routesServiceDouble>) {
       role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
     };
   };
-  await app.register(jobCardRoutes, { prefix: '/api/job-cards', service: service as never, authenticate });
+  await app.register(weeklyReportRoutes, {
+    prefix: '/api/job-cards',
+    service: service as never,
+    authenticate,
+    timezones: { getOrganizationTimezone: async () => 'Europe/Istanbul' },
+  });
   apps.push(app);
   return app;
 }

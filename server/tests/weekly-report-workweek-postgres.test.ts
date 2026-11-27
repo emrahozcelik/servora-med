@@ -16,7 +16,6 @@ import {
   PostgresOverdueBreachScannerRepository,
 } from '../src/modules/job-cards/overdue-breach-scanner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
-import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import {
@@ -24,6 +23,8 @@ import {
   parseWeeklyReportCreateInput,
 } from '../src/modules/weekly-reports/create-input.js';
 import { buildWeeklyReportPdfDocumentModel } from '../src/modules/weekly-reports/pdf/document-model.js';
+import { readWeeklyReportReference } from '../src/modules/weekly-reports/reference.js';
+import { weeklyReportRoutes } from '../src/modules/weekly-reports/routes.js';
 import { weekInstants } from '../src/modules/weekly-reports/source-work.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -82,6 +83,10 @@ function buildServiceAt(pool: Pool, iso: string | (() => Date)): JobCardService 
   );
 }
 
+function referenceAt(pool: Pool, organizationId: string, iso: string) {
+  return readWeeklyReportReference(new PostgresJobCardRepository(pool), organizationId, () => new Date(iso));
+}
+
 function actor(organizationId: string, id: string, role: JobCardActor['role']): JobCardActor {
   return { id, organizationId, role };
 }
@@ -132,13 +137,8 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
   it('A1–A3: derives Monday–Saturday reference period, today, and Monday due date in Europe/Istanbul', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'Europe/Istanbul');
-      const managerId = await insertUser(pool, organizationId, 'MANAGER');
-      const staffId = await insertUser(pool, organizationId, 'STAFF');
-      const manager = actor(organizationId, managerId, 'MANAGER');
-      const staff = actor(organizationId, staffId, 'STAFF');
 
       // A1: Friday 2026-11-20 10:00 Europe/Istanbul (07:00Z).
-      const friService = buildServiceAt(pool, '2026-11-20T07:00:00.000Z');
       const a1Expected = {
         timezone: 'Europe/Istanbul',
         today: '2026-11-20',
@@ -146,13 +146,11 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
         periodEnd: '2026-11-21',
         dueDate: '2026-11-23',
       };
-      expect(await friService.weeklyReportReference(manager)).toEqual(a1Expected);
-      expect(await friService.weeklyReportReference(staff)).toEqual(a1Expected);
+      expect(await referenceAt(pool, organizationId, '2026-11-20T07:00:00.000Z')).toEqual(a1Expected);
 
       // A2: Sunday 2026-11-22 Europe/Istanbul still references the just-ended working week,
       // with dueDate = 2026-11-23 (Monday).
-      const sunService = buildServiceAt(pool, '2026-11-22T10:00:00.000Z');
-      expect(await sunService.weeklyReportReference(manager)).toEqual({
+      expect(await referenceAt(pool, organizationId, '2026-11-22T10:00:00.000Z')).toEqual({
         timezone: 'Europe/Istanbul',
         today: '2026-11-22',
         periodStart: '2026-11-16',
@@ -161,8 +159,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
       });
 
       // A3: Monday 2026-11-23 00:30 Europe/Istanbul (Sunday 21:30Z) advances to the new working week.
-      const monService = buildServiceAt(pool, '2026-11-22T21:30:00.000Z');
-      expect(await monService.weeklyReportReference(manager)).toEqual({
+      expect(await referenceAt(pool, organizationId, '2026-11-22T21:30:00.000Z')).toEqual({
         timezone: 'Europe/Istanbul',
         today: '2026-11-23',
         periodStart: '2026-11-23',
@@ -262,9 +259,10 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
         const res = toErrorResponse(error);
         reply.code(res.statusCode).send(res.body);
       });
-      await app.register(jobCardRoutes, {
+      await app.register(weeklyReportRoutes, {
         prefix: '/api/job-cards',
         service,
+        timezones: new PostgresJobCardRepository(pool),
         authenticate: async (request) => {
           request.currentUser = {
             ...manager,
@@ -744,7 +742,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
 
       // Part 1: Monday 2026-11-23 10:00 Europe/Istanbul (07:00Z) requesting previous week 2026-11-16 ("Geçen hafta").
       const monService = buildServiceAt(pool, '2026-11-23T07:00:00.000Z');
-      const monRef = await monService.weeklyReportReference(manager);
+      const monRef = await referenceAt(pool, organizationId, '2026-11-23T07:00:00.000Z');
       expect(monRef).toEqual({
         timezone: 'Europe/Istanbul',
         today: '2026-11-23',
@@ -811,7 +809,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
 
       // Part 2: Tuesday 2026-11-24 10:00 Europe/Istanbul (07:00Z) requesting past week 2026-11-16 (late, D9).
       const tueService = buildServiceAt(pool, '2026-11-24T07:00:00.000Z');
-      const tueRef = await tueService.weeklyReportReference(manager);
+      const tueRef = await referenceAt(pool, organizationId, '2026-11-24T07:00:00.000Z');
       expect(tueRef.today).toBe('2026-11-24');
 
       const tueSingle = await tueService.createWeeklyReport(
@@ -912,7 +910,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
       // 2026-11-23T21:30:00.000Z is still Monday 2026-11-23 in UTC,
       // but already Tuesday 2026-11-24 00:30 in Europe/Istanbul.
       const midnightService = buildServiceAt(pool, '2026-11-23T21:30:00.000Z');
-      const ref = await midnightService.weeklyReportReference(manager);
+      const ref = await referenceAt(pool, organizationId, '2026-11-23T21:30:00.000Z');
       expect(ref.today).toBe('2026-11-24');
 
       const single = await midnightService.createWeeklyReport(

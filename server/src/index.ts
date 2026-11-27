@@ -15,6 +15,7 @@ import {
 import type { BackupHealthReadinessPort } from './modules/health/service.js';
 import { PostgresAuthRepository } from './modules/auth/repository.js';
 import { PostgresJobCardRepository } from './modules/job-cards/repository.js';
+import { PostgresWeeklyReportHistoryRepository } from './modules/weekly-reports/history-repository.js';
 import {
   AuthCredentialAdministration,
   PostgresSessionRevocationPort,
@@ -158,7 +159,7 @@ async function main() {
       authRepository: new PostgresAuthRepository(database.pool),
       jobCardRepository: jobCards,
       jobHistoryReadPort: jobCards,
-      weeklyReportHistoryReadPort: jobCards,
+      weeklyReportHistoryReadPort: new PostgresWeeklyReportHistoryRepository(database.pool),
       peopleRepository: new PostgresPeopleRepository(
         database.pool, credentials, sessions, customerAssignments,
       ),

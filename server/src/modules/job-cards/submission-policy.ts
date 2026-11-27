@@ -2,15 +2,7 @@ import { AppError } from '../../errors/index.js';
 import { MAX_SALE_ITEMS, saleQuantity } from './sale-input.js';
 import { isSaleTimeValid } from './sale-policy.js';
 import type { SubmissionReader } from './repository.js';
-import {
-  mapReport,
-  type WeeklyReportRow,
-} from '../weekly-reports/repository.js';
-import { weekInstants } from '../weekly-reports/source-work.js';
-import {
-  validateSubmissionAnswers,
-  validateSubmissionBody,
-} from '../weekly-reports/validation.js';
+import { evaluateWeeklyReport } from '../weekly-reports/submission.js';
 import {
   DELIVERY_PURPOSES,
   MEETING_OUTCOMES,
@@ -214,104 +206,6 @@ async function evaluateMeeting(
   return readiness(evaluatedAt, items, failure, details);
 }
 
-/**
- * Weekly Report submission readiness (V1 Slice 2 form rules). Never falls
- * into meeting requirements: a report has no customer, no meeting details
- * and no delivery items. Authorship is enforced here as well as in the
- * transition guard — only the assigned STAFF may submit their own report.
- *
- * Required: persisted summary + next-week plan; every frozen manager
- * question answered (1..4000 code points). Blockers stay optional and an
- * empty automatic source-work list never blocks submission.
- */
-async function evaluateWeeklyReport(
-  reader: SubmissionReader,
-  actor: JobCardActor,
-  jobCard: JobCard,
-  evaluatedAt: Date,
-  assigneeRequirement: SubmissionRequirement,
-): Promise<SubmissionEvaluation> {
-  const unauthorized = actor.role !== 'STAFF' || actor.id !== jobCard.assignedTo;
-  const missingItems: SubmissionRequirement[] = [
-    { code: 'WEEKLY_REPORT_FOUND', state: 'missing', field: 'weeklyReport' },
-    assigneeRequirement,
-    { code: 'WEEKLY_DRAFT_VALID', state: 'missing', field: 'draft' },
-    { code: 'WEEKLY_ANSWERS_COMPLETE', state: 'missing', field: 'managerAnswers' },
-    { code: 'WEEKLY_SOURCE_WORK_READY', state: 'missing', field: 'sourceWork' },
-  ];
-  if (unauthorized) {
-    return readiness(
-      evaluatedAt,
-      missingItems,
-      new AppError(
-        'FORBIDDEN',
-        403,
-        'Haftalık raporu yalnızca atanan personel gönderebilir.',
-      ),
-    );
-  }
-  const row: WeeklyReportRow | null = await reader.getWeeklyReportByJobId(
-    actor.organizationId,
-    jobCard.id,
-  );
-  if (!row || row.staff_user_id !== actor.id) {
-    return readiness(
-      evaluatedAt,
-      missingItems,
-      new AppError(
-        'WEEKLY_REPORT_NOT_FOUND',
-        404,
-        'Haftalık rapor bulunamadı.',
-      ),
-    );
-  }
-  const report = mapReport(row);
-  let draftFailure: AppError | null = null;
-  try {
-    validateSubmissionBody(report.draft);
-  } catch (error) {
-    draftFailure = error as AppError;
-  }
-  let answersFailure: AppError | null = null;
-  try {
-    validateSubmissionAnswers(report.questions, report.answers);
-  } catch (error) {
-    answersFailure = error as AppError;
-  }
-  let sourceWorkFailure: AppError | null = null;
-  try {
-    const timezone = await reader.getOrganizationTimezone(actor.organizationId);
-    const { weekStart, weekEnd } = weekInstants(report.periodStart, report.periodEnd, timezone);
-    await reader.listWeeklySourceWorkSnapshot({
-      organizationId: actor.organizationId,
-      staffUserId: actor.id,
-      weekStart,
-      weekEnd,
-    });
-  } catch (error) {
-    sourceWorkFailure = error as AppError;
-  }
-  const items: SubmissionRequirement[] = [
-    { code: 'WEEKLY_REPORT_FOUND', state: 'met', field: 'weeklyReport' },
-    assigneeRequirement,
-    { code: 'WEEKLY_DRAFT_VALID', state: draftFailure ? 'missing' : 'met', field: 'draft' },
-    {
-      code: 'WEEKLY_ANSWERS_COMPLETE',
-      state: answersFailure ? 'missing' : 'met',
-      field: 'managerAnswers',
-    },
-    {
-      code: 'WEEKLY_SOURCE_WORK_READY',
-      state: sourceWorkFailure ? 'invalid' : 'met',
-      field: 'sourceWork',
-    },
-  ];
-  const failure = assigneeRequirement.state !== 'met'
-    ? assigneeFailure(assigneeRequirement)
-    : draftFailure ?? answersFailure ?? sourceWorkFailure;
-  return readiness(evaluatedAt, items, failure);
-}
-
 async function evaluateSale(
   reader: SubmissionReader, actor: JobCardActor, job: JobCard, time: Date,
   assigneeRequirement: SubmissionRequirement,
@@ -382,7 +276,10 @@ export async function evaluateSubmission(
     return readiness(evaluatedAt, items, failure);
   }
   if (jobCard.type === 'WEEKLY_REPORT') {
-    return evaluateWeeklyReport(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
+    const { items, failure } = await evaluateWeeklyReport(
+      reader, actor, jobCard, assigneeRequirement, assigneeFailure(assigneeRequirement),
+    );
+    return readiness(evaluatedAt, items, failure);
   }
   if (jobCard.type === 'SALE') return evaluateSale(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
   if (jobCard.type === 'PRODUCT_DELIVERY') {

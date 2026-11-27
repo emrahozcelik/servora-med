@@ -6,16 +6,23 @@ import { describe, expect, it } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
+import {
+  AuthCredentialAdministration,
+  PostgresSessionRevocationPort,
+} from '../src/modules/auth/admin-ports.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
+import { PostgresPeopleRepository } from '../src/modules/people/repository.js';
+import { PeopleService } from '../src/modules/people/service.js';
+import { PostgresReportsRepository } from '../src/modules/reports/repository.js';
 import { parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
+import { PostgresWeeklyReportHistoryRepository } from '../src/modules/weekly-reports/history-repository.js';
 
 /**
  * The profile Weekly Report history read model against real PostgreSQL.
  *
- * This is the isolation gate for `PostgresJobCardRepository.listForStaff`. The
- * statement it runs carries both the tenant predicate and the owner predicate,
+ * The page query carries both the tenant predicate and the owner predicate,
  * folds the submission aggregate in with a LATERAL subquery, and paginates — all
  * of which a port double cannot exercise. The dataset below is deliberately
  * adversarial: two organisations, a second staff member inside the first
@@ -232,9 +239,45 @@ async function seed(pool: Pool): Promise<Seed> {
   };
 }
 
-const repository = (pool: Pool) => new PostgresJobCardRepository(pool);
+const repository = (pool: Pool) => new PostgresWeeklyReportHistoryRepository(pool);
 
 describe.skipIf(!databaseUrl)('weekly report profile history (PostgreSQL)', () => {
+  it('lets People read an inactive Staff profile through the Weekly Report history port', async () => {
+    await withSchema(async (pool) => {
+      const s = await seed(pool);
+      await pool.query(
+        'INSERT INTO staff_profiles (organization_id, user_id) VALUES ($1, $2)',
+        [s.orgA, s.staffA1],
+      );
+      await pool.query('UPDATE users SET is_active = FALSE WHERE id = $1', [s.staffA1]);
+      const credentials = new AuthCredentialAdministration();
+      const people = new PeopleService(
+        new PostgresPeopleRepository(pool, credentials, new PostgresSessionRevocationPort()),
+        credentials,
+        new PostgresReportsRepository(pool),
+        undefined,
+        new PostgresWeeklyReportHistoryRepository(pool),
+      );
+
+      const page = await people.listStaffWeeklyReports(
+        {
+          ...actor(s.orgA, s.managerA, 'MANAGER'),
+          name: 'Manager',
+          email: 'manager@example.test',
+          mustChangePassword: false,
+          isActive: true,
+          version: 1,
+        },
+        s.staffA1,
+        { limit: 1, offset: 1 },
+      );
+      expect(page).toMatchObject({ total: 2, limit: 1, offset: 1 });
+      expect(page.items).toMatchObject([
+        { reportId: s.a1Old.reportId, staffUserId: s.staffA1, status: 'COMPLETED', submissionCount: 2 },
+      ]);
+    });
+  });
+
   it('scopes a manager page to the target owner and never leaks another staff or tenant', async () => {
     await withSchema(async (pool) => {
       const s = await seed(pool);

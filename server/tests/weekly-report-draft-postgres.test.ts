@@ -204,14 +204,15 @@ describe.skipIf(!databaseUrl)('weekly report draft read/write (PostgreSQL)', () 
     });
   });
 
-  it('includes live source work while editable', async () => {
+  it('uses live work while editable and filters SALE consistently in detail and history', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
       const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const staff = actor(organizationId, staffId, 'STAFF');
       const service = buildService(pool);
       const created = await service.createWeeklyReport(
-        actor(organizationId, staffId, 'STAFF'),
+        staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart: WEEK_A }),
       );
       await pool.query(
@@ -224,13 +225,43 @@ describe.skipIf(!databaseUrl)('weekly report draft read/write (PostgreSQL)', () 
             '2026-08-05T09:00:00.000Z', $2, '2026-08-05T10:00:00.000Z', $3)`,
         [organizationId, staffId, managerId],
       );
-      const detail = await service.getWeeklyReport(
-        actor(organizationId, staffId, 'STAFF'), created.jobCardId,
+      await pool.query(
+        `WITH customer AS (
+           INSERT INTO customers (organization_id, name, customer_type, status)
+           VALUES ($1, 'Rapor müşterisi', 'clinic', 'active') RETURNING id
+         )
+         INSERT INTO job_cards
+           (organization_id, type, status, title, assigned_to, created_by,
+            accepted_at, accepted_by, staff_completed_at, staff_completed_by,
+            manager_approved_at, manager_approved_by, customer_id)
+         SELECT $1, 'SALE', 'COMPLETED', 'Tamamlanan satış', $2, $3,
+            '2026-08-04T09:00:00.000Z', $2, '2026-08-05T09:01:00.000Z', $2,
+            '2026-08-05T10:01:00.000Z', $3, customer.id
+           FROM customer`,
+        [organizationId, staffId, managerId],
       );
-      expect(detail.liveSourceWork).toHaveLength(1);
+
+      const detail = await service.getWeeklyReport(staff, created.jobCardId);
+      expect(detail.liveSourceWork.map((item) => item.type)).toEqual(['GENERAL_TASK', 'SALE']);
       expect(detail.liveSourceWork[0]).toMatchObject({
-        type: 'GENERAL_TASK', title: 'Tamamlanan iş', statusAtSnapshot: 'COMPLETED',
+        title: 'Tamamlanan iş', statusAtSnapshot: 'COMPLETED',
       });
+      const legacyDetail = await service.getWeeklyReport(staff, created.jobCardId, false);
+      expect(legacyDetail.liveSourceWork).toEqual([detail.liveSourceWork[0]]);
+
+      await service.start(staff, created.jobCardId, { clientActionId: randomUUID(), expectedVersion: 1 });
+      await service.updateWeeklyReportDraft(staff, created.jobCardId, {
+        expectedVersion: 1, draft: { summary: 'Özet', nextWeekPlan: 'Plan' }, answers: [],
+      });
+      await service.submitForApproval(staff, created.jobCardId, {
+        clientActionId: randomUUID(), expectedVersion: 2, note: 'Haftalık rapor gönderildi.',
+      });
+      const submittedDetail = await service.getWeeklyReport(staff, created.jobCardId);
+      expect(submittedDetail.liveSourceWork).toEqual([]);
+      const [submission] = await service.listWeeklyReportSubmissions(staff, created.jobCardId);
+      const [legacySubmission] = await service.listWeeklyReportSubmissions(staff, created.jobCardId, false);
+      expect(submission?.sourceWork).toEqual(detail.liveSourceWork);
+      expect(legacySubmission?.sourceWork).toEqual(legacyDetail.liveSourceWork);
     });
   });
 });

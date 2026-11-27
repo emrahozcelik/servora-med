@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import type {
@@ -9,6 +9,7 @@ import type {
   WeeklyReportDraftBody,
   WeeklyReportSubmittedBody,
   WeeklyReportSubmission,
+  WeeklySourceWorkRow,
 } from './types.js';
 import {
   parsePeriodStart,
@@ -147,6 +148,234 @@ export type WeeklyQueryable = {
   query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
 };
 
+const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_user_id,
+  period_start, period_end, draft_summary, draft_blockers, draft_next_week_plan,
+  draft_highlights, draft_field_observations, draft_support_needed,
+  manager_questions, manager_answers, version, created_at, updated_at,
+  removed_at, removed_by, removal_reason`;
+
+const WEEKLY_REPORT_SUBMISSION_COLUMNS = `id, organization_id, weekly_report_id,
+  job_card_id, seq_no, submitted_by, submitted_at, period_start, period_end,
+  frozen_body, frozen_questions, frozen_answers, frozen_source_work,
+  job_version, source_activity_id, created_at`;
+
+/**
+ * Shared weekly-report read helpers: the same SQL runs on the pool
+ * (standalone reads) and on a request transaction client (submit path
+ * observes one MVCC snapshot). FOR UPDATE only inside a transaction.
+ */
+export async function selectWeeklyReportByJob(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  jobCardId: string,
+  forUpdate: boolean,
+): Promise<WeeklyReportRow | null> {
+  const result = await executor.query<WeeklyReportRow>(
+    `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
+     WHERE organization_id = $1 AND job_card_id = $2${forUpdate ? ' FOR UPDATE' : ''}`,
+    [organizationId, jobCardId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function selectWeeklySourceWork(
+  executor: WeeklyQueryable,
+  input: {
+    organizationId: string;
+    staffUserId: string;
+    weekStart: Date;
+    weekEnd: Date;
+  },
+): Promise<WeeklySourceWorkRow[]> {
+  const result = await executor.query<WeeklySourceWorkRow>(
+    `SELECT jc.id AS "jobCardId", jc.type AS type, jc.title AS title,
+            c.name AS "customerName",
+            jc.staff_completed_at AS "staffCompletedAt", jc.status AS status
+       FROM job_cards jc
+       LEFT JOIN customers c
+         ON c.organization_id = jc.organization_id AND c.id = jc.customer_id
+      WHERE jc.organization_id = $1
+        AND jc.assigned_to = $2
+        AND jc.type <> 'WEEKLY_REPORT'
+        AND jc.staff_completed_at >= $3
+        AND jc.staff_completed_at < $4
+        AND jc.status IN ('WAITING_APPROVAL', 'COMPLETED')
+      ORDER BY jc.staff_completed_at ASC, jc.id ASC`,
+    [input.organizationId, input.staffUserId, input.weekStart, input.weekEnd],
+  );
+  return result.rows;
+}
+
+export async function selectWeeklyReportSubmissionBySeq(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  reportId: string,
+  seqNo: number,
+): Promise<WeeklyReportSubmissionRow | null> {
+  const result = await executor.query<WeeklyReportSubmissionRow>(
+    `SELECT ${WEEKLY_REPORT_SUBMISSION_COLUMNS} FROM weekly_report_submissions
+      WHERE organization_id = $1 AND weekly_report_id = $2 AND seq_no = $3`,
+    [organizationId, reportId, seqNo],
+  );
+  return result.rows[0] ?? null;
+}
+
+export type WeeklyReportSubmissionInsert = {
+  organizationId: string;
+  weeklyReportId: string;
+  jobCardId: string;
+  seqNo: number;
+  submittedBy: string;
+  submittedAt: Date;
+  periodStart: string;
+  periodEnd: string;
+  body: WeeklyReportSubmittedBody;
+  questions: ManagerQuestion[];
+  answers: ManagerAnswer[];
+  sourceWork: SourceWorkSnapshotItem[];
+  jobVersion: number;
+  sourceActivityId: string;
+};
+
+/** The caller already holds the report-row lock on this transaction client. */
+export async function getNextWeeklyReportSubmissionSeqNo(
+  client: PoolClient,
+  organizationId: string,
+  weeklyReportId: string,
+): Promise<number> {
+  const result = await client.query<{ seq_no: number }>(
+    `SELECT COALESCE(MAX(seq_no), 0) + 1 AS seq_no FROM weekly_report_submissions
+     WHERE organization_id = $1 AND weekly_report_id = $2`,
+    [organizationId, weeklyReportId],
+  );
+  return result.rows[0]!.seq_no;
+}
+
+async function insertSubmissionSnapshot(
+  client: PoolClient,
+  input: WeeklyReportSubmissionInsert,
+): Promise<WeeklyReportSubmissionRow | undefined> {
+  const inserted = await client.query<WeeklyReportSubmissionRow>(
+    `INSERT INTO weekly_report_submissions
+       (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by,
+        submitted_at, period_start, period_end, frozen_body, frozen_questions,
+        frozen_answers, frozen_source_work, job_version, source_activity_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     RETURNING ${WEEKLY_REPORT_SUBMISSION_COLUMNS}`,
+    [
+      input.organizationId,
+      input.weeklyReportId,
+      input.jobCardId,
+      input.seqNo,
+      input.submittedBy,
+      input.submittedAt,
+      input.periodStart,
+      input.periodEnd,
+      JSON.stringify(input.body),
+      JSON.stringify(input.questions),
+      JSON.stringify(input.answers),
+      JSON.stringify(input.sourceWork),
+      input.jobVersion,
+      input.sourceActivityId,
+    ],
+  );
+  return inserted.rows[0];
+}
+
+/** Append and bump the draft version on the JobCard transaction's locked client. */
+export async function insertWeeklyReportSubmissionRow(
+  client: PoolClient,
+  input: WeeklyReportSubmissionInsert,
+): Promise<{ submission: WeeklyReportSubmissionRow; reportVersion: number }> {
+  const submission = await insertSubmissionSnapshot(client, input);
+  if (!submission) throw notFound();
+  const bumped = await client.query<{ version: number }>(
+    `UPDATE weekly_reports SET version = version + 1, updated_at = NOW()
+     WHERE organization_id = $1 AND id = $2
+     RETURNING version`,
+    [input.organizationId, input.weeklyReportId],
+  );
+  const reportVersion = bumped.rows[0]?.version;
+  if (reportVersion === undefined) throw notFound();
+  return { submission, reportVersion };
+}
+
+export async function findWeeklyReportByStaffWeek(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  staffUserId: string,
+  periodStart: string,
+): Promise<WeeklyReportRow | null> {
+  const result = await executor.query<WeeklyReportRow>(
+    `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
+     WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3 AND removed_at IS NULL`,
+    [organizationId, staffUserId, periodStart],
+  );
+  return result.rows[0] ?? null;
+}
+
+export type WeeklyReportInsert = {
+  organizationId: string;
+  jobCardId: string;
+  staffUserId: string;
+  periodStart: string;
+  periodEnd: string;
+  questions: ManagerQuestion[];
+};
+
+/**
+ * Insert on the same client as the JobCard and its creation activity.
+ * A staff/week duplicate returns null without aborting the transaction.
+ */
+export async function insertWeeklyReportRow(
+  client: PoolClient,
+  input: WeeklyReportInsert,
+): Promise<WeeklyReportRow | null> {
+  const result = await client.query<WeeklyReportRow>(
+    `INSERT INTO weekly_reports
+       (organization_id, job_card_id, staff_user_id, period_start, period_end,
+        manager_questions, manager_answers)
+     VALUES ($1, $2, $3, $4, $5, $6, '[]')
+     ON CONFLICT (organization_id, staff_user_id, period_start) WHERE removed_at IS NULL DO NOTHING
+     RETURNING ${WEEKLY_REPORT_COLUMNS}`,
+    [
+      input.organizationId,
+      input.jobCardId,
+      input.staffUserId,
+      input.periodStart,
+      input.periodEnd,
+      JSON.stringify(input.questions),
+    ],
+  );
+  // null = an existing canonical report won the staff/week identity. The
+  // transaction stays usable, so the caller re-reads the winner row.
+  return result.rows[0] ?? null;
+}
+
+export type WeeklyReportRemovalUpdate = {
+  organizationId: string;
+  reportId: string;
+  expectedVersion: number;
+  removedAt: Date;
+  removedBy: string;
+  reason: string;
+};
+
+/** Write removal metadata on the client holding the user, JobCard and report locks. */
+export async function removeWeeklyReportRow(
+  client: PoolClient,
+  input: WeeklyReportRemovalUpdate,
+): Promise<WeeklyReportRow | null> {
+  const result = await client.query<WeeklyReportRow>(
+    `UPDATE weekly_reports SET removed_at=$4, removed_by=$5, removal_reason=$6,
+      version=version+1, updated_at=$4
+     WHERE organization_id=$1 AND id=$2 AND version=$3 AND removed_at IS NULL
+     RETURNING ${WEEKLY_REPORT_COLUMNS}`,
+    [input.organizationId, input.reportId, input.expectedVersion, input.removedAt, input.removedBy, input.reason],
+  );
+  return result.rows[0] ?? null;
+}
+
 export type WeeklyDraftRowUpdate = {
   organizationId: string;
   reportId: string;
@@ -154,6 +383,35 @@ export type WeeklyDraftRowUpdate = {
   draft: WeeklyReportDraftBody;
   answers: ManagerAnswer[];
 };
+
+/** The caller is in a transaction and already holds the user, JobCard and report locks. */
+export async function updateWeeklyReportDraftRow(
+  client: PoolClient,
+  input: WeeklyDraftRowUpdate,
+): Promise<WeeklyReportRow | null> {
+  const result = await client.query<WeeklyReportRow>(
+    `UPDATE weekly_reports
+        SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
+            draft_highlights = $6, draft_field_observations = $7,
+            draft_support_needed = $8, manager_answers = $9,
+            version = version + 1, updated_at = NOW()
+      WHERE organization_id = $1 AND id = $2 AND version = $10
+      RETURNING *`,
+    [
+      input.organizationId,
+      input.reportId,
+      input.draft.summary,
+      input.draft.blockers,
+      input.draft.nextWeekPlan,
+      input.draft.highlights,
+      input.draft.fieldObservations,
+      input.draft.supportNeeded,
+      JSON.stringify(input.answers),
+      input.expectedVersion,
+    ],
+  );
+  return result.rows[0] ?? null;
+}
 
 export async function listWeeklyReportSubmissionRows(
   executor: WeeklyQueryable,
@@ -271,11 +529,9 @@ export class PostgresWeeklyReportRepository {
    * PRECONDITION — NOT WIRED INTO ANY PRODUCTION COMMAND. Do not wire it
    * without first adding the ordered user lock.
    *
-   * Every production writer of `weekly_reports`
-   * (`JobCardService.createWeeklyReport` and `bulkRequestWeeklyReports`) goes
-   * through the private creation core, which takes
-   * `lockUsersInOrder` → `getAssigneeForUpdate` before inserting, so two
-   * concurrent creates for the same staff/week serialize on the `users` row.
+   * Both production creation commands in `weekly-reports/create.ts` acquire
+   * the ordered user lock through JobCard before inserting, so concurrent
+   * creates for the same staff/week serialize on the `users` row.
    * This method instead issues a bare `INSERT … RETURNING *` with no such
    * lock: on a lost race it depends entirely on the `weekly_reports` unique
    * constraint and maps the resulting 23505 to `WEEKLY_REPORT_ALREADY_EXISTS`
@@ -355,12 +611,7 @@ export class PostgresWeeklyReportRepository {
     staffUserId: string,
     periodStart: string,
   ): Promise<WeeklyReport | null> {
-    const result = await this.pool.query<WeeklyReportRow>(
-      `SELECT * FROM weekly_reports
-        WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3 AND removed_at IS NULL`,
-      [organizationId, staffUserId, periodStart],
-    );
-    const row = result.rows[0];
+    const row = await findWeeklyReportByStaffWeek(this.pool, organizationId, staffUserId, periodStart);
     return row ? mapReport(row) : null;
   }
 
@@ -395,38 +646,25 @@ export class PostgresWeeklyReportRepository {
       const body = validateSubmissionBody(validateDraftBody(input.draft));
       const answers = validateSubmissionAnswers(row.manager_questions, input.answers);
       const sourceWork = validateSourceWorkSnapshot(input.sourceWork);
-      const seq = await client.query<{ seq_no: number }>(
-        `SELECT COALESCE(MAX(seq_no), 0) + 1 AS seq_no FROM weekly_report_submissions
-          WHERE organization_id = $1 AND weekly_report_id = $2`,
-        [input.organizationId, input.reportId],
-      );
-      const nextSeq = seq.rows[0]!.seq_no;
-      const inserted = await client.query<WeeklyReportSubmissionRow>(
-        `INSERT INTO weekly_report_submissions
-           (organization_id, weekly_report_id, job_card_id, seq_no, submitted_by,
-            submitted_at, period_start, period_end, frozen_body, frozen_questions,
-            frozen_answers, frozen_source_work, job_version, source_activity_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-         RETURNING *`,
-        [
-          input.organizationId,
-          input.reportId,
-          row.job_card_id,
-          nextSeq,
-          input.submittedBy,
-          input.submittedAt,
-          dateKey(row.period_start),
-          dateKey(row.period_end),
-          JSON.stringify(body),
-          JSON.stringify(row.manager_questions),
-          JSON.stringify(answers),
-          JSON.stringify(sourceWork),
-          input.jobVersion,
-          input.sourceActivityId,
-        ],
-      );
+      const seqNo = await getNextWeeklyReportSubmissionSeqNo(client, input.organizationId, input.reportId);
+      const submission = await insertSubmissionSnapshot(client, {
+        organizationId: input.organizationId,
+        weeklyReportId: input.reportId,
+        jobCardId: row.job_card_id,
+        seqNo,
+        submittedBy: input.submittedBy,
+        submittedAt: input.submittedAt,
+        periodStart: dateKey(row.period_start),
+        periodEnd: dateKey(row.period_end),
+        body,
+        questions: row.manager_questions,
+        answers,
+        sourceWork,
+        jobVersion: input.jobVersion,
+        sourceActivityId: input.sourceActivityId,
+      });
       await client.query('COMMIT');
-      return mapSubmission(inserted.rows[0]!);
+      return mapSubmission(submission!);
     } catch (error) {
       await client.query('ROLLBACK');
       // F2: a source activity from another job/organization (or deleted

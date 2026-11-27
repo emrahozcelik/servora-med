@@ -11,6 +11,7 @@ import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import { parseJobCardCreateInput } from '../src/modules/job-cards/create-input.js';
 import { parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
+import { readWeeklyReportReference } from '../src/modules/weekly-reports/reference.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -111,11 +112,13 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
   it('derives the canonical organization-local reporting week for the create screen', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
-      const staffId = await insertUser(pool, organizationId, 'STAFF');
-      const managerId = await insertUser(pool, organizationId, 'MANAGER');
       // 22:30Z is already the next local day (Monday) in Europe/Istanbul, so a
       // device/UTC-derived default would answer 2026-07-27 instead.
-      const service = buildServiceAt(pool, '2026-08-02T22:30:00.000Z');
+      const reference = await readWeeklyReportReference(
+        new PostgresJobCardRepository(pool),
+        organizationId,
+        () => new Date('2026-08-02T22:30:00.000Z'),
+      );
       const expected = {
         timezone: 'Europe/Istanbul',
         today: '2026-08-03',
@@ -123,10 +126,7 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
         periodEnd: WEEK_A_END,
         dueDate: WEEK_A_DUE,
       };
-      expect(await service.weeklyReportReference(staffActor(organizationId, staffId)))
-        .toEqual(expected);
-      expect(await service.weeklyReportReference(managerActor(organizationId, managerId)))
-        .toEqual(expected);
+      expect(reference).toEqual(expected);
     });
   });
 

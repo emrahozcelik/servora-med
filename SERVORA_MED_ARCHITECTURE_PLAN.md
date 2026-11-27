@@ -115,6 +115,45 @@ reports
 health
 ```
 
+Weekly Report submit readiness rules and immutable submission assembly live in
+`weekly-reports/submission.ts`. JobCard orchestrates the lifecycle transition
+and canonical activity, then calls the Weekly Report append through a narrow
+port on the same transaction. The JobCard transaction provides the report-row
+lock and passes its client to `weekly-reports/repository.ts` to allocate the
+next sequence, insert the snapshot and bump the report draft version.
+
+Weekly Report draft replacement lives in `weekly-reports/draft.ts`, using the
+JobCard repository transaction to lock the current user, JobCard and report in
+that order. Its versioned SQL runs on the checked-out client, and JobCard reads
+the response detail after the transaction commits.
+
+Weekly Report single creation and bulk requests share the creation flow in
+`weekly-reports/create.ts`. Weekly Reports owns the reporting period, deadline,
+staff/week identity and report row. JobCard owns the ordered assignee locks,
+initial card state and `JOB_CREATED` activity. The card, report, activity and
+idempotency receipt commit in one transaction.
+
+Weekly Report detail, submission history and PDF rendering live in
+`weekly-reports/read.ts`. The read service uses the owning JobCard's status
+and assignee to scope access. Detail reads live work for the stored reporting
+period while editable. History and PDF use immutable submissions, with PDF
+selecting the requested sequence and resolving the submitter's display name.
+
+People reads staff profile Weekly Report history through
+`WeeklyReportHistoryReadPort`. The adapter in `weekly-reports/history-repository.ts`
+reads the canonical report rows, JobCard status and submission summaries in two
+bounded queries.
+
+Weekly Report removal preview, ownership and version checks, and period release
+live in `weekly-reports/removal.ts`. The command uses the same JobCard
+transaction for invalidation, overdue closure, removal metadata, audit and
+realtime events. JobCard owns the lifecycle transition and calendar cleanup.
+
+The Weekly Report HTTP plugin in `weekly-reports/routes.ts` registers the
+existing `/api/job-cards` URLs with the same authentication and JobCard
+visibility checks. The period reference reads the authenticated organization's
+timezone through `weekly-reports/reference.ts`.
+
 ## 6. Frontend Contract
 
 | Area | Responsibility |
