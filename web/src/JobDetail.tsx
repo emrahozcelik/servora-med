@@ -2120,13 +2120,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   ): Promise<'fresh' | 'stale' | 'inactive' | 'access-lost'> {
     const operationJobId = jobId;
     const operationSession = sessionLifetime.current.token;
-    accessLostRef.current = false;
     try {
       return (await refreshTruth()) ? 'fresh' : 'inactive';
     } catch (caught) {
       if (!isOperationCurrent(operationSession, operationJobId)) return 'inactive';
       if (caught instanceof ApiError && (caught.status === 403 || caught.status === 404)) {
         accessLostRef.current = true;
+        // Terminal: an older read still in flight must not reopen the record.
+        mutationEpoch.current += 1;
+        accessRecheckPending.current = false;
         setState({
           kind: 'error',
           message: 'İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.',
@@ -2157,7 +2159,6 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     // A 403/404 while this known receipt is being reconciled is reported with
     // the committed wording, never as a generic read failure.
     committedReceiptPendingRef.current = true;
-    accessLostRef.current = false;
     // Only invalidations known when this drain started decide the outcome; one
     // arriving after a successful drain is ordinary realtime work, not a failed
     // reconcile of this receipt.
@@ -2340,11 +2341,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   async function runRealtimeDrainChain(sessionToken: number): Promise<boolean> {
     const operationJobId = jobId;
     let roundEpochAtStart = mutationEpoch.current;
+    let roundReadCountAtStart = reconciledReadCount.current;
     try {
       for (let round = 0; round < MAX_REALTIME_DRAIN_ROUNDS; round += 1) {
         const generationAtStart = realtimeInvalidationGeneration.current;
         const epochAtStart = mutationEpoch.current;
         roundEpochAtStart = epochAtStart;
+        roundReadCountAtStart = reconciledReadCount.current;
         const detail = await loadJobDetail(operationJobId);
         if (!isOperationCurrent(sessionToken, operationJobId)) return true;
         if (mutationEpoch.current !== epochAtStart) {
@@ -2367,7 +2370,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (isOperationCurrent(sessionToken, operationJobId)
         && mutationEpoch.current !== roundEpochAtStart) {
         realtimeDrainRequested.current = true;
-        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+        // A reconciled read that finished after this one started already proved
+        // access; only an unsuperseded 403/404 needs a recheck.
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)
+          && reconciledReadCount.current === roundReadCountAtStart) {
           accessRecheckPending.current = true;
           // If the newer operation already ended, nobody else will recheck:
           // do it after this chain settles.
@@ -2379,6 +2385,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (state.kind === 'ready' && error instanceof ApiError
           && (error.status === 403 || error.status === 404)) {
           accessLostRef.current = true;
+          // Terminal: an older read still in flight must not reopen the record.
+          mutationEpoch.current += 1;
+          accessRecheckPending.current = false;
           setState({
             kind: 'error',
             message: committedReceiptPendingRef.current
@@ -2458,6 +2467,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     // request. An older realtime/refresh read must never overwrite the receipt
     // with pre-decision truth when it completes last.
     mutationEpoch.current += 1;
+    // Like startMutationOperation: an earlier access loss belongs to its own
+    // operation; this decision starts clean. Within the operation the flag is
+    // only set by a terminal answer and is never cleared by its own reads.
+    accessLostRef.current = false;
     let read = await refreshAfterCommit(receipt);
     if (read === 'access-lost' || read === 'inactive') return;
     if (read === 'fresh') {
