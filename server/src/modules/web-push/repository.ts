@@ -657,14 +657,15 @@ export class PostgresWebPushRepository implements WebPushRepository {
                   WHEN delivery.attempt_count >= 6 THEN 'MAX_ATTEMPTS'
                   ELSE 'UNKNOWN'
                 END
-           FROM in_app_notifications notification
-           JOIN web_push_subscriptions subscription ON subscription.id = delivery.subscription_id
+           FROM in_app_notifications notification,
+                web_push_subscriptions subscription
            JOIN users recipient ON recipient.id = subscription.recipient_user_id
            JOIN sessions session_record ON session_record.id = subscription.session_id
-          WHERE delivery.state IN ('PENDING', 'CLAIMED')
+          WHERE notification.id = delivery.notification_id
+            AND subscription.id = delivery.subscription_id
             AND (
-              (delivery.state = 'CLAIMED' AND delivery.lease_until > $1)
-              OR delivery.id IS NOT NULL
+              delivery.state = 'PENDING'
+              OR (delivery.state = 'CLAIMED' AND delivery.lease_until <= $1)
             )
             AND (
               notification.read_at IS NOT NULL
@@ -676,7 +677,6 @@ export class PostgresWebPushRepository implements WebPushRepository {
               OR delivery.created_at <= $1 - INTERVAL '24 hours'
               OR delivery.attempt_count >= 6
             )
-            AND delivery.id = delivery.id
           RETURNING delivery.id`,
         [at],
       );
