@@ -2341,13 +2341,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   async function runRealtimeDrainChain(sessionToken: number): Promise<boolean> {
     const operationJobId = jobId;
     let roundEpochAtStart = mutationEpoch.current;
-    let roundReadCountAtStart = reconciledReadCount.current;
     try {
       for (let round = 0; round < MAX_REALTIME_DRAIN_ROUNDS; round += 1) {
         const generationAtStart = realtimeInvalidationGeneration.current;
         const epochAtStart = mutationEpoch.current;
         roundEpochAtStart = epochAtStart;
-        roundReadCountAtStart = reconciledReadCount.current;
         const detail = await loadJobDetail(operationJobId);
         if (!isOperationCurrent(sessionToken, operationJobId)) return true;
         if (mutationEpoch.current !== epochAtStart) {
@@ -2370,10 +2368,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (isOperationCurrent(sessionToken, operationJobId)
         && mutationEpoch.current !== roundEpochAtStart) {
         realtimeDrainRequested.current = true;
-        // A reconciled read that finished after this one started already proved
-        // access; only an unsuperseded 403/404 needs a recheck.
-        if (error instanceof ApiError && (error.status === 403 || error.status === 404)
-          && reconciledReadCount.current === roundReadCountAtStart) {
+        // Completion order does not prove which read is newer, so a deferred
+        // 403/404 is always rechecked once; an extra read is the safe cost.
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
           accessRecheckPending.current = true;
           // If the newer operation already ended, nobody else will recheck:
           // do it after this chain settles.

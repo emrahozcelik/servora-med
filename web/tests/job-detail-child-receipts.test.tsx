@@ -1651,7 +1651,7 @@ describe('JobDetail child decision receipts', () => {
    * not schedule another GET or surface a stale/terminal state. The receipt is
    * announced exactly once.
    */
-  it('does not recheck or go stale when a reconciled read already proved access before an older 403', async () => {
+  it('rechecks a superseded older 403 once and keeps the record and receipt when access is proven', async () => {
     const before = offerJob({
       scheduledAt: '2030-06-10T09:00:00.000Z',
       scheduledEndsAt: '2030-06-10T09:30:00.000Z',
@@ -1691,8 +1691,9 @@ describe('JobDetail child decision receipts', () => {
           return new Promise<Response>((resolve) => { releaseOld = resolve; });
         }
         if (detailGets === 3) return json({ ...before, version: 4 });
-        // Only a wrongly scheduled recheck reaches this read.
-        return json({ error: 'Sunucu hatası.' }, 500);
+        // Completion order cannot prove which read is newer, so the deferred
+        // 403 is rechecked once; access is still valid here.
+        return json({ ...before, version: 4 });
       }
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
@@ -1705,7 +1706,7 @@ describe('JobDetail child decision receipts', () => {
     await click(host, 'Aynı zamanla yeniden teklif et');
     await settle();
 
-    // The post-commit 200 already reconciled; the older 403 is superseded.
+    // The post-commit 200 already reconciled; the older 403 still gets one safe recheck.
     await act(async () => {
       releaseOld!(json({
         error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
@@ -1714,7 +1715,7 @@ describe('JobDetail child decision receipts', () => {
     await settle();
     await settle();
 
-    expect(detailGets).toBe(3);
+    expect(detailGets).toBe(4);
     expect(host.querySelector('main[data-job-detail="true"]')).not.toBeNull();
     expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi.');
     expect(host.textContent).not.toContain('İş yüklenemedi');
