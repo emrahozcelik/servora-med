@@ -1,0 +1,255 @@
+[2026-11-27T06:47:42.476Z] $ [initdb] /opt/homebrew/opt/postgresql@17/bin/initdb -D /private/tmp/servora-msg003-restore-OsKbBs --auth=trust --username=servora_msg003_69cd27fb --encoding=UTF8 --no-locale
+[2026-11-27T06:47:42.769Z] [initdb] The files belonging to this database system will be owned by user "emrah".
+[2026-11-27T06:47:42.769Z] [initdb] This user must also own the server process.
+[2026-11-27T06:47:42.769Z] [initdb] The database cluster will be initialized with locale "C".
+[2026-11-27T06:47:42.769Z] [initdb] The default text search configuration will be set to "english".
+[2026-11-27T06:47:42.769Z] [initdb] Data page checksums are disabled.
+[2026-11-27T06:47:42.769Z] [initdb] fixing permissions on existing directory /private/tmp/servora-msg003-restore-OsKbBs ... ok
+[2026-11-27T06:47:42.769Z] [initdb] creating subdirectories ... ok
+[2026-11-27T06:47:42.769Z] [initdb] selecting dynamic shared memory implementation ... posix
+[2026-11-27T06:47:42.769Z] [initdb] selecting default "max_connections" ... 100
+[2026-11-27T06:47:42.769Z] [initdb] selecting default "shared_buffers" ... 128MB
+[2026-11-27T06:47:42.769Z] [initdb] selecting default time zone ... Europe/Istanbul
+[2026-11-27T06:47:42.769Z] [initdb] creating configuration files ... ok
+[2026-11-27T06:47:42.769Z] [initdb] running bootstrap script ... ok
+[2026-11-27T06:47:42.769Z] [initdb] performing post-bootstrap initialization ... ok
+[2026-11-27T06:47:42.769Z] [initdb] syncing data to disk ... ok
+[2026-11-27T06:47:42.769Z] [initdb] Success. You can now start the database server using:
+[2026-11-27T06:47:42.769Z] [initdb]     '/opt/homebrew/opt/postgresql@17/bin/pg_ctl' -D /private/tmp/servora-msg003-restore-OsKbBs -l logfile start
+[2026-11-27T06:47:42.769Z] $ [pg_ctl:start] /opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /private/tmp/servora-msg003-restore-OsKbBs -l /private/tmp/servora-msg003-restore-OsKbBs/postgres.log -o -h 127.0.0.1 -p 49682 -F start -w
+[2026-11-27T06:47:42.884Z] [pg_ctl:start] waiting for server to start.... done
+[2026-11-27T06:47:42.884Z] [pg_ctl:start] server started
+[2026-11-27T06:47:42.891Z] Isolated PostgreSQL cluster ready: postgres (PostgreSQL) 17.11 (Homebrew)
+[2026-11-27T06:47:42.891Z] $ [build] npm run build
+[2026-11-27T06:47:43.471Z] [build] > servora-med-server@0.1.0 build
+[2026-11-27T06:47:43.471Z] [build] > tsc -p tsconfig.json && node scripts/copy-migrations.mjs
+[2026-11-27T06:47:43.499Z] $ [migrate:primary] npm run migrate
+[2026-11-27T06:47:43.854Z] [migrate:primary] > servora-med-server@0.1.0 migrate
+[2026-11-27T06:47:43.854Z] [migrate:primary] > tsx --env-file=.env src/db/migrate.ts
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 001_auth_foundation.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 002_delivery_tracer.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 003_people.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 004_crm_contacts.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 005_product_catalog.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 006_jobcard_workspace.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 007_sales_meeting.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 008_meeting_approval_withdrawal.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 009_job_acceptance_and_scheduling.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 010_entity_delete_audit.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 011_create_realtime_events.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 012_create_in_app_notifications.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 013_create_job_action_locations.sql
+[2026-11-27T06:47:43.854Z] [migrate:primary] Migration applied: 014_create_web_push.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 015_job_card_engagement_kind.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 016_google_reverse_geocoding.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 017_calendar.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 018_messaging.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 019_job_card_operational_note_context.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 020_job_card_transition_note_contexts.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 021_job_card_note_added_notification_kind.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 022_job_card_follow_up_links.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 023_staff_confidential_notes.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 024_job_card_notes_invoice_number.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 025_messaging_context_ready.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 026_messaging_participant_lifecycle.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 027_follow_up_proposals.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 028_notification_center_dismissal.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 029_messaging_conversation_archive.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 030_backup_domain_foundation.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 032_backup_r2_failure_taxonomy.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 033_backup_worker_runtime.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 034_demo_data_foundation.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 035_demo_data_purge_foundation.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 036_job_card_invalidated.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 037_staff_offboarding_audit.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 038_demo_dataset_audit_types.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 039_contact_deleted_audit.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 040_demo_lifecycle_simplification.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 041_user_lifecycle_reconciliation.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 042_unsuccessful_visit_reason.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 043_job_card_schedule_and_assignment_history.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 044_job_card_accountability_facts.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 045_calendar_request_hash.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 046_notification_state_realtime.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 047_job_card_overdue_incidents.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 048_overdue_episode_activation_legacy_first.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 049_job_card_lifecycle_intents.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 050_overdue_incident_scanner_source.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 051_weekly_report_foundation.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 052_weekly_report_recurrence.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 053_overdue_submission_reminders.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 054_job_action_locations_submit_approval.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 055_job_submit_location_comparison.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 056_meeting_met_contact.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 057_sale_from_visit.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 058_sale_integer_quantity.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 059_crm_duplicate_read_indexes.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 060_crm_duplicate_review_decisions.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 061_weekly_report_removal.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 062_follow_up_cycle_end_reason.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 063_job_card_early_start_authorizations.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 064_job_card_change_requests.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 065_job_card_assignment_offers.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 066_overdue_correction_deadline_and_extension.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 067_overdue_delivery_identity_per_incident.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 068_weekly_report_workweek.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 069_lateness_alerts_and_quiet_hours.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 070_overdue_incident_invalidation_closure.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 071_sale_standalone_and_delivery_link.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 072_sale_submit_without_start.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 073_assignment_offer_time_proposal.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 074_installation_operator_and_module_state.sql
+[2026-11-27T06:47:43.855Z] [migrate:primary] Migration applied: 075_installation_module_registry_widening.sql
+[2026-11-27T06:47:43.858Z] R1/MIGRATED-TO-HEAD: PASS - applied=75, head=075_installation_module_registry_widening
+[2026-11-27T06:47:43.858Z] $ [bootstrap:admin] npm run bootstrap:admin
+[2026-11-27T06:47:44.115Z] [bootstrap:admin] > servora-med-server@0.1.0 bootstrap:admin
+[2026-11-27T06:47:44.115Z] [bootstrap:admin] > tsx --env-file=.env src/db/bootstrap-admin.ts
+[2026-11-27T06:47:44.115Z] [bootstrap:admin] Initial admin created successfully.
+[2026-11-27T06:47:44.115Z] R1/SYNTHETIC-CUSTOMER-SEEDED: PASS - bootstrap:admin completed for msg003-customer-69cd27fb@example.test
+[2026-11-27T06:47:44.189Z] [server:primary] 
+> servora-med-server@0.1.0 start:prod
+> node dist/index.js
+[2026-11-27T06:47:44.541Z] R1/SERVER-FIRST-START: PASS - real dist server healthy on http://127.0.0.1:49683
+[2026-11-27T06:47:44.544Z] R1/TAKEOVER-MESSAGING-ON: PASS - row={"module_key":"MESSAGING","enabled":true,"version":1,"source":"ENV_TAKEOVER","updated_at":"2026-11-27T06:47:44.455Z","updated_by_operator_id":null}
+[2026-11-27T06:47:44.546Z] R1/TAKEOVER-SINGLE-EVENT: PASS - events=[{"event_type":"MODULE_STATE_TAKEN_OVER","actor_kind":"SYSTEM","new_value":{"source":"ENV_TAKEOVER","enabled":true}}]
+[2026-11-27T06:47:44.546Z] $ [operator:grant] /opt/homebrew/Cellar/node/26.11.0/bin/node /Users/emrah/.claude/model-fleet/worktrees/20261127-093821-deepseek-7709/server//dist/db/operator-cli-main.js grant --email msg003-operator-69cd27fb@example.test --name MSG-003 Operator --password-stdin
+[2026-11-27T06:47:44.660Z] [operator:grant] Granted operator msg003-operator-69cd27fb@example.test (MODULE_MANAGEMENT).
+[2026-11-27T06:47:44.663Z] R1/OPERATOR-GRANTED: PASS - account={"id":"b525f2e4-539e-4376-97de-77c061c1d377","email":"msg003-operator-69cd27fb@example.test","name":"MSG-003 Operator","is_active":true,"version":1,"updated_at":"2026-11-27T06:47:44.651Z"}
+[2026-11-27T06:47:44.740Z] R1/OPERATOR-LOGIN: PASS - status=200, cookie=set
+[2026-11-27T06:47:44.742Z] R1/MESSAGING-INITIALLY-ON: PASS - status=200, module={"key":"MESSAGING","enabled":true,"version":1,"source":"ENV_TAKEOVER","updatedAt":"2026-11-27T06:47:44.455Z"}
+[2026-11-27T06:47:44.745Z] R1/OPERATOR-SWITCHES-MESSAGING-OFF: PASS - status=200, module={"key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updatedAt":"2026-11-27T06:47:44.743Z"}
+[2026-11-27T06:47:44.746Z] R1/MESSAGING-OFF-VISIBLE-TO-OPERATOR: PASS - status=200, module={"key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updatedAt":"2026-11-27T06:47:44.743Z"}
+[2026-11-27T06:47:44.755Z] Backup-instant snapshot: {"modules":[{"module_key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updated_at":"2026-11-27T06:47:44.743Z","updated_by_operator_id":"b525f2e4-539e-4376-97de-77c061c1d377"},{"module_key":"OVERVIEW","enabled":false,"version":1,"source":"ENV_TAKEOVER","updated_at":"2026-11-27T06:47:44.453Z","updated_by_operator_id":null}],"moduleAudit":[{"id":"0f78797c-8c37-48e5-984f-4914bbabead6","actor_kind":"SYSTEM","event_type":"MODULE_STATE_TAKEN_OVER","operator_id":null,"target_operator_id":null,"module_key":"MESSAGING","old_value":null,"new_value":{"source":"ENV_TAKEOVER","enabled":true},"occurred_at":"2026-11-27T06:47:44.455Z"},{"id":"a87d44b9-fc31-4b1a-8d22-219df137ceb4","actor_kind":"OPERATOR","event_type":"MODULE_STATE_CHANGED","operator_id":"b525f2e4-539e-4376-97de-77c061c1d377","target_operator_id":null,"module_key":"MESSAGING","old_value":{"enabled":true,"version":1},"new_value":{"enabled":false,"version":2},"occurred_at":"2026-11-27T06:47:44.743Z"},{"id":"cb1c4803-1955-4eda-a598-94faa83bf2c1","actor_kind":"SYSTEM","event_type":"MODULE_STATE_TAKEN_OVER","operator_id":null,"target_operator_id":null,"module_key":"OVERVIEW","old_value":null,"new_value":{"source":"ENV_TAKEOVER","enabled":false},"occurred_at":"2026-11-27T06:47:44.453Z"}],"operator":{"id":"b525f2e4-539e-4376-97de-77c061c1d377","email":"msg003-operator-69cd27fb@example.test","name":"MSG-003 Operator","is_active":true,"version":1,"updated_at":"2026-11-27T06:47:44.651Z"},"activeOperatorSessions":1,"messaging":{"key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updatedAt":"2026-11-27T06:47:44.743Z"},"cookie":"set"}
+[2026-11-27T06:47:44.755Z] $ [pg_dump:msg003-r1-69cd27fb] /opt/homebrew/opt/postgresql@17/bin/pg_dump --format=custom --no-owner --no-acl --file /private/tmp/servora-msg003-restore-dumps-hTifNA/msg003-r1-69cd27fb.dump --dbname postgresql://***@127.0.0.1:49682/msg003_primary_69cd27fb
+[2026-11-27T06:47:44.819Z] pg_dump artifact msg003-r1-69cd27fb: 356388 bytes sha256=cc25161de7d122a71928f4aca4b4b7c7626ae493bb11edbe248171dd9d2bb939
+[2026-11-27T06:47:44.819Z] R1/CUSTOM-FORMAT-DUMP-TAKEN: PASS - sizeBytes=356388, sha256=cc25161de7d122a71928f4aca4b4b7c7626ae493bb11edbe248171dd9d2bb939
+[2026-11-27T06:47:44.893Z] R2/OPERATOR-LOGIN-AFTER-DUMP: PASS - status=200
+[2026-11-27T06:47:44.895Z] R2/OPERATOR-SWITCHES-MESSAGING-ON: PASS - status=200, module={"key":"MESSAGING","enabled":true,"version":3,"source":"OPERATOR","updatedAt":"2026-11-27T06:47:44.894Z"}
+[2026-11-27T06:47:44.897Z] R2/PRIMARY-STATE-DIFFERS-FROM-DUMP: PASS - primary row={"module_key":"MESSAGING","enabled":true,"version":3,"source":"OPERATOR","updated_at":"2026-11-27T06:47:44.894Z","updated_by_operator_id":"b525f2e4-539e-4376-97de-77c061c1d377"}; dump captured version 2/off
+[2026-11-27T06:47:44.905Z] R2/PRIMARY-SERVER-STOPPED: PASS - Primary server stopped before restore work began
+[2026-11-27T06:47:44.932Z] $ [pg_restore:msg003_restored_69cd27fb] /opt/homebrew/opt/postgresql@17/bin/pg_restore --no-owner --no-acl --exit-on-error --single-transaction --dbname postgresql://***@127.0.0.1:49682/msg003_restored_69cd27fb /private/tmp/servora-msg003-restore-dumps-hTifNA/msg003-r1-69cd27fb.dump
+[2026-11-27T06:47:45.080Z] R3/PG-RESTORE-INTO-NEW-DATABASE: PASS - pg_restore completed into disposable database msg003_restored_69cd27fb
+[2026-11-27T06:47:45.087Z] R3/RESTORED-MODULE-STATE-EQUALS-BACKUP-INSTANT: PASS - modules=[{"module_key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updated_at":"2026-11-27T06:47:44.743Z","updated_by_operator_id":"b525f2e4-539e-4376-97de-77c061c1d377"},{"module_key":"OVERVIEW","enabled":false,"version":1,"source":"ENV_TAKEOVER","updated_at":"2026-11-27T06:47:44.453Z","updated_by_operator_id":null}], moduleAuditEvents=3, operator={"id":"b525f2e4-539e-4376-97de-77c061c1d377","email":"msg003-operator-69cd27fb@example.test","name":"MSG-003 Operator","is_active":true,"version":1,"updated_at":"2026-11-27T06:47:44.651Z"}
+[2026-11-27T06:47:45.087Z] R3/RESTORED-MESSAGING-OFF-BACKUP-VERSION: PASS - row={"module_key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updated_at":"2026-11-27T06:47:44.743Z","updated_by_operator_id":"b525f2e4-539e-4376-97de-77c061c1d377"}; backupApiRow={"key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updatedAt":"2026-11-27T06:47:44.743Z"}
+[2026-11-27T06:47:45.087Z] $ [operator:reset-after-restore] /opt/homebrew/Cellar/node/26.11.0/bin/node /Users/emrah/.claude/model-fleet/worktrees/20261127-093821-deepseek-7709/server//dist/db/operator-cli-main.js reset-after-restore
+[2026-11-27T06:47:45.140Z] [operator:reset-after-restore] Operator access reset: 1 account(s) deactivated, 1 session(s) revoked.
+[2026-11-27T06:47:45.140Z] R3/RESET-AFTER-RESTORE-COMMAND: PASS - Operator access reset: 1 account(s) deactivated, 1 session(s) revoked.
+[2026-11-27T06:47:45.147Z] R3/OPERATOR-DEACTIVATED-AND-SESSIONS-REVOKED: PASS - account={"id":"b525f2e4-539e-4376-97de-77c061c1d377","email":"msg003-operator-69cd27fb@example.test","name":"MSG-003 Operator","is_active":false,"version":2,"updated_at":"2026-11-27T06:47:45.135Z"}, activeSessions=0, resetEvents=[{"actor_kind":"SYSTEM","event_type":"OPERATOR_ACCESS_RESET_BY_RESTORE","target_operator_id":"b525f2e4-539e-4376-97de-77c061c1d377","new_value":{"revokedSessions":1},"occurred_at":"2026-11-27T06:47:45.135Z"}]
+[2026-11-27T06:47:45.149Z] R3/RESET-LEAVES-MODULE-STATE-AT-BACKUP-INSTANT: PASS - modules=[{"module_key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updated_at":"2026-11-27T06:47:44.743Z","updated_by_operator_id":"b525f2e4-539e-4376-97de-77c061c1d377"},{"module_key":"OVERVIEW","enabled":false,"version":1,"source":"ENV_TAKEOVER","updated_at":"2026-11-27T06:47:44.453Z","updated_by_operator_id":null}]
+[2026-11-27T06:47:45.224Z] [server:restored] 
+> servora-med-server@0.1.0 start:prod
+> node dist/index.js
+[2026-11-27T06:47:45.560Z] R3/RESTORED-SERVER-STARTED-WITH-ENV-TRUE: PASS - Real built server started on the restored database with MESSAGING_ENABLED=true
+[2026-11-27T06:47:45.562Z] R3/ENV-IGNORED-AFTER-RESTORE: PASS - row={"module_key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updated_at":"2026-11-27T06:47:44.743Z","updated_by_operator_id":"b525f2e4-539e-4376-97de-77c061c1d377"} (env MESSAGING_ENABLED=true)
+[2026-11-27T06:47:45.564Z] R3/NO-NEW-TAKEOVER-EVENT-ON-RESTORE: PASS - MESSAGING MODULE_STATE_TAKEN_OVER events=1 (the one restored from the backup)
+[2026-11-27T06:47:45.566Z] R3/OLD-OPERATOR-COOKIE-REJECTED: PASS - status=401, code=OPERATOR_UNAUTHENTICATED
+[2026-11-27T06:47:45.639Z] R3/OLD-OPERATOR-PASSWORD-REJECTED-BEFORE-REGRANT: PASS - status=401, code=INVALID_CREDENTIALS
+[2026-11-27T06:47:45.717Z] R3/CUSTOMER-LOGIN-ON-RESTORED-DB: PASS - status=200
+[2026-11-27T06:47:45.718Z] R3/CUSTOMER-ME-REPORTS-MESSAGING-FALSE: PASS - status=200, capabilities={"duplicateCustomerComparison":false,"overviewDashboard":false,"calendar":false,"messaging":false,"backup":false,"demoDatasetCreation":false}
+[2026-11-27T06:47:45.718Z] $ [operator:grant] /opt/homebrew/Cellar/node/26.11.0/bin/node /Users/emrah/.claude/model-fleet/worktrees/20261127-093821-deepseek-7709/server//dist/db/operator-cli-main.js grant --email msg003-operator-69cd27fb@example.test --name MSG-003 Operator --password-stdin
+[2026-11-27T06:47:45.829Z] [operator:grant] Reactivated operator msg003-operator-69cd27fb@example.test (MODULE_MANAGEMENT).
+[2026-11-27T06:47:45.832Z] R3/HOST-REGRANT-REACTIVATES-ACCOUNT: PASS - output=Reactivated operator msg003-operator-69cd27fb@example.test (MODULE_MANAGEMENT)., account={"id":"b525f2e4-539e-4376-97de-77c061c1d377","email":"msg003-operator-69cd27fb@example.test","name":"MSG-003 Operator","is_active":true,"version":3,"updated_at":"2026-11-27T06:47:45.819Z"}
+[2026-11-27T06:47:45.910Z] R3/OLD-PASSWORD-STILL-REJECTED-AFTER-REGRANT: PASS - status=401, code=INVALID_CREDENTIALS
+[2026-11-27T06:47:45.989Z] R3/NEW-PASSWORD-LOGIN: PASS - status=200, cookie=set
+[2026-11-27T06:47:45.990Z] R3/MODULES-SHOW-BACKUP-INSTANT-AFTER-REGRANT: PASS - status=200, module={"key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updatedAt":"2026-11-27T06:47:44.743Z"}, backup={"key":"MESSAGING","enabled":false,"version":2,"source":"OPERATOR","updatedAt":"2026-11-27T06:47:44.743Z"}
+[2026-11-27T06:47:45.991Z] R3/OLD-COOKIE-STILL-REJECTED-AFTER-REGRANT: PASS - status=401
+[2026-11-27T06:47:45.994Z] R3/SINGLE-RESET-AUDIT-EVENT: PASS - OPERATOR_ACCESS_RESET_BY_RESTORE events=1
+[2026-11-27T06:47:46.043Z] $ [migrate:pre-takeover-source] npm run migrate
+[2026-11-27T06:47:46.407Z] [migrate:pre-takeover-source] > servora-med-server@0.1.0 migrate
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] > tsx --env-file=.env src/db/migrate.ts
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 001_auth_foundation.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 002_delivery_tracer.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 003_people.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 004_crm_contacts.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 005_product_catalog.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 006_jobcard_workspace.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 007_sales_meeting.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 008_meeting_approval_withdrawal.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 009_job_acceptance_and_scheduling.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 010_entity_delete_audit.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 011_create_realtime_events.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 012_create_in_app_notifications.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 013_create_job_action_locations.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 014_create_web_push.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 015_job_card_engagement_kind.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 016_google_reverse_geocoding.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 017_calendar.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 018_messaging.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 019_job_card_operational_note_context.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 020_job_card_transition_note_contexts.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 021_job_card_note_added_notification_kind.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 022_job_card_follow_up_links.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 023_staff_confidential_notes.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 024_job_card_notes_invoice_number.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 025_messaging_context_ready.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 026_messaging_participant_lifecycle.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 027_follow_up_proposals.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 028_notification_center_dismissal.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 029_messaging_conversation_archive.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 030_backup_domain_foundation.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 032_backup_r2_failure_taxonomy.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 033_backup_worker_runtime.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 034_demo_data_foundation.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 035_demo_data_purge_foundation.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 036_job_card_invalidated.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 037_staff_offboarding_audit.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 038_demo_dataset_audit_types.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 039_contact_deleted_audit.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 040_demo_lifecycle_simplification.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 041_user_lifecycle_reconciliation.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 042_unsuccessful_visit_reason.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 043_job_card_schedule_and_assignment_history.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 044_job_card_accountability_facts.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 045_calendar_request_hash.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 046_notification_state_realtime.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 047_job_card_overdue_incidents.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 048_overdue_episode_activation_legacy_first.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 049_job_card_lifecycle_intents.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 050_overdue_incident_scanner_source.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 051_weekly_report_foundation.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 052_weekly_report_recurrence.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 053_overdue_submission_reminders.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 054_job_action_locations_submit_approval.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 055_job_submit_location_comparison.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 056_meeting_met_contact.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 057_sale_from_visit.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 058_sale_integer_quantity.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 059_crm_duplicate_read_indexes.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 060_crm_duplicate_review_decisions.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 061_weekly_report_removal.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 062_follow_up_cycle_end_reason.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 063_job_card_early_start_authorizations.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 064_job_card_change_requests.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 065_job_card_assignment_offers.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 066_overdue_correction_deadline_and_extension.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 067_overdue_delivery_identity_per_incident.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 068_weekly_report_workweek.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 069_lateness_alerts_and_quiet_hours.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 070_overdue_incident_invalidation_closure.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 071_sale_standalone_and_delivery_link.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 072_sale_submit_without_start.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 073_assignment_offer_time_proposal.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 074_installation_operator_and_module_state.sql
+[2026-11-27T06:47:46.408Z] [migrate:pre-takeover-source] Migration applied: 075_installation_module_registry_widening.sql
+[2026-11-27T06:47:46.410Z] R4/PRE-TAKEOVER-SOURCE-MIGRATED-TO-HEAD: PASS - applied=75, head=075_installation_module_registry_widening
+[2026-11-27T06:47:46.414Z] R4/SOURCE-HAS-NO-MODULE-STATE: PASS - moduleRows=0, moduleAuditEvents=0 (server never started)
+[2026-11-27T06:47:46.415Z] $ [pg_dump:msg003-r4-69cd27fb] /opt/homebrew/opt/postgresql@17/bin/pg_dump --format=custom --no-owner --no-acl --file /private/tmp/servora-msg003-restore-dumps-hTifNA/msg003-r4-69cd27fb.dump --dbname postgresql://***@127.0.0.1:49682/msg003_pretakeover_69cd27fb
+[2026-11-27T06:47:46.478Z] pg_dump artifact msg003-r4-69cd27fb: 355117 bytes sha256=ffde58bee505421112964bc79ec31753d61c02f17b76b6777a2aa9670be3c1d0
+[2026-11-27T06:47:46.509Z] $ [pg_restore:msg003_pre_restored_69cd27fb] /opt/homebrew/opt/postgresql@17/bin/pg_restore --no-owner --no-acl --exit-on-error --single-transaction --dbname postgresql://***@127.0.0.1:49682/msg003_pre_restored_69cd27fb /private/tmp/servora-msg003-restore-dumps-hTifNA/msg003-r4-69cd27fb.dump
+[2026-11-27T06:47:46.653Z] R4/PRE-TAKEOVER-BACKUP-RESTORED: PASS - pg_restore completed into msg003_pre_restored_69cd27fb; dump size=355117
+[2026-11-27T06:47:46.724Z] [server:pre-restored] 
+> servora-med-server@0.1.0 start:prod
+> node dist/index.js
+[2026-11-27T06:47:47.064Z] R4/PRE-TAKEOVER-SERVER-STARTED-WITH-ENV-TRUE: PASS - Real built server started on the restored pre-takeover database with MESSAGING_ENABLED=true
+[2026-11-27T06:47:47.067Z] R4/TAKEOVER-CREATES-MESSAGING-ROW: PASS - row={"module_key":"MESSAGING","enabled":true,"version":1,"source":"ENV_TAKEOVER","updated_at":"2026-11-27T06:47:46.979Z","updated_by_operator_id":null}
+[2026-11-27T06:47:47.067Z] R4 OVERVIEW row={"module_key":"OVERVIEW","enabled":false,"version":1,"source":"ENV_TAKEOVER","updated_at":"2026-11-27T06:47:46.978Z","updated_by_operator_id":null} (recorded, not asserted)
+[2026-11-27T06:47:47.069Z] R4/TAKEOVER-EXACTLY-ONE-MESSAGING-EVENT: PASS - events=[{"actor_kind":"SYSTEM","event_type":"MODULE_STATE_TAKEN_OVER","new_value":{"source":"ENV_TAKEOVER","enabled":true}}]
+[2026-11-27T06:47:47.069Z] $ [operator:grant] /opt/homebrew/Cellar/node/26.11.0/bin/node /Users/emrah/.claude/model-fleet/worktrees/20261127-093821-deepseek-7709/server//dist/db/operator-cli-main.js grant --email msg003-operator-r4-69cd27fb@example.test --name MSG-003 Operator --password-stdin
+[2026-11-27T06:47:47.174Z] [operator:grant] Granted operator msg003-operator-r4-69cd27fb@example.test (MODULE_MANAGEMENT).
+[2026-11-27T06:47:47.247Z] R4/R4-OPERATOR-LOGIN: PASS - status=200
+[2026-11-27T06:47:47.249Z] R4/TAKEOVER-VISIBLE-ON-MODULES-API: PASS - status=200, module={"key":"MESSAGING","enabled":true,"version":1,"source":"ENV_TAKEOVER","updatedAt":"2026-11-27T06:47:46.979Z"}
+[2026-11-27T06:47:47.455Z] $ [pg_ctl:stop] /opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /private/tmp/servora-msg003-restore-OsKbBs stop -m fast -w
+[2026-11-27T06:47:47.565Z] [pg_ctl:stop] sunucunun kapanması bekleniyor.... tamam
+[2026-11-27T06:47:47.566Z] [pg_ctl:stop] sunucu durduruldu
