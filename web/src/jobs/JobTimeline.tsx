@@ -9,6 +9,7 @@ import {
 import { ResultState } from '../ui/antd/ResultState';
 import type { SignalGlyphName } from '../ui/signal-icons';
 import {
+  assignmentOfferCloseReasonLabel,
   historicalJobStatusLabels,
   isKnownJobCardActivityEvent,
   jobActivityLabel,
@@ -159,6 +160,23 @@ function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'SALE_ITEM') return details.productName + ' · ' + (details.previousQuantity && details.operation === 'UPDATED' ? details.previousQuantity + ' ürün → ' : '') + details.quantity + ' ürün';
   if (details.kind === 'SALE_DELIVERY') return `${details.itemCount} ürün satırıyla planlı teslim işi açıldı`;
   if (details.kind === 'NOTE') return 'Not geçmişe eklendi';
+  if (details.kind === 'ASSIGNMENT_DECISION') {
+    // The event label already says declined/released; the detail adds the
+    // recorded reason and the Staff member's own words.
+    // Recorded fact, third person ("İzinli / müsait değil"), not the Staff
+    // form's first-person option text.
+    const reasonLabel = assignmentOfferCloseReasonLabel(details.reasonCode);
+    const reasonText = details.reasonText?.trim();
+    // JOB-012: the proposed time is part of the answer, when one was asked for.
+    const proposed = details.proposedScheduledAt !== null
+      ? `Önerilen: ${formatInstant(details.proposedScheduledAt)}`
+      : null;
+    return [
+      reasonLabel,
+      reasonText ? `“${reasonText}”` : null,
+      proposed,
+    ].filter(Boolean).join(' · ');
+  }
   if (details.kind === 'MEETING_DETAILS') return details.changedFields
     .map((field) => meetingFieldLabels[field]).join(', ');
   return '';

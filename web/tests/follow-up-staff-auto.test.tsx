@@ -11,6 +11,7 @@ import {
   isAutoSchedulableFollowUpType,
 } from '../src/jobs/jobs-api';
 import { requiresMandatoryFollowUpProposal } from '../src/jobs/job-workflow-presentation';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -24,11 +25,7 @@ function detailUrlMatches(url: string, id: string) {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-    matches: false, media: '', onchange: null,
-    addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-  }));
+  stubMatchMedia();
 });
 
 afterEach(() => {

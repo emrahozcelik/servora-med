@@ -277,6 +277,15 @@ export interface BackupTransaction {
   appendAudit(input: BackupAuditInput): Promise<void>;
 }
 
+/**
+ * Declares the SYSTEM audit row that must commit in the same statement as the
+ * transition it describes. The repository derives the metadata from the
+ * transition's own persisted values, so the audit row and the state it
+ * describes cannot diverge; callers only name the lifecycle event.
+ */
+export type BackupFailureTransitionAudit = { eventType: 'BACKUP_FAILED' };
+export type BackupCompletionTransitionAudit = { eventType: 'BACKUP_COMPLETED' };
+
 export interface BackupRepository {
   execute<T>(work: (tx: BackupTransaction) => Promise<T>): Promise<T>;
   executeCriticalAction<T>(
@@ -295,10 +304,10 @@ export interface BackupRepository {
   recordStorageConnectionTest(ok: boolean, testedAt: Date): Promise<void>;
   startRun(id: string, startedAt: Date, leaseToken?: string): Promise<BackupRun | null>;
   advancePhase(id: string, fromPhase: NonNullable<BackupRun['phase']>, toPhase: NonNullable<BackupRun['phase']>, leaseToken?: string): Promise<BackupRun | null>;
-  markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, completedAt: Date, leaseToken?: string): Promise<BackupRun | null>;
+  markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, completedAt: Date, leaseToken?: string, systemAudit?: BackupFailureTransitionAudit): Promise<BackupRun | null>;
   markCancelled(id: string, completedAt: Date, leaseToken?: string): Promise<BackupRun | null>;
   recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, leaseToken?: string): Promise<BackupRun | null>;
-  completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null }, leaseToken?: string): Promise<BackupRun | null>;
+  completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null; systemAudit?: BackupCompletionTransitionAudit }, leaseToken?: string): Promise<BackupRun | null>;
   markCleanupWarning(id: string, warningSummary: string, leaseToken?: string): Promise<BackupRun | null>;
   createRestoreRun(input: CreateRestoreRunInput): Promise<RestoreRun>;
   getRestoreRunById(id: string): Promise<RestoreRun | null>;
@@ -599,15 +608,45 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }
 
-  async markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, completedAt: Date, leaseToken?: string) {
+  // Terminal failure and its SYSTEM audit are one statement: a crash can no
+  // longer persist the transition without the audit (AGENTS.md §3/§6).
+  async markFailed(
+    id: string,
+    failureCode: BackupFailureCode,
+    failureSummary: string,
+    completedAt: Date,
+    leaseToken?: string,
+    systemAudit?: BackupFailureTransitionAudit,
+  ) {
     const result = await this.pool.query<BackupRunRow>(
-      `UPDATE backup_runs
-          SET status = 'FAILED', failure_code = $2, failure_summary = $3, completed_at = $4,
-              lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
-        WHERE id = $1 AND status = 'RUNNING'
-          AND ($5::uuid IS NULL OR (lease_token = $5 AND lease_until > CURRENT_TIMESTAMP))
-        RETURNING ${RUN_COLUMNS}`,
-      [id, failureCode, failureSummary, completedAt, leaseToken ?? null],
+      `WITH updated AS (
+         UPDATE backup_runs
+             SET status = 'FAILED', failure_code = $2, failure_summary = $3, completed_at = $4,
+                 lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
+           WHERE id = $1 AND status = 'RUNNING'
+             AND ($5::uuid IS NULL OR (lease_token = $5 AND lease_until > CURRENT_TIMESTAMP))
+           RETURNING ${RUN_COLUMNS}
+       ),
+       audited AS (
+         INSERT INTO audit_events
+           (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
+         SELECT NULL, NULL, 'BACKUP_RUN', u.id, $6::varchar,
+                jsonb_build_object(
+                  'failureCode', u.failure_code,
+                  'failureSummary', u.failure_summary,
+                  'actorType', 'SYSTEM',
+                  'backupId', u.id
+                )
+           FROM updated u
+          WHERE $6::varchar IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM audit_events a
+               WHERE a.subject_type = 'BACKUP_RUN' AND a.subject_id = u.id
+                 AND a.event_type = $6::varchar
+            )
+       )
+       SELECT ${RUN_COLUMNS} FROM updated`,
+      [id, failureCode, failureSummary, completedAt, leaseToken ?? null, systemAudit?.eventType ?? null],
     );
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }
@@ -645,23 +684,50 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
   // REMOTE_VERIFY, so the verified_at → SUCCESS invariant holds while the
   // verification result itself (sha256/remote_key/size_bytes) was already
   // recorded by recordVerification. A non-null cleanupWarning records
-  // CLEANUP_FAILED without downgrading the verified restore point.
-  async completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null }, leaseToken?: string) {
+  // CLEANUP_FAILED without downgrading the verified restore point. The
+  // optional SYSTEM audit commits in the same statement: SUCCESS is never
+  // revisited, so a lost BACKUP_COMPLETED audit could never be repaired.
+  async completeRun(
+    id: string,
+    input: { completedAt: Date; cleanupWarning: string | null; systemAudit?: BackupCompletionTransitionAudit },
+    leaseToken?: string,
+  ) {
     const result = await this.pool.query<BackupRunRow>(
-      `UPDATE backup_runs
-          SET status = 'SUCCESS', verified_at = $2, completed_at = $2,
-              warning_code = CASE WHEN $3::text IS NULL THEN NULL ELSE 'CLEANUP_FAILED' END,
-              warning_summary = $3,
-              failure_code = NULL, failure_summary = NULL,
-              lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
-        WHERE id = $1 AND status = 'RUNNING' AND phase = 'CLEANUP'
-          AND remote_key IS NOT NULL AND remote_key <> ''
-          AND size_bytes > 0
-          AND sha256 ~ '^[0-9a-f]{64}$'
-          AND failure_code IS NULL
-          AND ($4::uuid IS NULL OR (lease_token = $4 AND lease_until > CURRENT_TIMESTAMP))
-        RETURNING ${RUN_COLUMNS}`,
-      [id, input.completedAt, input.cleanupWarning, leaseToken ?? null],
+      `WITH updated AS (
+         UPDATE backup_runs
+             SET status = 'SUCCESS', verified_at = $2, completed_at = $2,
+                 warning_code = CASE WHEN $3::text IS NULL THEN NULL ELSE 'CLEANUP_FAILED' END,
+                 warning_summary = $3,
+                 failure_code = NULL, failure_summary = NULL,
+                 lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
+           WHERE id = $1 AND status = 'RUNNING' AND phase = 'CLEANUP'
+             AND remote_key IS NOT NULL AND remote_key <> ''
+             AND size_bytes > 0
+             AND sha256 ~ '^[0-9a-f]{64}$'
+             AND failure_code IS NULL
+             AND ($4::uuid IS NULL OR (lease_token = $4 AND lease_until > CURRENT_TIMESTAMP))
+           RETURNING ${RUN_COLUMNS}
+       ),
+       audited AS (
+         INSERT INTO audit_events
+           (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
+         SELECT NULL, NULL, 'BACKUP_RUN', u.id, $5::varchar,
+                jsonb_build_object(
+                  'status', u.status,
+                  'warningCode', u.warning_code,
+                  'actorType', 'SYSTEM',
+                  'backupId', u.id
+                )
+           FROM updated u
+          WHERE $5::varchar IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM audit_events a
+               WHERE a.subject_type = 'BACKUP_RUN' AND a.subject_id = u.id
+                 AND a.event_type = $5::varchar
+            )
+       )
+       SELECT ${RUN_COLUMNS} FROM updated`,
+      [id, input.completedAt, input.cleanupWarning, leaseToken ?? null, input.systemAudit?.eventType ?? null],
     );
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }
@@ -716,6 +782,8 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     return result.rows[0] ? mapRestoreRun(result.rows[0]) : null;
   }
 
+  // Claim and BACKUP_STARTED are one statement: a claimed run can never exist
+  // without its start audit.
   async claimNextRun(now: Date, leaseToken: string, leaseUntil: Date): Promise<BackupWorkerClaim | null> {
     const leaseDurationMs = Math.max(1, leaseUntil.getTime() - now.getTime());
     const result = await this.pool.query<BackupRunRow>(
@@ -726,21 +794,46 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
           ORDER BY created_at ASC, id ASC
           FOR UPDATE SKIP LOCKED
           LIMIT 1
+       ),
+       claimed AS (
+         UPDATE backup_runs r
+            SET status = 'RUNNING', phase = 'PREFLIGHT', started_at = CURRENT_TIMESTAMP,
+                lease_token = $1,
+                lease_until = CURRENT_TIMESTAMP + ($2::bigint * INTERVAL '1 millisecond'),
+                heartbeat_at = CURRENT_TIMESTAMP
+           FROM candidate
+          WHERE r.id = candidate.id
+          RETURNING ${RUN_COLUMNS_QUALIFIED}
+       ),
+       audited AS (
+         INSERT INTO audit_events
+           (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
+         SELECT NULL, NULL, 'BACKUP_RUN', c.id, 'BACKUP_STARTED',
+                jsonb_build_object(
+                  'origin', c.origin,
+                  'scope', c.scope,
+                  'retentionClass', c.retention_class,
+                  'phase', c.phase,
+                  'actorType', 'SYSTEM',
+                  'backupId', c.id
+                )
+           FROM claimed c
+          WHERE NOT EXISTS (
+            SELECT 1 FROM audit_events a
+             WHERE a.subject_type = 'BACKUP_RUN' AND a.subject_id = c.id
+               AND a.event_type = 'BACKUP_STARTED'
+          )
        )
-       UPDATE backup_runs r
-          SET status = 'RUNNING', phase = 'PREFLIGHT', started_at = CURRENT_TIMESTAMP,
-              lease_token = $1,
-              lease_until = CURRENT_TIMESTAMP + ($2::bigint * INTERVAL '1 millisecond'),
-              heartbeat_at = CURRENT_TIMESTAMP
-         FROM candidate
-        WHERE r.id = candidate.id
-        RETURNING ${RUN_COLUMNS_QUALIFIED}`,
+       SELECT * FROM claimed`,
       [leaseToken, leaseDurationMs],
     );
     const row = result.rows[0];
     return row ? { run: mapRun(row), leaseToken, leaseUntil } : null;
   }
 
+  // A cleanup reclaim only re-leases the row. BACKUP_STARTED must already be
+  // durable from the original claim (or is repaired here if it was lost), and
+  // the NOT EXISTS guard guarantees a reclaim never duplicates it.
   async claimExpiredCleanupRun(now: Date, leaseToken: string, leaseUntil: Date): Promise<BackupWorkerClaim | null> {
     const leaseDurationMs = Math.max(1, leaseUntil.getTime() - now.getTime());
     const result = await this.pool.query<BackupRunRow>(
@@ -764,20 +857,45 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
           ORDER BY lease_until ASC, id ASC
           FOR UPDATE SKIP LOCKED
           LIMIT 1
+       ),
+       claimed AS (
+         UPDATE backup_runs r
+            SET lease_token = $1,
+                lease_until = CURRENT_TIMESTAMP + ($2::bigint * INTERVAL '1 millisecond'),
+                heartbeat_at = CURRENT_TIMESTAMP
+           FROM candidate
+          WHERE r.id = candidate.id
+          RETURNING ${RUN_COLUMNS_QUALIFIED}
+       ),
+       audited AS (
+         INSERT INTO audit_events
+           (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
+         SELECT NULL, NULL, 'BACKUP_RUN', c.id, 'BACKUP_STARTED',
+                jsonb_build_object(
+                  'origin', c.origin,
+                  'scope', c.scope,
+                  'retentionClass', c.retention_class,
+                  'phase', c.phase,
+                  'actorType', 'SYSTEM',
+                  'backupId', c.id
+                )
+           FROM claimed c
+          WHERE NOT EXISTS (
+            SELECT 1 FROM audit_events a
+             WHERE a.subject_type = 'BACKUP_RUN' AND a.subject_id = c.id
+               AND a.event_type = 'BACKUP_STARTED'
+          )
        )
-       UPDATE backup_runs r
-          SET lease_token = $1,
-              lease_until = CURRENT_TIMESTAMP + ($2::bigint * INTERVAL '1 millisecond'),
-              heartbeat_at = CURRENT_TIMESTAMP
-         FROM candidate
-        WHERE r.id = candidate.id
-        RETURNING ${RUN_COLUMNS_QUALIFIED}`,
+       SELECT * FROM claimed`,
       [leaseToken, leaseDurationMs],
     );
     const row = result.rows[0];
     return row ? { run: mapRun(row), leaseToken, leaseUntil } : null;
   }
 
+  // Recovery and BACKUP_FAILED are one statement. Recovery only selects
+  // RUNNING rows, so a separately appended audit could be lost forever once
+  // the row is FAILED.
   async recoverExpiredRuns(_now: Date): Promise<BackupRun[]> {
     const result = await this.pool.query<BackupRunRow>(
       `WITH expired AS (
@@ -799,15 +917,36 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
               AND sha256 ~ '^[0-9a-f]{64}$'
             )
           FOR UPDATE SKIP LOCKED
+       ),
+       recovered AS (
+         UPDATE backup_runs r
+            SET status = 'FAILED', failure_code = 'WORKER_LOST',
+                failure_summary = 'Backup worker lease expired before durable remote verification.',
+                completed_at = CURRENT_TIMESTAMP, lease_token = NULL, lease_until = NULL,
+                heartbeat_at = NULL
+           FROM expired
+          WHERE r.id = expired.id
+          RETURNING ${RUN_COLUMNS_QUALIFIED}
+       ),
+       audited AS (
+         INSERT INTO audit_events
+           (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
+         SELECT NULL, NULL, 'BACKUP_RUN', c.id, 'BACKUP_FAILED',
+                jsonb_build_object(
+                  'status', c.status,
+                  'phase', c.phase,
+                  'failureCode', c.failure_code,
+                  'actorType', 'SYSTEM',
+                  'backupId', c.id
+                )
+           FROM recovered c
+          WHERE NOT EXISTS (
+            SELECT 1 FROM audit_events a
+             WHERE a.subject_type = 'BACKUP_RUN' AND a.subject_id = c.id
+               AND a.event_type = 'BACKUP_FAILED'
+          )
        )
-       UPDATE backup_runs r
-          SET status = 'FAILED', failure_code = 'WORKER_LOST',
-              failure_summary = 'Backup worker lease expired before durable remote verification.',
-              completed_at = CURRENT_TIMESTAMP, lease_token = NULL, lease_until = NULL,
-              heartbeat_at = NULL
-         FROM expired
-        WHERE r.id = expired.id
-        RETURNING ${RUN_COLUMNS_QUALIFIED}`,
+       SELECT * FROM recovered`,
       [],
     );
     return result.rows.map(mapRun);

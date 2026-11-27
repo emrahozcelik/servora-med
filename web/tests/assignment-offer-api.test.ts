@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  acceptAssignmentProposal,
   createFollowUp,
   createJobCard,
   createProductDelivery,
   declineAssignment,
   getJobCard,
+  listActivity,
   listAssignmentOffersNeedingAction,
   pastStartAcknowledgementPayload,
   patchJobCard,
@@ -26,6 +28,12 @@ const assignmentOffer = {
   acceptanceDueAt: '2026-11-21T12:00:00.000Z',
   urgentReason: 'SHORT_NOTICE',
   assignee: related('s1', 'Ayşe Personel'),
+  closedAt: null,
+  closeReason: null,
+  closeText: null,
+  proposedScheduledAt: null,
+  proposedScheduledEndsAt: null,
+  proposalAcceptedAt: null,
 };
 
 function jobCard(overrides: Record<string, unknown> = {}) {
@@ -61,6 +69,7 @@ const listItem: AssignmentOfferNeedingActionItem = {
   acceptanceDueAt: '2026-11-21T12:00:00.000Z',
   urgentReason: null,
   scheduledAt: '2026-11-21T13:00:00.000Z',
+  proposedScheduledAt: null,
   assignee: related('s1', 'Ayşe Personel'),
   customer: related('c1', 'ABC Klinik'),
   jobPath: '/jobs/job-1',
@@ -110,11 +119,83 @@ describe('job detail assignment offer DTO', () => {
       const { urgentReason: _omitted, ...rest } = assignmentOffer;
       return rest;
     })()],
-    ['extra key', { ...assignmentOffer, closeReason: 'REASSIGNED' }],
+    ['unknown close reason', { ...assignmentOffer, closeReason: 'CUSTOMER_CHANGED_MIND' }],
+    ['missing close reason key', (() => {
+      const { closeReason: _omitted, ...rest } = assignmentOffer;
+      return rest;
+    })()],
+    ['non-canonical closed instant', { ...assignmentOffer, closedAt: '2026-11-21T12:00:00Z' }],
     ['non-canonical instant', { ...assignmentOffer, acceptanceDueAt: '2026-11-21T12:00:00Z' }],
     ['loose assignee shape', { ...assignmentOffer, assignee: { id: 's1', name: 'Ayşe', role: 'STAFF' } }],
     ['empty id', { ...assignmentOffer, id: '' }],
   ])('rejects an assignment offer with %s', async (_name, candidate) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: candidate }))));
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE', status: 0 });
+  });
+
+  it('parses the closed offer fields a declined offer carries', async () => {
+    const closed = {
+      ...assignmentOffer,
+      state: 'DECLINED',
+      urgentReason: null,
+      closedAt: '2026-11-21T11:20:00.000Z',
+      closeReason: 'SCHEDULE_CONFLICT',
+      closeText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: closed }))));
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ assignmentOffer: closed });
+  });
+
+  it('parses the JOB-012 proposed interval and its acceptance mark', async () => {
+    const proposed = {
+      ...assignmentOffer,
+      state: 'DECLINED',
+      urgentReason: null,
+      closedAt: '2026-11-21T11:20:00.000Z',
+      closeReason: 'SCHEDULE_CONFLICT',
+      closeText: null,
+      proposedScheduledAt: '2026-11-23T09:00:00.000Z',
+      proposedScheduledEndsAt: '2026-11-23T09:30:00.000Z',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: proposed }))));
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      assignmentOffer: {
+        proposedScheduledAt: '2026-11-23T09:00:00.000Z',
+        proposedScheduledEndsAt: '2026-11-23T09:30:00.000Z',
+        proposalAcceptedAt: null,
+      },
+    });
+
+    const accepted = { ...proposed, proposalAcceptedAt: '2026-11-22T08:00:00.000Z' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: accepted }))));
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      assignmentOffer: { proposalAcceptedAt: '2026-11-22T08:00:00.000Z' },
+    });
+  });
+
+  it.each([
+    ['missing proposed start key', (() => {
+      const { proposedScheduledAt: _omitted, ...rest } = assignmentOffer;
+      return rest;
+    })()],
+    ['missing proposed end key', (() => {
+      const { proposedScheduledEndsAt: _omitted, ...rest } = assignmentOffer;
+      return rest;
+    })()],
+    ['missing proposal acceptance key', (() => {
+      const { proposalAcceptedAt: _omitted, ...rest } = assignmentOffer;
+      return rest;
+    })()],
+    ['non-canonical proposed start', {
+      ...assignmentOffer, proposedScheduledAt: '2026-11-23T09:00:00Z',
+    }],
+    ['loose proposed end', {
+      ...assignmentOffer, proposedScheduledEndsAt: '2026-11-23',
+    }],
+    ['non-canonical acceptance mark', {
+      ...assignmentOffer, proposalAcceptedAt: '2026-11-22T08:00:00+03:00',
+    }],
+  ])('rejects a JOB-012 proposal with %s', async (_name, candidate) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: candidate }))));
     await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE', status: 0 });
   });
@@ -146,6 +227,16 @@ describe('assignment offer needs-action list', () => {
     });
   });
 
+  it('parses the JOB-012 proposal on a needs-action row', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...listItem, proposedScheduledAt: '2026-11-23T09:00:00.000Z' }],
+      total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listAssignmentOffersNeedingAction()).resolves.toMatchObject({
+      items: [{ proposedScheduledAt: '2026-11-23T09:00:00.000Z' }],
+    });
+  });
+
   it.each([
     ['unknown job type', { ...listItem, jobType: 'SURVEY' }],
     ['unknown state', { ...listItem, state: 'ANSWERED' }],
@@ -154,6 +245,11 @@ describe('assignment offer needs-action list', () => {
     ['extra key', { ...listItem, jobStatus: 'NEW' }],
     ['broken instant', { ...listItem, acceptanceDueAt: '2026-11-21' }],
     ['non-canonical scheduled instant', { ...listItem, scheduledAt: '2026-11-21T13:00:00Z' }],
+    ['non-canonical proposed instant', { ...listItem, proposedScheduledAt: '2026-11-23T09:00:00Z' }],
+    ['missing proposed key', (() => {
+      const { proposedScheduledAt: _omitted, ...rest } = listItem;
+      return rest;
+    })()],
     ['extra assignee field', { ...listItem, assignee: { id: 's1', name: 'Ayşe', email: 'a@x' } }],
     ['missing customer key', (() => {
       const { customer: _omitted, ...rest } = listItem;
@@ -164,6 +260,82 @@ describe('assignment offer needs-action list', () => {
       items: [candidate], total: 1, limit: 25, offset: 0,
     })));
     await expect(listAssignmentOffersNeedingAction()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+});
+
+describe('assignment decision activity details', () => {
+  const activity = (details: unknown) => ({
+    id: 'a1', jobCardId: 'job-1', eventType: 'JOB_ASSIGNMENT_DECLINED',
+    actor: related('s1', 'Ayşe Personel'), details,
+    createdAt: '2026-11-21T11:20:00.000Z',
+  });
+
+  it('parses the decision, the decline reason code and the Staff text', async () => {
+    const decision = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
+      reasonCode: 'SCHEDULE_CONFLICT', reasonText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+      proposedScheduledAt: null,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(decision)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [{ details: decision }] });
+  });
+
+  it('parses the JOB-012 proposed time inside the decision', async () => {
+    const decision = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
+      reasonCode: 'SCHEDULE_CONFLICT', reasonText: null,
+      proposedScheduledAt: '2026-11-23T09:00:00.000Z',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(decision)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({
+      items: [{ details: { proposedScheduledAt: '2026-11-23T09:00:00.000Z' } }],
+    });
+  });
+
+  it('accepts a missing reason and a missing text as null', async () => {
+    const decision = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'RELEASED', reasonCode: null, reasonText: null,
+      proposedScheduledAt: null,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(decision)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [{ details: decision }] });
+  });
+
+  it.each([
+    ['unknown decision', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'ACCEPTED', reasonCode: null, reasonText: null,
+      proposedScheduledAt: null,
+    }],
+    ['unknown reason code', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
+      reasonCode: 'CUSTOMER_CHANGED_MIND', reasonText: null, proposedScheduledAt: null,
+    }],
+    ['extra key', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null,
+      reasonText: null, proposedScheduledAt: null, offerId: 'offer-1',
+    }],
+    ['missing reason text key', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null,
+      proposedScheduledAt: null,
+    }],
+    ['missing proposed time key', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null, reasonText: null,
+    }],
+    ['non-canonical proposed time', {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null, reasonText: null,
+      proposedScheduledAt: '2026-11-23T09:00:00Z',
+    }],
+  ])('rejects a decision detail with %s', async (_name, details) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(details)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 });
 
@@ -188,6 +360,36 @@ describe('decline and release transport', () => {
       reasonCode: 'SCHEDULE_CONFLICT',
       reasonText: 'Aynı saatte başka teslim var.',
     });
+  });
+
+  it('carries the JOB-012 proposed time only when one is supplied', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(jobCard({ status: 'NEW', version: 4 })))
+      .mockResolvedValueOnce(json(jobCard({ status: 'NEW', version: 5 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await declineAssignment('job-1', {
+      clientActionId: 'action-1',
+      expectedVersion: 3,
+      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonText: 'Aynı saatte başka teslim var.',
+      proposedScheduledAt: '2026-11-23T09:00:00.000Z',
+    });
+    expect(bodyOf(fetchMock.mock.calls[0]!)).toEqual({
+      clientActionId: 'action-1',
+      expectedVersion: 3,
+      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonText: 'Aynı saatte başka teslim var.',
+      proposedScheduledAt: '2026-11-23T09:00:00.000Z',
+    });
+
+    await releaseAssignment('job-1', {
+      clientActionId: 'action-2',
+      expectedVersion: 4,
+      reasonCode: 'ON_LEAVE',
+      reasonText: 'İzinliyim.',
+    });
+    expect(bodyOf(fetchMock.mock.calls[1]!)).not.toHaveProperty('proposedScheduledAt');
   });
 
   it('posts the exact release body to the job release path', async () => {
@@ -274,6 +476,50 @@ describe('re-offer transport', () => {
     }, 201)));
     await expect(reofferAssignment('job-1', {
       clientActionId: 'action-7', expectedVersion: 3,
+    })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+});
+
+describe('accept-proposal transport', () => {
+  const receipt = {
+    jobCardId: 'job-1',
+    offerId: 'offer-1',
+    scheduledAt: '2026-11-23T09:00:00.000Z',
+    scheduledEndsAt: '2026-11-23T09:30:00.000Z',
+  };
+
+  it('posts the exact body to the accept-proposal path and parses the receipt', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(receipt));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(acceptAssignmentProposal('job-1', {
+      clientActionId: 'action-8',
+      expectedVersion: 3,
+      offerId: 'offer-1',
+    })).resolves.toEqual(receipt);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      '/api/job-cards/job-1/assignment-offers/accept-proposal',
+    );
+    expect(bodyOf(fetchMock.mock.calls[0]!)).toEqual({
+      clientActionId: 'action-8',
+      expectedVersion: 3,
+      offerId: 'offer-1',
+    });
+  });
+
+  it.each([
+    ['a foreign job card', { ...receipt, jobCardId: 'job-2' }],
+    ['a missing moved start', (() => {
+      const { scheduledAt: _omitted, ...rest } = receipt;
+      return rest;
+    })()],
+    ['a non-canonical interval end', { ...receipt, scheduledEndsAt: '2026-11-23T09:30:00Z' }],
+    ['an extra key', { ...receipt, urgentReason: null }],
+  ])('rejects a receipt with %s', async (_name, candidate) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(candidate)));
+    await expect(acceptAssignmentProposal('job-1', {
+      clientActionId: 'action-9', expectedVersion: 3, offerId: 'offer-1',
     })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 });

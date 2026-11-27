@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 import { setCustomerPhone } from './helpers/customer-phone';
 import {
   customerOptionTitles,
@@ -42,7 +43,9 @@ vi.mock('../src/services/crm-api', async (original) => ({
 vi.mock('../src/services/people-api', async (original) => ({
   ...await original<typeof import('../src/services/people-api')>(), ...people,
 }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (original) => ({
+  ...await original<typeof import('../src/jobs/scheduling')>(), ...scheduling,
+}));
 vi.mock('../src/jobs/useCustomerSchedulePreview', () => preview);
 
 const manager: CurrentUser = {
@@ -85,6 +88,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 describe('Sales Meeting create page (AAP create-time parity)', () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -92,12 +101,8 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resizeTo(1024);
     scheduling.isoInstantToLocalDateTime.mockImplementation(() => '2026-08-10T09:30');
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),
@@ -131,6 +136,25 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     </MemoryRouter>));
     await flush();
   }
+
+  it('renders and commits the compact wheel trigger without a form name', async () => {
+    resizeTo(390);
+    await render(staffUser);
+    const trigger = host.querySelector<HTMLButtonElement>('#meeting-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+  });
 
   function selectedCustomerLabel() {
     const select = host.querySelector('#meeting-customer')?.closest('.ant-select');
@@ -214,6 +238,33 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     await act(async () => slotButton.click());
     expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
     expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
+  });
+
+  it('offers a joint slot when the Calendar module is off', async () => {
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [{
+      startsAt: '2026-08-10T06:30:00.000Z',
+      endsAt: '2026-08-10T07:30:00.000Z',
+    }] });
+    scheduling.isoInstantToLocalDateTime.mockImplementation((value: string) => (
+      value.endsWith('06:30:00.000Z') ? '2026-08-10T09:30' : '2026-08-10T10:30'
+    ));
+    await render({
+      ...manager,
+      capabilities: { overviewDashboard: true, calendar: false, messaging: true },
+    });
+    change(host.querySelector('#meeting-engagement-kind') as HTMLSelectElement, 'SALES_MEETING');
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await flush();
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-2',
+    }));
+    const slotButton = host.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slotButton).toBeTruthy();
+    await act(async () => slotButton.click());
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
   });
 
   it('AAP-22: STAFF sees only the generic conflict message, never conflict details', async () => {
@@ -456,5 +507,87 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(titles).not.toContain('Snapshot Klinik');
     expect(customerOptionTitles().filter((title) => title.includes('Canonical Klinik'))).toHaveLength(1);
     expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Canonical refresh taslağı');
+  });
+
+  it('triggers available-slot search before engagementKind is chosen and gates customer preview for STAFF', async () => {
+    await render(staffUser);
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
+    expect(preview.useCustomerSchedulePreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await flush();
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-1',
+    }));
+  });
+
+  it('auto-fills active responsible staff on customer pick without overwriting manual selection or wiping on null', async () => {
+    const profile1 = {
+      ...profile,
+      id: 'profile-1',
+      user: { ...profile.user, id: 'staff-1', name: 'Ayşe Personel' },
+    };
+    const staffPromise = deferred<typeof profile[]>();
+    people.listStaff.mockReturnValueOnce(staffPromise.promise);
+    const assignedCustomer = {
+      ...customer,
+      id: 'customer-assigned',
+      name: 'Atamalı Klinik',
+      assignedStaffUserId: 'staff-1',
+      assignedStaffName: 'Ayşe Personel',
+    };
+    crm.listCustomers.mockResolvedValue({
+      items: [assignedCustomer, customer], total: 2, limit: 20, offset: 0,
+    });
+
+    await render(manager);
+    // Customer picked before active staff resolves: resolves async once staff arrives
+    await pickCustomerByName(host, 'meeting-customer', 'Atamalı Klinik');
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('');
+    await act(async () => staffPromise.resolve([profile1, profile]));
+    await flush();
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('staff-1');
+
+    // Switching to a customer with assignedStaffUserId === null does not wipe existing assignee
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('staff-1');
+
+    // Manual selection is never overwritten by a later customer pick
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await pickCustomerByName(host, 'meeting-customer', 'Atamalı Klinik');
+    expect((host.querySelector('#meeting-assignee') as HTMLSelectElement).value).toBe('staff-2');
+  });
+
+  it('renders quick schedule controls (60 dk preview, advisory hints) and shifts past start to future from acknowledgement drawer', async () => {
+    jobs.createJobCard.mockRejectedValueOnce(
+      new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç saati geçti.'),
+    );
+    await render(manager);
+    expect(host.querySelector('.schedule-duration-preview')?.textContent).toContain('(60 dk)');
+    const quickChip = host.querySelector('.schedule-quick-chip') as HTMLButtonElement;
+    expect(quickChip).not.toBeNull();
+    await act(async () => quickChip.click());
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).not.toBe('');
+
+    // Non-blocking Sunday advisory hint
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-07-19T10:00');
+    const hints = Array.from(host.querySelectorAll('.schedule-advisory-hint[role="status"]'))
+      .map((el) => el.textContent);
+    expect(hints.some((t) => t?.includes('Pazar günü çalışma günü dışıdır'))).toBe(true);
+
+    // 409 opens drawer with shift-to-future shortcut
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await fillAndSubmit();
+    await flush();
+    expect(host.querySelector('form.past-start-acknowledgement-form')).not.toBeNull();
+
+    scheduling.defaultScheduledLocalValue.mockReturnValueOnce('2026-08-15T11:00');
+    const shiftBtn = Array.from(host.querySelectorAll('form.past-start-acknowledgement-form button'))
+      .find((b) => b.textContent === 'Saati şimdiye / geleceğe al') as HTMLButtonElement;
+    expect(shiftBtn).toBeTruthy();
+    await act(async () => shiftBtn.click());
+    expect(host.querySelector('form.past-start-acknowledgement-form')).toBeNull();
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-15T11:00');
   });
 });

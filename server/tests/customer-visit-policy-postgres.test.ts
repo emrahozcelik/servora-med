@@ -3,7 +3,7 @@ import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   PostgresJobCardRepository,
   type CriticalActionClaim,
@@ -40,6 +40,7 @@ describe('customer visit policy PostgreSQL (calendar disabled)', () => {
   let manager: JobCardActor;
   let admin: JobCardActor;
   let otherStaffId: string;
+  let newStaffId: () => Promise<string>;
   const service = new JobCardService(new PostgresJobCardRepository(pool),
     () => new Date('2026-09-01T07:00:00Z'), undefined, undefined, undefined, { enabled: false, reminderLeadMinutes: 30 });
 
@@ -53,10 +54,18 @@ describe('customer visit policy PostgreSQL (calendar disabled)', () => {
       `INSERT INTO users(organization_id,name,email,password_hash,role)
        VALUES($1,'Policy test',$2,'test-hash',$3) RETURNING id`,
       [organizationId, `${randomUUID()}@test.local`, role])).rows[0]!.id;
-    staff = { id: await user('STAFF'), organizationId, role: 'STAFF' };
+    newStaffId = async () => user('STAFF');
+    staff = { id: await newStaffId(), organizationId, role: 'STAFF' };
     manager = { id: await user('MANAGER'), organizationId, role: 'MANAGER' };
-    otherStaffId = await user('STAFF');
+    otherStaffId = await newStaffId();
     admin = { id: await user('ADMIN'), organizationId, role: 'ADMIN' };
+  });
+  // SCH-001: staff occupancy is core, so tests that share one Staff and the
+  // same default time would collide through earlier tests' active jobs. Every
+  // test gets its own Staff pair; visit-policy semantics are unchanged.
+  beforeEach(async () => {
+    staff = { id: await newStaffId(), organizationId, role: 'STAFF' };
+    otherStaffId = await newStaffId();
   });
   afterAll(async () => {
     await pool.end();
@@ -110,17 +119,29 @@ describe('customer visit policy PostgreSQL (calendar disabled)', () => {
     });
     expect((await pool.query('SELECT count(*)::int AS count FROM job_cards WHERE customer_id=$1', [id])).rows[0].count).toBe(1);
   });
-  it.each([
-    ['adjacent', '2026-09-18T08:00:00.000Z', 'CUSTOMER_VISIT'],
-    ['different purpose', '2026-09-18T07:00:00.000Z', 'PRODUCT_DEMO'],
-  ] as const)('allows %s intervals', async (_label, at, kind) => {
+  it('allows adjacent intervals', async () => {
     const id = await customer(); await service.create(staff, meeting(id));
-    await expect(service.create(staff, meeting(id, at, kind))).resolves.toMatchObject({ customerId: id });
+    await expect(service.create(staff, meeting(id, '2026-09-18T08:00:00.000Z', 'CUSTOMER_VISIT')))
+      .resolves.toMatchObject({ customerId: id });
+  });
+  // SCH-001: a different purpose passes the visit policy (no duplicate), but
+  // the same Staff can no longer hold two overlapping jobs (core occupancy).
+  it('different purpose is not a visit duplicate, yet the same Staff cannot double-book', async () => {
+    const id = await customer(); await service.create(staff, meeting(id));
+    await expect(service.create(staff, meeting(id, '2026-09-18T07:00:00.000Z', 'PRODUCT_DEMO')))
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+    await expect(service.create(manager, meeting(id, '2026-09-18T07:00:00.000Z', 'PRODUCT_DEMO', otherStaffId)))
+      .resolves.toMatchObject({ customerId: id, assignedTo: otherStaffId });
   });
   it('allows another Staff at the same time and the same Staff at another Customer', async () => {
     const id = await customer(); await service.create(staff, meeting(id));
     await expect(service.create(manager, meeting(id, undefined, undefined, otherStaffId))).resolves.toMatchObject({ assignedTo: otherStaffId });
-    await expect(service.create(staff, meeting(await customer()))).resolves.toMatchObject({ assignedTo: staff.id });
+    // SCH-001: the same Staff at another Customer passes the visit policy only
+    // at a non-overlapping time; the same time is a core occupancy conflict.
+    await expect(service.create(staff, meeting(await customer(), '2026-09-18T12:00:00.000Z')))
+      .resolves.toMatchObject({ assignedTo: staff.id });
+    await expect(service.create(staff, meeting(await customer())))
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
   });
   it('blocks overlapping equivalent intervals and gives management a scoped reference', async () => {
     const id = await customer(); const first = await service.create(staff, meeting(id));
@@ -131,12 +152,24 @@ describe('customer visit policy PostgreSQL (calendar disabled)', () => {
   it.each(['schedule', 'customer', 'staff', 'purpose'] as const)('rejects a %s edit into a duplicate', async (dimension) => {
     const id = await customer(); const secondCustomer = await customer();
     await service.create(manager, meeting(id));
+    // SCH-001: a customer-only or purpose-only difference at the same time and
+    // Staff cannot be created through the service any more, so such a
+    // pre-existing job is created at a free time and moved to 07:00 in SQL
+    // (legacy-style data). The duplicate check still runs before occupancy.
+    const seededAtFreeTime = dimension === 'customer' || dimension === 'purpose';
     const second = await service.create(manager, meeting(
       dimension === 'customer' ? secondCustomer : id,
-      dimension === 'schedule' ? '2026-09-18T10:00:00.000Z' : undefined,
+      dimension === 'schedule' ? '2026-09-18T10:00:00.000Z'
+        : seededAtFreeTime ? '2026-09-18T12:00:00.000Z' : undefined,
       dimension === 'purpose' ? 'PRODUCT_DEMO' : 'CUSTOMER_VISIT',
       dimension === 'staff' ? otherStaffId : staff.id,
     ));
+    if (seededAtFreeTime) {
+      await pool.query(
+        "UPDATE job_cards SET scheduled_at='2026-09-18T07:00:00.000Z', scheduled_ends_at='2026-09-18T08:00:00.000Z' WHERE id=$1",
+        [second.id],
+      );
+    }
     const edit = dimension === 'schedule' ? { scheduledAt: '2026-09-18T07:30:00.000Z' }
       : dimension === 'customer' ? { customerId: id }
       : dimension === 'staff' ? { assignedTo: staff.id }
@@ -183,12 +216,13 @@ describe('customer visit policy PostgreSQL (calendar disabled)', () => {
   it('exempts delivery in both directions and persists replay-safe system insight', async () => {
     const id = await customer();
     for (const hour of ['07', '09', '11']) await service.create(staff, { ...meeting(id, `2026-09-18T${hour}:00:00.000Z`), type: 'PRODUCT_DELIVERY' });
-    const input = meeting(id); const first = await service.create(staff, input);
+    // 08:00 keeps the meeting clear of the 07:00/09:00/11:00 deliveries (SCH-001).
+    const input = meeting(id, '2026-09-18T08:00:00.000Z'); const first = await service.create(staff, input);
     await expect(service.create(staff, input)).resolves.toMatchObject({ id: first.id });
     const preview = await service.previewCustomerSchedule(manager, { type: 'SALES_MEETING', customerId: id, scheduledAt: '2026-09-18T14:00:00.000Z' });
     expect(preview.level).toBe('CLEAR');
     const notableId = await customer(); await frequent(notableId);
-    const notableInput = meeting(notableId); const notable = await service.create(staff, notableInput);
+    const notableInput = meeting(notableId, '2026-09-18T12:00:00.000Z'); const notable = await service.create(staff, notableInput);
     await service.create(staff, notableInput);
     const activity = await pool.query("SELECT metadata,actor_id FROM job_card_activity_logs WHERE job_card_id=$1 AND event_type='JOB_CREATED'", [notable.id]);
     expect(activity.rows).toHaveLength(1);
@@ -201,7 +235,8 @@ describe('customer visit policy PostgreSQL (calendar disabled)', () => {
   it.each(['different time', 'delivery and meeting'] as const)('concurrent %s both commit', async (scenario) => {
     const id = await customer(); const concurrent = new JobCardService(new ConcurrentRepository(pool));
     const second = scenario === 'different time' ? meeting(id, '2026-09-18T10:00:00.000Z')
-      : { ...meeting(id), type: 'PRODUCT_DELIVERY' as const };
+      // SCH-001: the delivery moves to 12:00 so it does not overlap the 07:00 meeting.
+      : { ...meeting(id, '2026-09-18T12:00:00.000Z'), type: 'PRODUCT_DELIVERY' as const };
     const results = await Promise.allSettled([concurrent.create(staff, meeting(id)), concurrent.create(staff, second)]);
     expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
     expect((await pool.query('SELECT count(*)::int AS count FROM job_cards WHERE customer_id=$1', [id])).rows[0].count).toBe(2);

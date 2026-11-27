@@ -144,7 +144,9 @@ describe('StaffPerformanceReport', () => {
     expect(headers).toContain('Tamamlanan');
     expect(headers).not.toContain('Onaya gönderme kaydı');
     const expand = container.querySelector<HTMLButtonElement>('.staff-performance-expand')!;
-    expect(expand.textContent).toBe('Ayrıntı');
+    // Icon-only toggle: no visible word, the name and tooltip carry it.
+    expect(expand.textContent).toBe('');
+    expect(expand.getAttribute('title')).toBe('Ayrıntıları göster');
     expect(expand.getAttribute('aria-expanded')).toBe('false');
     await act(async () => expand.click());
     expect(expand.getAttribute('aria-expanded')).toBe('true');
@@ -168,6 +170,17 @@ describe('StaffPerformanceReport', () => {
     expect(container.textContent).not.toContain('Ayşe Yılmaz');
     expect(container.textContent).toContain('Mehmet Kaya');
     expect(getStaffPerformance).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(search, 'Olmayan Personel');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const clearButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Aramayı temizle');
+    expect(clearButton).toBeTruthy();
+    await act(async () => clearButton!.click());
+    expect(container.textContent).toContain('Ayşe Yılmaz');
   });
 
   it('renders bounded loading, error/retry, and empty states', async () => {

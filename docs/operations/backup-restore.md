@@ -48,6 +48,9 @@ Script: `ops/scripts/backup-postgres.sh`
 - Local retention ~7 days (mtime)
 - Ops log without passwords/URLs
 - Optional executable `OFFSITE_COPY_HOOK` receiving dump path and checksum path (no `eval`)
+- Dumps include the MOD-002 operator tables, so they contain operator password hashes
+  and session token hashes. The existing dump encryption, temporary-file and offsite-access
+  coverage applies to them. See [Operator access after restore](#operator-access-after-restore-mod-002).
 
 ### systemd
 
@@ -210,3 +213,32 @@ or automatically switches configuration. See [BR7 CLI](./backup-recovery/br7-res
 Migration 056 deployment still requires the separate R4 host forward-recovery
 acceptance. An old 055 application continues to reject a 056 database as AHEAD.
 No production action is authorized by this remediation.
+
+## Operator access after restore (MOD-002)
+
+Restoring a database never carries installation operator access over. Both restore
+paths revoke every operator session and deactivate every operator account before
+the restored database is used for traffic. Contract:
+[docs/features/operator-module-pilot.md](../features/operator-module-pilot.md) §9.
+
+- **BR7 new-target restore** (`server/src/modules/backup/restore/service.ts`): after
+  the restored target is validated and before the restore is recorded as
+  `READY_FOR_CUTOVER`, `resetOperatorAccessInRestoredDatabase` runs on that target.
+- **Host recovery helper** (`ops/scripts/production-recovery.sh`): after the post-restore
+  catalog verification and before the helper reports success, it runs
+  `dist/db/operator-cli-main.js reset-after-restore`. A missing CLI fails with
+  `OPERATOR_RESET_CLI_MISSING`; a failed reset fails with `OPERATOR_RESET_FAILED`
+  (both exit 8).
+
+Both paths run one reset in a single transaction and write an
+`OPERATOR_ACCESS_RESET_BY_RESTORE` audit event (actor `SYSTEM`) per affected account. A
+backup older than migration 074 has no operator tables, so the reset is skipped there.
+
+Effects after a restore:
+
+- Old operator cookies and old operator passwords are rejected.
+- Operator accounts stay inactive until the host operator re-grants them with a new
+  password (`grant`, see [production-deployment.md](production-deployment.md#mod-002-operator-first-grant)).
+- `installation_module_state` (Overview switch) and the operator audit trail return to the
+  backup instant. A restore therefore also rewinds any Overview change made after that
+  backup, so check the Overview state after re-granting.

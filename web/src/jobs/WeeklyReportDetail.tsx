@@ -286,6 +286,9 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const [pdfError, setPdfError] = useState('');
   const [ambiguous, setAmbiguous] = useState(false);
   const [pending, setPending] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<LifecycleCommand | null>(null);
+  const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
+  const [submitPendingPhase, setSubmitPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   /** OVR-5 §3.9: correction deadline draft of the open revision dialog. */
   const [revisionCorrection, setRevisionCorrection] = useState<RevisionCorrectionDraft | null>(null);
@@ -392,6 +395,10 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     lifecycleInFlight.current = false;
     attemptRef.current = null;
     setAmbiguous(false);
+    setPending(false);
+    setPendingCommand(null);
+    setStartPendingPhase(null);
+    setSubmitPendingPhase(null);
     setActionNotice('');
     setSaveNotice('');
     return () => {
@@ -400,13 +407,13 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   }, [jobCardId]);
 
   if (load.kind === 'error') {
-    return <main className="workspace"><ResultState status="error" title="Rapor yüklenemedi"
+    return <main className="workspace"><PageHeader fallbackTitle="Haftalık rapor" /><ResultState status="error" title="Rapor yüklenemedi"
       description={load.message}
       action={<button className="secondary-button" type="button"
         onClick={() => void refresh({ showLoading: true })}>Tekrar dene</button>} /></main>;
   }
   if (!job || !report || !form) {
-    return <main className="workspace"><ResultState status="info" title="Rapor yükleniyor" description="Haftalık rapor hazırlanıyor…" /></main>;
+    return <main className="workspace"><PageHeader fallbackTitle="Haftalık rapor" /><ResultState status="info" title="Rapor yükleniyor" description="Haftalık rapor hazırlanıyor…" /></main>;
   }
   const loadedJob: JobCard = job;
   const loadedReport: WeeklyReportDetailDto = report;
@@ -553,7 +560,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     if (retained !== null && retained.command !== command) return;
     lifecycleInFlight.current = true;
     const operationJobId = jobCardId;
-    setPending(true); setActionError(''); setActionNotice(''); setSaveNotice('');
+    setPending(true); setPendingCommand(command); setActionError(''); setActionNotice(''); setSaveNotice('');
     try {
       if (retained === null) {
         const input: LifecycleAttempt['input'] = {
@@ -565,9 +572,11 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           // Slice 1: advisory one-shot SUBMIT snapshot, bound to this exact
           // attempt so ambiguous retry reuses it without recapturing.
           if (submitLocationCaptureEnabled) {
+            setSubmitPendingPhase('capturing');
             input.locationCapture = await captureActionLocation();
             // Navigated/unmounted while capturing: never dispatch for the old job.
             if (!isLifecycleCurrent(operationJobId)) return;
+            setSubmitPendingPhase('submitting');
           }
         }
         else if (command === 'APPROVE' && reason.trim()) input.note = reason.trim();
@@ -577,10 +586,16 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         }
         else if (command === 'CANCEL') input.cancelReason = reason;
         else if (command === 'START' && startLocationCaptureEnabled) {
+          setStartPendingPhase('capturing');
           input.locationCapture = await captureActionLocation();
           if (!isLifecycleCurrent(operationJobId)) return;
+          setStartPendingPhase('submitting');
         }
         attemptRef.current = { command, input, reason };
+      } else if (command === 'START' && startLocationCaptureEnabled) {
+        setStartPendingPhase('submitting');
+      } else if (command === 'SUBMIT_FOR_APPROVAL' && submitLocationCaptureEnabled) {
+        setSubmitPendingPhase('submitting');
       }
       const attempt = attemptRef.current;
       if (attempt === null || !isLifecycleCurrent(operationJobId)) return;
@@ -601,7 +616,10 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       // The frozen attempt supplies the capture, so retries never recapture.
       const localCapture = attempt.input.locationCapture;
       if (attempt.command === 'START' && localCapture?.outcome === 'unavailable') {
-        setActionNotice(startLocationUnavailableAdvisory());
+        setActionNotice(startLocationUnavailableAdvisory({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        }));
       } else if (attempt.command === 'SUBMIT_FOR_APPROVAL'
         && localCapture?.outcome === 'unavailable') {
         setActionNotice(submitLocationUnavailableGuidance({
@@ -652,7 +670,15 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           : 'İşlem sonucu doğrulanamadı. Özgün isteği tekrar deneyebilirsiniz.');
         setActionNotice('');
       }
-    } finally { lifecycleInFlight.current = false; setPending(false); }
+    } finally {
+      if (isLifecycleCurrent(operationJobId)) {
+        lifecycleInFlight.current = false;
+        setPending(false);
+        setPendingCommand(null);
+        setStartPendingPhase(null);
+        setSubmitPendingPhase(null);
+      }
+    }
   }
 
   function retryAttempt() {
@@ -744,6 +770,15 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     && metRequirementCount === presentation.requirements.length
     && submitBlockedReason === null;
   const readyToSubmitNow = loadedJob.status === 'IN_PROGRESS' && allRequirementsMet;
+  const activePendingLabel = startPendingPhase === 'capturing'
+    ? 'Konum alınıyor…'
+    : startPendingPhase === 'submitting'
+      ? 'İş başlatılıyor…'
+      : submitPendingPhase === 'capturing'
+        ? 'Konum alınıyor…'
+        : submitPendingPhase === 'submitting'
+          ? 'Kontrole gönderiliyor…'
+          : undefined;
 
   const reportFacts: RecordDescriptionItem[] = [
     { key: 'assignee', label: 'Personel', content: loadedJob.assignee.name },
@@ -798,7 +833,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     },
   ];
 
-  // DOM/keyboard order mirrors JobDetail: heading → feedback → lifecycle →
+  // DOM/keyboard order mirrors JobDetail (UI-005): heading → lifecycle → feedback →
   // revision|terminal|responsibility → facts → content → management review →
   // actions → timeline.
   return <main className="job-detail" data-weekly-report-detail="true">
@@ -810,6 +845,14 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       <div className="detail-heading-meta" data-job-detail-meta="true">
         <StatusChip status={loadedJob.status} />
       </div>
+    </div>
+    <div data-job-detail-section="lifecycle">
+      <WorkflowSteps
+        items={presentation.phaseItems.map((item) => ({
+          key: item.phase, label: item.label, state: item.state,
+        }))}
+        currentKey={presentation.currentPhase}
+      />
     </div>
       {actionError && <div
         className="detail-feedback detail-feedback-error"
@@ -827,14 +870,6 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       >
         {actionNotice}
       </div>}
-    <div data-job-detail-section="lifecycle">
-      <WorkflowSteps
-        items={presentation.phaseItems.map((item) => ({
-          key: item.phase, label: item.label, state: item.state,
-        }))}
-        currentKey={presentation.currentPhase}
-      />
-    </div>
     {presentation.revisionLoop && (
       <div data-job-detail-section="revision">
         <RevisionLoopPanel loop={presentation.revisionLoop} />
@@ -1077,7 +1112,9 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                     aria-describedby={submitBlockedReason ? 'weekly-editor-submit-reason' : undefined}
                     onClick={(event) => onCommand(presentation.primaryTransition!.command, event.currentTarget)}
                   >
-                    {pending ? 'İşleniyor…' : presentation.primaryTransition.label}
+                    {pending && (pendingCommand == null || pendingCommand === presentation.primaryTransition.command)
+                      ? (activePendingLabel ?? 'İşleniyor…')
+                      : presentation.primaryTransition.label}
                   </button>
                 )}
               </div>
@@ -1133,6 +1170,8 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                   secondary={presentation.secondaryTransitions}
                   recordEditAction={null}
                   pending={pending || removalBusy}
+                  pendingLabel={activePendingLabel}
+                  pendingCommand={pendingCommand}
                   startLocationCaptureEnabled={startLocationCaptureEnabled}
                   submitLocationCaptureEnabled={submitLocationCaptureEnabled}
                   disabledCommands={[...blockedCommands]}
@@ -1205,6 +1244,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       <JobWorkflowDialog
         dialog={dialog}
         pending={pending}
+        pendingLabel={activePendingLabel}
         uncertain={ambiguous}
         onClose={() => { setDialog(null); setRevisionCorrection(null); }}
         onConfirm={confirmDialog}

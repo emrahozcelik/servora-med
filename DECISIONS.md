@@ -35,7 +35,7 @@ Servora-Med sahada mobil cihaz kullanan personel ile masaüstünde operasyon izl
 
 Servora-Med UI çalışmaları `product` register'ında yürütülecektir.
 
-`impeccable`, UI tasarımı ve değerlendirmesi için birincil kalite çerçevesidir. Ürün bağlamı `PRODUCT.md`, ileride oluşturulacak görsel sistem ise `DESIGN.md` üzerinden yüklenecektir.
+`impeccable`, UI tasarımı ve değerlendirmesi için birincil kalite çerçevesidir. Ürün bağlamı `PRODUCT.md`, görsel sistem ve ortak bileşen kuralları ise `DESIGN.md` üzerinden yüklenir.
 
 Apple Design skill, görsel tema veya birebir Apple görünümü olarak kullanılmayacaktır. Şu etkileşim ilkeleri için seçici bir referanstır:
 
@@ -72,7 +72,8 @@ Kanban sürükle ve bırak özelliği zorunlu olmayacaktır. Aynı durum değiş
 
 ### Consequences
 
-- Mevcut `DESIGN.md` bir pre-implementation seed'dir. İlk görsel UI slice'ı gerçek CSS token ve ortak bileşenleri oluşturduğunda `impeccable document` scan modu çalıştırılmalı; sonraki ekranlara geçmeden renk, tipografi, spacing, elevation, component state ve motion token'ları kesinleştirilmelidir.
+- *(2026-11-24 durum notu)* `DESIGN.md`, `web/src/ui/servora-visual-tokens.ts` ve sahip olunan `web/src/ui/antd/` adaptörleri canlı uygulamaya geçmiştir; aşağıdaki 2026-07-10 tarihî başlangıç notu korunur ancak aktif görsel kaynak artık `DESIGN.md` ve `servora-visual-tokens.ts` dosyalarıdır.
+- Mevcut `DESIGN.md` başlangıçta pre-implementation seed olarak yazılmıştır. İlk görsel UI slice'ı gerçek CSS token ve ortak bileşenleri oluşturduğunda `impeccable document` scan modu çalıştırılmalı; sonraki ekranlara geçmeden renk, tipografi, spacing, elevation, component state ve motion token'ları kesinleştirilmelidir.
 - Yeni ortak bileşenler default, hover, focus, active, disabled, loading ve error durumlarını kapsamalıdır.
 - Apple tarzı spring veya gesture kodu yalnızca kullanıcı doğrudan manipülasyon yaptığında ve standart web davranışı yeterli olmadığında eklenmelidir.
 - Sırf bu tasarım yönü için yeni bir animation dependency eklenmez. İhtiyaç gerçek bir etkileşimle kanıtlanırsa ayrıca değerlendirilir.
@@ -94,7 +95,7 @@ UI çalışmaları şu bağlayıcı öncelik sırasına göre yürütülür:
 
 ### References
 
-- Local UI quality framework: `/Users/emrah/.agents/skills/impeccable/SKILL.md`
+- Local UI quality framework: `impeccable` skill (`DESIGN.md` companion rules)
 - Apple interaction reference: <https://github.com/emilkowalski/skills/blob/main/skills/apple-design/SKILL.md>
 - Product context: `PRODUCT.md`
 
@@ -234,18 +235,30 @@ attention state owned by Delay Amber.
 **Job detail below 1024px** renders in this order:
 
 1. title and status/priority chips,
-2. the responsibility panel together with its primary command(s),
-3. a compact lifecycle summary — one line such as `3 / 5 · Uygulanıyor` — that
-   expands into the full stepper,
+2. the compact lifecycle strip — five phase markers joined by a line plus the
+   ordinal phase text such as `3 / 5 · Uygulanıyor` — as the card's signature
+   header, directly below the heading,
+3. the responsibility panel together with its primary command(s),
 4. requirements, record details, notes and history.
+
+*(2026-11-25 owner decision)* The lifecycle strip is the first surface below the
+heading on both viewports: the owner reads the assignment-to-execution strip as
+the job card's signature and asked for it "at the very top, right under the
+heading, compact". The strip therefore precedes the responsibility panel and
+every warning/notice surface; the primary command stays in the first screen for
+a typical delivery job. The narrow strip keeps one row (markers plus
+`3 / 5 · Uygulanıyor`); an attention phase shows `Dikkat gerekiyor` in Delay
+Amber instead of the phase name. The expanded stepper and the always-present
+ordered list keep the full phase list and state wording.
 
 Manager-only lateness history becomes a collapsed disclosure below the workflow
 instead of a paragraph list above it. The open lateness signal (deadline,
 elapsed time, reminder action) keeps its place because it is an active
 operational warning, not history.
 
-**Desktop (≥1024px)** keeps the horizontal five-step stepper above the record and
-keeps the decision group in the work rail; its structure does not change.
+**Desktop (≥1024px)** keeps the horizontal five-step stepper directly below the
+heading — the same first position as the narrow strip — and keeps the decision
+group in the work rail; its structure does not otherwise change.
 
 **Attention semantics.** The revision/attention step uses Delay Amber with
 explicit text (`Dikkat gerekiyor`) and an icon. It must never use Critical Red or
@@ -274,6 +287,17 @@ vertical when expanded, and the compact summary is the mobile default.
   adapter; no new dependency or motion system is introduced.
 - The mobile create entry (UI-004 bottom-navigation `Yeni iş`), `NewJobMenu`,
   `AppShell` and shell surfaces are outside this decision.
+- *(2026-11-25)* First-screen guarantee is measured against the real mobile
+  shell, not the raw viewport: the in-flow sticky top bar and the fixed bottom
+  navigation are both `3.75rem`, so at 390×844 the visible content band ends at
+  y=784. A typical delivery job keeps its primary command fully inside that
+  band. The open-lateness stress state (open lateness signal plus the
+  responsibility and command panels) does not: its primary command starts near
+  y=833, under the fixed bottom navigation. That case is a recorded, bounded
+  exception in
+  `web/scripts/job-detail-mobile-priority-geometry.mjs` (`firstScreen` evidence
+  per case); the runner asserts it stays off-screen *and* cannot regress past its
+  recorded budget, instead of claiming visibility.
 - Visual evidence follows UI-003; geometry checks must prove that the primary
   command and the first job record are inside the first viewport at 390×844.
 
@@ -3585,3 +3609,267 @@ management decision list.
   meeting was submitted by management.
 - The Staff summary and completion-performance aggregate remain paired under
   the Reports service invariant; both use the same assignment rule.
+
+## JOB-011 — Same-day suggestions in the available-slot search
+
+- **Date:** 2026-11-24
+- **Status:** Accepted by the owner in the PR #500 review ("önerilerini
+  onaylıyorum", 2026-11-24). Extends the joint available-slot search; JOB-008's
+  automatic follow-up window is unchanged.
+
+### Context
+
+The advisory available-slot search only offered the same wall-clock time on the
+following days. Field feedback: when the chosen time is busy, the first useful
+alternative is usually later the same day.
+
+### Decision
+
+1. The search first offers same-day candidates on a 30-minute grid inside
+   organization-local **08:00–19:00** (start at or after 08:00, end at or
+   before 19:00), then the existing same-wall-clock candidates for the
+   following days. A candidate that touches the organization-local Sunday is
+   never offered (WORKING-DAY V1).
+2. No candidate may start at or before the server request time, for the same
+   day or any later day, even when the requested start is already in the past.
+3. Suggestions stay advisory. Booking validation, conflicts, past-start
+   acknowledgement and human-chosen times outside the window are unchanged;
+   only the suggestion list is bounded.
+
+### Consequences
+
+- The slot list can be longer; the web keeps showing the first six with an
+  expand control.
+- Implemented in `server/src/modules/job-cards/available-slots.ts`
+  (`generateAvailableSlotCandidates`, `notBefore` from the service clock).
+
+## JOB-012 — Staff time proposal on a declined or released assignment
+
+- **Date:** 2026-11-24
+- **Status:** Accepted by the owner ("Faz 2'ye başlayalım. personel alternatif
+  zaman önersin… yönetici yine de tarihi değiştirebilir", 2026-11-24; Q1–Q4
+  answered with the recommended defaults). Extends JOB-010; does not amend its
+  rule that customer time is management-only.
+
+### Decision
+
+1. When a Staff member declines or releases an assignment for
+   `SCHEDULE_CONFLICT`, they must propose an alternative start; no other reason
+   carries a proposal.
+2. The proposal must be in the future and must not conflict with that Staff
+   member's calendar. Sunday and outside-hours remain advisory (human choice).
+3. Management confirms the proposal with one action: the job moves to the
+   proposed interval (duration kept) and is accepted for the proposing Staff
+   member in the same transaction, without a second Staff acceptance.
+4. Management may ignore the proposal and set any time, reassign, re-offer or
+   cancel exactly as before.
+5. The proposal is shown to management and to the proposing Staff member only.
+
+Contract, data, API and acceptance scenarios:
+[docs/features/assignment-time-proposal.md](docs/features/assignment-time-proposal.md).
+
+## SCH-001 — Staff occupancy is a core rule; the Calendar module contributes
+
+- **Date:** 2026-11-25
+- **Status:** Accepted by the owner ("evet önerine katılıyorum", 2026-11-25,
+  core planning + Calendar module split; the four follow-up questions answered
+  in the Takvim 2.0 design session the same day; "düzeltmeyi yapalım",
+  2026-11-25). Clarifies JOB-007, JOB-010, JOB-011 and JOB-012; does not change
+  their rules.
+
+### Context
+
+Every staff double-booking check (`409 CALENDAR_CONFLICT`) ran only while
+`CALENDAR_ENABLED=true`. With the Calendar module off, a job could be created,
+rescheduled, transferred or approved into an interval the same Staff member
+already occupied, contradicting JOB-012 item 2. The occupancy query also
+existed in four copies with small differences (job-cards conflict check,
+follow-up auto-scheduler, offboarding transfer, calendar manual events), and
+the follow-up auto-scheduler counted manual calendar entries even while the
+module was off. The owner is moving modules to an in-app module panel, so
+turning a module off must not weaken a core workflow rule.
+
+### Decision
+
+1. **Planning and staff occupancy are core.** A Staff member is occupied by
+   their active on-site jobs (`SALES_MEETING`, `PRODUCT_DELIVERY` in `NEW`,
+   `ACCEPTED`, `IN_PROGRESS`, `WAITING_APPROVAL`, `REVISION_REQUESTED`, with a
+   planned interval and the JOB-007 occupied end). Create, sale-approval
+   delivery, follow-up create, management reschedule, assignment-time proposal
+   and its approval (JOB-012), and offboarding transfer always reject a
+   conflicting interval, whatever the Calendar module state. The assignee
+   locks that make this check race-free are core as well.
+2. **The Calendar module contributes.** While the module is enabled, a Staff
+   member's `ACTIVE` manual calendar entries also count as occupancy. While it
+   is disabled, they do not count and are never deleted.
+3. **One definition.** Occupancy has a single server-side definition
+   (`server/src/modules/job-cards/occupancy.ts`) used by every check above,
+   by the available-slot search and by the follow-up auto-scheduler.
+4. **Available-slot search is core.** `POST /api/job-cards/available-slots`
+   works in every install, and the web offers its suggestions whether or not
+   the Calendar module is enabled. JOB-011's candidate rules are unchanged.
+5. The API contract is unchanged: `409 CALENDAR_CONFLICT` with the existing
+   message and `details.conflicts[]`; `MANUAL` rows appear only while the
+   module is enabled.
+6. Unchanged module behaviour: the calendar screen, manual entries, the
+   reminder worker and job-reminder synchronization, Overview `upcomingWork`
+   and `calendar.*` notifications remain part of the Calendar module.
+
+### Consequences
+
+- **Deploy-visible behaviour change:** an install with the Calendar module off
+  starts rejecting a new job, reschedule, approval or transfer that overlaps
+  another active on-site job of the same Staff member. Read the production
+  `CALENDAR_ENABLED` value before deploying and state the change in the
+  release note.
+- Conflicts that already exist in stored data are not resolved or reported by
+  this change; re-enable marking is a separate Takvim 2.0 slice.
+- Deferred to separate decisions/slices (Takvim 2.0 design): organization
+  working hours as core data, the earliest free slot in a conflict response,
+  the "to be planned" query, General Task time blocks, absence blocks
+  (remain a module feature), re-enable conflict marking.
+- Research and owner answers:
+  [docs/backlog/2026-11-25-core-modules-architecture-research.md](docs/backlog/2026-11-25-core-modules-architecture-research.md)
+  §2 V10/V10+, §5a and §5b.
+
+## MOD-002 — Installation operator and runtime module state (Overview pilot)
+
+- **Date:** 2026-11-26
+- **Status:** Accepted by the owner ("ayrı hesap + oturum seçeneği mantıklı",
+  2026-11-25; "Onaylıyorum, başla", 2026-11-26, with the proposed defaults: 2-hour
+  absolute operator session, fresh installs take the env value). Extends UI-002 with
+  a typed installation module state; does not change MOD-001 or ARC-002.
+
+### Context
+
+Product modules are switched with `*_ENABLED` env keys read once at startup. The
+owner, who installs and operates Servora-Med for each customer, needs to switch
+modules from inside the application, and later to hold operations that the
+customer's own ADMIN should not perform. Customer roles live in `users` with
+organization scope; `audit_events` requires an organization and a user actor.
+
+### Decision
+
+1. **Installation operator.** A separate, installation-level identity
+   (`operator_accounts`, `operator_sessions`, `operator_account_capabilities`) with
+   its own login, cookie and session under `/api/operator`. It is never a customer
+   user and never grants or receives customer roles. Customer ADMIN cannot see,
+   grant or reach it. Accounts are granted, reset and revoked only through a host
+   CLI. Capabilities are a fixed in-code list; this decision introduces only
+   `MODULE_MANAGEMENT`. Each further capability (e.g. customer delete) needs its own
+   decision, including how it is recorded in the owning module's audit.
+2. **Session security.** Two-hour absolute sessions, `SameSite=Strict`, path-scoped
+   cookie, exact-`Origin` enforcement on operator writes in every environment,
+   uniform `401` with fixed KDF work, per-IP and per-email login limits, and
+   in-transaction re-validation of session and capability on mutations.
+3. **Module registry and state.** Modules switchable by the operator are fixed
+   registry entries in code. Their state is one typed row per module in
+   `installation_module_state` (not a generic settings bag; UI-002 still forbids
+   that). Every change is version-checked and recorded in `operator_audit_events` in
+   the same transaction.
+4. **Env takeover.** On the first start with this release, a module's current legacy
+   env value is taken over once into the database; afterwards the database is the
+   only source and the env key is legacy. Env acts as a ceiling only for modules
+   whose secrets or infrastructure live in env (future slices), not for Overview.
+5. **Fail closed.** When module state cannot be read, the module's API answers
+   `503` and its capability is reported as off; there is no env fallback.
+6. **Restore.** A database restore revokes all operator sessions and deactivates all
+   operator accounts before traffic is opened; the host re-grants access.
+7. **Pilot scope.** Only Overview moves in this decision. Every other module keeps
+   its env key until its own slice and contract.
+
+### Consequences
+
+- Contract, API and acceptance scenarios:
+  [docs/features/operator-module-pilot.md](docs/features/operator-module-pilot.md).
+- Migration 074 adds the operator and module-state tables; deploy needs
+  `allow_migrations`. The first production operator is granted over the root channel
+  with explicit owner approval.
+- `OVERVIEW_DASHBOARD_ENABLED` becomes a legacy takeover input.
+
+## MOD-003 — Shared installation module registry widening (R0)
+
+- **Date:** 2026-11-26
+- **Status:** Accepted by the owner ("Ortak registry genişletmesini tek seferde
+  yapmayı, izin verilen modül anahtarlarının kodda sabit ve doğrulanabilir kalmasını
+  öneriyorum", review of the Messaging research, PR #518; "tamam r0 yeni pr da olsun",
+  2026-11-26). Extends MOD-002 §3–§4; does not add a module and does not change
+  Overview behaviour.
+
+### Context
+
+MOD-002 introduced the registry with exactly one module. Its types, takeover signature
+and database CHECKs are locked to `OVERVIEW`, so every further module (Messaging,
+Calendar, Warehouse, Maintenance, Accounting) would need its own key migration, and
+the research for three of them proposed the same migration number.
+
+### Decision
+
+1. **Keys are fixed in code, the database checks their shape.** The registry array in
+   `installation-modules/registry.ts` is the single list of module keys; key and
+   capability types are derived from it. `module_key` columns carry a shape CHECK
+   (`^[A-Z][A-Z0-9_]{1,31}$`) instead of an enumeration. Startup fails closed when
+   `installation_module_state` holds a key that is not in the registry.
+2. **Modules without a legacy env key.** A descriptor may have `legacyEnvKey: null`.
+   Its first row is created off with `source = FRESH_INSTALL` and a
+   `MODULE_STATE_INITIALIZED` audit event in the takeover transaction. A missing row
+   with an earlier takeover or initialize event still stops startup.
+3. **Operator-facing descriptor copy.** Each descriptor carries a Turkish
+   `description` and short `whenDisabled` / `preserved` lists. The operator panel shows
+   them, and the switch confirmation states "Veriler silinmez." This is operator copy,
+   not menu metadata; MOD-002's exclusions (prerequisites, dependency graph, worker
+   hooks, menu metadata, dynamic loading) still apply.
+4. **Capability projection is per registry module.** `/api/auth/login` and
+   `/api/auth/me` read every registry module once per request; read failure reports
+   that capability off and logs, with no env fallback (MOD-002 §5).
+5. **One migration.** Migration 075 owns this widening. Later module slices add a
+   registry entry and their own tables, never another key migration.
+
+### Consequences
+
+- Migration 075 requires `allow_migrations` on deploy; it only replaces CHECKs and adds
+  one index (no data change).
+- Messaging, Calendar, Warehouse, Maintenance and Accounting slices build on this
+  record; each still needs its own decision and contract before its registry entry.
+
+## MOD-004 — Messaging is a runtime installation module
+
+- **Date:** 2026-11-26
+- **Status:** Accepted by the owner (review of the Messaging research, PR #518,
+  `RESEARCH_ACCEPTABLE — CONTRACT_REVISION_REQUIRED`, with the revisions applied;
+  "r0 tamamlandı. sıradaki işlere geçebiliriz. Önerin mantıklı böyle devam edelim.",
+  2026-11-26). Builds on MOD-002 and MOD-003.
+
+### Context
+
+Messaging is switched by `MESSAGING_ENABLED`, read once at startup. Customers buy
+modules separately, so the installation operator must switch Messaging without a
+restart, and a customer ADMIN must not be able to switch it.
+
+### Decision
+
+1. **Registry module.** `MESSAGING` is an installation module. Its env key is taken
+   over once and then is legacy. There is no env ceiling: Messaging has no secret or
+   infrastructure in env; Web Push stays its own channel.
+2. **Off means absent, data kept.** When off, customers experience the installation as
+   if Messaging did not exist. Messaging API answers `404`, unreadable state `503`.
+   Conversations, messages, participants, read state, notifications, push rows,
+   realtime events, idempotency receipts and audit are never deleted or rewritten by
+   the switch.
+3. **One visibility decision.** While off or unreadable: conversation notifications
+   are hidden from lists, counts and bulk actions; pending message pushes are
+   abandoned with `MODULE_DISABLED` and never revived; messaging realtime events are
+   skipped in live delivery and replay; Overview omits the unread summary.
+4. **Core keeps working.** Staff offboarding, demo-data and backup/restore stay
+   independent of the module state.
+5. **Participant lifecycle (MSG-002).** Job reassignment stays independent of
+   Messaging and membership sync stays explicit (#131), but a pending assignee sync
+   can be performed later, by any same-organization ADMIN/MANAGER who can read the
+   conversation. Offboarding replacements start with unread 0; inactive users get no
+   new message notifications.
+
+### Consequences
+
+- Contract: [docs/features/messaging-module-registry.md](docs/features/messaging-module-registry.md).
+- No migration. Delivered as MSG-001 (runtime module) and MSG-002 (participant
+  lifecycle), then MSG-003 acceptance on the real app run locally (no staging exists).

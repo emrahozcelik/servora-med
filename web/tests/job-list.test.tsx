@@ -309,7 +309,9 @@ describe('structured JobCard list', () => {
 
   it('renders the server page range and explicit previous/next actions', () => {
     const html = renderList({ kind: 'ready', page: page([item], 25, 80) });
-    expect(html).toContain('26–50 / 80'); expect(html).toContain('Önceki'); expect(html).toContain('Sonraki');
+    expect(html).toContain('Sayfa 2 / 4 · Toplam 80 iş');
+    expect(html).toContain('Önceki sayfa');
+    expect(html).toContain('Sonraki sayfa');
   });
 
 });
@@ -330,6 +332,16 @@ describe('routed JobCard workspace', () => {
   let container: HTMLDivElement; let root: Root;
   beforeEach(() => {
     window.sessionStorage.clear();
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('min-width: 64rem'),
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => {
@@ -621,7 +633,7 @@ describe('routed JobCard workspace', () => {
     await act(async () => { await Promise.resolve(); });
     expect(router.state.location.search).toBe('?offset=25');
     expect(router.state.historyAction).toBe('REPLACE');
-    expect(container.textContent).toContain('26–50 / 50');
+    expect(container.textContent).toContain('Sayfa 2 / 2 · Toplam 50 iş');
     expect(container.textContent).not.toContain('76–50');
     expect(container.textContent).not.toContain('Henüz iş kaydı yok');
     expect(container.textContent).not.toContain('Filtrelere uygun iş bulunamadı');
@@ -650,6 +662,16 @@ describe('routed JobCard workspace', () => {
   });
 
   it('loads the compact PR B board without issuing a list request', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
     const load = vi.fn().mockResolvedValue(page([]));
     const board: JobCardBoard = {
       columns: {
@@ -917,7 +939,7 @@ describe('routed JobCard workspace', () => {
     const router = await mount('/jobs?overdue=true&priority=high', load, manager);
     await act(async () => { await Promise.resolve(); });
     const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent?.startsWith('Filtreler'))!;
+      .find((button) => button.getAttribute('aria-label')?.startsWith('Filtreler'))!;
     await act(async () => trigger.click());
     const clear = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent === 'Temizle')!;

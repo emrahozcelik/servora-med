@@ -25,6 +25,7 @@ const item: AssignmentOfferNeedingActionItem = {
   acceptanceDueAt: '2026-11-21T12:00:00.000Z',
   urgentReason: null,
   scheduledAt: '2026-11-21T13:00:00.000Z',
+  proposedScheduledAt: null,
   assignee: { id: 'staff-1', name: 'Ayşe Personel' },
   customer: { id: 'customer-1', name: 'Özel Ağız ve Diş Sağlığı Merkezi' },
   jobPath: '/jobs/job-1',
@@ -86,6 +87,14 @@ describe('OpenAssignmentOffersSection', () => {
     const { section } = await render(loaded([{ ...item, state: 'OPEN', urgentReason: 'START_PASSED' }]));
     expect(section?.querySelector('[data-assignment-offer-urgent="START_PASSED"]')?.textContent)
       .toContain('Başlangıç geçti');
+  });
+
+  it('shows the JOB-012 Staff time proposal on the row', async () => {
+    const proposedScheduledAt = '2026-11-23T09:00:00.000Z';
+    const { section } = await render(loaded([{ ...item, proposedScheduledAt }]));
+    const row = section?.querySelector('[data-assignment-offer-proposal="PENDING"]');
+    expect(row?.textContent).toContain('Personelin önerdiği zaman');
+    expect(row?.querySelector('time')?.getAttribute('dateTime')).toBe(proposedScheduledAt);
   });
 
   it('shows the paged total when more offers exist than the page shows', async () => {

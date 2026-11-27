@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -97,7 +98,6 @@ vi.mock('../src/realtime/RealtimeProvider', () => ({
 vi.mock('../src/services/notifications-api', () => mocks.notificationApi);
 
 vi.mock('../src/AppShell', async () => {
-  const { MemoryRouter } = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   const { NotificationCenter } = await vi.importActual<typeof import('../src/notifications/NotificationCenter')>(
     '../src/notifications/NotificationCenter',
   );
@@ -114,16 +114,14 @@ vi.mock('../src/AppShell', async () => {
       onSignOut: () => void;
       children: unknown;
     }) => (
-      <MemoryRouter>
-        <main>
-          <div data-authenticated>{user.id}</div>
-          <button type="button" disabled={pendingSignOut} onClick={onSignOut} data-sign-out>
-            Oturumu kapat
-          </button>
-          <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
-          {children}
-        </main>
-      </MemoryRouter>
+      <main>
+        <div data-authenticated>{user.id}</div>
+        <button type="button" disabled={pendingSignOut} onClick={onSignOut} data-sign-out>
+          Oturumu kapat
+        </button>
+        <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
+        {children}
+      </main>
     ),
   };
 });
@@ -188,6 +186,8 @@ describe('App logout and Web Push lifecycle', () => {
     root = createRoot(container);
     vi.clearAllMocks();
     mocks.statusQueue = [];
+    // The window focus this suite dispatches also revalidates the identity (MOD-002 §8).
+    mocks.getCurrentUser.mockResolvedValue(user);
     mocks.createBrowserWebPushAdapter.mockReturnValue(mocks.browser);
     mocks.browser.currentSubscription.mockResolvedValue(mocks.subscription);
     mocks.browser.requestPermission.mockResolvedValue('granted');
@@ -219,7 +219,7 @@ describe('App logout and Web Push lifecycle', () => {
       activeStatus(sessionTwoSubscription),
     );
 
-    await act(async () => root.render(<App initialUser={user} />));
+    await act(async () => root.render(<MemoryRouter><App initialUser={user} /></MemoryRouter>));
     await vi.waitFor(() => expect(mocks.browser.currentSubscription).toHaveBeenCalledTimes(1));
 
     const beforeLogoutStatusCalls = mocks.getStatus.mock.calls.length;
@@ -271,7 +271,7 @@ describe('App logout and Web Push lifecycle', () => {
     mocks.statusQueue.push(activeStatus(sessionOneSubscription), activeStatus(sessionOneSubscription));
     mocks.logout.mockRejectedValueOnce(new Error('logout failed'));
 
-    await act(async () => root.render(<App initialUser={user} />));
+    await act(async () => root.render(<MemoryRouter><App initialUser={user} /></MemoryRouter>));
     await vi.waitFor(() => expect(mocks.browser.currentSubscription).toHaveBeenCalledTimes(1));
     const statusCallsBeforeFailedLogoutRecovery = mocks.getStatus.mock.calls.length;
 

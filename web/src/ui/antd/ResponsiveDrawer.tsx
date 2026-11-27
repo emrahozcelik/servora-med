@@ -7,6 +7,7 @@ import {
 } from 'react';
 
 import { restoreFocus, trapTabKey } from './overlay-focus';
+import { lockBodyScroll } from '../scroll-lock';
 
 export type ResponsiveDrawerProps = {
   open: boolean;
@@ -40,11 +41,10 @@ export function ResponsiveDrawer({
     if (!open) return;
     openerRef.current = returnFocusRef?.current
       ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseScrollLock = lockBodyScroll();
     closeRef.current?.focus();
     return () => {
-      document.body.style.overflow = previous;
+      releaseScrollLock();
       restoreFocus(returnFocusRef, openerRef.current);
     };
   }, [open, returnFocusRef]);

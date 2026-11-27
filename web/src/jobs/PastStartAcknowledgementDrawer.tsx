@@ -28,6 +28,8 @@ export function PastStartAcknowledgementDrawer({
   description,
   pending = false,
   error = '',
+  onShiftToFuture,
+  shiftToFutureLabel = 'Saati şimdiye / geleceğe al',
   onDismiss,
   onConfirm,
   returnFocusRef,
@@ -37,6 +39,8 @@ export function PastStartAcknowledgementDrawer({
   description: ReactNode;
   pending?: boolean;
   error?: string;
+  onShiftToFuture?: () => void;
+  shiftToFutureLabel?: string;
   onDismiss: () => void;
   onConfirm: (acknowledgement: PastStartAcknowledgement) => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
@@ -148,6 +152,18 @@ export function PastStartAcknowledgementDrawer({
         {formError && <p className="field-error" id="past-start-ack-error" role="alert">{formError}</p>}
         {error && <p className="field-error" role="alert">{error}</p>}
         <div className="review-buttons">
+          {onShiftToFuture && (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                if (!pending) onShiftToFuture();
+              }}
+            >
+              {shiftToFutureLabel}
+            </button>
+          )}
           <button className="secondary-button" type="button" disabled={pending} onClick={dismiss}>
             Vazgeç
           </button>

@@ -207,6 +207,12 @@ describe('Customer list and creation', () => {
     expect(filters).not.toContain('>Pasif</option>');
     expect(filters).not.toContain('<option value="all">');
 
+    expect(filters).toContain('customer-filters surface-flat');
+    const activeDesktop = renderToStaticMarkup(<CustomerListView state={{ kind: 'ready', customers: [] }} user={manager}
+      hasFilters onRetry={() => {}} onCreate={() => {}} filters={{ q: 'dent' }} staff={[profile]}
+      onFilterChange={() => {}} onApplyFilters={() => {}} />);
+    expect(activeDesktop).toContain('Filtreleri temizle');
+
     const form = renderToStaticMarkup(<MemoryRouter><CustomerCreateForm staff={[profile]} pending similarCustomers={[customer]}
       fieldErrors={{ name: 'Müşteri adı zorunludur.' }} error="Sunucu alanları kabul etmedi."
       onCancel={() => {}} onSubmit={() => {}} /></MemoryRouter>);
@@ -466,5 +472,75 @@ describe('Customer list navigation feedback', () => {
     expect(load).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[role="status"]')?.textContent).toContain('Demo Klinik kalıcı olarak silindi.');
     expect(router.state.location.state).toBe(null);
+  });
+});
+
+describe('Customer list compact filter trigger', () => {
+  let root: Root;
+  let container: HTMLDivElement;
+
+  function stubNarrowMatchMedia() {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    stubNarrowMatchMedia();
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount()); container.remove();
+    stubDesktopMatchMedia();
+  });
+
+  async function render(filters: CustomerFilters, onFilterChange = () => {}) {
+    await act(async () => root.render(
+      <MemoryRouter>
+        <CustomerListView state={{ kind: 'ready', customers: [] }} user={manager}
+          hasFilters={false} onRetry={() => {}} onCreate={() => {}} filters={filters} staff={[profile]}
+          onFilterChange={onFilterChange} onApplyFilters={() => {}} />
+      </MemoryRouter>,
+    ));
+  }
+
+  it('renders an icon-only filter trigger with a name and no active badge', async () => {
+    await render({});
+    const trigger = container.querySelector<HTMLButtonElement>('button.filter-sheet-trigger')!;
+    expect(trigger).not.toBeNull();
+    expect(trigger.getAttribute('aria-label')).toBe('Filtreler');
+    expect(trigger.getAttribute('title')).toBe('Filtreler');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(trigger.textContent?.trim()).toBe('');
+    expect(trigger.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector('[data-filter-badge="true"]')).toBeNull();
+
+    await act(async () => trigger.click());
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it('announces the active filter count and shows it as a visible badge', async () => {
+    await render({ status: 'active', city: 'Ankara', unassigned: true });
+    const trigger = container.querySelector<HTMLButtonElement>('button.filter-sheet-trigger')!;
+    expect(trigger.getAttribute('aria-label')).toBe('Filtreler, 3 etkin');
+    expect(trigger.getAttribute('title')).toBe('Filtreler, 3 etkin');
+    expect(trigger.getAttribute('data-filter-count')).toBe('3');
+    const badge = trigger.querySelector<HTMLElement>('[data-filter-badge="true"]')!;
+    expect(badge.textContent).toBe('3');
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
+    // No worded label competes with the icon on the compact row.
+    expect(trigger.textContent?.trim()).toBe('3');
   });
 });

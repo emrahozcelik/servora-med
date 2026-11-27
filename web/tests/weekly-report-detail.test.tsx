@@ -596,6 +596,10 @@ describe('WeeklyReportDetail', () => {
     click(buttonByText('İşi başlat'));
     await flush();
     expect(jobsApi.startJobCard).toHaveBeenCalledTimes(1);
+    // UI-005: the lifecycle strip stays directly under the heading; feedback follows it.
+    const sectionOrder = [...host.querySelectorAll('[data-job-detail-section]')]
+      .map((element) => element.getAttribute('data-job-detail-section'));
+    expect(sectionOrder.slice(0, 3)).toEqual(['heading', 'lifecycle', 'feedback']);
     const firstInput = jobsApi.startJobCard.mock.calls[0]![1];
     jobsApi.startJobCard.mockResolvedValueOnce(makeJob({ status: 'IN_PROGRESS' }));
     click(buttonByText('Özgün işlemi tekrar dene'));
@@ -2116,5 +2120,110 @@ describe('WeeklyReportDetail', () => {
     });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(stickySubmit);
+  });
+
+  // 49
+  it('shows capturing and submitting phases on JobDecisionPanel, sticky submit, and JobWorkflowDialog for SUBMIT', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        startLocationCaptureEnabled: false,
+        submitLocationCaptureEnabled: true,
+        lifecycle: { ...baseWorkflowContext.lifecycle, startedAt: '2026-08-03T09:00:00.000Z' },
+        submissionReadiness: null,
+      },
+    }));
+    let resolveCapture!: (value: { outcome: 'unavailable'; reason: 'TIMEOUT' }) => void;
+    location.captureActionLocation.mockReturnValue(
+      new Promise((resolve) => { resolveCapture = resolve; }),
+    );
+    let resolveSubmit!: (value: JobCard) => void;
+    jobsApi.submitJobCardForApproval.mockReturnValue(
+      new Promise((resolve) => { resolveSubmit = resolve; }),
+    );
+
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+
+    const dialog = host.querySelector('.reason-dialog')!;
+    const textarea = dialog.querySelector('textarea')!;
+    type(textarea, 'Hafta tamamlandı.');
+    act(() => {
+      textarea.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(host.querySelector('.location-capture-status')?.textContent).toBe('Konum alınıyor…');
+    expect(dialog.querySelector('button[type="submit"]')?.textContent).toBe('Konum alınıyor…');
+    expect(host.querySelector('.weekly-mobile-sticky-submit')?.textContent).toBe('Konum alınıyor…');
+    // Unrelated secondary button keeps its own label while disabled.
+    expect(buttonByText('İşi iptal et').disabled).toBe(true);
+
+    await act(async () => {
+      resolveCapture({ outcome: 'unavailable', reason: 'TIMEOUT' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(host.querySelector('.location-capture-status')).toBeNull();
+    expect(dialog.querySelector('button[type="submit"]')?.textContent).toBe('Kontrole gönderiliyor…');
+    expect(host.querySelector('.weekly-mobile-sticky-submit')?.textContent).toBe('Kontrole gönderiliyor…');
+
+    await act(async () => {
+      resolveSubmit(makeJob({ status: 'WAITING_APPROVAL', version: 4 }));
+      await flush();
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  // 50
+  it('shows START capture/submitting phases and appends OS-specific guidance when START capture is unavailable', async () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15',
+      platform: 'iPhone',
+      maxTouchPoints: 5,
+    });
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'ACCEPTED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        startLocationCaptureEnabled: true,
+        submissionReadiness: null,
+      },
+    }));
+    let resolveCapture!: (value: { outcome: 'unavailable'; reason: 'PERMISSION_DENIED' }) => void;
+    location.captureActionLocation.mockReturnValue(
+      new Promise((resolve) => { resolveCapture = resolve; }),
+    );
+    let resolveStart!: (value: JobCard) => void;
+    jobsApi.startJobCard.mockReturnValue(
+      new Promise((resolve) => { resolveStart = resolve; }),
+    );
+
+    await render();
+    click(buttonByText('İşi başlat'));
+
+    expect(host.querySelector('.location-capture-status')?.textContent).toBe('Konum alınıyor…');
+    expect(host.querySelector('[data-job-decision-panel="true"] .primary-button')?.textContent).toBe('Konum alınıyor…');
+    expect(buttonByText('İşi iptal et').disabled).toBe(true);
+
+    await act(async () => {
+      resolveCapture({ outcome: 'unavailable', reason: 'PERMISSION_DENIED' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[data-job-decision-panel="true"] .primary-button')?.textContent).toBe('İş başlatılıyor…');
+
+    await act(async () => {
+      resolveStart(makeJob({ status: 'IN_PROGRESS', version: 4 }));
+      await flush();
+    });
+    expect(host.textContent).toContain('İş başlatıldı ancak konum alınamadı');
+    expect(host.textContent).toContain('Tarayıcıda bu site için konum iznini etkinleştirin');
+    expect(host.textContent).toContain('iPhone/iPad: Ayarlar > Gizlilik ve Güvenlik');
   });
 });

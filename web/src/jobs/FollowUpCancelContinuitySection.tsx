@@ -2,6 +2,7 @@ import { type ReactNode, type RefObject } from 'react';
 
 import { FOLLOW_UP_CYCLE_END_REASONS, type FollowUpCycleEndReason } from './jobs-api';
 import { followUpCycleEndReasonLabels } from './job-workflow-presentation';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 /** JOB-009 cancel draft for a follow-up visit; validated in JobDetail. */
 export type FollowUpCancelContinuityDraft = {
@@ -65,13 +66,13 @@ export function FollowUpCancelContinuitySection(props: FollowUpCancelContinuityS
       </div>
       {draft.decision === 'RESCHEDULE' && (
         <div className="field-group">
-          <label htmlFor="follow-up-cancel-scheduled-at">Yeni ziyaret tarihi ve saati</label>
-          <input
+          <WheelDateTimeField
+            mode="datetime"
             id="follow-up-cancel-scheduled-at"
-            type="datetime-local"
-            required
             value={draft.scheduledLocal}
-            onChange={(event) => onChange({ scheduledLocal: event.target.value })}
+            onChange={(value) => onChange({ scheduledLocal: value })}
+            required
+            label="Yeni ziyaret tarihi ve saati"
           />
           <p className="form-help">
             Aynı müşteri, personel ve talimatla yeni bir takip ziyareti oluşturulur. Saat dilimi: {timeZone}

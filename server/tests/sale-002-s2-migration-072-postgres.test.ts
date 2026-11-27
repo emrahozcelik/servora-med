@@ -22,6 +22,9 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 const MIGRATION_071 = '071_sale_standalone_and_delivery_link';
 const MIGRATION_072 = '072_sale_submit_without_start';
+const MIGRATION_073 = '073_assignment_offer_time_proposal';
+const MIGRATION_074 = '074_installation_operator_and_module_state';
+const MIGRATION_075 = '075_installation_module_registry_widening';
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
   const admin = new Pool({ connectionString: databaseUrl });
@@ -169,7 +172,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 migration 072 (R9)', () => {
         [startedSale])).rows[0];
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: [MIGRATION_072] });
+      expect(upgrade).toEqual({ appliedVersions: [MIGRATION_072, MIGRATION_073, MIGRATION_074, MIGRATION_075] });
       expect((await pool.query('SELECT *, xmin::text AS xmin FROM job_cards WHERE id=$1',
         [startedSale])).rows[0]).toEqual(before);
       expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });
@@ -177,7 +180,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 migration 072 (R9)', () => {
       const history = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows;
-      expect(history.at(-1)!.version).toBe(MIGRATION_072);
+      expect(history.at(-1)!.version).toBe(MIGRATION_075);
     } finally {
       await pool?.end();
       await rm(previous, { recursive: true, force: true });
@@ -186,10 +189,11 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 migration 072 (R9)', () => {
     }
   });
 
-  it('moves the health schema version to 072', async () => {
+  it('moves the health schema version to 075', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.head?.version).toBe(MIGRATION_072);
-    expect(getHealthSchemaVersionMismatchError(catalog, MIGRATION_072)).toBeNull();
-    expect(getHealthSchemaVersionMismatchError(catalog, MIGRATION_071)).not.toBeNull();
+    expect(catalog.head?.version).toBe(MIGRATION_075);
+    expect(getHealthSchemaVersionMismatchError(catalog, MIGRATION_075)).toBeNull();
+    expect(getHealthSchemaVersionMismatchError(catalog, MIGRATION_073)).not.toBeNull();
+    expect(getHealthSchemaVersionMismatchError(catalog, MIGRATION_072)).not.toBeNull();
   });
 });

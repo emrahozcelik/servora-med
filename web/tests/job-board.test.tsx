@@ -537,7 +537,7 @@ describe('responsive routed JobCard board', () => {
     const { router } = await mount('/jobs?q=klinik&view=board', listLoad, boardLoad);
     await act(async () => { await Promise.resolve(); });
     const trigger = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent?.startsWith('Filtreler'))!;
+      .find((button) => button.getAttribute('aria-label')?.startsWith('Filtreler'))!;
     await act(async () => trigger.click());
     const status = container.querySelector<HTMLSelectElement>('#job-status-sheet')!;
     await act(async () => {

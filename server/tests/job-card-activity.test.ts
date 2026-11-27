@@ -425,6 +425,123 @@ describe('safe JobCard activity presenter', () => {
     });
   });
 
+  it('keeps the other assignment offer facts as plain facts', () => {
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_OFFER_OPENED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'SCHEDULE_CONFLICT', reasonText: 'x' },
+    })).details).toEqual({ kind: 'NONE' });
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_OFFER_WITHDRAWN', {
+      metadata: { offerId: 'offer-1', reasonCode: 'RESCHEDULED', reasonText: 'x' },
+    })).details).toEqual({ kind: 'NONE' });
+  });
+
+  const MANAGER_VIEW = { viewer: { id: 'manager-1', role: 'MANAGER' as const } };
+
+  it.each([
+    ['JOB_ASSIGNMENT_DECLINED', 'DECLINED'],
+    ['JOB_ASSIGNMENT_RELEASED', 'RELEASED'],
+  ] as const)('projects %s with the assignee reason code and text', (eventType, decision) => {
+    const result = presentActivity(baseRecord(eventType, {
+      metadata: {
+        offerId: 'offer-1',
+        reasonCode: 'SCHEDULE_CONFLICT',
+        reasonText: '  Onumuzdeki haftaya ziyaret saglanacak  ',
+      },
+    }), MANAGER_VIEW);
+    expect(result.details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision,
+      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonText: 'Onumuzdeki haftaya ziyaret saglanacak',
+      proposedScheduledAt: null,
+    });
+    // The offer id and any other metadata stay server-side.
+    expect(JSON.stringify(result)).not.toMatch(/offer-1|metadata/);
+  });
+
+  it('projects the JOB-012 proposed time with the same reason scope', () => {
+    const record = baseRecord('JOB_ASSIGNMENT_DECLINED', {
+      actorId: 'staff-1',
+      metadata: {
+        offerId: 'offer-1',
+        reasonCode: 'SCHEDULE_CONFLICT',
+        reasonText: 'Aynı saatte başka bir teslimim var.',
+        proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+      },
+    });
+    expect(presentActivity(record, MANAGER_VIEW).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'DECLINED',
+      reasonCode: 'SCHEDULE_CONFLICT',
+      reasonText: 'Aynı saatte başka bir teslimim var.',
+      proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+    });
+    expect(presentActivity(record, { viewer: { id: 'staff-1', role: 'STAFF' } }).details)
+      .toMatchObject({ proposedScheduledAt: '2026-11-25T09:00:00.000Z' });
+    // A malformed instant degrades to null instead of a raw client string.
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_DECLINED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'SCHEDULE_CONFLICT', proposedScheduledAt: 'later' },
+    }), MANAGER_VIEW).details).toMatchObject({ proposedScheduledAt: null });
+  });
+
+  it.each([
+    ['an unknown reason code', { offerId: 'offer-1', reasonCode: 'NOT_A_CODE', reasonText: 'Depo eksik.' }, 'Depo eksik.'],
+    ['a missing reason code', { offerId: 'offer-1', reasonText: 'Depo eksik.' }, 'Depo eksik.'],
+    ['a non-string reason code', { offerId: 'offer-1', reasonCode: 42, reasonText: 'Depo eksik.' }, 'Depo eksik.'],
+    ['a non-object metadata', null, null],
+  ] as const)('projects a null reason code for %s', (_label, metadata, reasonText) => {
+    // Each member is parsed on its own: a bad code never discards usable text.
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_DECLINED', { metadata }), MANAGER_VIEW).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'DECLINED',
+      reasonCode: null,
+      reasonText,
+      proposedScheduledAt: null,
+    });
+  });
+
+  it('projects a valid code with no usable text as a null reason text', () => {
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_RELEASED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'ON_LEAVE', reasonText: '   ' },
+    }), MANAGER_VIEW).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'RELEASED',
+      reasonCode: 'ON_LEAVE',
+      reasonText: null,
+      proposedScheduledAt: null,
+    });
+    expect(presentActivity(baseRecord('JOB_ASSIGNMENT_RELEASED', {
+      metadata: { offerId: 'offer-1', reasonCode: 'ON_LEAVE', reasonText: 7 },
+    }), MANAGER_VIEW).details).toEqual({
+      kind: 'ASSIGNMENT_DECISION',
+      decision: 'RELEASED',
+      reasonCode: 'ON_LEAVE',
+      reasonText: null,
+      proposedScheduledAt: null,
+    });
+  });
+
+  it('shows a Staff decline reason only to management and to the Staff member who declined', () => {
+    const record = baseRecord('JOB_ASSIGNMENT_DECLINED', {
+      actorId: 'staff-1',
+      metadata: { offerId: 'offer-1', reasonCode: 'ON_LEAVE', reasonText: 'Yarın izinliyim' },
+    });
+    const withReason = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: 'ON_LEAVE', reasonText: 'Yarın izinliyim',
+      proposedScheduledAt: null,
+    };
+    const withoutReason = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED', reasonCode: null, reasonText: null,
+      proposedScheduledAt: null,
+    };
+    expect(presentActivity(record, MANAGER_VIEW).details).toEqual(withReason);
+    expect(presentActivity(record, { viewer: { id: 'admin-1', role: 'ADMIN' } }).details).toEqual(withReason);
+    expect(presentActivity(record, { viewer: { id: 'staff-1', role: 'STAFF' } }).details).toEqual(withReason);
+    // A later assignee of the same card does not read the previous Staff member's reason.
+    expect(presentActivity(record, { viewer: { id: 'staff-2', role: 'STAFF' } }).details).toEqual(withoutReason);
+    // Fail closed without a known reader.
+    expect(presentActivity(record).details).toEqual(withoutReason);
+  });
+
   it.each([
     ['JOB_STARTED', { status: 'UNKNOWN' }, { status: 'IN_PROGRESS' }, null],
     ['JOB_ASSIGNED', { assignedTo: 4 }, { assignedTo: 'staff-2' }, null],

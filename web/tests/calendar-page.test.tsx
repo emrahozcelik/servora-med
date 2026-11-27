@@ -8,6 +8,7 @@ import { CalendarPage } from '../src/calendar/CalendarPage';
 import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 import { ApiError } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 
 const calendarApi = vi.hoisted(() => ({
   listCalendar: vi.fn(),
@@ -19,7 +20,10 @@ const calendarApi = vi.hoisted(() => ({
 }));
 const jobsApi = vi.hoisted(() => ({ patchJobCard: vi.fn(), findAvailableSlots: vi.fn() }));
 vi.mock('../src/services/calendar-api', () => calendarApi);
-vi.mock('../src/jobs/jobs-api', () => jobsApi);
+vi.mock('../src/jobs/jobs-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/jobs/jobs-api')>()),
+  ...jobsApi,
+}));
 const notificationsApi = vi.hoisted(() => ({ markNotificationsReadByEntity: vi.fn() }));
 vi.mock('../src/services/notifications-api', () => notificationsApi);
 vi.mock('../src/realtime/RealtimeProvider', () => ({
@@ -94,6 +98,7 @@ function setReactValue(element: HTMLInputElement | HTMLTextAreaElement, value: s
 
 /** Set viewport width and trigger resize. */
 function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
   Object.defineProperty(window, 'innerWidth', {
     writable: true, configurable: true, value: width,
   });
@@ -136,6 +141,34 @@ describe('CalendarPage', () => {
     });
     await act(async () => {});
   }
+
+  it('opens compact wheel triggers for a new manual plan', async () => {
+    resizeTo(390);
+    await render(staff);
+    const newPlan = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Kişisel plan ekle')!;
+    expect(newPlan).toBeTruthy();
+    await act(async () => newPlan.click());
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')!;
+    const start = dialog.querySelector<HTMLButtonElement>('#calendar-event-starts-at')!;
+    const end = dialog.querySelector<HTMLButtonElement>('#calendar-event-ends-at')!;
+    expect(start.tagName).toBe('BUTTON');
+    expect(end.tagName).toBe('BUTTON');
+    expect(start.hasAttribute('name')).toBe(false);
+    expect(end.hasAttribute('name')).toBe(false);
+    const before = start.textContent;
+    await act(async () => start.click());
+    const day = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Gün"]')!;
+    await act(async () => {
+      day.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(start.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('hidden');
+  });
 
   it('queries the visible month range (≤42 days)', async () => {
     await render();
@@ -217,7 +250,7 @@ describe('CalendarPage', () => {
     expect(card).toBeTruthy();
     const source = container.querySelector('.calendar-source--manual');
     expect(source).toBeTruthy();
-    expect(source!.textContent).toContain('KİŞİSEL PLAN');
+    expect(source!.textContent).toContain('Kişisel plan');
   });
 
   it('selected card gets selected tone', async () => {
@@ -394,22 +427,22 @@ describe('CalendarPage', () => {
     });
   });
 
-  it('opens the manual plan drawer when clicking Manuel plan ekle', async () => {
+  it('opens the manual plan drawer when clicking Kişisel plan ekle', async () => {
     await render();
     const createBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.includes('Manuel plan ekle'))!;
+      .find((b) => b.textContent?.includes('Kişisel plan ekle'))!;
     expect(container.textContent).not.toContain('Yeni plan');
     await act(async () => createBtn.click());
     const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
     expect(dialog).toBeTruthy();
-    expect(dialog?.textContent).toContain('Manuel plan ekle');
+    expect(dialog?.textContent).toContain('Kişisel plan ekle');
   });
 
   it('creates a manual calendar record from the reconciled CTA without calling JobCard APIs', async () => {
     calendarApi.createManualEvent.mockResolvedValue({});
     await render();
     const createBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.includes('Manuel plan ekle'))!;
+      .find((b) => b.textContent?.includes('Kişisel plan ekle'))!;
     await act(async () => createBtn.click());
     const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
     const title = dialog.querySelector('input[maxlength="200"]') as HTMLInputElement;
@@ -516,7 +549,7 @@ describe('CalendarPage', () => {
     async function openManualDrawer() {
       await render();
       const createBtn = Array.from(container.querySelectorAll('button'))
-        .find((b) => b.textContent?.includes('Manuel plan ekle'))!;
+        .find((b) => b.textContent?.includes('Kişisel plan ekle'))!;
       await act(async () => createBtn.click());
       const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
       const [startInput, endInput] = Array.from(
@@ -723,7 +756,7 @@ describe('CalendarPage', () => {
       .map((element) => element.textContent);
     expect(kinds.length).toBeGreaterThan(0);
     for (const kind of kinds) {
-      expect(['İş', 'Özel']).toContain(kind);
+      expect(['İş', 'Plan']).toContain(kind);
     }
     // The visible cue is inside the event button, so it is announced too.
     expect(container.querySelector('.servora-calendar-event-summary .servora-calendar-event-kind')).toBeTruthy();
@@ -780,6 +813,171 @@ describe('CalendarPage', () => {
       expect(container.querySelector('.ant-picker-cell-selected')).toBeTruthy();
       expect(container.querySelector('.servora-calendar-count')).toBeTruthy();
     });
+  });
+
+  it('seeds new personal plan inputs from selectedDate when another day is chosen, and keeps rounded now for today', async () => {
+    await render();
+    const otherDayBtn = container.querySelector<HTMLButtonElement>('button[aria-label="2026-07-28"]')!;
+    await act(async () => otherDayBtn.click());
+    await act(async () => {});
+
+    const createBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Kişisel plan ekle'))!;
+    await act(async () => createBtn.click());
+
+    const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    const [startInput, endInput] = Array.from(
+      dialog.querySelectorAll('input[type="datetime-local"]'),
+    ) as HTMLInputElement[];
+    expect(startInput.value).toBe('2026-07-28T09:00');
+    expect(endInput.value).toBe('2026-07-28T10:00');
+    expect(new Date(endInput.value).getTime() - new Date(startInput.value).getTime()).toBe(60 * 60_000);
+
+    const cancelBtn = Array.from(dialog.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Vazgeç'))!;
+    await act(async () => cancelBtn.click());
+
+    const todayBtn = container.querySelector<HTMLButtonElement>('button[aria-label="2026-07-29"]')!;
+    await act(async () => todayBtn.click());
+    await act(async () => createBtn.click());
+
+    const todayDialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    const [todayStart, todayEnd] = Array.from(
+      todayDialog.querySelectorAll('input[type="datetime-local"]'),
+    ) as HTMLInputElement[];
+    expect(todayStart.value).toBe('2026-07-29T10:00');
+    expect(todayEnd.value).toBe('2026-07-29T11:00');
+  });
+
+  it('formats agenda and follow-up context timestamps with minute precision (no seconds)', async () => {
+    const followUpJob = {
+      ...jobEvent,
+      id: 'job-follow-up-1',
+      startsAt: '2026-07-29T09:00:00.000Z',
+      endsAt: '2026-07-29T10:30:00.000Z',
+      followUpContext: {
+        sourceJobId: 'source-1',
+        sourceJobPath: '/jobs/source-1',
+        sourcePlannedAt: '2026-07-22T09:00:00.000Z',
+        sourceOccurredAt: '2026-07-22T09:15:00.000Z',
+        sourceCompletedAt: '2026-07-22T10:45:00.000Z',
+      },
+    };
+    calendarApi.listCalendar.mockResolvedValue([manualEvent, followUpJob]);
+    await render();
+
+    const timeEls = Array.from(container.querySelectorAll('.calendar-event-time'));
+    expect(timeEls.length).toBeGreaterThan(0);
+    for (const el of timeEls) {
+      expect(el.textContent).toMatch(/\d{2}:\d{2}/);
+      expect(el.textContent).not.toMatch(/:\d{2}:\d{2}/);
+    }
+
+    const followUpTimes = Array.from(container.querySelectorAll('.calendar-follow-up-context dd'));
+    expect(followUpTimes).toHaveLength(3);
+    for (const dd of followUpTimes) {
+      expect(dd.textContent).toMatch(/\d{2}:\d{2}/);
+      expect(dd.textContent).not.toMatch(/:\d{2}:\d{2}/);
+    }
+  });
+
+  it('opens PastStartAcknowledgementDrawer on JOB 409 PAST_START_ACKNOWLEDGEMENT_REQUIRED, keeps open on retry error, and closes both drawers on success', async () => {
+    jobsApi.patchJobCard
+      .mockRejectedValueOnce(new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç geçmişte.', false))
+      .mockRejectedValueOnce(new ApiError(409, 'ASSIGNMENT_WINDOW_TOO_SHORT', 'Pencere kısa.', false))
+      .mockResolvedValueOnce({
+        id: 'job-1',
+        version: 3,
+        assignedTo: 'staff-1',
+        title: 'Ürün teslimi',
+        assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+        assignmentTransitionId: null,
+      });
+
+    await render(manager, '/calendar?event=job-event-1');
+    const editButton = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Düzenle'))!;
+    await act(async () => editButton.click());
+
+    const outerForm = document.querySelector('form.calendar-form') as HTMLFormElement;
+    await act(async () => {
+      outerForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    const ackForm = document.querySelector('[data-past-start-acknowledgement="true"]') as HTMLFormElement;
+    expect(ackForm).toBeTruthy();
+    // Outer form remains mounted as a sibling drawer
+    expect(document.querySelector('form.calendar-form')).toBeTruthy();
+
+    const codeSelect = ackForm.querySelector('#past-start-ack-code') as HTMLSelectElement;
+    const textArea = ackForm.querySelector('#past-start-ack-text') as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(codeSelect, 'CUSTOMER_WAITING');
+      codeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      setReactValue(textArea, 'Müşteri geç saati onayladı.');
+    });
+
+    await act(async () => {
+      ackForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    expect(jobsApi.patchJobCard).toHaveBeenCalledTimes(2);
+    expect(jobsApi.patchJobCard.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      expectedVersion: 2,
+      assignedTo: 'staff-1',
+      scheduledAt: expect.any(String),
+      pastStartAcknowledgement: {
+        code: 'CUSTOMER_WAITING',
+        text: 'Müşteri geç saati onayladı.',
+      },
+    }));
+
+    // Retry failed: acknowledgement drawer stays open and surfaces the error
+    const stillOpenAck = document.querySelector('[data-past-start-acknowledgement="true"]') as HTMLFormElement;
+    expect(stillOpenAck).toBeTruthy();
+    expect(stillOpenAck.querySelector('[role="alert"]')?.textContent).toContain('Planlanan zaman aralığı atama için çok kısa');
+
+    const listCallsBefore = calendarApi.listCalendar.mock.calls.length;
+
+    // Second confirm succeeds: both drawers close and calendar refreshes
+    await act(async () => {
+      stillOpenAck.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    expect(jobsApi.patchJobCard).toHaveBeenCalledTimes(3);
+    expect(document.querySelector('[data-past-start-acknowledgement="true"]')).toBeNull();
+    expect(document.querySelector('form.calendar-form')).toBeNull();
+    expect(calendarApi.listCalendar).toHaveBeenCalledTimes(listCallsBefore + 1);
+  });
+
+  it('closes only PastStartAcknowledgementDrawer on Escape while keeping EventForm drawer open', async () => {
+    jobsApi.patchJobCard.mockRejectedValueOnce(
+      new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç geçmişte.', false),
+    );
+
+    await render(manager, '/calendar?event=job-event-1');
+    const editButton = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Düzenle'))!;
+    await act(async () => editButton.click());
+
+    const outerForm = document.querySelector('form.calendar-form') as HTMLFormElement;
+    await act(async () => {
+      outerForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    const ackForm = document.querySelector('[data-past-start-acknowledgement="true"]')!;
+    const ackPanel = ackForm.closest('[role="dialog"]')!;
+    await act(async () => {
+      ackPanel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await act(async () => {});
+
+    expect(document.querySelector('[data-past-start-acknowledgement="true"]')).toBeNull();
+    expect(document.querySelector('form.calendar-form')).toBeTruthy();
   });
 });
 

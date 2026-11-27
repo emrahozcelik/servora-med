@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CANONICAL_DURATION_MINUTES,
+  buildQuickSchedulePresets,
   cardScheduleFact,
   defaultDeliveredAtLocalValue,
   defaultScheduledLocalValue,
+  formatPlannedDurationPreview,
+  isLocalPast,
+  isLocalSunday,
   localDateTimeToIso,
   shiftInterval,
 } from '../src/jobs/scheduling';
@@ -234,5 +239,110 @@ describe('shiftInterval', () => {
       if (previousTz === undefined) delete process.env.TZ;
       else process.env.TZ = previousTz;
     }
+  });
+});
+
+describe('UI/UX Dilim 4 scheduling helpers', () => {
+  it('defines canonical durations for SALES_MEETING and PRODUCT_DELIVERY', () => {
+    expect(CANONICAL_DURATION_MINUTES).toEqual({
+      SALES_MEETING: 60,
+      PRODUCT_DELIVERY: 30,
+    });
+  });
+
+  it('formats live planned duration preview and rejects invalid inputs', () => {
+    expect(formatPlannedDurationPreview('2026-07-17T14:30', 60)).toBe('14:30 – 15:30 (60 dk)');
+    expect(formatPlannedDurationPreview('2026-07-17T23:45', 30)).toBe('23:45 – 00:15 (30 dk)');
+    expect(formatPlannedDurationPreview('', 60)).toBeNull();
+    expect(formatPlannedDurationPreview('2026-07-17T14:30', 0)).toBeNull();
+    expect(formatPlannedDurationPreview('invalid', 60)).toBeNull();
+  });
+
+  it('detects local Sunday and past timestamps accurately', () => {
+    expect(isLocalSunday('2026-07-19T10:00')).toBe(true);
+    expect(isLocalSunday('2026-07-20T10:00')).toBe(false);
+    expect(isLocalSunday('2026-07-18T23:59')).toBe(false);
+    expect(isLocalSunday('')).toBe(false);
+
+    const now = localDate('2026-07-17T14:30');
+    expect(isLocalPast('2026-07-17T14:29', now)).toBe(true);
+    expect(isLocalPast('2026-07-17T14:30', now)).toBe(false);
+    expect(isLocalPast('2026-07-17T14:31', now)).toBe(false);
+    expect(isLocalPast('', now)).toBe(false);
+  });
+
+  it('builds Sunday-skipping deduplicated quick schedule presets', () => {
+    // Wednesday
+    const wed = buildQuickSchedulePresets(localDate('2026-07-15T13:04'));
+    expect(wed).toEqual([
+      { label: 'Bugün +1s', value: '2026-07-15T14:30' },
+      { label: 'Yarın 10:00', value: '2026-07-16T10:00' },
+      { label: 'Yarın 14:00', value: '2026-07-16T14:00' },
+      { label: 'Pazartesi 09:00', value: '2026-07-20T09:00' },
+    ]);
+    expect(wed.every((p) => !isLocalSunday(p.value))).toBe(true);
+
+    // Saturday daytime: skips Sunday for next workday -> Pazartesi
+    const sat = buildQuickSchedulePresets(localDate('2026-07-18T11:00'));
+    expect(sat).toEqual([
+      { label: 'Bugün +1s', value: '2026-07-18T12:00' },
+      { label: 'Pazartesi 10:00', value: '2026-07-20T10:00' },
+      { label: 'Pazartesi 14:00', value: '2026-07-20T14:00' },
+      { label: 'Pazartesi 09:00', value: '2026-07-20T09:00' },
+    ]);
+    expect(sat.every((p) => !isLocalSunday(p.value))).toBe(true);
+
+    // Weekday late evening: +1h rolls into tomorrow, so "Bugün" is not offered.
+    const wedLate = buildQuickSchedulePresets(localDate('2026-07-15T23:20'));
+    expect(wedLate.map((p) => p.label)).not.toContain('Bugün +1s');
+    expect(wedLate[0]).toEqual({ label: 'Yarın 10:00', value: '2026-07-16T10:00' });
+
+    // Saturday late night: Bugün +1s would land on Sunday 00:30, so omitted
+    const satLate = buildQuickSchedulePresets(localDate('2026-07-18T23:20'));
+    expect(satLate.map((p) => p.label)).not.toContain('Bugün +1s');
+    expect(satLate.every((p) => !isLocalSunday(p.value))).toBe(true);
+
+    // Sunday: omits Bugün +1s, Monday presets only
+    const sun = buildQuickSchedulePresets(localDate('2026-07-19T10:00'));
+    expect(sun).toEqual([
+      { label: 'Yarın 10:00', value: '2026-07-20T10:00' },
+      { label: 'Yarın 14:00', value: '2026-07-20T14:00' },
+      { label: 'Pazartesi 09:00', value: '2026-07-20T09:00' },
+    ]);
+    expect(sun.every((p) => !isLocalSunday(p.value))).toBe(true);
+  });
+
+  it('appends end time to cardScheduleFact text when scheduledEndsAt is valid on the same local day', () => {
+    const now = localDate('2026-07-17T08:00');
+    const startIso = localDateTimeToIso('2026-07-17T14:30');
+    const endIso = localDateTimeToIso('2026-07-17T15:00');
+    const todayDelivery = cardScheduleFact({
+      type: 'PRODUCT_DELIVERY',
+      scheduledAt: startIso,
+      scheduledEndsAt: endIso,
+      dueDate: null,
+    }, now);
+    expect(todayDelivery.label).toBe('Bugün');
+    expect(todayDelivery.text).toBe('14:30–15:00');
+
+    const meetingStart = localDateTimeToIso('2026-07-20T10:00');
+    const meetingEnd = localDateTimeToIso('2026-07-20T11:00');
+    const meeting = cardScheduleFact({
+      type: 'SALES_MEETING',
+      scheduledAt: meetingStart,
+      scheduledEndsAt: meetingEnd,
+      dueDate: null,
+    }, now);
+    expect(meeting.label).toBe('Planlanan görüşme');
+    expect(meeting.text).toMatch(/10:00–11:00$/);
+
+    // Different local day or invalid order does not append end time
+    const overnight = cardScheduleFact({
+      type: 'SALES_MEETING',
+      scheduledAt: localDateTimeToIso('2026-07-20T23:30'),
+      scheduledEndsAt: localDateTimeToIso('2026-07-21T00:30'),
+      dueDate: null,
+    }, now);
+    expect(overnight.text).not.toContain('–');
   });
 });

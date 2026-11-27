@@ -49,7 +49,9 @@ vi.mock('../src/services/api', async (importOriginal) => ({ ...await importOrigi
 vi.mock('../src/services/crm-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/crm-api')>(), ...crm }));
 vi.mock('../src/services/people-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/people-api')>(), ...people }));
 vi.mock('../src/services/products-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/products-api')>(), ...productsApi }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (original) => ({
+  ...await original<typeof import('../src/jobs/scheduling')>(), ...scheduling,
+}));
 vi.mock('../src/jobs/useCustomerSchedulePreview', () => preview);
 vi.mock('../src/jobs/jobs-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/jobs/jobs-api')>(), ...jobs,
@@ -184,6 +186,35 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => slotButton.click());
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
     expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
+  });
+
+  it.each([
+    ['calendar: false', { overviewDashboard: true, calendar: false, messaging: true }],
+    ['no capabilities', undefined],
+  ])('offers and applies a joint slot without the Calendar module (%s)', async (_label, capabilities) => {
+    const noCalendarManager: CurrentUser = { ...manager, capabilities };
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [{
+      startsAt: '2026-08-10T06:30:00.000Z',
+      endsAt: '2026-08-10T07:30:00.000Z',
+    }] });
+    scheduling.isoInstantToLocalDateTime.mockImplementation((value: string) => (
+      value.endsWith('06:30:00.000Z') ? '2026-08-10T09:30' : '2026-08-10T10:30'
+    ));
+    await act(async () => root.render(view(noCalendarManager)));
+    await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await settle();
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'PRODUCT_DELIVERY', customerId: 'customer-a', assignedTo: 'staff-2',
+    }));
+    const slotButton = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slotButton).toBeTruthy();
+    await act(async () => slotButton.click());
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
   });
 
   it('pre-fills planned delivery time once and preserves a user edit across reference reloads', async () => {
@@ -630,5 +661,38 @@ describe('Delivery create ambiguous attempt contract', () => {
     expect(api.createProductDelivery).toHaveBeenCalledTimes(2);
     expect(api.createProductDelivery.mock.calls[1]![0].clientActionId)
       .not.toBe(api.createProductDelivery.mock.calls[0]![0].clientActionId);
+  });
+
+  it('gates customer preview for STAFF, shows 30 dk quick controls, and shifts past start to future from acknowledgement drawer', async () => {
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    expect(preview.useCustomerSchedulePreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(container.querySelector('.schedule-duration-preview')?.textContent).toContain('(30 dk)');
+
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '1'));
+
+    const quickChip = container.querySelector('.schedule-quick-chip') as HTMLButtonElement;
+    expect(quickChip).not.toBeNull();
+    await act(async () => quickChip.click());
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).not.toBe('');
+
+    api.createProductDelivery.mockRejectedValueOnce(
+      new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç saati geçti.'),
+    );
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(container.querySelector('form.past-start-acknowledgement-form')).not.toBeNull();
+
+    scheduling.defaultScheduledLocalValue.mockReturnValueOnce('2026-08-20T14:00');
+    const shiftBtn = Array.from(container.querySelectorAll('form.past-start-acknowledgement-form button'))
+      .find((b) => b.textContent === 'Saati şimdiye / geleceğe al') as HTMLButtonElement;
+    expect(shiftBtn).toBeTruthy();
+    await act(async () => shiftBtn.click());
+    expect(container.querySelector('form.past-start-acknowledgement-form')).toBeNull();
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-20T14:00');
   });
 });

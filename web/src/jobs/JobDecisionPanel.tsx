@@ -15,6 +15,7 @@ export function JobDecisionPanel({
   recordEditAction,
   pending,
   pendingLabel,
+  pendingCommand,
   startLocationCaptureEnabled,
   submitLocationCaptureEnabled = false,
   startScheduleBlockedReason,
@@ -27,6 +28,7 @@ export function JobDecisionPanel({
   recordEditAction: JobWorkflowPresentation['recordEditAction'];
   pending: boolean;
   pendingLabel?: string;
+  pendingCommand?: LifecycleCommand | null;
   startLocationCaptureEnabled: boolean;
   /**
    * Slice 1: advisory SUBMIT snapshot. Shown only when a SUBMIT_FOR_APPROVAL
@@ -61,6 +63,9 @@ export function JobDecisionPanel({
   const commandBlocked = (command: LifecycleCommand) => pending
     || disabledCommands.includes(command)
     || Boolean(startScheduleBlockedReason && command === 'START');
+  const commandPending = (command: LifecycleCommand) => pending
+    && (pendingCommand == null || pendingCommand === command);
+  const recordEditPending = pending && pendingCommand == null;
 
   const destructiveTransitions = secondary.filter((t) => t.command === 'CANCEL');
   const secondaryTransitions = secondary.filter((t) => t.command !== 'CANCEL');
@@ -100,6 +105,11 @@ export function JobDecisionPanel({
         {startScheduleBlockedReason}
       </p>
     )}
+    {pending && pendingLabel === 'Konum alınıyor…' && (
+      <p className="field-status location-capture-status" role="status" aria-live="polite">
+        Konum alınıyor…
+      </p>
+    )}
     <div className="review-buttons">
       {primary && <button
         className="primary-button compact-button"
@@ -110,7 +120,7 @@ export function JobDecisionPanel({
           : undefined}
         onClick={(event) => onCommand(primary.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+        {commandPending(primary.command) ? (pendingLabel ?? 'İşleniyor…') : (
           <>
             <WorkflowCommandIcon command={primary.command} />
             {primary.label}
@@ -124,7 +134,7 @@ export function JobDecisionPanel({
         disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+        {commandPending(transition.command) ? (pendingLabel ?? 'İşleniyor…') : (
           <>
             <WorkflowCommandIcon command={transition.command} />
             {transition.label}
@@ -141,7 +151,7 @@ export function JobDecisionPanel({
         disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+        {commandPending(transition.command) ? (pendingLabel ?? 'İşleniyor…') : (
           <>
             <WorkflowCommandIcon command={transition.command} />
             {transition.label}
@@ -157,7 +167,7 @@ export function JobDecisionPanel({
         disabled={pending}
         onClick={(event) => onRecordEdit?.(recordEditAction.action, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : (
+        {recordEditPending ? (pendingLabel ?? 'İşleniyor…') : (
           <>
             <SignalGlyph name="edit" className="button-leading-icon" size={15} />
             {recordEditAction.label}

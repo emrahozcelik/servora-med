@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { listStaff, type StaffProfile } from '../services/people-api';
 import type { CurrentUser } from '../services/api';
 import type { JobCard, JobCardPriority } from './jobs-api';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -143,13 +144,19 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
           value={description}
           onChange={(event) => setDescription(event.target.value)} />
       </div>
-      <div className="field-group"><label htmlFor="general-task-edit-due-date">Son tarih</label>
-        <input id="general-task-edit-due-date" name="dueDate" type="date" value={dueDate}
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="date"
+          id="general-task-edit-due-date"
+          name="dueDate"
+          value={dueDate}
+          onChange={(value) => { setDueDate(value); setReasonError(''); }}
           disabled={!managementUser && hasOpenOverdueIncident}
           aria-describedby={!managementUser && hasOpenOverdueIncident
             ? 'general-task-edit-due-date-hint'
             : undefined}
-          onChange={(event) => { setDueDate(event.target.value); setReasonError(''); }} />
+          label="Son tarih"
+        />
         {!managementUser && hasOpenOverdueIncident && (
           <span className="form-help" id="general-task-edit-due-date-hint">
             Gecikmesi açık işin tarihini yalnızca yönetim değiştirebilir. Değişiklik talebi gönderin.
@@ -180,7 +187,7 @@ export function GeneralTaskEditForm({ job, user, pending, deadlineExtensionError
             type="checkbox" checked={resolveChangeRequest}
             onChange={(event) => setResolveChangeRequest(event.target.checked)} />
           <label htmlFor="general-task-edit-resolve-change-request">
-            Personelin önerisini “Yeniden planlandı” olarak sonuçlandır
+            Personel önerisini 'Yeniden planlandı' olarak kapat
           </label>
         </div>
       )}

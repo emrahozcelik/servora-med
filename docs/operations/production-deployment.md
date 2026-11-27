@@ -842,6 +842,46 @@ bash ops/deploy-production.sh --sha <40-character-main-sha>
 bash ops/deploy-production.sh --sha <40-character-main-sha> --allow-migrations
 ```
 
+### MOD-002 operator first grant
+
+Migration 074 creates the installation operator and module-state tables
+(see [SERVORA_MED_SCHEMA_DRAFT.md](../../SERVORA_MED_SCHEMA_DRAFT.md) §8.1). The
+release that ships it is a migration deployment, so it needs `allow_migrations`
+(`--allow-migrations`) under the migration policy above, with explicit approval
+for that run.
+
+On the first start with 074, the API process takes over the legacy
+`OVERVIEW_DASHBOARD_ENABLED` value once: it writes the `OVERVIEW` state row
+(`source = ENV_TAKEOVER`) and a `MODULE_STATE_TAKEN_OVER` audit event in one
+transaction, and startup stops on any failure. Afterwards the env key is ignored
+for Overview and is legacy; the installation operator switches Overview in the app.
+A fresh empty database takes the env value (unset means off). If the state row is
+missing while a takeover event exists, startup fails closed; the row is not
+re-derived from env. The production example does not contain this key. The staging
+example keeps it only as the legacy takeover input.
+
+After the deployment is healthy, the owner grants the first operator over the root
+channel. Each run needs explicit owner approval. The CLI reads only `DATABASE_URL`
+and does not load the application configuration. Run it from the release's `server`
+directory; `npm run operator:prod -- <command>` is the same entrypoint.
+
+```bash
+cd /opt/servora-med/current/server
+DATABASE_URL="<production database URL from the protected host source>" \
+  node dist/db/operator-cli-main.js grant --email <operator-email> --name "<operator name>"
+```
+
+- The password is never accepted in argv or from the environment. On an interactive
+  root terminal, omit `--password-stdin`: the CLI asks twice without echo. An empty
+  answer generates a password, printed once on that terminal.
+- Non-interactive runs use `--password-stdin` and supply the password on stdin from a
+  protected source.
+- `grant` on an active account fails with `OPERATOR_ALREADY_ACTIVE`. A revoked or
+  restore-reset account is reactivated and always receives a new password.
+- Check the result with `node dist/db/operator-cli-main.js list` (read-only). Each
+  `grant`, `reset-password` and `revoke` writes an `operator_audit_events` row with
+  actor `HOST_CLI`, in the same transaction as the change.
+
 ## Legacy `deploy-release.sh` reference (historical)
 
 This section is retained only for historical/compatibility context for older

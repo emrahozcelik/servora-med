@@ -589,4 +589,248 @@ describe('Web Push dispatch — PostgreSQL', () => {
       expect(JSON.stringify(payload)).not.toContain('content');
     });
   });
+
+  it('excludes conversation deliveries when requested and abandons pending/expired-lease conversation deliveries without touching live leases or job-card deliveries', async () => {
+    await runWithFixture(async ({ pool, organizationId, userId, deliveryId: jobDeliveryId, at }) => {
+      const repo = new PostgresWebPushRepository(pool);
+      const subId = (await pool.query<{ id: string }>(
+        `SELECT id FROM web_push_subscriptions WHERE organization_id = $1`, [organizationId],
+      )).rows[0]!.id;
+
+      const makeConvDelivery = async (state: 'PENDING' | 'CLAIMED', leaseUntil?: Date) => {
+        const { eventId } = await createRealtimeEvent(pool, organizationId, userId);
+        const nId = randomUUID();
+        await pool.query(
+          `INSERT INTO in_app_notifications
+             (id, organization_id, recipient_user_id, source_realtime_event_id,
+              kind, entity_type, entity_id, created_at)
+           VALUES ($1, $2, $3, CAST($4 AS BIGINT), 'message.received', 'conversation', $5, $6)`,
+          [nId, organizationId, userId, eventId, randomUUID(), at],
+        );
+        return (await pool.query<{ id: string }>(
+          `INSERT INTO web_push_deliveries
+             (organization_id, notification_id, subscription_id, state, lease_token, lease_until,
+              next_attempt_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $7) RETURNING id`,
+          [
+            organizationId, nId, subId, state,
+            state === 'CLAIMED' ? randomUUID() : null,
+            state === 'CLAIMED' ? leaseUntil : null,
+            at,
+          ],
+        )).rows[0]!.id;
+      };
+
+      const pendingConvId = await makeConvDelivery('PENDING');
+      const expiredConvId = await makeConvDelivery('CLAIMED', new Date(at.getTime() - 1_000));
+      const liveConvId = await makeConvDelivery('CLAIMED', new Date(at.getTime() + 20_000));
+
+      // Exclusion skips conversation deliveries while still claiming job-card deliveries.
+      const excludedClaim = await repo.claimDueDeliveries({
+        limit: 10, at, excludedEntityTypes: ['conversation'],
+      });
+      expect(excludedClaim.map((d) => d.deliveryId)).toEqual([jobDeliveryId]);
+
+      // Reset job-card delivery back to PENDING so abandonModuleDisabledDeliveries proves it leaves job-card untouched.
+      await pool.query(
+        `UPDATE web_push_deliveries SET state = 'PENDING', lease_token = NULL, lease_until = NULL WHERE id = $1`,
+        [jobDeliveryId],
+      );
+
+      const abandoned = await repo.abandonModuleDisabledDeliveries({
+        entityTypes: ['conversation'], at, errorCode: 'MODULE_DISABLED',
+      });
+      expect(abandoned).toBe(2);
+
+      const states = await pool.query<{ id: string; state: string; last_error_code: string | null; lease_token: string | null }>(
+        `SELECT id, state, last_error_code, lease_token FROM web_push_deliveries`,
+      );
+      const byId = new Map(states.rows.map((r) => [r.id, r]));
+      expect(byId.get(pendingConvId)).toMatchObject({ state: 'ABANDONED', last_error_code: 'MODULE_DISABLED', lease_token: null });
+      expect(byId.get(expiredConvId)).toMatchObject({ state: 'ABANDONED', last_error_code: 'MODULE_DISABLED', lease_token: null });
+      expect(byId.get(liveConvId)).toMatchObject({ state: 'CLAIMED' });
+      expect(byId.get(jobDeliveryId)).toMatchObject({ state: 'PENDING' });
+    });
+  });
+});
+
+describe('Web Push cleanupDueDeliveries — PostgreSQL', () => {
+  type DeliveryRow = {
+    state: string;
+    last_error_code: string | null;
+    lease_token: string | null;
+    abandoned_at: Date | null;
+  };
+
+  async function addDelivery(fixture: Fixture, subscriptionId = fixture.subscriptionId) {
+    const { pool, organizationId, userId, at } = fixture;
+    const { eventId, jobCardId } = await createRealtimeEvent(pool, organizationId, userId);
+    const notificationId = await createNotification(
+      pool, organizationId, userId, eventId, jobCardId, at,
+    );
+    const deliveryId = await createDelivery(pool, organizationId, notificationId, subscriptionId, at);
+    return { notificationId, deliveryId };
+  }
+
+  async function markRead(pool: Pool, notificationId: string, at: Date) {
+    await pool.query(`UPDATE in_app_notifications SET read_at = $2 WHERE id = $1`, [notificationId, at]);
+  }
+
+  async function claim(pool: Pool, deliveryId: string, leaseUntil: Date): Promise<string> {
+    const leaseToken = randomUUID();
+    await pool.query(
+      `UPDATE web_push_deliveries
+          SET state = 'CLAIMED', lease_token = $2, lease_until = $3, attempt_count = 1
+        WHERE id = $1`,
+      [deliveryId, leaseToken, leaseUntil],
+    );
+    return leaseToken;
+  }
+
+  async function readDelivery(pool: Pool, deliveryId: string): Promise<DeliveryRow> {
+    return (await pool.query<DeliveryRow>(
+      `SELECT state, last_error_code, lease_token, abandoned_at
+         FROM web_push_deliveries WHERE id = $1`,
+      [deliveryId],
+    )).rows[0]!;
+  }
+
+  // A separate user/session/subscription so a subscription-level condition can be varied alone.
+  async function addOtherSubscription(fixture: Fixture) {
+    const { pool, organizationId, at } = fixture;
+    const userId = await createUser(pool, organizationId);
+    const sessionId = await createSession(pool, userId);
+    const subscriptionId = await createSubscription(pool, organizationId, userId, sessionId, at);
+    const { eventId, jobCardId } = await createRealtimeEvent(pool, organizationId, userId);
+    const notificationId = await createNotification(
+      pool, organizationId, userId, eventId, jobCardId, at,
+    );
+    const deliveryId = await createDelivery(pool, organizationId, notificationId, subscriptionId, at);
+    return { userId, sessionId, subscriptionId, deliveryId };
+  }
+
+  it('abandons a PENDING delivery whose notification is read', async () => {
+    await runWithFixture(async (fixture) => {
+      const { pool, at } = fixture;
+      const { notificationId, deliveryId } = await addDelivery(fixture);
+      await markRead(pool, notificationId, at);
+
+      const repo = new PostgresWebPushRepository(pool);
+      // The fixture's own delivery is healthy and must stay untouched.
+      expect(await repo.cleanupDueDeliveries(at)).toBe(1);
+
+      const row = await readDelivery(pool, deliveryId);
+      expect(row.state).toBe('ABANDONED');
+      expect(row.last_error_code).toBe('READ');
+      expect(row.lease_token).toBeNull();
+      expect(row.abandoned_at?.toISOString()).toBe(at.toISOString());
+    });
+  });
+
+  it('joins each delivery to its own notification', async () => {
+    await runWithFixture(async (fixture) => {
+      const { pool, at, deliveryId: unreadDeliveryId } = fixture;
+      const { notificationId, deliveryId: readDeliveryId } = await addDelivery(fixture);
+      await markRead(pool, notificationId, at);
+
+      const repo = new PostgresWebPushRepository(pool);
+      expect(await repo.cleanupDueDeliveries(at)).toBe(1);
+
+      expect((await readDelivery(pool, readDeliveryId)).state).toBe('ABANDONED');
+      expect((await readDelivery(pool, unreadDeliveryId)).state).toBe('PENDING');
+    });
+  });
+
+  it('leaves a CLAIMED delivery with an active lease untouched', async () => {
+    await runWithFixture(async (fixture) => {
+      const { pool, at, deliveryId } = fixture;
+      const leaseToken = await claim(pool, deliveryId, new Date(at.getTime() + 30_000));
+      await pool.query(
+        `UPDATE in_app_notifications SET read_at = $2
+          WHERE id = (SELECT notification_id FROM web_push_deliveries WHERE id = $1)`,
+        [deliveryId, at],
+      );
+
+      const repo = new PostgresWebPushRepository(pool);
+      expect(await repo.cleanupDueDeliveries(at)).toBe(0);
+
+      const row = await readDelivery(pool, deliveryId);
+      expect(row.state).toBe('CLAIMED');
+      expect(row.lease_token).toBe(leaseToken);
+      expect(row.last_error_code).toBeNull();
+    });
+  });
+
+  it('abandons a CLAIMED delivery with an expired lease and a terminal condition', async () => {
+    await runWithFixture(async (fixture) => {
+      const { pool, at } = fixture;
+      const stale = await addDelivery(fixture);
+      await pool.query(
+        `UPDATE web_push_deliveries SET created_at = $2 WHERE id = $1`,
+        [stale.deliveryId, new Date(at.getTime() - 25 * 3_600_000)],
+      );
+      await claim(pool, stale.deliveryId, new Date(at.getTime() - 1_000));
+
+      const exhausted = await addDelivery(fixture);
+      await claim(pool, exhausted.deliveryId, at);
+      await pool.query(
+        `UPDATE web_push_deliveries SET attempt_count = 6 WHERE id = $1`,
+        [exhausted.deliveryId],
+      );
+
+      const repo = new PostgresWebPushRepository(pool);
+      expect(await repo.cleanupDueDeliveries(at)).toBe(2);
+
+      const staleRow = await readDelivery(pool, stale.deliveryId);
+      expect(staleRow.state).toBe('ABANDONED');
+      expect(staleRow.last_error_code).toBe('EXPIRED');
+      expect(staleRow.lease_token).toBeNull();
+      const exhaustedRow = await readDelivery(pool, exhausted.deliveryId);
+      expect(exhaustedRow.state).toBe('ABANDONED');
+      expect(exhaustedRow.last_error_code).toBe('MAX_ATTEMPTS');
+    });
+  });
+
+  it('leaves a healthy PENDING delivery untouched', async () => {
+    await runWithFixture(async ({ pool, at, deliveryId }) => {
+      const repo = new PostgresWebPushRepository(pool);
+      expect(await repo.cleanupDueDeliveries(at)).toBe(0);
+
+      const row = await readDelivery(pool, deliveryId);
+      expect(row.state).toBe('PENDING');
+      expect(row.last_error_code).toBeNull();
+    });
+  });
+
+  it('abandons deliveries of a disabled subscription, inactive recipient and revoked session', async () => {
+    await runWithFixture(async (fixture) => {
+      const { pool, at } = fixture;
+
+      const disabled = await addOtherSubscription(fixture);
+      await pool.query(
+        `UPDATE web_push_subscriptions
+            SET disabled_at = $2, disabled_reason = 'USER_DISABLED'
+          WHERE id = $1`,
+        [disabled.subscriptionId, at],
+      );
+      const inactive = await addOtherSubscription(fixture);
+      await pool.query(`UPDATE users SET is_active = FALSE WHERE id = $1`, [inactive.userId]);
+      const revoked = await addOtherSubscription(fixture);
+      await pool.query(`UPDATE sessions SET revoked_at = $2 WHERE id = $1`, [revoked.sessionId, at]);
+
+      const repo = new PostgresWebPushRepository(pool);
+      expect(await repo.cleanupDueDeliveries(at)).toBe(3);
+
+      const disabledRow = await readDelivery(pool, disabled.deliveryId);
+      expect(disabledRow.state).toBe('ABANDONED');
+      expect(disabledRow.last_error_code).toBe('SUBSCRIPTION_DISABLED');
+      const inactiveRow = await readDelivery(pool, inactive.deliveryId);
+      expect(inactiveRow.state).toBe('ABANDONED');
+      expect(inactiveRow.last_error_code).toBe('SESSION_INACTIVE');
+      const revokedRow = await readDelivery(pool, revoked.deliveryId);
+      expect(revokedRow.state).toBe('ABANDONED');
+      expect(revokedRow.last_error_code).toBe('SESSION_INACTIVE');
+      expect((await readDelivery(pool, fixture.deliveryId)).state).toBe('PENDING');
+    });
+  });
 });

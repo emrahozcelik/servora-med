@@ -6,6 +6,8 @@ import Fastify, { type preHandlerHookHandler } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 
+import { moduleGate } from '../src/modules/installation-modules/gate.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { MessagingService } from '../src/modules/messaging/service.js';
 import { messagingRoutes } from '../src/modules/messaging/routes.js';
 import { toErrorResponse } from '../src/errors/index.js';
@@ -141,7 +143,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
 }
 
 function service(pool: Pool): MessagingService {
-  return new MessagingService(pool, true);
+  return new MessagingService(pool);
 }
 
 async function countRows(pool: Pool, table: string, organizationId: string): Promise<number> {
@@ -657,6 +659,7 @@ describe('M4 initial multi-participant create contract', () => {
         prefix: '/api/messaging',
         service: svc,
         authenticate,
+        gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
       });
 
       const res = await app.inject({

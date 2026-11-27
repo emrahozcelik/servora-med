@@ -170,6 +170,8 @@ describe('OverviewPage', () => {
   it('renders canonical Turkish work-type labels without raw enums', async () => {
     const html = await render(managementOverview);
     expect(html).toContain('İş dağılımı');
+    // The counts' period is stated on the card itself, not only in the header.
+    expect(html).toContain('Bu dönemde oluşturulan işler · 1 Temmuz 2026 – 26 Temmuz 2026');
     expect(html).toContain('Genel görev');
     expect(html).toContain('Haftalık rapor');
     expect(html).not.toContain('WEEKLY_REPORT');

@@ -1218,6 +1218,12 @@ describe('JOB-010 release 2b assignment answers', () => {
           acceptanceDueAt: '2026-07-17T08:30:00.000Z',
           urgentReason: null,
           assignee: { id: 's1', name: 'Ayşe Personel' },
+          closedAt: '2026-07-17T08:30:00.000Z',
+          closeReason: 'PLANNED_WINDOW_PASSED',
+          closeText: null,
+          proposedScheduledAt: null,
+          proposedScheduledEndsAt: null,
+          proposalAcceptedAt: null,
         },
       });
       expect(derive(expiredNewJob, staff).responsibility).toMatchObject({
@@ -1226,9 +1232,9 @@ describe('JOB-010 release 2b assignment answers', () => {
         description: 'Atama teklifinin süresi doldu. Yöneticinin yeniden atama yapması bekleniyor.',
       });
       expect(derive(expiredNewJob, manager).responsibility).toMatchObject({
-        role: 'STAFF',
-        title: 'Atama teklifi yanıtlanmadı',
-        description: 'Atama teklifi süresi dolduğu için yeniden atama yapılması gerekiyor.',
+        role: 'MANAGEMENT',
+        title: 'Karar sizde',
+        description: 'Personel teklifi süresinde yanıtlamadı; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
       });
 
       const acceptedStartable = jobWith({
@@ -1314,6 +1320,71 @@ describe('JOB-010 release 2b assignment answers', () => {
         role: 'MANAGEMENT',
         title: 'Yönetici kontrolünde',
         description: 'İş yönetici kontrolüne gönderildi. Yönetici karar verene kadar bekleyin.',
+      });
+    });
+
+    it('hands a closed assignment offer back to management with a state-specific description', () => {
+      const base = jobWith({
+        status: 'NEW',
+        assignedTo: 's1',
+        assignee: { id: 's1', name: 'Ayşe Personel' },
+        workflowContext: contextWith({ allowedCommands: ['CANCEL'] }),
+      });
+      const closed = (offer: Partial<NonNullable<typeof base.assignmentOffer>>) => jobWith({
+        ...base,
+        assignmentOffer: {
+          id: 'offer-1',
+          state: 'DECLINED',
+          openedAt: '2026-07-17T08:00:00.000Z',
+          acceptanceDueAt: '2026-07-17T08:30:00.000Z',
+          urgentReason: null,
+          assignee: { id: 's1', name: 'Ayşe Personel' },
+          closedAt: '2026-07-17T08:20:00.000Z',
+          closeReason: 'SCHEDULE_CONFLICT',
+          closeText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+          proposedScheduledAt: null,
+          proposedScheduledEndsAt: null,
+          proposalAcceptedAt: null,
+          ...offer,
+        },
+      });
+
+      expect(derive(closed({}), manager).responsibility).toMatchObject({
+        role: 'MANAGEMENT',
+        title: 'Karar sizde',
+        description: 'Personel görevi reddetti; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+      expect(derive(closed({ state: 'RELEASED' }), manager).responsibility).toMatchObject({
+        title: 'Karar sizde',
+        description: 'Personel görevi geri bıraktı; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+      expect(derive(closed({ state: 'EXPIRED' }), manager).responsibility).toMatchObject({
+        title: 'Karar sizde',
+        description: 'Personel teklifi süresinde yanıtlamadı; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+      expect(derive(closed({
+        state: 'WITHDRAWN', closeReason: 'PLANNED_WINDOW_PASSED',
+      }), manager).responsibility).toMatchObject({
+        title: 'Karar sizde',
+        description: 'Planlanan zaman geçti; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+
+      // A withdrawal from acting already opened a newer offer: the plain copy stays.
+      expect(derive(closed({ state: 'WITHDRAWN', closeReason: 'RESCHEDULED' }), manager)
+        .responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personel kabulü bekleniyor',
+      });
+      // An open offer still waits for the Staff answer.
+      expect(derive(closed({ state: 'OPEN', closedAt: null, closeReason: null, closeText: null }), manager)
+        .responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personel kabulü bekleniyor',
+      });
+      // The accepted answer keeps its own branch.
+      expect(derive(closed({ state: 'ACCEPTED' }), manager).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personel kabulü bekleniyor',
       });
     });
   });

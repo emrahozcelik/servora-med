@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SaleCorrectionSection } from '../src/jobs/SaleCorrection';
 import type { SaleDetails } from '../src/jobs/sale-api';
+import { stubMatchMedia } from './helpers/match-media';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../src/services/products-api', () => ({ listProducts: vi.fn() }));
 vi.mock('../src/services/crm-api', () => ({ listContacts: vi.fn().mockResolvedValue({items:[],total:0,limit:20,offset:0}) }));
@@ -11,8 +12,24 @@ vi.mock('../src/jobs/sale-api', () => ({ correctSale: vi.fn() }));
 const details: SaleDetails = {jobCardId:'sale',jobCardVersion:2,soldAt:'2026-10-15T08:00:00.000Z',saleContact:null,
  sourceVisit:{access:'RESTRICTED',kind:'SALE_FROM_VISIT'},items:[{id:'line',productId:'product',name:'Tarihsel pasif ürün',sku:'OLD',brand:'Eski marka',model:null,unit:'ml',quantity:'5'}]};
 let host:HTMLDivElement; let root:ReturnType<typeof createRoot>;
-beforeEach(()=>{host=document.createElement('div');document.body.append(host);root=createRoot(host);});
+function resizeTo(width:number){stubMatchMedia({narrow:width<1024});Object.defineProperty(window,'innerWidth',{writable:true,configurable:true,value:width});window.dispatchEvent(new Event('resize'));}
+beforeEach(()=>{resizeTo(1024);host=document.createElement('div');document.body.append(host);root=createRoot(host);});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.clearAllMocks();});
+it('edits the sold time through the compact wheel trigger',async()=>{
+ resizeTo(390);
+ await act(async()=>root.render(<SaleCorrectionSection details={details} customerId="customer" disabled={false} onLockChange={vi.fn()} onChanged={vi.fn()} />));
+ const trigger=host.querySelector<HTMLButtonElement>('.wheel-field-trigger')!;
+ expect(trigger.id.endsWith('-sold')).toBe(true);
+ expect(trigger.hasAttribute('name')).toBe(false);
+ const before=trigger.textContent;
+ await act(async()=>trigger.click());
+ const hour=document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+ await act(async()=>{hour.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));});
+ const ok=[...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')].find((b)=>b.textContent==='Tamam')!;
+ await act(async()=>ok.click());
+ expect(trigger.textContent).not.toBe(before);
+ expect(document.body.style.overflow).toBe('');
+});
 it('edits snapshot identities using persisted item IDs without fetching live product metadata', async()=>{
  const {correctSale}=await import('../src/jobs/sale-api'); vi.mocked(correctSale).mockResolvedValue({jobCardId:'sale',version:3});
  const changed=vi.fn().mockResolvedValue(undefined);

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
 import { overviewRoutes } from '../src/modules/overview/routes.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { OverviewService } from '../src/modules/overview/service.js';
 
 const apps: FastifyInstance[] = [];
@@ -34,7 +35,7 @@ async function createApp(enabled: boolean, authenticated = true) {
   };
   await app.register(overviewRoutes, {
     prefix: '/api/overview',
-    service: new OverviewService(enabled, repository as never, () => new Date('2026-07-26T08:00:00.000Z')),
+    service: new OverviewService(staticModuleStateReader(enabled), repository as never, () => new Date('2026-07-26T08:00:00.000Z')),
     authenticate,
   });
   apps.push(app);
@@ -71,6 +72,32 @@ describe('Overview HTTP route', () => {
     const response = await disabled.inject({ method: 'GET', url: '/api/overview' });
     expect(response.statusCode).toBe(404);
     expect(response.json()).toMatchObject({ code: 'NOT_FOUND' });
+    expect(repository.getStaffOverview).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 MODULE_STATE_UNAVAILABLE when module state is unreadable', async () => {
+    const app = Fastify({ logger: false });
+    const repository = { getStaffOverview: vi.fn(), getManagementOverview: vi.fn() };
+    app.setErrorHandler((error, _request, reply) => {
+      const response = toErrorResponse(error);
+      reply.code(response.statusCode).send(response.body);
+    });
+    const authenticate = async (request: FastifyRequest) => {
+      request.currentUser = actor;
+    };
+    await app.register(overviewRoutes, {
+      prefix: '/api/overview',
+      service: new OverviewService(
+        { read: async () => { throw new Error('db down'); } },
+        repository as never,
+      ),
+      authenticate,
+    });
+    apps.push(app);
+
+    const response = await app.inject({ method: 'GET', url: '/api/overview' });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ code: 'MODULE_STATE_UNAVAILABLE' });
     expect(repository.getStaffOverview).not.toHaveBeenCalled();
   });
 });

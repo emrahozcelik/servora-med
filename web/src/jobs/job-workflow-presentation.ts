@@ -1,6 +1,7 @@
 import type { CurrentUser } from '../services/api';
 import { jobStatusLabels } from './job-labels';
 import type {
+  AssignmentOffer,
   DeliveryItem,
   FollowUpCycleEndReason,
   JobCard,
@@ -447,6 +448,30 @@ function derivePhaseItems(
   };
 }
 
+/**
+ * JOB-010 recovery copy: what a closed offer leaves management to do. Null when
+ * the offer still waits for an answer, or was withdrawn by an action that
+ * already opened a newer offer.
+ */
+function closedOfferRecoveryDescription(offer: AssignmentOffer): string | null {
+  const nextStep = 'yeni zaman belirleyin veya sorumlu personeli değiştirin.';
+  switch (offer.state) {
+    case 'DECLINED':
+      return `Personel görevi reddetti; ${nextStep}`;
+    case 'RELEASED':
+      return `Personel görevi geri bıraktı; ${nextStep}`;
+    case 'EXPIRED':
+      return `Personel teklifi süresinde yanıtlamadı; ${nextStep}`;
+    case 'WITHDRAWN':
+      return offer.closeReason === 'PLANNED_WINDOW_PASSED'
+        ? `Planlanan zaman geçti; ${nextStep}`
+        : null;
+    case 'OPEN':
+    case 'ACCEPTED':
+      return null;
+  }
+}
+
 function responsibilityFor(
   status: JobCardStatus,
   role: ExpectedRole,
@@ -474,7 +499,21 @@ function responsibilityFor(
   };
 
   switch (status) {
-    case 'NEW':
+    case 'NEW': {
+      // A closed offer leaves the next move with management: the plain
+      // "waiting for Staff acceptance" line would be wrong.
+      if (viewerIsManagement && job.assignmentOffer != null) {
+        const recoveryDescription = closedOfferRecoveryDescription(job.assignmentOffer);
+        if (recoveryDescription !== null) {
+          return {
+            role: 'MANAGEMENT',
+            title: 'Karar sizde',
+            description: recoveryDescription,
+            consequence: null,
+            submission: null,
+          };
+        }
+      }
       if (job.assignmentOffer?.state === 'EXPIRED') {
         return viewerIsAssignee
           ? {
@@ -507,6 +546,7 @@ function responsibilityFor(
           consequence: null,
           submission: null,
         };
+    }
     case 'ACCEPTED':
       if (!viewerIsAssignee) {
         return {
