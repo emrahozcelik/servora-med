@@ -212,7 +212,9 @@ Decline and release bodies gain `suggestedSolution?: string | null`.
   `DECLINED` / `RELEASED`.
 - `proposed_scheduled_at IS NULL OR (state IN ('DECLINED','RELEASED') AND
   (suggested_solution = 'RESCHEDULE_SELF' OR (suggested_solution IS NULL AND
-  close_reason = 'SCHEDULE_CONFLICT')))`.
+  close_reason = 'SCHEDULE_CONFLICT')) IS TRUE)`. `IS TRUE` keeps the check
+  null-safe: without it a null suggestion with another reason evaluates to
+  NULL and PostgreSQL would accept the row.
 - `suggested_solution IS DISTINCT FROM 'RESCHEDULE_SELF' OR
   proposed_scheduled_at IS NOT NULL`.
 - Additive and forward-only, no backfill; existing rows keep a null
