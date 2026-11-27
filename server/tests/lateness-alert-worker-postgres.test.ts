@@ -24,6 +24,7 @@ import {
   buildLatenessAlertWorker,
   closeChangeRequest,
   databaseUrl,
+  dateKeyWithOpenFollowingDay,
   insertIncident,
   insertJob,
   insertOpenChangeRequest,
@@ -721,7 +722,9 @@ describe.skipIf(!databaseUrl)('OVR-6 lateness alert worker', () => {
   it('Q6 defers a lateness alert whose under-lock re-check finds the window closed', async () => {
     await withSchema('ovr6_lateness_q6', async (pool) => {
       const baseline = await readDbBaseline(pool);
-      const day = nextOpenDateKey(baseline, TZ);
+      // The resend tick below is the next morning, so that day must be open too
+      // (a Saturday `day` would move it to a closed Sunday).
+      const day = dateKeyWithOpenFollowingDay(baseline, TZ);
       const ctx = await seedUsers(pool);
       // Planned 20:00: the reminder is due at 20:15 and the boundary tick is
       // exactly 21:00 (the end is exclusive).
