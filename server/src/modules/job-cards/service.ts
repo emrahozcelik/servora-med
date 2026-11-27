@@ -89,7 +89,7 @@ import {
 } from './sale-pair-policy.js';
 import {
   assignmentOfferRequiredState,
-  assignmentProposalRequiresReason,
+  assignmentProposalRequirement,
   assignmentProposedInterval,
   computeAcceptanceDueAt,
   decideAssignmentOfferOpen,
@@ -179,6 +179,9 @@ import {
   JOB_CHANGE_REQUEST_DECISIONS,
   JOB_CHANGE_REQUEST_REASON_CODES,
   JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES,
+  JOB_ASSIGNMENT_OFFER_LEGACY_DECLINE_REASON_CODES,
+  JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS,
+  type JobAssignmentOfferSuggestedSolution,
 } from './types.js';
 import {
   jobCardInvalidationRequestHash,
@@ -494,6 +497,8 @@ type LifecycleDefinition = {
   assignmentReason?: {
     code: string;
     text: string;
+    /** RESCUE-002: the typed solution the answer proposes. */
+    suggestedSolution?: JobAssignmentOfferSuggestedSolution | null;
     /** JOB-012: the proposed time a schedule-conflict answer carries. */
     proposedScheduledAt?: string | null;
   } | null;
@@ -1572,6 +1577,7 @@ export class JobCardService {
       closeReason: string | null;
       closeText: string | null;
       proposedScheduledAt: Date | null;
+      suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
       proposalAcceptedAt: Date | null;
     } | null | undefined,
     evaluatedAt: Date,
@@ -1601,6 +1607,7 @@ export class JobCardService {
       closeText: expired ? null : offer.closeText,
       proposedScheduledAt,
       proposedScheduledEndsAt: proposedInterval?.endsAt.toISOString() ?? null,
+      suggestedSolution: expired ? null : offer.suggestedSolution,
       proposalAcceptedAt: offer.proposalAcceptedAt?.toISOString() ?? null,
     };
   }
@@ -6035,47 +6042,77 @@ export class JobCardService {
   }
 
   /**
-   * JOB-010 §5 + JOB-012: the answer's structured reason and its optional
-   * proposal, validated before the reservation so nothing is written. The
-   * proposal is required with `SCHEDULE_CONFLICT` and forbidden with every
-   * other reason. Its "in the future" bound is time-dependent, so it is checked
-   * against the 049 reservation instant (`assertProposalInFuture`), after the
-   * replay lookup: a completed answer still replays once its proposal passed.
+   * JOB-010 §5 + JOB-012 + RESCUE-002: the answer's structured reason, its
+   * typed suggestion and its optional proposal, validated before the
+   * reservation so nothing is written. A new-client answer may suggest any of
+   * the five solutions; a time is required only with `RESCHEDULE_SELF` and
+   * forbidden with every other suggestion. A legacy answer (no suggestion)
+   * keeps the JOB-012 rule: only the original five reasons, with a time
+   * required for `SCHEDULE_CONFLICT` and forbidden otherwise.
    */
   private assignmentDecisionReason(
     input: AssignmentOfferDecisionInput,
-  ): { code: string; text: string; proposedScheduledAt: string | null } {
+  ): {
+    code: string;
+    text: string;
+    suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
+    proposedScheduledAt: string | null;
+  } {
     if (!(JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES as readonly string[])
       .includes(input.reasonCode)) {
       throw validation('reasonCode');
     }
-    const proposed = input.proposedScheduledAt === undefined || input.proposedScheduledAt === null
+    const suggestedSolution = input.suggestedSolution === undefined
+      || input.suggestedSolution === null
       ? null
-      : isoInstant(input.proposedScheduledAt, 'proposedScheduledAt');
-    if (assignmentProposalRequiresReason(input.reasonCode)) {
-      if (proposed === null) {
-        throw new AppError(
-          'VALIDATION_ERROR',
-          400,
-          'Önerilen zaman zorunludur.',
-          { fieldErrors: { proposedScheduledAt: 'Önerilen zaman zorunludur.' } },
-        );
-      }
-    } else if (proposed !== null) {
+      : input.suggestedSolution;
+    if (suggestedSolution !== null
+      && !(JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS as readonly string[])
+        .includes(suggestedSolution)) {
+      throw validation('suggestedSolution');
+    }
+    // The three RESCUE-002 reason codes exist only with a typed suggestion; a
+    // legacy client cannot select them and have the server fabricate one.
+    if (suggestedSolution === null
+      && !(JOB_ASSIGNMENT_OFFER_LEGACY_DECLINE_REASON_CODES as readonly string[])
+        .includes(input.reasonCode)) {
       throw new AppError(
         'VALIDATION_ERROR',
         400,
-        'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.',
-        {
-          fieldErrors: {
-            proposedScheduledAt: 'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.',
-          },
-        },
+        'Çözüm önerisi zorunludur.',
+        { fieldErrors: { suggestedSolution: 'Çözüm önerisi zorunludur.' } },
+      );
+    }
+    const proposed = input.proposedScheduledAt === undefined || input.proposedScheduledAt === null
+      ? null
+      : isoInstant(input.proposedScheduledAt, 'proposedScheduledAt');
+    const requirement = assignmentProposalRequirement({
+      reasonCode: input.reasonCode,
+      suggestedSolution,
+    });
+    if (requirement === 'REQUIRED' && proposed === null) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Önerilen zaman zorunludur.',
+        { fieldErrors: { proposedScheduledAt: 'Önerilen zaman zorunludur.' } },
+      );
+    }
+    if (requirement === 'FORBIDDEN' && proposed !== null) {
+      const message = suggestedSolution === null
+        ? 'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.'
+        : 'Önerilen zaman yalnızca "Başka bir zamanda kendim yapabilirim" seçildiğinde verilebilir.';
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        message,
+        { fieldErrors: { proposedScheduledAt: message } },
       );
     }
     return {
       code: input.reasonCode,
       text: requireLifecycleReason(input.reasonText, 'reasonText'),
+      suggestedSolution,
       proposedScheduledAt: proposed,
     };
   }
@@ -7467,6 +7504,7 @@ export class JobCardService {
             || definition.command === 'RELEASE_ASSIGNMENT')) {
           const reasonCode = definition.assignmentReason?.code ?? null;
           const reasonText = definition.assignmentReason?.text ?? null;
+          const suggestedSolution = definition.assignmentReason?.suggestedSolution ?? null;
           const closeState = definition.command === 'ACCEPT_ASSIGNMENT'
             ? 'ACCEPTED' as const
             : definition.command === 'DECLINE_ASSIGNMENT'
@@ -7482,6 +7520,9 @@ export class JobCardService {
             closedBy: actor.id,
             closeReason: closeState === 'ACCEPTED' ? null : reasonCode,
             closeText: closeState === 'ACCEPTED' ? null : reasonText,
+            // RESCUE-002: the typed suggestion lives on the answer that closed
+            // the offer; it never fabricates one for a legacy client.
+            suggestedSolution: closeState === 'ACCEPTED' ? null : suggestedSolution,
             // JOB-012: the proposal lives on the answer that closed the offer.
             proposedScheduledAt: closeState === 'ACCEPTED'
               ? null
@@ -7500,6 +7541,9 @@ export class JobCardService {
                 offerId: lifecycleAssignmentOffer.id,
                 reasonCode,
                 reasonText,
+                ...(suggestedSolution === null
+                  ? {}
+                  : { suggestedSolution }),
                 ...(assignmentProposal === null
                   ? {}
                   : { proposedScheduledAt: assignmentProposal.startsAt.toISOString() }),

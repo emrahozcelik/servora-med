@@ -796,12 +796,12 @@ describe.skipIf(!databaseUrl)('OVR-5b revision correction deadline writers (Post
   it('DB-067: migration 067 is the head and only the per-incident delivery key remains', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('075_installation_module_registry_widening');
+      expect(catalog.head?.version).toBe('076_assignment_offer_suggested_solution');
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.at(-1)?.version)
-        .toBe('075_installation_module_registry_widening');
+        .toBe('076_assignment_offer_suggested_solution');
 
       const uniques = await pool.query<{ conname: string; definition: string }>(
         `SELECT conname, pg_get_constraintdef(oid) AS definition

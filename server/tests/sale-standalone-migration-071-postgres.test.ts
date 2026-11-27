@@ -23,6 +23,7 @@ const MIGRATION_072 = '072_sale_submit_without_start';
 const MIGRATION_073 = '073_assignment_offer_time_proposal';
 const MIGRATION_074 = '074_installation_operator_and_module_state';
 const MIGRATION_075 = '075_installation_module_registry_widening';
+const MIGRATION_076 = '076_assignment_offer_suggested_solution';
 
 async function insertUser(pool: Pool, organizationId: string, role = 'STAFF') {
   return (await pool.query<{ id: string }>(
@@ -176,11 +177,11 @@ describe.skipIf(!databaseUrl)('SALE-002 migration 071', () => {
       }
 
       const catalog: MigrationCatalog = await loadMigrationCatalog(migrationsDirectory);
-      expect(catalog.head?.version).toBe(MIGRATION_075);
-      expect(catalog.count).toBe(75);
+      expect(catalog.head?.version).toBe(MIGRATION_076);
+      expect(catalog.count).toBe(76);
       expect((await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
-      )).rows[0]!.version).toBe(MIGRATION_075);
+      )).rows[0]!.version).toBe(MIGRATION_076);
       expect(schema).toMatch(/^lcproof_/);
     });
   });
@@ -244,7 +245,7 @@ describe.skipIf(!databaseUrl)('SALE-002 migration 071', () => {
         [sale])).rows;
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072, MIGRATION_073, MIGRATION_074, MIGRATION_075] });
+      expect(upgrade).toEqual({ appliedVersions: [MIGRATION_071, MIGRATION_072, MIGRATION_073, MIGRATION_074, MIGRATION_075, MIGRATION_076] });
 
       const saleAfter = (await pool.query('SELECT *,xmin::text AS xmin FROM job_cards WHERE id=$1',
         [sale])).rows[0];
@@ -264,8 +265,8 @@ describe.skipIf(!databaseUrl)('SALE-002 migration 071', () => {
       const history = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows;
-      expect(history).toHaveLength(75);
-      expect(history.at(-1)!.version).toBe(MIGRATION_075);
+      expect(history).toHaveLength(76);
+      expect(history.at(-1)!.version).toBe(MIGRATION_076);
       expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });
 
       // Forward path: the new standalone create is reachable after the

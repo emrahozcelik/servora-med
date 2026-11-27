@@ -207,7 +207,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
   it('migration 067 is the schema head with 050 present', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('075_installation_module_registry_widening');
+      expect(catalog.head?.version).toBe('076_assignment_offer_suggested_solution');
       // The 049 lifecycle-intent prerequisite stays applied beneath OVR-3.
       expect(catalog.entries.map((entry) => entry.version))
         .toContain('049_job_card_lifecycle_intents');
@@ -215,7 +215,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.map((row) => row.version).at(-1))
-        .toBe('075_installation_module_registry_widening');
+        .toBe('076_assignment_offer_suggested_solution');
     });
   });
 

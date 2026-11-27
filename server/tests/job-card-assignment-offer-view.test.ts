@@ -68,6 +68,7 @@ const offerBase: JobAssignmentOfferRecord = {
   closeReason: null,
   closeText: null,
   proposedScheduledAt: null,
+  suggestedSolution: null,
   proposalAcceptedAt: null,
 };
 
@@ -109,6 +110,7 @@ describe('JobCard detail assignment offer projection', () => {
       closeText: 'Aynı saatte başka bir klinik teslimi var.',
       proposedScheduledAt: null,
       proposedScheduledEndsAt: null,
+      suggestedSolution: null,
       proposalAcceptedAt: null,
     });
   });
@@ -131,6 +133,7 @@ describe('JobCard detail assignment offer projection', () => {
       closeText: null,
       proposedScheduledAt: null,
       proposedScheduledEndsAt: null,
+      suggestedSolution: null,
       proposalAcceptedAt: null,
     });
   });
@@ -150,7 +153,22 @@ describe('JobCard detail assignment offer projection', () => {
       closeText: null,
       proposedScheduledAt: null,
       proposedScheduledEndsAt: null,
+      suggestedSolution: null,
       proposalAcceptedAt: null,
+    });
+  });
+
+  it('carries the RESCUE-002 suggestion on a declined offer', async () => {
+    const result = await serviceWith(detailWithOffer({
+      ...declinedOffer,
+      suggestedSolution: 'REASSIGN',
+    })).detail(staff, 'job-1');
+
+    expect(result.assignmentOffer).toMatchObject({
+      state: 'DECLINED',
+      closeReason: 'SCHEDULE_CONFLICT',
+      suggestedSolution: 'REASSIGN',
+      proposedScheduledAt: null,
     });
   });
 });
