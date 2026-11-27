@@ -282,6 +282,15 @@ test('a prebuilt release always requires the hosted CI receipt including release
   assert.doesNotMatch(deploy, /ATTEMPT_REQUIRED_FOR_MIGRATIONS/);
 });
 
+test('CI cancels only superseded pull-request runs; push/main runs are never cancelled or queued', () => {
+  const ci = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+  const block = ci.slice(ci.indexOf('\nconcurrency:'), ci.indexOf('\njobs:'));
+  assert.match(block, /\n {2}group: ci-\$\{\{ github\.event_name == 'pull_request' && format\('pr-\{0\}', github\.event\.pull_request\.number\) \|\| format\('run-\{0\}', github\.run_id\) \}\}\n/);
+  assert.match(block, /\n {2}cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}\n/);
+  // No job-level concurrency may re-group or cancel the deploy receipt jobs.
+  assert.equal([...ci.matchAll(/^\s*concurrency:/gm)].length, 1);
+});
+
 test('normal route argument rules: a pinned CI run needs its package; no attempt is required', () => {
   const runner = resolve(repoRoot, 'ops/deploy-production.sh');
   const run = (args) => spawnSync('/bin/bash', [runner, ...args], { cwd: repoRoot, encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } });

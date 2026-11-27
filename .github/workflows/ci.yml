@@ -9,6 +9,14 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request cancels its superseded run. Every
+# push/main and workflow_dispatch run gets its own group (the run id), so it is
+# never cancelled or queued: deployment requires the exact-SHA push/main
+# receipt, including release-package.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   benchmark-smoke:
     name: Auth KDF benchmark smoke
