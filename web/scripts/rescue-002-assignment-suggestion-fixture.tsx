@@ -187,6 +187,30 @@ function ManagerPanels() {
   );
 }
 
+function ManagerCancelled() {
+  const proposalStart = futureIso(2);
+  const cancelled = jobCard({
+    status: 'CANCELLED',
+    assignmentOffer: closedOffer({
+      closeReason: 'OUT_OF_TOWN',
+      closeText: 'Klinik ziyareti iptal edildi.',
+      suggestedSolution: 'RESCHEDULE_SELF',
+      proposedScheduledAt: proposalStart,
+      proposedScheduledEndsAt: new Date(Date.parse(proposalStart) + 30 * 60_000).toISOString(),
+      proposalAcceptedAt: null,
+    }),
+  });
+  return (
+    <main className="app-main" style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem' }}>
+      <PageHeader
+        title="İş detayı — iptal edilmiş iş"
+        subtitle="Kayıtlı personel önerisi iptal sonrasında da okunabilir kalır"
+      />
+      <AssignmentOfferSection job={cancelled} user={managerUser} />
+    </main>
+  );
+}
+
 function root() {
   if (fixtureCase === 'staff-empty') {
     return (
@@ -222,6 +246,9 @@ function root() {
         scheduleError={null}
       />
     );
+  }
+  if (fixtureCase === 'manager-cancelled') {
+    return <ManagerCancelled />;
   }
   return <ManagerPanels />;
 }

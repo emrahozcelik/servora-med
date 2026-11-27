@@ -192,7 +192,7 @@ export function AssignmentReasonSection({
 }) {
   const proposedTimeVisible = draft.suggestedSolution === 'RESCHEDULE_SELF';
   return (
-    <fieldset className="assignment-reason-section" aria-describedby={inlineError ? 'assignment-reason-error' : undefined}>
+    <fieldset className="assignment-reason-section">
       <legend className="sr-only">Atama yanıt nedeni</legend>
       <div className="field-group">
         <label htmlFor="assignment-reason-code">Neden</label>
@@ -203,6 +203,11 @@ export function AssignmentReasonSection({
           id="assignment-reason-code"
           required
           value={draft.code}
+          aria-invalid={inlineError ? true : false}
+          aria-describedby={[
+            'assignment-reason-help',
+            inlineError ? 'assignment-reason-error' : null,
+          ].filter(Boolean).join(' ')}
           onChange={(event) => onChange({ code: event.target.value as AssignmentReasonCode | '' })}
         >
           <option value="">Neden seçin</option>
@@ -210,9 +215,12 @@ export function AssignmentReasonSection({
             <option key={code} value={code}>{assignmentReasonLabels[code]}</option>
           ))}
         </select>
-        <p className="form-help">
+        <p className="form-help" id="assignment-reason-help">
           Neden, çözüm önerisi ve açıklama yöneticiye iletilir ve iş geçmişinde saklanır.
         </p>
+        {inlineError && (
+          <p id="assignment-reason-error" className="field-error" role="alert">{inlineError}</p>
+        )}
       </div>
       <fieldset
         className="assignment-suggestion-section"
@@ -275,7 +283,6 @@ export function AssignmentReasonSection({
           )}
         </div>
       )}
-      {inlineError && <p id="assignment-reason-error" className="field-error" role="alert">{inlineError}</p>}
     </fieldset>
   );
 }
@@ -385,6 +392,16 @@ export function AssignmentOfferSection({
       {pending && !ackOpen ? 'Kaydediliyor…' : 'Aynı zamanla yeniden teklif et'}
     </button>
   ) : null;
+  // RESCUE-002: the recorded suggestion travels with the offer, including a
+  // cancelled job where the recovery box does not render.
+  const suggestedSolutionLine = management && offer.suggestedSolution != null ? (
+    <p
+      className="assignment-offer-suggested-solution"
+      data-assignment-offer-suggested-solution={offer.suggestedSolution}
+    >
+      Personelin önerisi: <strong>{assignmentSuggestedSolutionLabel(offer.suggestedSolution)}</strong>
+    </p>
+  ) : null;
 
   async function confirmProposal(target: AssignmentOffer) {
     if (target.proposedScheduledAt === null) return;
@@ -490,14 +507,7 @@ export function AssignmentOfferSection({
               </div>
             )}
           </dl>
-          {offer.suggestedSolution != null && (
-            <p
-              className="assignment-offer-suggested-solution"
-              data-assignment-offer-suggested-solution={offer.suggestedSolution}
-            >
-              Personelin önerisi: <strong>{assignmentSuggestedSolutionLabel(offer.suggestedSolution)}</strong>
-            </p>
-          )}
+          {suggestedSolutionLine}
           <p className="assignment-offer-recovery-actions-label"><strong>Ne yapabilirsiniz</strong></p>
           <div className="review-buttons">
             {proposalPrimary && (
@@ -543,22 +553,25 @@ export function AssignmentOfferSection({
           )}
         </div>
       ) : (
-        <dl className="job-row-facts">
-          <div>
-            <dt>Durum</dt>
-            <dd data-assignment-offer-state={offer.state}>{assignmentOfferStateLabel(offer.state)}</dd>
-          </div>
-          <div>
-            <dt>Kabul için son</dt>
-            <dd>
-              <time dateTime={offer.acceptanceDueAt}>{formatInstant(offer.acceptanceDueAt)}</time>
-            </dd>
-          </div>
-          <div>
-            <dt>Personel</dt>
-            <dd>{offer.assignee.name}</dd>
-          </div>
-        </dl>
+        <>
+          <dl className="job-row-facts">
+            <div>
+              <dt>Durum</dt>
+              <dd data-assignment-offer-state={offer.state}>{assignmentOfferStateLabel(offer.state)}</dd>
+            </div>
+            <div>
+              <dt>Kabul için son</dt>
+              <dd>
+                <time dateTime={offer.acceptanceDueAt}>{formatInstant(offer.acceptanceDueAt)}</time>
+              </dd>
+            </div>
+            <div>
+              <dt>Personel</dt>
+              <dd>{offer.assignee.name}</dd>
+            </div>
+          </dl>
+          {suggestedSolutionLine}
+        </>
       )}
       {urgentReasonLabel !== null && (
         <p className="assignment-offer-urgent" data-assignment-offer-urgent={offer.urgentReason}>

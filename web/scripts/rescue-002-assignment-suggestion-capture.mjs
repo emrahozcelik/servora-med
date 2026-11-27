@@ -42,6 +42,7 @@ const CASES = [
   { screen: 'staff-decline-reschedule', case: 'staff-reschedule', page: 'staff' },
   { screen: 'staff-decline-error', case: 'staff-error', page: 'staff' },
   { screen: 'manager-panel', case: 'manager', page: 'manager' },
+  { screen: 'manager-cancelled', case: 'manager-cancelled', page: 'manager-cancelled' },
 ];
 const FIXED_CLOCK_ISO = '2026-11-26T11:00:00.000Z';
 
@@ -152,7 +153,7 @@ try {
         if (captureCase.page === 'staff') {
           await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
         } else {
-          await page.locator('[data-assignment-offer-recovery]').first().waitFor({ state: 'visible' });
+          await page.locator('[data-assignment-offer]').first().waitFor({ state: 'visible' });
         }
 
         const metrics = await inspect(page, captureCase.case);
@@ -184,19 +185,33 @@ try {
             );
           }
         } else {
-          assert.equal(metrics.recoveryCount, 2, `${captureCase.screen}-${width}: two manager cards`);
-          assert.ok(
-            metrics.managerSuggestionText.includes('Personelin önerisi: Başka bir personele verilsin'),
-            `${captureCase.screen}-${width}: reassign suggestion`,
-          );
-          assert.ok(
-            metrics.managerSuggestionText.includes('Personelin önerisi: Başka bir zamanda kendim yapabilirim'),
-            `${captureCase.screen}-${width}: reschedule suggestion`,
-          );
-          assert.ok(
-            metrics.proposalConfirmButtons.includes('Önerilen zamanı onayla'),
-            `${captureCase.screen}-${width}: proposal confirmation`,
-          );
+          if (captureCase.case === 'manager-cancelled') {
+            assert.equal(metrics.recoveryCount, 0, `${captureCase.screen}-${width}: no recovery box`);
+            assert.deepEqual(
+              metrics.managerSuggestionText,
+              ['Personelin önerisi: Başka bir zamanda kendim yapabilirim'],
+              `${captureCase.screen}-${width}: recorded suggestion stays readable`,
+            );
+            assert.deepEqual(
+              metrics.proposalConfirmButtons,
+              [],
+              `${captureCase.screen}-${width}: cancelled job cannot confirm a proposal`,
+            );
+          } else {
+            assert.equal(metrics.recoveryCount, 2, `${captureCase.screen}-${width}: two manager cards`);
+            assert.ok(
+              metrics.managerSuggestionText.includes('Personelin önerisi: Başka bir personele verilsin'),
+              `${captureCase.screen}-${width}: reassign suggestion`,
+            );
+            assert.ok(
+              metrics.managerSuggestionText.includes('Personelin önerisi: Başka bir zamanda kendim yapabilirim'),
+              `${captureCase.screen}-${width}: reschedule suggestion`,
+            );
+            assert.ok(
+              metrics.proposalConfirmButtons.includes('Önerilen zamanı onayla'),
+              `${captureCase.screen}-${width}: proposal confirmation`,
+            );
+          }
         }
 
         const path = resolve(outDir, `${captureCase.screen}-${width}.png`);

@@ -1657,6 +1657,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     suggestionError: string | null;
     /** JOB-012: inline error of the proposed-time field (RESCHEDULE_SELF). */
     scheduleError: string | null;
+    /** RESCUE-002: server field error of the explanation textarea. */
+    reasonTextError: string | null;
   } | null>(null);
   /**
    * JOB-010 release 2b: a management create/edit answer that the server
@@ -2584,6 +2586,23 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (caught instanceof ApiError
           && (dialog?.kind === 'decline' || dialog?.kind === 'release')
           && assignmentReason) {
+          // RESCUE-002: every server field error stays inside the open dialog
+          // and is attached to its own control, in form order.
+          const reasonCodeMessage = caught.code === 'VALIDATION_ERROR'
+            ? apiFieldError(caught, 'reasonCode', '')
+            : '';
+          if (reasonCodeMessage) {
+            if (isDefinitiveMutationError(caught)) {
+              // The corrected reason is a new intent with a fresh action id.
+              lifecycleAttempt.current = null;
+              setUncertain(false);
+            }
+            setAssignmentReason((current) => current
+              ? { ...current, inlineError: reasonCodeMessage }
+              : current);
+            focusAssignmentReasonControl('reason');
+            return;
+          }
           // RESCUE-002: the suggestion is answered inside the still-open dialog.
           const suggestionMessage = caught.code === 'VALIDATION_ERROR'
             ? apiFieldError(caught, 'suggestedSolution', '')
@@ -2597,6 +2616,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             setAssignmentReason((current) => current
               ? { ...current, suggestionError: suggestionMessage }
               : current);
+            focusAssignmentReasonControl('suggestion');
             return;
           }
           // JOB-012: the proposed time is answered inside the still-open dialog,
@@ -2614,6 +2634,22 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             }
             setAssignmentReason((current) => current
               ? { ...current, scheduleError: scheduleMessage }
+              : current);
+            focusAssignmentReasonControl('time');
+            return;
+          }
+          // RESCUE-002: the explanation is owned by ReasonDialog; the external
+          // error is rendered under the textarea and focused there.
+          const reasonTextMessage = caught.code === 'VALIDATION_ERROR'
+            ? apiFieldError(caught, 'reasonText', '')
+            : '';
+          if (reasonTextMessage) {
+            if (isDefinitiveMutationError(caught)) {
+              lifecycleAttempt.current = null;
+              setUncertain(false);
+            }
+            setAssignmentReason((current) => current
+              ? { ...current, reasonTextError: reasonTextMessage }
               : current);
             return;
           }
@@ -3169,6 +3205,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         inlineError: null,
         suggestionError: null,
         scheduleError: null,
+        reasonTextError: null,
       });
       setDialog({
         kind: commandName === 'DECLINE_ASSIGNMENT' ? 'decline' : 'release',
@@ -3350,6 +3387,21 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       : current);
   }
 
+  /**
+   * RESCUE-002: after a failed submit or a server field error, move focus to
+   * the first invalid assignment control so its message is announced.
+   */
+  function focusAssignmentReasonControl(target: 'reason' | 'suggestion' | 'time') {
+    requestAnimationFrame(() => {
+      const element = target === 'suggestion'
+        ? document.querySelector<HTMLElement>('input[name="assignment-suggested-solution"]')
+        : document.getElementById(
+            target === 'reason' ? 'assignment-reason-code' : 'assignment-proposed-at',
+          );
+      element?.focus();
+    });
+  }
+
   function retryUncertainAttempt() {
     const attempt = lifecycleAttempt.current;
     if (attempt) void execute(attempt.command);
@@ -3470,6 +3522,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           ? 'Görevi geri bırakma nedenini seçin.'
           : 'Görevi reddetme nedenini seçin.';
         setAssignmentReason({ ...assignmentReason, inlineError: message });
+        focusAssignmentReasonControl('reason');
         return message;
       }
       // RESCUE-002: the typed suggested solution is mandatory on the new-client
@@ -3477,6 +3530,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (assignmentReason.draft.suggestedSolution === null) {
         const message = 'Çözüm önerisi zorunludur.';
         setAssignmentReason({ ...assignmentReason, suggestionError: message });
+        focusAssignmentReasonControl('suggestion');
         return message;
       }
       // JOB-012 / RESCUE-002: only "kendim yapabilirim" carries a future
@@ -3494,11 +3548,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (!proposedScheduledAt) {
           const message = 'Önerilen zaman zorunludur.';
           setAssignmentReason({ ...assignmentReason, scheduleError: message });
+          focusAssignmentReasonControl('time');
           return message;
         }
         if (Date.parse(proposedScheduledAt) <= Date.now()) {
           const message = 'Önerilen zaman gelecekte olmalı.';
           setAssignmentReason({ ...assignmentReason, scheduleError: message });
+          focusAssignmentReasonControl('time');
           return message;
         }
       }
@@ -3573,7 +3629,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (text.length === 0) {
         setAssignmentReason({
           ...assignmentReason,
-          inlineError: 'Durumu açıklayan metin zorunludur.',
+          reasonTextError: 'Durumu açıklayan metin zorunludur.',
         });
         return;
       }
@@ -3960,6 +4016,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
               inlineError: assignmentReason.inlineError,
               suggestionError: assignmentReason.suggestionError,
               scheduleError: assignmentReason.scheduleError,
+              reasonTextError: assignmentReason.reasonTextError,
               onChange: (patch) => setAssignmentReason((current) => {
                 if (!current) return current;
                 // RESCUE-002: the proposed time belongs to RESCHEDULE_SELF only;

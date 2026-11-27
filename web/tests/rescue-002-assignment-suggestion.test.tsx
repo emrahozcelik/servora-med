@@ -127,6 +127,12 @@ async function settle() {
   });
 }
 
+async function nextFrame() {
+  await act(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+}
+
 function buttonByText(host: ParentNode, name: string) {
   return Array.from(host.querySelectorAll('button'))
     .find((button) => button.textContent?.trim() === name) ?? null;
@@ -335,6 +341,8 @@ describe('RESCUE-002 staff decline suggestion', () => {
     expect(dialog()?.querySelector('#assignment-proposed-at')).toBeNull();
 
     await chooseSuggestion(dialog()!, 'RESCHEDULE_SELF');
+    expect(dialog()?.querySelector('#assignment-proposed-at')).not.toBeNull();
+    expect((dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement).value).toBe('');
     const proposedLocal = futureLocal(3);
     await act(async () => setNativeValue(
       dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement,
@@ -354,6 +362,32 @@ describe('RESCUE-002 staff decline suggestion', () => {
       suggestedSolution: 'RESCHEDULE_SELF',
       proposedScheduledAt: localDateTimeToIso(proposedLocal),
     });
+  });
+
+  it('moves focus to the first invalid assignment field', async () => {
+    const card = jobCard();
+    await renderScreen(card, mockDetailFetch(card));
+
+    await act(async () => buttonByText(host, 'Görevi reddet')!.click());
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('textarea') as HTMLTextAreaElement,
+      'Açıklama metni.',
+    ));
+
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await nextFrame();
+    expect(document.activeElement).toBe(dialog()!.querySelector('#assignment-reason-code'));
+
+    await act(async () => selectValue(reasonSelect(), 'ON_LEAVE'));
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await nextFrame();
+    expect(document.activeElement)
+      .toBe(dialog()!.querySelector('input[name="assignment-suggested-solution"]'));
+
+    await chooseSuggestion(dialog()!, 'RESCHEDULE_SELF');
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await nextFrame();
+    expect(document.activeElement).toBe(dialog()!.querySelector('#assignment-proposed-at'));
   });
 
   it('sends the suggestion through release as well', async () => {
@@ -421,6 +455,66 @@ describe('RESCUE-002 staff decline suggestion', () => {
     expect(dialog()).not.toBeNull();
     expect(dialog()?.querySelector('#assignment-suggested-solution-error')?.textContent)
       .toBe('Çözüm önerisi zorunludur.');
+    await nextFrame();
+    expect(document.activeElement)
+      .toBe(dialog()!.querySelector('input[name="assignment-suggested-solution"]'));
+  });
+
+  it('maps the server reason-code field error onto the select', async () => {
+    const card = jobCard();
+    const fetchMock = mockDetailFetch(card);
+    await renderScreen(card, fetchMock);
+
+    await act(async () => buttonByText(host, 'Görevi reddet')!.click());
+    await act(async () => selectValue(reasonSelect(), 'OTHER'));
+    await chooseSuggestion(dialog()!, 'MANAGEMENT_DECIDES');
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('textarea') as HTMLTextAreaElement,
+      'Yetişemedim.',
+    ));
+    fetchMock.mockResolvedValueOnce(json({
+      error: 'İstek geçersiz.',
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { reasonCode: 'Seçilen neden artık geçerli değil.' } },
+    }, 400));
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await settle();
+    await nextFrame();
+
+    const select = dialog()?.querySelector('#assignment-reason-code');
+    expect(dialog()?.querySelector('#assignment-reason-error')?.textContent)
+      .toBe('Seçilen neden artık geçerli değil.');
+    expect(select?.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(select);
+  });
+
+  it('maps the server explanation field error onto the textarea', async () => {
+    const card = jobCard();
+    const fetchMock = mockDetailFetch(card);
+    await renderScreen(card, fetchMock);
+
+    await act(async () => buttonByText(host, 'Görevi reddet')!.click());
+    await act(async () => selectValue(reasonSelect(), 'OTHER'));
+    await chooseSuggestion(dialog()!, 'MANAGEMENT_DECIDES');
+    await act(async () => setNativeValue(
+      dialog()!.querySelector('textarea') as HTMLTextAreaElement,
+      'Yetişemedim.',
+    ));
+    fetchMock.mockResolvedValueOnce(json({
+      error: 'İstek geçersiz.',
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { reasonText: 'Açıklama en az 10 karakter olmalıdır.' } },
+    }, 400));
+    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    await settle();
+    await nextFrame();
+
+    const textarea = dialog()?.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = (textarea.getAttribute('aria-describedby') ?? '').split(' ');
+    expect(describedBy.map((id) => document.getElementById(id)?.textContent))
+      .toContain('Açıklama en az 10 karakter olmalıdır.');
+    expect(document.activeElement).toBe(textarea);
   });
 });
 
@@ -454,11 +548,12 @@ describe('RESCUE-002 manager and timeline presentation', () => {
   it('shows the Staff suggestion to management for a new-client row', async () => {
     await renderOffer(jobCard({ assignmentOffer: closedOffer() }));
 
-    const block = host.querySelector('[data-assignment-offer-recovery="DECLINED"]');
-    expect(block?.textContent).toContain('Personelin önerisi: Başka bir personele verilsin');
-    expect(block?.querySelector('[data-assignment-offer-suggested-solution="REASSIGN"]'))
+    const section = host.querySelector('[data-assignment-offer="DECLINED"]');
+    expect(section?.textContent).toContain('Personelin önerisi: Başka bir personele verilsin');
+    expect(section?.querySelector('[data-assignment-offer-suggested-solution="REASSIGN"]'))
       .not.toBeNull();
-    expect(block?.textContent).toContain('Şehir dışında');
+    expect(section?.querySelectorAll('[data-assignment-offer-suggested-solution]')).toHaveLength(1);
+    expect(section?.textContent).toContain('Şehir dışında');
   });
 
   it('shows nothing new for a legacy row whose suggestion is null', async () => {
@@ -466,10 +561,26 @@ describe('RESCUE-002 manager and timeline presentation', () => {
       assignmentOffer: closedOffer({ suggestedSolution: null }),
     }));
 
-    const block = host.querySelector('[data-assignment-offer-recovery="DECLINED"]');
-    expect(block).not.toBeNull();
-    expect(block?.querySelector('[data-assignment-offer-suggested-solution]')).toBeNull();
-    expect(block?.textContent).not.toContain('Personelin önerisi');
+    const section = host.querySelector('[data-assignment-offer="DECLINED"]');
+    expect(section).not.toBeNull();
+    expect(section?.querySelector('[data-assignment-offer-suggested-solution]')).toBeNull();
+    expect(section?.textContent).not.toContain('Personelin önerisi');
+  });
+
+  it('keeps the recorded suggestion readable after the job is cancelled', async () => {
+    await renderOffer(jobCard({
+      status: 'CANCELLED',
+      assignmentOffer: futureProposal('OUT_OF_TOWN'),
+    }));
+
+    expect(host.textContent)
+      .toContain('Personelin önerisi: Başka bir zamanda kendim yapabilirim');
+    expect(host.querySelector('[data-assignment-offer-suggested-solution="RESCHEDULE_SELF"]'))
+      .not.toBeNull();
+    expect(host.querySelectorAll('[data-assignment-offer-suggested-solution]')).toHaveLength(1);
+    // The proposal confirmation never survives a cancelled job.
+    expect(host.querySelector('[data-assignment-offer-action="accept-proposal"]')).toBeNull();
+    expect(buttonByText(host, 'Önerilen zamanı onayla')).toBeNull();
   });
 
   it.each([

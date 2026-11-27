@@ -41,6 +41,11 @@ export type ReasonDialogProps = {
   /** Optional focus target for content that is loaded after the dialog opens. */
   initialFocusRef?: RefObject<HTMLElement | null>;
   initialFocusReady?: boolean;
+  /**
+   * Server/feature-owned error for the reason textarea. Rendered with the
+   * textarea's own error slot and focused when it appears.
+   */
+  externalError?: string | null;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
@@ -72,6 +77,7 @@ export function ReasonDialog({
   confirmDisabled = false,
   initialFocusRef,
   initialFocusReady = false,
+  externalError = null,
   onConfirm,
   onCancel,
   returnFocusRef,
@@ -125,6 +131,13 @@ export function ReasonDialog({
     target.focus();
   }, [initialFocusReady, initialFocusRef, open]);
 
+  // RESCUE-002: a server/feature field error appears after the submit; move
+  // focus to the textarea so the associated message is announced.
+  useEffect(() => {
+    if (!open || !externalError) return;
+    requestAnimationFrame(() => reasonRef.current?.focus());
+  }, [open, externalError]);
+
   useEffect(() => {
     if (!open || !pending) return;
     ensureFocusInsideOverlay(dialogRef.current, cancelRef.current);
@@ -154,6 +167,9 @@ export function ReasonDialog({
       setError('');
       return;
     }
+    // Keep focus on the textarea while its already-visible error is retried,
+    // including a repeated server error whose text did not change.
+    if (shownError) requestAnimationFrame(() => reasonRef.current?.focus());
     if (required) {
       const normalized = reason.trim();
       if (!normalized) {
@@ -181,6 +197,7 @@ export function ReasonDialog({
   const descriptionParagraphs = typeof description === 'string' && description.includes('\n')
     ? description.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
     : null;
+  const shownError = error || externalError || '';
 
   return (
     <div className="dialog-backdrop product-dialog-backdrop">
@@ -218,11 +235,11 @@ export function ReasonDialog({
               value={reason}
               disabled={pending || inputsDisabled}
               required={required}
-              aria-invalid={error ? 'true' : undefined}
+              aria-invalid={shownError ? 'true' : undefined}
               aria-describedby={[
                 helperText ? helpId : null,
                 counterState(maxLength - Array.from(reason.trim()).length) !== 'hidden' ? counterId : null,
-                error ? errorId : null,
+                shownError ? errorId : null,
               ].filter(Boolean).join(' ')}
               onChange={(event) => {
                 setReason(event.target.value);
@@ -238,8 +255,8 @@ export function ReasonDialog({
             dataCounter="reason"
           >{Math.max(0, maxLength - Array.from(reason.trim()).length).toLocaleString('tr-TR')} karakter kaldı
           </ProgressiveCounter>
-          {error && (
-            <p id={errorId} className="field-error" role="alert">{error}</p>
+          {shownError && (
+            <p id={errorId} className="field-error" role="alert">{shownError}</p>
           )}
           <div className="review-buttons product-dialog-actions">
             <button
