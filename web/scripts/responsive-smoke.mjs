@@ -64,7 +64,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
             <div class="field-group"><label>Ara</label><input/></div>
             <div class="field-group"><label>Tür</label><select><option>Tümü</option></select></div>
             <div class="field-group"><label>Durum</label><select><option>Aktif</option></select></div>
-            <button class="secondary-button job-search-submit" type="button">Ara</button>
+            <button class="secondary-button job-search-submit" type="button" aria-label="Ara" title="Ara"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg></button>
           </div>
         </form>
       </div>

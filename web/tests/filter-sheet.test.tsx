@@ -191,7 +191,7 @@ describe('filter sheets and active counts', () => {
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('keeps the worded desktop jobs submit and has no compact trigger', async () => {
+  it('renders desktop jobs search submit as an icon-only 44px target and has no compact trigger', async () => {
     setNarrow(false);
     host = document.createElement('div');
     document.body.append(host);
@@ -210,7 +210,11 @@ describe('filter sheets and active counts', () => {
       );
     });
     expect(host.querySelector('[data-job-filters="desktop"]')).not.toBeNull();
-    expect(host.querySelector('.job-search-submit')?.textContent).toBe('Ara');
+    const submit = host.querySelector<HTMLButtonElement>('button.job-search-submit')!;
+    expect(submit.getAttribute('aria-label')).toBe('Ara');
+    expect(submit.getAttribute('title')).toBe('Ara');
+    expect(submit.textContent?.trim()).toBe('');
+    expect(submit.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     expect(host.querySelector('.filter-sheet-trigger')).toBeNull();
     expect(host.querySelector('[data-filter-badge="true"]')).toBeNull();
   });
