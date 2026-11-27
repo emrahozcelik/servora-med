@@ -1395,7 +1395,8 @@ replacement, offboarding transfer) record the offer without an acknowledgement a
 
 ```json
 { "clientActionId": "uuid", "expectedVersion": 6, "reasonCode": "SCHEDULE_CONFLICT",
-  "reasonText": "Aynı saatte başka bir teslimim var." }
+  "reasonText": "Aynı saatte başka bir teslimim var.",
+  "proposedScheduledAt": "2026-11-25T09:00:00.000Z" }
 ```
 
 Assigned STAFF only, `NEW` with an `OPEN` offer before the deadline. `reasonCode` is one of
@@ -1405,11 +1406,25 @@ Assigned STAFF only, `NEW` with an `OPEN` offer before the deadline. `reasonCode
 MANAGER/ADMIN receives `job.assignment_declined`. A missing/stale offer returns
 `409 ASSIGNMENT_OFFER_NOT_OPEN`.
 
+`proposedScheduledAt` (JOB-012) is the alternative time a `SCHEDULE_CONFLICT` answer proposes,
+as a canonical ISO instant. It is **required** with `SCHEDULE_CONFLICT` (missing/null →
+`400 VALIDATION_ERROR` with `fieldErrors.proposedScheduledAt`), **forbidden** with every other
+reason (`400`, same field error), and must be strictly after the 049 reservation instant
+(`400`, "Önerilen zaman gelecekte olmalı."; checked after the replay lookup, so a completed
+answer replays even once its proposal has passed). The proposed interval
+`[proposedScheduledAt, proposedScheduledAt + D)` — `D` = the persisted planned duration, else
+the canonical 60 min (`SALES_MEETING`) / 30 min (`PRODUCT_DELIVERY`) — must not collide with
+the answering Staff member's calendar (the same occupancy reader a reschedule uses, this job
+excluded): `409 CALENDAR_CONFLICT` with the Staff-projected conflict shape. The value is part
+of the request hash and is stored on the offer the answer closes. Nothing else about
+decline/release changes; Staff only propose, management confirms.
+
 `POST /api/job-cards/:id/release` — same body, from `ACCEPTED` while the latest offer is
 `ACCEPTED` for the actor. In one transaction: the pre-release OVR-2 `LATE_START` obligation is
 materialized, the job returns to `NEW` with `acceptedAt`/`acceptedBy` cleared, the offer
 moves `ACCEPTED -> RELEASED`, the `JOB_ASSIGNMENT_RELEASED` activity commits and management
-receives `job.assignment_declined`.
+receives `job.assignment_declined`. A `SCHEDULE_CONFLICT` release carries the same
+`proposedScheduledAt` under the same rules.
 
 `POST /api/job-cards/:id/assignment-offers/reoffer`
 
@@ -1438,8 +1453,53 @@ Management only. Jobs still `NEW` whose latest offer is `DECLINED`, `RELEASED`, 
 `WITHDRAWN`/`PLANNED_WINDOW_PASSED`, or `OPEN` with an `urgentReason` or a passed deadline
 (evaluated at read time), oldest deadline first. Item:
 `{ jobCardId, jobTitle, jobType, offerId, state, closeReason, closeText, acceptanceDueAt,
-urgentReason, scheduledAt, assignee: { id, name }, customer: { id, name } | null, jobPath }`,
-plus `total`, `limit`, `offset`.
+urgentReason, scheduledAt, proposedScheduledAt, assignee: { id, name }, customer: { id, name } |
+null, jobPath }`, plus `total`, `limit`, `offset`. `proposedScheduledAt` (JOB-012) is the
+pending Staff proposal of the latest offer, or `null`.
+
+`POST /api/job-cards/:id/assignment-offers/accept-proposal` (JOB-012)
+
+```json
+{ "clientActionId": "uuid", "expectedVersion": 7, "offerId": "uuid" }
+```
+
+MANAGER/ADMIN only (`403 FORBIDDEN` before any lookup), flag on (else
+`409 ASSIGNMENT_WINDOW_DISABLED`). Idempotent like re-offer: `clientActionId` plus the request
+hash of `jobCardId, expectedVersion, offerId`, assignee-before-JobCard lock order. `offerId` is
+the declined/released offer that carries the proposal.
+
+Preconditions, else `409 ASSIGNMENT_PROPOSAL_NOT_AVAILABLE` and nothing written: job `NEW`,
+`PRODUCT_DELIVERY`/`SALES_MEETING`; the job's latest offer has id `offerId`, state `DECLINED`
+or `RELEASED`, a `proposedScheduledAt`, `proposalAcceptedAt IS NULL`; its
+`assignee_user_id = job.assigned_to`; the assignee is an active STAFF user. A stale version is
+`409 VERSION_CONFLICT`; `proposedScheduledAt <= requestTime` is `409
+ASSIGNMENT_PROPOSAL_EXPIRED`; a calendar conflict for the derived interval is `409
+CALENDAR_CONFLICT`.
+
+One transaction, four effects: (1) the job moves to the derived interval exactly as a
+management reschedule does — `version` +1, schedule revision `source = 'RESCHEDULE'`, early-start
+authorization voided (`RESCHEDULED`), `JOB_FIELDS_UPDATED` activity with `scheduledAt` /
+`scheduledEndsAt`, calendar realtime and the existing `calendar.rescheduled` notification;
+(2) the answered offer records `proposalAcceptedAt = requestTime`, `proposalAcceptedBy = actor`;
+(3) a new offer opens with `openedReason = 'PROPOSAL_ACCEPTED'`, `openedBy = actor`, addressed
+to the assignee, created directly in state `ACCEPTED` with `closedAt = requestTime`,
+`closedBy = assignee` (the proposer accepted by proposing) — no `JOB_ASSIGNMENT_OFFER_OPENED`
+fact and no reminder/expiry is scheduled; (4) the job goes `NEW -> ACCEPTED` with
+`acceptedAt = requestTime`, `acceptedBy = assignee` and a `JOB_ACCEPTED` activity (actor =
+management, metadata `{ via: 'TIME_PROPOSAL', offerId: <new offer>, proposalOfferId,
+proposerId }`). The OVR-2 acceptance basis is the new planned interval, so a future start
+creates no `LATE_START`.
+
+Response `200`:
+
+```json
+{ "jobCardId": "uuid", "offerId": "uuid",
+  "scheduledAt": "2026-11-25T09:00:00.000Z", "scheduledEndsAt": "2026-11-25T09:30:00.000Z" }
+```
+
+`offerId` is the new `PROPOSAL_ACCEPTED` offer (the confirmed proposal offer is the request's
+own `offerId`). A replay with the same `clientActionId` returns the same result; a different
+body under the same key is `409 CLIENT_ACTION_REUSED`.
 
 `GET /api/job-cards/pending-acceptance/past-start?limit&offset`
 
@@ -1463,9 +1523,21 @@ With `LATENESS_ALERTS_ENABLED=true` the worker writes one activity per delivery
 sent only Monday–Saturday 08:00–21:00 organization time; outside that window they wait.
 
 The job detail exposes the latest offer as
-`assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name } } | null`
-(management and assignee); an `OPEN` offer past its deadline is presented with
-`state: EXPIRED`. With the flag on, `allowedCommands` in the window are
+`assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name },
+closedAt, closeReason, closeText, proposedScheduledAt, proposedScheduledEndsAt,
+proposalAcceptedAt } | null` (management and assignee). `closedAt` is the
+persisted close instant (`null` while `OPEN`). `closeReason` is the persisted close reason
+code — a decline/release code (`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`,
+`MISSING_STOCK_OR_EQUIPMENT`, `OTHER`) for `DECLINED`/`RELEASED`, a withdraw code
+(`REASSIGNED`, `RESCHEDULED`, `CANCELLED`, `INVALIDATED`, `OFFBOARDING_TRANSFER`,
+`PLANNED_WINDOW_PASSED`) for `WITHDRAWN`, and `null` for `ACCEPTED` and for an `EXPIRED`
+close without a reason; `closeText` is the Staff member's own text. An `OPEN` offer past
+its deadline is presented with `state: EXPIRED` and all three close members `null`,
+because that presentation is not a persisted close. JOB-012: `proposedScheduledAt` is the
+Staff proposal stored on the closed answer (or `null`), `proposedScheduledEndsAt` is the
+derived end of the proposed interval (server-computed from the planned duration, never
+stored), and `proposalAcceptedAt` is set once when management confirmed it. With the flag on,
+`allowedCommands` in the window are
 `ACCEPT_ASSIGNMENT` + `DECLINE_ASSIGNMENT` in `NEW`, and `START` + `RELEASE_ASSIGNMENT` in
 `ACCEPTED`; Staff never receive `CANCEL` for any JobCard type or status.
 
@@ -1487,6 +1559,19 @@ notification is transported by an activity-backed realtime event, so
 A re-offer that supersedes an overdue `OPEN` offer writes the
 `JOB_ASSIGNMENT_OFFER_EXPIRED` activity without the `job.acceptance_expired`
 notifications, because the acting manager is already handling the recovery.
+
+The `JOB_ASSIGNMENT_DECLINED` and `JOB_ASSIGNMENT_RELEASED` activity rows project
+`details: { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED' | 'RELEASED', reasonCode,
+reasonText, proposedScheduledAt }`. `reasonCode` is read from metadata and must be one of
+`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`;
+`reasonText` is the trimmed non-empty text. An unknown or missing code, and a blank
+text, project as `null`; both answers write `reasonCode` / `reasonText` into the same
+metadata as `offerId`, and a `SCHEDULE_CONFLICT` answer also writes `proposedScheduledAt`
+(JOB-012) there as a canonical instant (a missing or unparseable value projects as `null`).
+The reason and the proposal are reader-scoped: MANAGER/ADMIN and the Staff member
+who answered see `reasonCode` / `reasonText` / `proposedScheduledAt`; any other Staff reader of
+the card (for example a later assignee) receives all three as `null`. Every other offer
+activity keeps `details: { kind: 'NONE' }`.
 
 ### Submit requirements
 
@@ -1754,3 +1839,190 @@ type DeliveryItemDto = {
 - public unauthenticated CRM endpoints
 - restaurant tables, orders, payments, shifts, and printer routes
 - WebSocket as an MVP requirement
+
+## 20. Installation operator API (MOD-002)
+
+Contract: [docs/features/operator-module-pilot.md](docs/features/operator-module-pilot.md)
+§3, §6, §7 and §12. The installation operator is an installation-level identity
+(migration 074, see [SERVORA_MED_SCHEMA_DRAFT.md](SERVORA_MED_SCHEMA_DRAFT.md) §8.1).
+It is never a `users` row and has no customer role. Customer APIs and
+`/api/health` expose nothing about operators.
+
+### Session, transport and origin
+
+- Prefix: `/api/operator`. The operator cookie authenticates only these routes.
+  The customer session cookie is rejected here with `401 OPERATOR_UNAUTHENTICATED`;
+  the operator cookie is not accepted by customer routes.
+- Cookie `servora_operator_session`: `HttpOnly`, `SameSite=Strict`,
+  `Path=/api/operator`, `Secure` in production, `Max-Age=7200`. Two hours
+  absolute; sessions are never renewed. Logout clears the cookie with the same
+  `Path`.
+- Only the SHA-256 hash of the opaque token is stored (`operator_sessions.token_hash`).
+  Login JSON does not return the token.
+- Origin: every non-safe method under `/api/operator` (including `POST /login` and
+  `POST /logout`) requires an `Origin` header equal to `CORS_ORIGIN`. A missing,
+  `null` or different origin returns `403 INVALID_ORIGIN`. This applies in every
+  environment, and the check runs before rate limiting and body parsing.
+- Every operator response carries `Cache-Control: no-store`.
+- Body limits: login 2,048 bytes; `PUT /modules/:key` 1,024 bytes. An oversized body
+  returns `413 PAYLOAD_TOO_LARGE`; a malformed body returns `400 VALIDATION_ERROR`.
+- Each authenticated request checks that the session is not expired, not revoked and
+  that its account is active. Mutations re-check the session and the capability inside
+  their transaction, under the account row lock.
+
+### Rate limits and login
+
+- Login is limited per client address (`request.ip`, proxy-aware) and per normalized
+  email (SHA-256 of the trimmed, lower-cased address as the key). Both limits are
+  evaluated before any password work and use the same configuration as the customer
+  login limit (`LOGIN_RATE_LIMIT_MAX`, default 5, per `RATE_LIMIT_WINDOW_MS`, default
+  60000) in counter groups separate from the customer login.
+- Every login request counts, not only failed ones. An exceeded limit returns
+  `429 RATE_LIMIT_EXCEEDED`.
+- Unknown email, inactive account and wrong password perform the same fixed password
+  work and return the same `401 INVALID_CREDENTIALS` body.
+- Successful login locks the account row, re-checks the hash and `is_active`, then writes
+  the session and the `OPERATOR_LOGIN_SUCCEEDED` audit event in one transaction. Failed
+  logins are not audited.
+
+### Endpoints
+
+| Method | Path | Auth | Behavior |
+| --- | --- | --- | --- |
+| POST | `/login` | public | email/password; sets the operator cookie |
+| POST | `/logout` | cookie (optional) | revokes the session when present, clears the cookie, `204` |
+| GET | `/me` | operator session | current operator |
+| GET | `/modules` | operator session + `MODULE_MANAGEMENT` | installation module state list |
+| PUT | `/modules/:key` | operator session + `MODULE_MANAGEMENT` | sets `enabled` with an optimistic `expectedVersion` |
+
+Check order for `PUT /modules/:key`: Origin, body limit, session, capability, key
+lookup (`404` for an unknown key), body validation, then the transaction.
+
+#### POST `/api/operator/login`
+
+Request:
+
+```json
+{
+  "email": "operator@example.com",
+  "password": "operator-supplied-secret"
+}
+```
+
+Response `200` (plus `Set-Cookie: servora_operator_session=...`):
+
+```json
+{
+  "operator": {
+    "id": "uuid",
+    "name": "Kurulum Operatörü",
+    "email": "operator@example.com",
+    "capabilities": ["MODULE_MANAGEMENT"]
+  }
+}
+```
+
+Errors: `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS`, `403 INVALID_ORIGIN`,
+`413 PAYLOAD_TOO_LARGE`, `429 RATE_LIMIT_EXCEEDED`.
+
+#### POST `/api/operator/logout`
+
+No body. Response `204` with the cookie cleared. Errors: `403 INVALID_ORIGIN`.
+
+#### GET `/api/operator/me`
+
+Response `200`:
+
+```json
+{
+  "operator": {
+    "id": "uuid",
+    "name": "Kurulum Operatörü",
+    "email": "operator@example.com",
+    "capabilities": ["MODULE_MANAGEMENT"]
+  }
+}
+```
+
+Errors: `401 OPERATOR_UNAUTHENTICATED`.
+
+#### GET `/api/operator/modules`
+
+Response `200`:
+
+```json
+{
+  "modules": [
+    {
+      "key": "OVERVIEW",
+      "label": "Genel Bakış",
+      "description": "Dönem özeti, onay kuyruğu, yaklaşan ve tamamlanan işleri tek ekranda gösteren başlangıç sayfası.",
+      "whenDisabled": ["Genel Bakış menüsü ve sayfası", "Genel Bakış'ın açılış sayfası olarak kullanılması"],
+      "preserved": ["İşler, onaylar ve raporlar", "Geçmiş kayıtlar ve audit kayıtları"],
+      "enabled": true,
+      "version": 3,
+      "source": "OPERATOR",
+      "updatedAt": "2026-11-26T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+`source` is `ENV_TAKEOVER`, `OPERATOR` or `FRESH_INSTALL` (module without a legacy env
+key, MOD-003). `description`, `whenDisabled` and `preserved` are Turkish operator copy
+from the code registry; the `PUT` response carries the same fields. Errors: `401 OPERATOR_UNAUTHENTICATED`,
+`403 FORBIDDEN` (no `MODULE_MANAGEMENT`), `503 MODULE_STATE_UNAVAILABLE`.
+
+#### PUT `/api/operator/modules/:key`
+
+Request:
+
+```json
+{
+  "enabled": false,
+  "expectedVersion": 3
+}
+```
+
+Response `200`:
+
+```json
+{
+  "module": {
+    "key": "OVERVIEW",
+    "label": "Genel Bakış",
+    "enabled": false,
+    "version": 4,
+    "source": "OPERATOR",
+    "updatedAt": "2026-11-26T09:05:00.000Z"
+  }
+}
+```
+
+Semantics, in one transaction:
+
+- `expectedVersion` differs from the stored version → `409 MODULE_VERSION_CONFLICT`,
+  also when the requested value equals the stored one.
+- Current version and same value → `200` with the current row; no version bump and no
+  audit event.
+- Current version and different value → update, `version + 1`, and a
+  `MODULE_STATE_CHANGED` audit event in the same transaction.
+
+Errors: `400 VALIDATION_ERROR`, `401 OPERATOR_UNAUTHENTICATED`,
+`403 FORBIDDEN` (no `MODULE_MANAGEMENT`) or `403 INVALID_ORIGIN`, `404 NOT_FOUND`
+(unknown key), `409 MODULE_VERSION_CONFLICT`, `413 PAYLOAD_TOO_LARGE`,
+`503 MODULE_STATE_UNAVAILABLE`.
+
+The `413` code is returned by the operator routes but is not listed in
+contract §12.
+
+### Customer contract changes (MOD-002)
+
+- `POST /api/auth/login` and `GET /api/auth/me` compute
+  `user.capabilities.overviewDashboard` per request from the `OVERVIEW` row of
+  `installation_module_state`. A read failure (or a missing row) returns `false` and logs
+  the error. There is no environment fallback after takeover.
+- `GET /api/overview`:
+  - `enabled = false` → `404 NOT_FOUND` ("Sayfa bulunamadı.") as before.
+  - Missing row or failed state read → `503 MODULE_STATE_UNAVAILABLE`.
+  - A request that has already passed the gate may complete. The route stays registered.

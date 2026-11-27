@@ -22,15 +22,15 @@ describe('workflow lane presentation model', () => {
 
   it('owns the active workflow labels used by every current-state consumer', () => {
     expect(activeWorkflowPresentation).toEqual({
-      NEW: { status: 'NEW', label: 'Hazırlanıyor' },
-      ACCEPTED: { status: 'ACCEPTED', label: 'Atandı' },
+      NEW: { status: 'NEW', label: 'Atandı' },
+      ACCEPTED: { status: 'ACCEPTED', label: 'Kabul edildi' },
       IN_PROGRESS: { status: 'IN_PROGRESS', label: 'Uygulanıyor' },
       WAITING_APPROVAL: { status: 'WAITING_APPROVAL', label: 'Yönetici kontrolünde' },
       REVISION_REQUESTED: { status: 'REVISION_REQUESTED', label: 'Düzeltme istendi' },
     });
     expect(activeWorkflowStatusOptions).toEqual([
-      { value: 'NEW', label: 'Hazırlanıyor' },
-      { value: 'ACCEPTED', label: 'Atandı' },
+      { value: 'NEW', label: 'Atandı' },
+      { value: 'ACCEPTED', label: 'Kabul edildi' },
       { value: 'IN_PROGRESS', label: 'Uygulanıyor' },
       { value: 'WAITING_APPROVAL', label: 'Yönetici kontrolünde' },
       { value: 'REVISION_REQUESTED', label: 'Düzeltme istendi' },
@@ -39,8 +39,8 @@ describe('workflow lane presentation model', () => {
 
   it('uses the approved desktop order and labels for every role', () => {
     const expected = [
-      ['NEW', 'Hazırlanıyor'],
-      ['ACCEPTED', 'Atandı'],
+      ['NEW', 'Atandı'],
+      ['ACCEPTED', 'Kabul edildi'],
       ['IN_PROGRESS', 'Uygulanıyor'],
       ['WAITING_APPROVAL', 'Yönetici kontrolünde'],
       ['REVISION_REQUESTED', 'Düzeltme istendi'],

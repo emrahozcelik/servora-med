@@ -18,6 +18,7 @@ import {
   type PastStartAcknowledgement,
 } from './jobs/jobs-api';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
+import { ScheduleQuickControls } from './jobs/ScheduleQuickControls';
 import { assignmentWindowErrorMessage } from './jobs/assignment-window-errors';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
@@ -26,6 +27,7 @@ import { listProducts, type Product, type ProductFilters } from './services/prod
 import type { Customer, CustomerSummary } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { PageHeader } from './ui/PageHeader';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import './jobs/job-create.css';
 
 export type DeliveryFormValues = {
@@ -143,7 +145,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     type: 'PRODUCT_DELIVERY',
     customerId: customerId || null,
     scheduledLocal,
-    enabled: customerReady,
+    enabled: user.role !== 'STAFF' && customerReady,
   });
   const availableSlotSearch = useAvailableSlotSearch({
     type: 'PRODUCT_DELIVERY',
@@ -151,8 +153,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     assignedTo: user.role === 'STAFF' ? user.id : assignedTo || null,
     scheduledStartLocal: scheduledLocal,
     jobCardId: null,
-    enabled: user.capabilities?.calendar === true
-      && customerReady,
+    enabled: customerReady,
   });
 
   function useAvailableSlot(slot: AvailableSlot) {
@@ -388,9 +389,23 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
           <select id="delivery-purpose" name="deliveryPurpose" required disabled={semanticInputsDisabled} defaultValue="SALE">
             <option value="SALE">Satış</option><option value="SAMPLE">Numune</option><option value="CONSIGNMENT">Konsinye</option><option value="RETURN">İade</option><option value="OTHER">Diğer</option>
           </select></div>
-      <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
-        <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
-          value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="datetime"
+          id="delivery-scheduled-at"
+          name="scheduledAt"
+          value={scheduledLocal}
+          onChange={setScheduledLocal}
+          required
+          disabled={semanticInputsDisabled}
+          label="Planlanan teslim zamanı"
+        />
+        <ScheduleQuickControls
+          value={scheduledLocal}
+          durationMinutes={30}
+          disabled={semanticInputsDisabled}
+          onSelect={setScheduledLocal}
+        /></div>
       </div>
       <CustomerScheduleNotice
         evaluation={evaluation}
@@ -399,6 +414,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <AvailableSlotsNotice
         {...availableSlotSearch}
+        selectedStartLocal={scheduledLocal}
         onSelect={useAvailableSlot}
       />
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
@@ -422,6 +438,12 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       description="Planlanan teslim zamanı geçti. Teslimi kaydetmek için müşterinin güncel durumunu onaylayın."
       pending={ackPending}
       error={ackError}
+      onShiftToFuture={() => {
+        setScheduledLocal(defaultScheduledLocalValue(new Date()));
+        setAckRequest(null);
+        setAckError('');
+        setError('');
+      }}
       onDismiss={() => { if (!ackPending) { setAckRequest(null); setAckError(''); } }}
       onConfirm={(acknowledgement) => { void confirmAcknowledgement(acknowledgement); }}
     />

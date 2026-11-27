@@ -5,6 +5,7 @@ import { ApiError, type CurrentUser } from './services/api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { PageHeader } from './ui/PageHeader';
+import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import { ServoraSelect } from './ui/antd';
 import {
   addCalendarDays,
@@ -487,17 +488,17 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPer
         )}
         {showDateInput && (
           <div className="field-group">
-            <label htmlFor="weekly-period">Rapor haftası başlangıcı (Pazartesi)</label>
-            <input
+            <WheelDateTimeField
+              mode="date"
               id="weekly-period"
               name="periodStart"
-              type="date"
-              required
               value={periodStart}
-              aria-invalid={fieldErrors.periodStart ? true : undefined}
-              onChange={(event) => {
+              required
+              invalid={Boolean(fieldErrors.periodStart)}
+              label="Rapor haftası başlangıcı (Pazartesi)"
+              onChange={(value) => {
                 setExistingNotice(null);
-                updatePeriodStart(event.target.value);
+                updatePeriodStart(value);
                 setFieldErrors((current) => ({ ...current, periodStart: undefined }));
               }}
             />

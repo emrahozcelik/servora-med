@@ -8,6 +8,7 @@ import {
   canonicalScheduledEnd,
   JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL,
 } from '../job-cards/job-card-duration.js';
+import { findStaffOccupancyConflicts } from '../job-cards/occupancy.js';
 import { isTerminalJobStatus } from '../job-cards/policy.js';
 import {
   decideAssignmentOfferOpen,
@@ -246,6 +247,11 @@ export class PostgresStaffOffboardingService {
      * reassignment.
      */
     private readonly assignmentWindow: Readonly<{ enabled: boolean }> = { enabled: false },
+    /**
+     * Staff occupancy is core and always counts jobs; manual calendar events
+     * count only when the calendar module is enabled.
+     */
+    private readonly calendar: Readonly<{ enabled: boolean }> = { enabled: false },
   ) {}
 
   async preview(actor: SafeUser, targetUserId: string): Promise<StaffOffboardingPlan> {
@@ -980,23 +986,15 @@ export class PostgresStaffOffboardingService {
     scheduledEndsAt: string | null,
   ) {
     if (!scheduledAt || !scheduledEndsAt) return;
-    const conflict = await client.query(
-      `SELECT 1
-          FROM calendar_events e
-         WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
-           AND e.starts_at < $4 AND $3 < e.ends_at
-        UNION ALL
-        SELECT 1
-          FROM job_cards j
-         WHERE j.organization_id = $1 AND j.assigned_to = $2
-           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
-           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-           AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-           AND j.id <> $5 AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-        LIMIT 1`,
-      [organizationId, replacementUserId, scheduledAt, scheduledEndsAt, jobCardId],
-    );
-    if (conflict.rows.length > 0) {
+    const conflicts = await findStaffOccupancyConflicts(client, {
+      organizationId,
+      assignedUserId: replacementUserId,
+      startsAt: scheduledAt,
+      endsAt: scheduledEndsAt,
+      excludeJobCardId: jobCardId,
+      includeCalendarEvents: this.calendar.enabled,
+    }, 1);
+    if (conflicts.length > 0) {
       throw new AppError('CALENDAR_CONFLICT', 409, 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.');
     }
   }
@@ -1009,18 +1007,45 @@ export class PostgresStaffOffboardingService {
     plan: StaffOffboardingPlan,
   ) {
     const transfers = input.jobDecisions.filter((item) => item.replacementUserId);
+    const replacementRoles = new Map<string, string | null>();
     for (const transfer of transfers.sort((a, b) => a.jobCardId.localeCompare(b.jobCardId))) {
       const conversations = plan.jobConversations.filter((item) => item.jobCardId === transfer.jobCardId);
+      if (conversations.length === 0) continue;
+      let replacementRole = replacementRoles.get(transfer.replacementUserId);
+      if (replacementRole === undefined) {
+        const roleResult = await client.query<{ role: string }>(
+          `SELECT role FROM users WHERE organization_id = $1 AND id = $2`,
+          [actor.organizationId, transfer.replacementUserId],
+        );
+        replacementRole = roleResult.rows[0]?.role ?? null;
+        replacementRoles.set(transfer.replacementUserId, replacementRole);
+      }
+      const isStaffReplacement = replacementRole === 'STAFF';
       for (const conversation of conversations) {
         await client.query(
           `DELETE FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2`,
           [conversation.conversationId, targetUserId],
         );
-        await client.query(
-          `INSERT INTO conversation_participants (conversation_id, user_id, organization_id)
-           VALUES ($1, $2, $3) ON CONFLICT (conversation_id, user_id) DO NOTHING`,
-          [conversation.conversationId, transfer.replacementUserId, actor.organizationId],
-        );
+        const addedUserIds: string[] = [];
+        if (isStaffReplacement) {
+          const latestMessage = await client.query<{ id: string }>(
+            `SELECT id
+               FROM messages
+              WHERE organization_id = $1 AND conversation_id = $2
+              ORDER BY created_at DESC, id DESC
+              LIMIT 1`,
+            [actor.organizationId, conversation.conversationId],
+          );
+          const latestMessageId = latestMessage.rows[0]?.id ?? null;
+          await client.query(
+            `INSERT INTO conversation_participants
+               (conversation_id, user_id, organization_id, last_read_message_id)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (conversation_id, user_id) DO NOTHING`,
+            [conversation.conversationId, transfer.replacementUserId, actor.organizationId, latestMessageId],
+          );
+          addedUserIds.push(transfer.replacementUserId);
+        }
         const actionId = `${input.clientActionId}:${conversation.conversationId}`;
         const activity = await client.query<{ id: string }>(
           `INSERT INTO messaging_activity_logs
@@ -1029,7 +1054,7 @@ export class PostgresStaffOffboardingService {
            ON CONFLICT (organization_id, actor_user_id, client_action_id, action) DO NOTHING
            RETURNING id`,
           [actor.organizationId, conversation.conversationId, actor.id, actionId,
-            JSON.stringify({ removedUserIds: [targetUserId], addedUserIds: [transfer.replacementUserId] })],
+            JSON.stringify({ removedUserIds: [targetUserId], addedUserIds })],
         );
         if (activity.rows[0]) {
           await acquireRealtimeOrderingLock(client, actor.organizationId);
@@ -1039,10 +1064,10 @@ export class PostgresStaffOffboardingService {
                entity_type, entity_id, actor_user_id, audience_roles, audience_user_ids,
                resource_keys, created_at)
              VALUES ($1, NULL, $2, 'conversation.participants_changed', 'conversation', $3::uuid,
-               $4, ARRAY['ADMIN','MANAGER']::VARCHAR(20)[], ARRAY[$5]::UUID[],
+               $4, ARRAY['ADMIN','MANAGER']::VARCHAR(20)[], $5::UUID[],
                ARRAY['messaging','conversation:' || $3::text], $6)`,
             [actor.organizationId, activity.rows[0].id, conversation.conversationId, actor.id,
-              transfer.replacementUserId, this.now()],
+              addedUserIds, this.now()],
           );
         }
       }

@@ -196,4 +196,16 @@ describe('routed Product list screen', () => {
     await act(async () => row.click());
     expect(router.state.location.pathname).toBe('/products/product-1');
   });
+
+  it('clears product search from toolbar Temizle button and empty-state action', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount('/products?q=implant', load);
+    await act(async () => { await Promise.resolve(); });
+    const emptyClear = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Aramayı temizle');
+    expect(emptyClear).toBeTruthy();
+    const toolbarClear = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Temizle');
+    expect(toolbarClear).toBeTruthy();
+    await act(async () => toolbarClear!.click());
+    expect(router.state.location.search).toBe('');
+  });
 });

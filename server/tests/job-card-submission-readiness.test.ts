@@ -13,8 +13,12 @@ import type {
   JobCard,
   JobCardActor,
   JobCardAssignee,
+  JobCardStatus,
+  JobCardType,
   MeetingDetailsCandidate,
+  SubmissionRequirement,
 } from '../src/modules/job-cards/types.js';
+import { JOB_CARD_TYPES } from '../src/modules/job-cards/types.js';
 
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const assignee: JobCardAssignee = {
@@ -72,6 +76,7 @@ function reader(overrides: {
     getSubmissionCustomer: async () => customer,
     getSubmissionMeetingDetails: async () => meetingDetails,
     getSubmissionDeliveryItems: async () => items,
+    getSubmissionSale: async () => null,
     getOrganizationTimezone: async () => 'Europe/Istanbul',
     getWeeklyReportByJobId: async () => null,
     listWeeklySourceWorkSnapshot: async () => [],
@@ -246,5 +251,95 @@ describe('structured submission readiness', () => {
     expect(otherOutcome.readiness.items).toContainEqual({
       code: 'MEETING_TIME_VALID', state: 'missing', field: 'meetingAt',
     });
+  });
+
+  /**
+   * Exhaustiveness characterization: every JobCard type has its own
+   * evaluation. Pinning the whole per-type table proves the refactor is
+   * behaviour-neutral and that a new type can never silently be evaluated as
+   * a sales meeting.
+   */
+  it('pins the per-type submission evaluation for every type and non-terminal status', async () => {
+    const nonTerminalStatuses = [
+      'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+    ] as const satisfies readonly JobCardStatus[];
+    const expected: Record<JobCardType, {
+      ready: boolean;
+      failureCode: string | null;
+      items: SubmissionRequirement[];
+    }> = {
+      PRODUCT_DELIVERY: {
+        ready: true,
+        failureCode: null,
+        items: [
+          { code: 'CUSTOMER_ELIGIBLE', state: 'met', field: 'customerId' },
+          { code: 'ASSIGNEE_ELIGIBLE', state: 'met', field: 'assignedTo' },
+          { code: 'DELIVERY_ITEM_PRESENT', state: 'met', field: 'deliveryItems' },
+          { code: 'DELIVERY_ITEMS_VALID', state: 'met', field: 'deliveryItems' },
+        ],
+      },
+      GENERAL_TASK: {
+        ready: true,
+        failureCode: null,
+        items: [
+          { code: 'TASK_TITLE_VALID', state: 'met', field: 'title' },
+          { code: 'ASSIGNEE_ELIGIBLE', state: 'met', field: 'assignedTo' },
+        ],
+      },
+      SALES_MEETING: {
+        ready: true,
+        failureCode: null,
+        items: [
+          { code: 'CUSTOMER_ELIGIBLE', state: 'met', field: 'customerId' },
+          { code: 'ASSIGNEE_ELIGIBLE', state: 'met', field: 'assignedTo' },
+          { code: 'MEETING_TIME_VALID', state: 'met', field: 'meetingAt' },
+          { code: 'MEETING_OUTCOME_VALID', state: 'met', field: 'outcome' },
+          { code: 'MEETING_SUMMARY_PRESENT', state: 'met', field: 'meetingSummary' },
+          { code: 'FOLLOW_UP_TIME_VALID', state: 'met', field: 'nextFollowUpAt' },
+        ],
+      },
+      WEEKLY_REPORT: {
+        ready: false,
+        failureCode: 'WEEKLY_REPORT_NOT_FOUND',
+        items: [
+          { code: 'WEEKLY_REPORT_FOUND', state: 'missing', field: 'weeklyReport' },
+          { code: 'ASSIGNEE_ELIGIBLE', state: 'met', field: 'assignedTo' },
+          { code: 'WEEKLY_DRAFT_VALID', state: 'missing', field: 'draft' },
+          { code: 'WEEKLY_ANSWERS_COMPLETE', state: 'missing', field: 'managerAnswers' },
+          { code: 'WEEKLY_SOURCE_WORK_READY', state: 'missing', field: 'sourceWork' },
+        ],
+      },
+      SALE: {
+        ready: false,
+        failureCode: 'SALE_NOT_READY',
+        items: [
+          { code: 'CUSTOMER_ELIGIBLE', state: 'met', field: 'customerId' },
+          { code: 'ASSIGNEE_ELIGIBLE', state: 'met', field: 'assignedTo' },
+          { code: 'SALE_ORIGIN_VALID', state: 'invalid', field: 'saleOrigin' },
+          { code: 'SALE_TIME_VALID', state: 'invalid', field: 'soldAt' },
+          { code: 'SALE_ITEM_PRESENT', state: 'missing', field: 'saleItems' },
+          { code: 'SALE_ITEMS_VALID', state: 'missing', field: 'saleItems' },
+        ],
+      },
+    };
+
+    expect(Object.keys(expected).sort()).toEqual([...JOB_CARD_TYPES].sort());
+
+    for (const type of JOB_CARD_TYPES) {
+      for (const status of nonTerminalStatuses) {
+        const evaluation = await evaluateSubmission(
+          reader(),
+          staff,
+          { ...deliveryJob, type, status },
+          now,
+        );
+        expect(evaluation.readiness).toEqual({
+          evaluatedAt: now.toISOString(),
+          ready: expected[type].ready,
+          items: expected[type].items,
+        });
+        expect(evaluation.failure?.code ?? null).toBe(expected[type].failureCode);
+      }
+    }
   });
 });

@@ -589,6 +589,69 @@ describe('Web Push dispatch — PostgreSQL', () => {
       expect(JSON.stringify(payload)).not.toContain('content');
     });
   });
+
+  it('excludes conversation deliveries when requested and abandons pending/expired-lease conversation deliveries without touching live leases or job-card deliveries', async () => {
+    await runWithFixture(async ({ pool, organizationId, userId, deliveryId: jobDeliveryId, at }) => {
+      const repo = new PostgresWebPushRepository(pool);
+      const subId = (await pool.query<{ id: string }>(
+        `SELECT id FROM web_push_subscriptions WHERE organization_id = $1`, [organizationId],
+      )).rows[0]!.id;
+
+      const makeConvDelivery = async (state: 'PENDING' | 'CLAIMED', leaseUntil?: Date) => {
+        const { eventId } = await createRealtimeEvent(pool, organizationId, userId);
+        const nId = randomUUID();
+        await pool.query(
+          `INSERT INTO in_app_notifications
+             (id, organization_id, recipient_user_id, source_realtime_event_id,
+              kind, entity_type, entity_id, created_at)
+           VALUES ($1, $2, $3, CAST($4 AS BIGINT), 'message.received', 'conversation', $5, $6)`,
+          [nId, organizationId, userId, eventId, randomUUID(), at],
+        );
+        return (await pool.query<{ id: string }>(
+          `INSERT INTO web_push_deliveries
+             (organization_id, notification_id, subscription_id, state, lease_token, lease_until,
+              next_attempt_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $7) RETURNING id`,
+          [
+            organizationId, nId, subId, state,
+            state === 'CLAIMED' ? randomUUID() : null,
+            state === 'CLAIMED' ? leaseUntil : null,
+            at,
+          ],
+        )).rows[0]!.id;
+      };
+
+      const pendingConvId = await makeConvDelivery('PENDING');
+      const expiredConvId = await makeConvDelivery('CLAIMED', new Date(at.getTime() - 1_000));
+      const liveConvId = await makeConvDelivery('CLAIMED', new Date(at.getTime() + 20_000));
+
+      // Exclusion skips conversation deliveries while still claiming job-card deliveries.
+      const excludedClaim = await repo.claimDueDeliveries({
+        limit: 10, at, excludedEntityTypes: ['conversation'],
+      });
+      expect(excludedClaim.map((d) => d.deliveryId)).toEqual([jobDeliveryId]);
+
+      // Reset job-card delivery back to PENDING so abandonModuleDisabledDeliveries proves it leaves job-card untouched.
+      await pool.query(
+        `UPDATE web_push_deliveries SET state = 'PENDING', lease_token = NULL, lease_until = NULL WHERE id = $1`,
+        [jobDeliveryId],
+      );
+
+      const abandoned = await repo.abandonModuleDisabledDeliveries({
+        entityTypes: ['conversation'], at, errorCode: 'MODULE_DISABLED',
+      });
+      expect(abandoned).toBe(2);
+
+      const states = await pool.query<{ id: string; state: string; last_error_code: string | null; lease_token: string | null }>(
+        `SELECT id, state, last_error_code, lease_token FROM web_push_deliveries`,
+      );
+      const byId = new Map(states.rows.map((r) => [r.id, r]));
+      expect(byId.get(pendingConvId)).toMatchObject({ state: 'ABANDONED', last_error_code: 'MODULE_DISABLED', lease_token: null });
+      expect(byId.get(expiredConvId)).toMatchObject({ state: 'ABANDONED', last_error_code: 'MODULE_DISABLED', lease_token: null });
+      expect(byId.get(liveConvId)).toMatchObject({ state: 'CLAIMED' });
+      expect(byId.get(jobDeliveryId)).toMatchObject({ state: 'PENDING' });
+    });
+  });
 });
 
 describe('Web Push cleanupDueDeliveries — PostgreSQL', () => {

@@ -21,8 +21,11 @@ import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
+import { SignalGlyph } from './ui/signal-icons';
+import { useNarrowShell } from './ui/useResponsive';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset, normalizeListOffset } from './ui/pagination';
 import { ServoraListPagination } from './ui/antd/ServoraPagination';
+import { useRegisterPageCreateAction } from './shell/page-create-action';
 
 export { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 
@@ -82,32 +85,13 @@ function draftFromFilters(filters: CustomerFilterValues): CustomerDraft {
   };
 }
 
-/** Compact filter sheet when shell is not desktop (same 64rem gate as AppShell). */
-function useNarrow() {
-  const desktopQuery = '(min-width: 64rem)';
-  const [narrow, setNarrow] = useState(() => (
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? !window.matchMedia(desktopQuery).matches
-      : false
-  ));
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia(desktopQuery);
-    const onChange = (event: MediaQueryListEvent) => setNarrow(!event.matches);
-    media.addEventListener('change', onChange);
-    setNarrow(!media.matches);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-  return narrow;
-}
-
 function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
   filters: CustomerFilterValues;
   staff: StaffProfile[];
   onChange: (name: string, value: string | boolean) => void;
   onApplyMany?: (next: CustomerDraft) => void;
 }) {
-  const narrow = useNarrow();
+  const narrow = useNarrowShell();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draft, setDraft] = useState(() => draftFromFilters(filters));
   const activeCount = countActiveCustomerFilters(filters);
@@ -194,7 +178,7 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
   if (narrow) {
     return (
       <div className="filter-region">
-      <div className="customer-filters customer-filters--compact surface">
+      <div className="customer-filters customer-filters--compact surface-flat">
         <form className="customer-filter-compact-bar" role="search" onSubmit={(event) => event.preventDefault()}>
           <div className="field-group"><label htmlFor="customer-search">Müşteri ara</label>
             <input id="customer-search" type="search" value={filters.q ?? ''}
@@ -204,9 +188,17 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
             type="button"
             className="secondary-button filter-sheet-trigger"
             aria-expanded={sheetOpen}
+            aria-label={activeCount > 0 ? `Filtreler, ${activeCount} etkin` : 'Filtreler'}
+            title={activeCount > 0 ? `Filtreler, ${activeCount} etkin` : 'Filtreler'}
+            data-filter-count={activeCount}
             onClick={openSheet}
           >
-            {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
+            <SignalGlyph name="filter" size={18} />
+            {activeCount > 0 && (
+              <span className="filter-sheet-trigger-count" aria-hidden="true" data-filter-badge="true">
+                {activeCount}
+              </span>
+            )}
           </button>
         </form>
         <FilterSheet
@@ -224,10 +216,18 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
     );
   }
 
-  return <div className="filter-region"><form className="customer-filters surface" role="search" onSubmit={(event) => event.preventDefault()}>
+  const hasAnyFilter = Boolean(filters.q?.trim() || activeCount > 0);
+  return <div className="filter-region"><form className="customer-filters surface-flat" role="search" onSubmit={(event) => event.preventDefault()}>
     <div className="field-group"><label htmlFor="customer-search">Müşteri ara</label>
       <input id="customer-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} /></div>
     {filterFields('customer')}
+    {hasAnyFilter && onApplyMany && (
+      <div className="customer-filter-actions">
+        <button type="button" className="secondary-button compact-button" onClick={clearSheet}>
+          Filtreleri temizle
+        </button>
+      </div>
+    )}
   </form></div>;
 }
 
@@ -255,12 +255,13 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   feedback?: string;
 }) {
   const canManage = user.role !== 'STAFF';
+  useRegisterPageCreateAction({ label: 'Yeni müşteri', run: () => onCreate() });
   const total = state.kind === 'ready' ? (state.total ?? state.customers.length) : 0;
   const offset = state.kind === 'ready' ? (state.offset ?? 0) : 0;
 
   return <main className="workspace customer-workspace">
     <PageHeader fallbackTitle="Müşteriler"
-      actions={<>{canManage && user.capabilities?.duplicateCustomerComparison === true && <Link className="secondary-button" to={paths.duplicateCustomers}>Olası mükerrerler</Link>}<button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button></>}
+      actions={<>{canManage && user.capabilities?.duplicateCustomerComparison === true && <Link className="secondary-button" to={paths.duplicateCustomers}>Olası mükerrerler</Link>}<button className="primary-button compact-button page-create-action" type="button" onClick={onCreate}>Yeni müşteri</button></>}
     />
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
@@ -271,6 +272,17 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
     {state.kind === 'ready' && state.customers.length === 0 && <EmptyState
       title={hasFilters ? 'Filtrelere uygun müşteri bulunamadı' : 'Henüz müşteri kaydı yok'}
       description={hasFilters ? 'Filtreleri değiştirerek yeniden deneyin.' : 'İlk müşteri kaydı eklendiğinde burada görünecek.'}
+      action={hasFilters && onApplyFilters ? (
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => onApplyFilters({
+            q: '', status: '', customerType: '', city: '', assignedStaffUserId: '', unassigned: false,
+          })}
+        >
+          Filtreleri temizle
+        </button>
+      ) : undefined}
     />}
     {state.kind === 'ready' && state.customers.length > 0 && <ul className="customer-list">{state.customers.map((customer) => <li key={customer.id}>
       <article className="customer-row customer-list-card" data-customer-id={customer.id}

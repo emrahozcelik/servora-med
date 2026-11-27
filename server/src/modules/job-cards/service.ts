@@ -24,6 +24,7 @@ import {
   assertCanResolveChangeRequest,
   assertCanListOpenChangeRequests,
   assertCanReofferAssignment,
+  assertCanAcceptAssignmentProposal,
   assertCanListAssignmentOffersNeedingAction,
   assertCanListUnacceptedPastStart,
   assertCanEdit, assertCanEditDeliveryActualTime,
@@ -61,6 +62,7 @@ import type {
 import {
   deliveryItemCreateRequestHash,
   earlyStartAuthorizationRequestHash,
+  acceptAssignmentProposalRequestHash,
   changeRequestCreateRequestHash,
   changeRequestResolveRequestHash,
   followUpCreateRequestHash,
@@ -87,6 +89,9 @@ import {
 } from './sale-pair-policy.js';
 import {
   assignmentOfferRequiredState,
+  assignmentProposalRequiresReason,
+  assignmentProposedInterval,
+  computeAcceptanceDueAt,
   decideAssignmentOfferOpen,
   isAcceptanceOnTime,
   isAssignmentOfferEligible,
@@ -158,6 +163,8 @@ import {
   type JobChangeRequestDecision,
   type JobChangeRequestReasonCode,
   type AssignmentOfferDecisionInput,
+  type AcceptAssignmentProposalInput,
+  type AcceptAssignmentProposalReceipt,
   type JobAssignmentOfferOpenedReason,
   type JobAssignmentOfferState,
   type JobAssignmentOfferSummary,
@@ -484,7 +491,12 @@ type LifecycleDefinition = {
   saleDelivery?: SaleApprovalDeliveryInput;
   cancelContinuity?: FollowUpCancelContinuity | null;
   /** JOB-010 release 2b: the Staff decline/release reason, part of the hash. */
-  assignmentReason?: { code: string; text: string } | null;
+  assignmentReason?: {
+    code: string;
+    text: string;
+    /** JOB-012: the proposed time a schedule-conflict answer carries. */
+    proposedScheduledAt?: string | null;
+  } | null;
   /**
    * OVR-5b §3.8: normalized REQUEST_REVISION correction deadline. Undefined
    * when the client did not send it, so the request hash stays identical.
@@ -628,6 +640,22 @@ function projectCalendarConflict(actor: JobCardActor, error: AppError): AppError
     return new AppError(error.code, error.statusCode, error.message, { conflicts: [] });
   }
   return error;
+}
+
+/**
+ * JOB-012: a Staff proposal must start after the 049 reservation instant.
+ * Checked in the reservation preflight and again in finalize against the same
+ * `reserved_at`, never against the service-entry clock.
+ */
+function assertProposalInFuture(proposedScheduledAt: string | null, reservedAt: Date) {
+  if (proposedScheduledAt === null) return;
+  if (Date.parse(proposedScheduledAt) > reservedAt.valueOf()) return;
+  throw new AppError(
+    'VALIDATION_ERROR',
+    400,
+    'Önerilen zaman gelecekte olmalı.',
+    { fieldErrors: { proposedScheduledAt: 'Önerilen zaman gelecekte olmalı.' } },
+  );
 }
 
 function offerFieldDetails(field: string | undefined, message: string) {
@@ -1540,12 +1568,27 @@ export class JobCardService {
       urgentReason: JobAssignmentOfferUrgentReason | null;
       assigneeId: string;
       assigneeName: string | null;
+      closedAt: Date | null;
+      closeReason: string | null;
+      closeText: string | null;
+      proposedScheduledAt: Date | null;
+      proposalAcceptedAt: Date | null;
     } | null | undefined,
     evaluatedAt: Date,
+    job: Pick<PersistedJobCardDetail, 'type' | 'scheduledAt' | 'scheduledEndsAt'>,
   ): JobAssignmentOfferView | null {
     if (offer === null || offer === undefined) return null;
     const expired = offer.state === 'OPEN'
       && evaluatedAt.valueOf() >= offer.acceptanceDueAt.valueOf();
+    // JOB-012: the proposed end is derived from the persisted planned duration,
+    // exactly like the confirmation's interval — never stored, never computed
+    // by the client.
+    const proposedScheduledAt = offer.proposedScheduledAt?.toISOString() ?? null;
+    const proposedInterval = proposedScheduledAt === null
+      ? null
+      : assignmentProposedInterval(job, proposedScheduledAt);
+    // A read-time EXPIRED offer is not persisted as closed, so it carries no
+    // close fact even when a stale row would.
     return {
       id: offer.id,
       state: expired ? 'EXPIRED' : offer.state,
@@ -1553,6 +1596,12 @@ export class JobCardService {
       openedAt: offer.openedAt.toISOString(),
       urgentReason: offer.urgentReason,
       assignee: { id: offer.assigneeId, name: offer.assigneeName },
+      closedAt: expired || offer.closedAt === null ? null : offer.closedAt.toISOString(),
+      closeReason: expired ? null : offer.closeReason,
+      closeText: expired ? null : offer.closeText,
+      proposedScheduledAt,
+      proposedScheduledEndsAt: proposedInterval?.endsAt.toISOString() ?? null,
+      proposalAcceptedAt: offer.proposalAcceptedAt?.toISOString() ?? null,
     };
   }
 
@@ -1862,8 +1911,7 @@ export class JobCardService {
           assignedTo: input.assignedTo,
           engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
         });
-        if (this.calendar.enabled
-          && (input.type === 'SALES_MEETING' || input.type === 'PRODUCT_DELIVERY')
+        if ((input.type === 'SALES_MEETING' || input.type === 'PRODUCT_DELIVERY')
           && input.scheduledAt && canonicalEnd) {
           await transaction.assertCalendarAvailability({
             organizationId: actor.organizationId,
@@ -1871,6 +1919,7 @@ export class JobCardService {
             assignedUserId: input.assignedTo,
             startsAt: input.scheduledAt,
             endsAt: canonicalEnd,
+            includeCalendarEvents: this.calendar.enabled,
           });
         }
         const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
@@ -2789,15 +2838,14 @@ export class JobCardService {
     // Inactive customer: only the delivery is blocked, but it rolls the whole
     // approval back (one transaction), so nothing is partially approved.
     await this.validateJobReferences(tx, actor.organizationId, sale.customerId, null);
-    if (this.calendar.enabled) {
-      await tx.assertCalendarAvailability({
-        organizationId: actor.organizationId,
-        jobCardId: null,
-        assignedUserId: assigneeId,
-        startsAt: delivery.scheduledAt,
-        endsAt: delivery.scheduledEndsAt,
-      });
-    }
+    await tx.assertCalendarAvailability({
+      organizationId: actor.organizationId,
+      jobCardId: null,
+      assignedUserId: assigneeId,
+      startsAt: delivery.scheduledAt,
+      endsAt: delivery.scheduledEndsAt,
+      includeCalendarEvents: this.calendar.enabled,
+    });
     // A sale is BUSINESS by its schema CHECK, so its delivery is BUSINESS and
     // eligibility is asserted against the BUSINESS scope (as the plain create).
     const businessScope: JobDeliveryScope = { dataClass: 'BUSINESS', demoDatasetId: null };
@@ -2922,15 +2970,14 @@ export class JobCardService {
           await this.validateJobReferences(transaction, actor.organizationId, input.customerId, null);
           // WORKING-DAY contract reconciliation: a human PRODUCT_DELIVERY write
           // may land on the organization-local Sunday; no working-day guard.
-          if (this.calendar.enabled) {
-            await transaction.assertCalendarAvailability({
-              organizationId: actor.organizationId,
-              jobCardId: null,
-              assignedUserId: input.assignedTo,
-              startsAt: input.scheduledAt,
-              endsAt: canonicalEnd,
-            });
-          }
+          await transaction.assertCalendarAvailability({
+            organizationId: actor.organizationId,
+            jobCardId: null,
+            assignedUserId: input.assignedTo,
+            startsAt: input.scheduledAt,
+            endsAt: canonicalEnd,
+            includeCalendarEvents: this.calendar.enabled,
+          });
 
           // A human PRODUCT_DELIVERY create always creates a BUSINESS JobCard
           // today (no DEMO dataset is ever supplied here), so eligibility is
@@ -3317,7 +3364,7 @@ export class JobCardService {
       proposedAt: input.scheduledAt === null ? null : new Date(input.scheduledAt),
       scheduledEndsAt, assignedTo: input.assignedTo, engagementKind: input.engagementKind,
     });
-    if (this.calendar.enabled && input.scheduledAt !== null && scheduledEndsAt !== null) {
+    if (input.scheduledAt !== null && scheduledEndsAt !== null) {
       try {
         await transaction.assertCalendarAvailability({
           organizationId: actor.organizationId,
@@ -3325,6 +3372,7 @@ export class JobCardService {
           assignedUserId: input.assignedTo,
           startsAt: input.scheduledAt,
           endsAt: scheduledEndsAt,
+          includeCalendarEvents: this.calendar.enabled,
         });
       } catch (caught) {
         if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
@@ -3804,7 +3852,7 @@ export class JobCardService {
       const snapshotEffectiveScheduleMutation = snapshotScheduleChanged
         || snapshotNeedsIntervalRepair;
       const snapshotNeedsAssigneeLock = snapshotAssigneeChanged
-        || (this.calendar.enabled && snapshotIsCalendarIntervalJob && snapshotEffectiveScheduleMutation);
+        || (snapshotIsCalendarIntervalJob && snapshotEffectiveScheduleMutation);
       const lockedAssignees = snapshotNeedsAssigneeLock
         ? await this.lockUsersInOrder(
           transaction,
@@ -3936,8 +3984,7 @@ export class JobCardService {
           });
         }
       }
-      const needsCalendarAssigneeLock = this.calendar.enabled
-        && isCalendarIntervalJob
+      const needsCalendarAssigneeLock = isCalendarIntervalJob
         && (scheduleChanged || assigneeChanged);
       if (fields.assignedTo !== undefined && assigneeChanged) {
         const assignee = lockedAssignees.get(fields.assignedTo);
@@ -4118,13 +4165,14 @@ export class JobCardService {
             scheduledEndsAt: nextScheduledEndsAt,
           })
         : null;
-      if (this.calendar.enabled && isCalendarIntervalJob && (scheduleChanged || assigneeChanged)) {
+      if (isCalendarIntervalJob && (scheduleChanged || assigneeChanged)) {
         await transaction.assertCalendarAvailability({
           organizationId: actor.organizationId,
           jobCardId,
           assignedUserId: fields.assignedTo ?? job.assignedTo,
           startsAt: nextScheduledAt,
           endsAt: nextScheduledEndsAt,
+          includeCalendarEvents: this.calendar.enabled,
         });
       }
 
@@ -4626,7 +4674,10 @@ export class JobCardService {
       ...page, ...(options?.includeSaleCapability === false ? { includeSaleCapability: false } : {}),
     });
     return {
-      items: result.items.map((item) => presentActivity(item, options)),
+      items: result.items.map((item) => presentActivity(item, {
+        ...options,
+        viewer: { id: actor.id, role: actor.role },
+      })),
       total: result.total,
       limit: result.limit,
       offset: result.offset,
@@ -5595,6 +5646,243 @@ export class JobCardService {
   }
 
   /**
+   * JOB-012 (Q2): management confirms the time the Staff member proposed. The
+   * job moves to the proposed interval **and is accepted for the proposing
+   * Staff member** in one transaction — no second Staff acceptance.
+   *
+   * Idempotent like re-offer: `executeCriticalAction` over the request hash of
+   * `jobCardId, expectedVersion, offerId`, assignee-before-job lock order.
+   */
+  async acceptAssignmentProposal(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: AcceptAssignmentProposalInput,
+  ): Promise<AcceptAssignmentProposalReceipt> {
+    assertCanAcceptAssignmentProposal(actor);
+    if (!this.assignmentWindowEnabled()) {
+      throw new AppError(
+        'ASSIGNMENT_WINDOW_DISABLED',
+        409,
+        'Atama kabul penceresi etkin değil.',
+      );
+    }
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw validation('expectedVersion');
+    }
+    const offerId = uuidString(input.offerId, 'offerId');
+    const requestTime = this.now();
+    const operationKey = `JOB_ASSIGNMENT_ACCEPT_PROPOSAL:${jobCardId}`;
+    const notAvailable = () => new AppError(
+      'ASSIGNMENT_PROPOSAL_NOT_AVAILABLE',
+      409,
+      'Onaylanacak bir zaman önerisi bulunmuyor.',
+    );
+    const result = await this.repository.executeCriticalAction<AcceptAssignmentProposalReceipt>(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+        requestHash: acceptAssignmentProposalRequestHash(
+          jobCardId, input.expectedVersion, offerId,
+        ),
+      },
+      async (tx) => {
+        const snapshot = await tx.getJob(actor.organizationId, jobCardId);
+        if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        // Assignee-before-JobCard lock order for every offer writer.
+        const lockedAssignees = await this.lockUsersInOrder(
+          tx, actor.organizationId, [snapshot.assignedTo],
+        );
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (job.version !== input.expectedVersion) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+        // JOB-012 preconditions: nothing is written unless the job is still
+        // waiting, the named offer is the job's latest answer, it carries an
+        // unconfirmed proposal for the current assignee, and that assignee is
+        // still an active Staff member.
+        if (job.status !== 'NEW'
+          || !isAssignmentOfferJobType(job.type)
+          || job.scheduledAt === null) {
+          throw notAvailable();
+        }
+        const latest = await tx.getLatestAssignmentOffer(actor.organizationId, jobCardId);
+        if (latest === null
+          || latest.id !== offerId
+          || (latest.state !== 'DECLINED' && latest.state !== 'RELEASED')
+          || latest.proposedScheduledAt === null
+          || latest.proposalAcceptedAt !== null
+          || latest.assigneeUserId !== job.assignedTo) {
+          throw notAvailable();
+        }
+        const proposer = lockedAssignees.get(job.assignedTo);
+        if (!proposer || proposer.role !== 'STAFF' || !proposer.isActive) {
+          throw notAvailable();
+        }
+        const proposedScheduledAt = latest.proposedScheduledAt.toISOString();
+        if (Date.parse(proposedScheduledAt) <= requestTime.valueOf()) {
+          throw new AppError(
+            'ASSIGNMENT_PROPOSAL_EXPIRED',
+            409,
+            'Önerilen zaman geçti; işi yeniden planlayın.',
+          );
+        }
+        const interval = assignmentProposedInterval(job, proposedScheduledAt);
+        if (interval === null) throw notAvailable();
+        // The same occupancy reader a management reschedule uses, excluding
+        // this job: a conflict writes nothing.
+        await tx.assertCalendarAvailability({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assignedUserId: job.assignedTo,
+          startsAt: interval.startsAt.toISOString(),
+          endsAt: interval.endsAt.toISOString(),
+          includeCalendarEvents: this.calendar.enabled,
+        });
+        const realtimeEvents: RealtimeEventRecord[] = [];
+        // Effect 1: the confirmed interval, exactly as a management reschedule
+        // does — version +1 and the acceptance recorded for the proposer.
+        const updated = await tx.transitionWithVersion({
+          organizationId: actor.organizationId, jobCardId,
+          expectedVersion: input.expectedVersion,
+          command: 'ACCEPT_ASSIGNMENT', status: 'ACCEPTED',
+          occurredAt: requestTime, actorId: actor.id,
+          acceptedBy: job.assignedTo,
+          schedule: {
+            scheduledAt: interval.startsAt,
+            scheduledEndsAt: interval.endsAt,
+          },
+        });
+        if (!updated) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+        await tx.appendScheduleRevision({
+          organizationId: actor.organizationId, jobCardId,
+          scheduledAt: updated.scheduledAt, scheduledEndsAt: updated.scheduledEndsAt,
+          dueDate: updated.dueDate, source: 'RESCHEDULE', createdBy: actor.id,
+          createdAt: requestTime,
+        });
+        await tx.voidEarlyStartAuthorizations({
+          organizationId: actor.organizationId, jobCardId, voidedAt: requestTime,
+          voidReason: 'RESCHEDULED',
+        });
+        if (this.calendar.enabled) {
+          await tx.synchronizeCalendarReminder({
+            organizationId: actor.organizationId,
+            jobCardId,
+            assignedUserId: updated.assignedTo,
+            startsAt: updated.scheduledAt,
+            endsAt: updated.scheduledEndsAt,
+            version: updated.version,
+            active: true,
+            now: requestTime,
+            reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+          });
+        }
+        const fieldsActivity = await tx.appendActivity({
+          organizationId: actor.organizationId, jobCardId, actorId: actor.id,
+          event: 'JOB_FIELDS_UPDATED',
+          oldValue: {
+            scheduledAt: job.scheduledAt,
+            scheduledEndsAt: job.scheduledEndsAt,
+          },
+          newValue: {
+            scheduledAt: updated.scheduledAt,
+            scheduledEndsAt: updated.scheduledEndsAt,
+          },
+          metadata: { via: 'TIME_PROPOSAL', proposalOfferId: latest.id },
+        });
+        realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
+          activity: fieldsActivity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_FIELDS_UPDATED', jobType: job.type,
+          beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: updated.assignedTo,
+          calendarAffected: this.calendar.enabled,
+          notifyCalendarRescheduled: this.calendar.enabled,
+          customerId: updated.customerId,
+        }));
+        // Effect 2: the answered offer records the one-way confirmation.
+        const confirmed = await tx.markAssignmentOfferProposalAccepted({
+          organizationId: actor.organizationId,
+          jobCardId,
+          offerId: latest.id,
+          proposalAcceptedAt: requestTime,
+          proposalAcceptedBy: actor.id,
+        });
+        if (!confirmed) throw notAvailable();
+        // Effect 3: the confirmation's own offer, already ACCEPTED because the
+        // proposer accepted by proposing. No JOB_ASSIGNMENT_OFFER_OPENED fact
+        // and no reminder/expiry: this offer is never answerable.
+        const confirmedOffer = await tx.insertAssignmentOffer({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assigneeUserId: job.assignedTo,
+          openedAt: requestTime,
+          openedReason: 'PROPOSAL_ACCEPTED',
+          openedBy: actor.id,
+          assignmentHistoryId: null,
+          acceptanceDueAt: computeAcceptanceDueAt(requestTime, interval.startsAt),
+          urgentReason: null,
+          ackCode: null,
+          ackText: null,
+          closeImmediately: {
+            state: 'ACCEPTED',
+            closedAt: requestTime,
+            closedBy: job.assignedTo,
+            closeReason: null,
+          },
+        });
+        // Effect 4: the acceptance itself, attributed to management.
+        const acceptedActivity = await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_ACCEPTED',
+          clientActionId,
+          oldValue: { status: job.status, version: job.version },
+          newValue: { status: updated.status, version: updated.version },
+          metadata: {
+            via: 'TIME_PROPOSAL',
+            offerId: confirmedOffer.id,
+            proposalOfferId: latest.id,
+            proposerId: job.assignedTo,
+          },
+        });
+        realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
+          activity: acceptedActivity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_ACCEPTED', jobType: job.type,
+          beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: updated.assignedTo,
+          customerId: updated.customerId,
+        }));
+        return {
+          response: {
+            jobCardId,
+            offerId: confirmedOffer.id,
+            scheduledAt: updated.scheduledAt ?? interval.startsAt.toISOString(),
+            scheduledEndsAt: updated.scheduledEndsAt ?? interval.endsAt.toISOString(),
+          } satisfies AcceptAssignmentProposalReceipt,
+          realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return result.response;
+  }
+
+  /**
    * JOB-010 release 2b §8: the management needs-action list. Management-only;
    * STAFF is rejected with 403 before the read. Deadlines are evaluated at
    * read time, so the list stays correct while the expiry worker is off.
@@ -5628,6 +5916,7 @@ export class JobCardService {
         acceptanceDueAt: item.acceptanceDueAt.toISOString(),
         urgentReason: item.urgentReason,
         scheduledAt: item.scheduledAt?.toISOString() ?? null,
+        proposedScheduledAt: item.proposedScheduledAt?.toISOString() ?? null,
         assignee: { id: item.assigneeId, name: item.assigneeName },
         customer: item.customerId === null
           ? null
@@ -5695,6 +5984,10 @@ export class JobCardService {
    * JOB-010 release 2b (§5): the assigned Staff member hands the assignment
    * back before management acts. The job stays NEW and assigned; the offer is
    * closed DECLINED with the structured reason and its mandatory text.
+   *
+   * JOB-012: a `SCHEDULE_CONFLICT` answer also proposes the alternative time
+   * management may confirm. Staff only propose; the customer time stays a
+   * management power.
    */
   async declineAssignment(
     actor: JobCardActor,
@@ -5708,6 +6001,11 @@ export class JobCardService {
       note: null, revisionReason: null, cancelReason: null,
       noteContext: null,
       assignmentReason,
+    }).catch((caught) => {
+      // A Staff calendar conflict is projected to the Staff-safe shape: the
+      // conflict is the answering member's own calendar, never another's.
+      if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
+      throw caught;
     });
   }
 
@@ -5715,7 +6013,8 @@ export class JobCardService {
    * JOB-010 release 2b (§5): the assigned Staff member releases an accepted
    * assignment before START. The LATE_START obligation of the pre-release
    * acceptance is materialized first, then the job returns to NEW and the
-   * offer moves ACCEPTED -> RELEASED.
+   * offer moves ACCEPTED -> RELEASED. JOB-012: a `SCHEDULE_CONFLICT` release
+   * carries the same proposal as a decline.
    */
   async releaseAssignment(
     actor: JobCardActor,
@@ -5729,19 +6028,55 @@ export class JobCardService {
       note: null, revisionReason: null, cancelReason: null,
       noteContext: null,
       assignmentReason,
+    }).catch((caught) => {
+      if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
+      throw caught;
     });
   }
 
+  /**
+   * JOB-010 §5 + JOB-012: the answer's structured reason and its optional
+   * proposal, validated before the reservation so nothing is written. The
+   * proposal is required with `SCHEDULE_CONFLICT` and forbidden with every
+   * other reason. Its "in the future" bound is time-dependent, so it is checked
+   * against the 049 reservation instant (`assertProposalInFuture`), after the
+   * replay lookup: a completed answer still replays once its proposal passed.
+   */
   private assignmentDecisionReason(
     input: AssignmentOfferDecisionInput,
-  ): { code: string; text: string } {
+  ): { code: string; text: string; proposedScheduledAt: string | null } {
     if (!(JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES as readonly string[])
       .includes(input.reasonCode)) {
       throw validation('reasonCode');
     }
+    const proposed = input.proposedScheduledAt === undefined || input.proposedScheduledAt === null
+      ? null
+      : isoInstant(input.proposedScheduledAt, 'proposedScheduledAt');
+    if (assignmentProposalRequiresReason(input.reasonCode)) {
+      if (proposed === null) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Önerilen zaman zorunludur.',
+          { fieldErrors: { proposedScheduledAt: 'Önerilen zaman zorunludur.' } },
+        );
+      }
+    } else if (proposed !== null) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.',
+        {
+          fieldErrors: {
+            proposedScheduledAt: 'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.',
+          },
+        },
+      );
+    }
     return {
       code: input.reasonCode,
       text: requireLifecycleReason(input.reasonText, 'reasonText'),
+      proposedScheduledAt: proposed,
     };
   }
 
@@ -6029,6 +6364,7 @@ export class JobCardService {
     if (definition.correctionDueAt !== undefined) {
       await this.assertCorrectionDeadlineBounds(tx, job, definition.correctionDueAt, reservedAt);
     }
+    assertProposalInFuture(definition.assignmentReason?.proposedScheduledAt ?? null, reservedAt);
   }
 
   /**
@@ -6975,6 +7311,28 @@ export class JobCardService {
         if (definition.command === 'CANCEL') {
           assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, requestTime);
         }
+        // JOB-012: a schedule-conflict answer may carry one alternative time.
+        // The derived interval `[proposed, proposed + D)` is checked against the
+        // answering Staff member's calendar with the same occupancy reader a
+        // reschedule uses (this job excluded); a conflict is a 409 and writes
+        // nothing. Only an answer that really closes the offer can carry it.
+        assertProposalInFuture(
+          definition.assignmentReason?.proposedScheduledAt ?? null, requestTime,
+        );
+        const assignmentProposal = lifecycleAssignmentOffer !== null
+          && definition.assignmentReason?.proposedScheduledAt
+          ? assignmentProposedInterval(job, definition.assignmentReason.proposedScheduledAt)
+          : null;
+        if (assignmentProposal !== null) {
+          await tx.assertCalendarAvailability({
+            organizationId: actor.organizationId,
+            jobCardId,
+            assignedUserId: job.assignedTo,
+            startsAt: assignmentProposal.startsAt.toISOString(),
+            endsAt: assignmentProposal.endsAt.toISOString(),
+            includeCalendarEvents: this.calendar.enabled,
+          });
+        }
         // OVR-5b §3: the stored correction deadline of a revision episode is
         // decided once here, under the JobCard lock and against reserved_at:
         // the supplied value, else reserved_at + 24h, else NULL when the job
@@ -7124,6 +7482,10 @@ export class JobCardService {
             closedBy: actor.id,
             closeReason: closeState === 'ACCEPTED' ? null : reasonCode,
             closeText: closeState === 'ACCEPTED' ? null : reasonText,
+            // JOB-012: the proposal lives on the answer that closed the offer.
+            proposedScheduledAt: closeState === 'ACCEPTED'
+              ? null
+              : assignmentProposal?.startsAt ?? null,
           });
           if (!closed) {
             throw new AppError(
@@ -7138,6 +7500,9 @@ export class JobCardService {
                 offerId: lifecycleAssignmentOffer.id,
                 reasonCode,
                 reasonText,
+                ...(assignmentProposal === null
+                  ? {}
+                  : { proposedScheduledAt: assignmentProposal.startsAt.toISOString() }),
               };
         }
         if (definition.command === 'CANCEL') {
@@ -8530,6 +8895,7 @@ export class JobCardService {
       firstCandidate.startsAt,
       new Date(horizonAt.valueOf() + durationMs),
       job.id,
+      this.calendar.enabled,
     );
     const blockers = assigneeIntervals.map((interval) => ({
       startsAt: new Date(interval.startsAt),
@@ -8690,9 +9056,6 @@ export class JobCardService {
     actor: JobCardActor,
     input: AvailableSlotsInput,
   ): Promise<AvailableSlotsResponse> {
-    if (!this.calendar.enabled) {
-      throw new AppError('NOT_FOUND', 404, 'Takvim özelliği etkin değil.');
-    }
     assertCreateAssignmentRequest(actor, input.assignedTo);
     const startsAt = new Date(isoInstant(input.scheduledAt, 'scheduledAt'));
     const canonicalEnd = canonicalScheduledEnd(input.type, input.scheduledAt);
@@ -8760,6 +9123,7 @@ export class JobCardService {
       endsAt: effectiveEndsAt,
       timezone,
       horizonDays: FOLLOW_UP_SEARCH_HORIZON_DAYS,
+      notBefore: this.now(),
     });
     if (candidates.length === 0) return { slots: [] };
 
@@ -8769,6 +9133,7 @@ export class JobCardService {
       new Date(startsAt.valueOf() - MAX_TZ_OFFSET_MS),
       new Date(lastCandidate.endsAt.valueOf() + MAX_TZ_OFFSET_MS),
       excludeJobId ?? null,
+      this.calendar.enabled,
     );
     const available = filterAvailableSlotCandidates(
       candidates,
@@ -9077,7 +9442,9 @@ export class JobCardService {
         },
       // JOB-010 release 2b: latest offer, EXPIRED at read time once its
       // deadline passed.
-      assignmentOffer: this.presentAssignmentOffer(persisted.assignmentOffer, evaluatedAt),
+      assignmentOffer: this.presentAssignmentOffer(
+        persisted.assignmentOffer, evaluatedAt, persisted,
+      ),
     };
   }
 

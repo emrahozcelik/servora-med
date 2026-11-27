@@ -20,6 +20,10 @@ import type {
   JobCard,
   PastStartAcknowledgementInput,
 } from './types.js';
+import {
+  canonicalScheduledDurationMs,
+  persistedScheduledDurationMs,
+} from './job-card-duration.js';
 
 /** Q1: the minimum response window every producer can guarantee. */
 export const ASSIGNMENT_OFFER_MINIMUM_WINDOW_MS = 10 * 60 * 1000;
@@ -101,6 +105,38 @@ export function requiresPastStartAcknowledgement(
   urgentReason: JobAssignmentOfferUrgentReason | null,
 ): boolean {
   return urgentReason === 'START_PASSED';
+}
+
+/**
+ * JOB-012: the only answer reason a time proposal may accompany. Every other
+ * reason says the assignment cannot be done, not that another time would work.
+ */
+export function assignmentProposalRequiresReason(
+  reasonCode: string,
+): reasonCode is 'SCHEDULE_CONFLICT' {
+  return reasonCode === 'SCHEDULE_CONFLICT';
+}
+
+/**
+ * JOB-012: the proposed interval `[proposed, proposed + D)`, derived and never
+ * stored. `D` is the job's persisted planned duration (`scheduledEndsAt -
+ * scheduledAt`), or the canonical duration of the type (60 min SALES_MEETING,
+ * 30 min PRODUCT_DELIVERY) when either bound is null. Returns null for a job
+ * type that has no canonical duration and no persisted one — the same jobs no
+ * offer can exist for.
+ */
+export function assignmentProposedInterval(
+  job: Pick<JobCard, 'type' | 'scheduledAt' | 'scheduledEndsAt'>,
+  proposedScheduledAt: string,
+): { startsAt: Date; endsAt: Date } | null {
+  const startMs = Date.parse(proposedScheduledAt);
+  if (!Number.isFinite(startMs)) return null;
+  const persisted = persistedScheduledDurationMs(job.scheduledAt, job.scheduledEndsAt);
+  const durationMs = persisted !== null && persisted > 0
+    ? persisted
+    : canonicalScheduledDurationMs(job.type);
+  if (durationMs === null || durationMs <= 0) return null;
+  return { startsAt: new Date(startMs), endsAt: new Date(startMs + durationMs) };
 }
 
 /**

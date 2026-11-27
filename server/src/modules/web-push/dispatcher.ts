@@ -1,6 +1,7 @@
 import type { PushPayloadV1 } from './payload.js';
 import type { WebPushSender, WebPushSendResult } from './sender.js';
 import type {
+  AbandonModuleDisabledDeliveriesInput,
   ClaimDueWebPushDeliveriesInput,
   ClaimedWebPushDelivery,
   RecordAbandonedInput,
@@ -11,7 +12,7 @@ import type {
 } from './repository.js';
 import type { PublicNotification } from '../notifications/presenter.js';
 import { presentNotification } from '../notifications/presenter.js';
-import type { NotificationRecord } from '../notifications/types.js';
+import type { NotificationEntityType, NotificationRecord } from '../notifications/types.js';
 
 export const WEB_PUSH_DISPATCH_CONCURRENCY = 4;
 export const WEB_PUSH_POLL_INTERVAL_MS = 5_000;
@@ -71,6 +72,7 @@ function errorCodeForStatus(statusCode: number): string {
 export type DispatcherDeps = Readonly<{
   repository: {
     cleanupDueDeliveries(at: Date): Promise<number>;
+    abandonModuleDisabledDeliveries(input: AbandonModuleDisabledDeliveriesInput): Promise<number>;
     claimDueDeliveries(input: ClaimDueWebPushDeliveriesInput): Promise<readonly ClaimedWebPushDelivery[]>;
     withDeliveryLifecycleLock<T>(
       delivery: ClaimedWebPushDelivery,
@@ -85,6 +87,7 @@ export type DispatcherDeps = Readonly<{
   sender: WebPushSender;
   buildPayload: (notification: PublicNotification) => PushPayloadV1;
   topicBuilder: (notificationId: string) => string;
+  readMessagingEnabled?: () => Promise<boolean>;
   clock?: DispatcherClock;
   onError?: (error: unknown) => void;
 }>;
@@ -273,14 +276,39 @@ export function createDispatcher(
         // cleanup failures are non-fatal
       }
 
+      let messagingState: boolean | 'UNREADABLE' = true;
+      if (deps.readMessagingEnabled) {
+        try {
+          messagingState = await deps.readMessagingEnabled();
+        } catch {
+          messagingState = 'UNREADABLE';
+        }
+      }
+
+      if (messagingState === false) {
+        try {
+          await deps.repository.abandonModuleDisabledDeliveries({
+            entityTypes: ['conversation'],
+            at,
+            errorCode: 'MODULE_DISABLED',
+          });
+        } catch (error) {
+          reportError(error);
+        }
+      }
+
       const availableSlots = WEB_PUSH_DISPATCH_CONCURRENCY - activeSends.size;
       if (availableSlots <= 0) return;
+
+      const excludedEntityTypes: readonly NotificationEntityType[] =
+        messagingState === true ? [] : ['conversation'];
 
       let deliveries: readonly ClaimedWebPushDelivery[];
       try {
         deliveries = await deps.repository.claimDueDeliveries({
           limit: availableSlots,
           at,
+          excludedEntityTypes,
         } satisfies ClaimDueWebPushDeliveriesInput);
       } catch {
         return;

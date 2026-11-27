@@ -68,6 +68,17 @@ import { buildPushPayload, buildPushTopic } from './modules/web-push/payload.js'
 import type { OverviewReadModel } from './modules/overview/repository.js';
 import { OverviewService } from './modules/overview/service.js';
 import { overviewRoutes } from './modules/overview/routes.js';
+import { moduleGate } from './modules/installation-modules/gate.js';
+import { INSTALLATION_MODULES } from './modules/installation-modules/registry.js';
+import {
+  PostgresModuleStateReader,
+  readModuleEnabledOrFalse,
+  staticModuleStateReader,
+  type ModuleStateReader,
+} from './modules/installation-modules/state.js';
+import { PostgresOperatorRepository } from './modules/operator/repository.js';
+import { OperatorService } from './modules/operator/service.js';
+import { operatorRoutes } from './modules/operator/routes.js';
 import type { CalendarRepository } from './modules/calendar/repository.js';
 import { CalendarService } from './modules/calendar/service.js';
 import { calendarRoutes } from './modules/calendar/routes.js';
@@ -184,6 +195,12 @@ export type AppDependencies = {
   backupRepository?: BackupRepository;
   demoDatasetRepository?: DemoDatasetRepository;
   dataManagementRepository?: DataManagementReadModel;
+  /**
+   * Runtime module state (MOD-002). Defaults to a `PostgresModuleStateReader`
+   * when `pool` is present; without a pool (in-memory unit tests) it falls back
+   * to a static reader built from `config.capabilities.overviewDashboard`.
+   */
+  moduleStateReader?: ModuleStateReader;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
   pool?: import('pg').Pool;
@@ -240,6 +257,14 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     releaseSha: config.releaseSha,
     backupReadiness: dependencies.backupHealthReadiness,
   });
+  const moduleStateReader: ModuleStateReader = dependencies.moduleStateReader
+    ?? (dependencies.pool
+      ? new PostgresModuleStateReader(dependencies.pool)
+      : staticModuleStateReader(
+          Object.fromEntries(
+            INSTALLATION_MODULES.map((m) => [m.key, config.capabilities?.[m.capability] ?? false]),
+          ),
+        ));
   if (dependencies.authRepository) {
     // Warm BOTH KDF-class sentinels BEFORE the app can serve any request.
     // Deriving either lazily on the first login would make that one request
@@ -255,6 +280,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       prefix: '/api/auth',
       authService,
       config,
+      moduleStateReader,
     });
     const authenticate = requireAuthentication(authService);
     const passwordChanged = requirePasswordChanged();
@@ -324,6 +350,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
             dependencies.realtimeService,
             undefined,
             { enabled: config.assignmentWindow?.enabled === true },
+            { enabled: config.capabilities?.calendar ?? false },
           )
           : undefined,
       });
@@ -339,19 +366,18 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       });
     }
     if (dependencies.overviewRepository) {
-      const messagingReadPort = (dependencies.pool && config.capabilities?.messaging)
+      const messagingReadPort = dependencies.pool
         ? new PostgresMessagingRepository(dependencies.pool)
         : undefined;
 
       await app.register(overviewRoutes, {
         prefix: '/api/overview',
         service: new OverviewService(
-          config.capabilities?.overviewDashboard ?? false,
+          moduleStateReader,
           dependencies.overviewRepository,
           dependencies.reportsRepository,
           undefined,
           config.capabilities?.calendar ?? false,
-          config.capabilities?.messaging ?? false,
           messagingReadPort,
         ),
         authenticate: authenticateDomain,
@@ -459,6 +485,11 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           dependencies.realtimePublisher,
           undefined,
           dependencies.pool,
+          async () => (
+            await readModuleEnabledOrFalse(moduleStateReader, 'MESSAGING', app.log)
+              ? []
+              : ['conversation']
+          ),
         ),
         authenticate: authenticateDomain,
       });
@@ -484,6 +515,11 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
               }),
               buildPayload: buildPushPayload,
               topicBuilder: buildPushTopic,
+              readMessagingEnabled: async () => {
+                const row = await moduleStateReader.read('MESSAGING');
+                if (!row) throw new Error('Installation module state row for MESSAGING is missing');
+                return row.enabled;
+              },
               onError: (error) => {
                 app.log.error({ err: error }, 'Web push delivery failed');
               },
@@ -498,15 +534,15 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         });
       }
     }
-    if (dependencies.pool && config.capabilities?.messaging) {
+    if (dependencies.pool) {
       await app.register(messagingRoutes, {
         prefix: '/api/messaging',
         service: new MessagingService(
           dependencies.pool,
-          config.capabilities?.messaging ?? false,
           dependencies.realtimePublisher,
         ),
         authenticate: authenticateDomain,
+        gate: moduleGate(moduleStateReader, 'MESSAGING'),
       });
     }
     if (dependencies.staffConfidentialNotesRepository) {
@@ -590,6 +626,21 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         storageProbe,
       });
     }
+  }
+
+  if (dependencies.pool) {
+    // The operator login shares the customer fixed-work KDF; both sentinels
+    // must be warm before the first request (memoized, so a repeat is free).
+    await oldCredentialSentinelHash();
+    await v2CredentialSentinelHash();
+    await app.register(operatorRoutes, {
+      prefix: '/api/operator',
+      service: new OperatorService(
+        new PostgresOperatorRepository(dependencies.pool),
+        moduleStateReader,
+      ),
+      config,
+    });
   }
 
   return app;

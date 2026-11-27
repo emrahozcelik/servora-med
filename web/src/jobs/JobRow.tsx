@@ -5,6 +5,7 @@ import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { StatusChip } from '../ui/StatusChip';
 import { formatOverdueLateness } from '../ui/duration';
+import { JobTypeIcon, SignalGlyph, WorkflowCommandIcon } from '../ui/signal-icons';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardListItem, LifecycleCommand } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
@@ -22,6 +23,7 @@ export type JobCommandIntent = {
 };
 
 const openLabels: Partial<Record<LifecycleCommand, string>> = {
+  ACCEPT_ASSIGNMENT: 'Kabul etmek için aç',
   START: 'İşi başlatmak için aç',
   SUBMIT_FOR_APPROVAL: 'Kontrole göndermek için aç',
   RESUME: 'Düzeltmeye başlamak için aç',
@@ -30,6 +32,7 @@ const openLabels: Partial<Record<LifecycleCommand, string>> = {
 };
 
 const OPEN_COMMAND_ORDER = [
+  'ACCEPT_ASSIGNMENT',
   'START',
   'SUBMIT_FOR_APPROVAL',
   'RESUME',
@@ -40,7 +43,7 @@ const OPEN_COMMAND_ORDER = [
 function preferredPrimaryCommand(status: JobCardListItem['status']): LifecycleCommand | null {
   switch (status) {
     case 'NEW':
-      return null;
+      return 'ACCEPT_ASSIGNMENT';
     case 'ACCEPTED':
       return 'START';
     case 'IN_PROGRESS':
@@ -79,8 +82,13 @@ function listOpenCommands(user: CurrentUser, job: JobCardListItem): LifecycleCom
     job.allowedCommands.includes(command)
     && isLifecycleCommandVisible(user, job.status, job.assignee.id, command)
   ));
-  if (!primary) return [...presentable];
-  return [primary, ...presentable.filter((command) => command !== primary)];
+  const deduped = job.status === 'WAITING_APPROVAL'
+    && presentable.includes('APPROVE')
+    && presentable.includes('REQUEST_REVISION')
+    ? presentable.filter((command) => command !== 'REQUEST_REVISION')
+    : presentable;
+  if (!primary) return [...deduped];
+  return [primary, ...deduped.filter((command) => command !== primary)];
 }
 
 function typeLabel(job: JobCardListItem): string {
@@ -115,7 +123,10 @@ export function JobRow({ job, user, onCommand }: {
         <h2>
           <Link className="job-row-title-link" to={paths.job(job.id)}>{job.title}</Link>
         </h2>
-        <p className="job-row-type">{typeLabel(job)}</p>
+        <p className="job-row-type">
+          <JobTypeIcon type={job.type} engagementKind={job.engagementKind} />
+          {typeLabel(job)}
+        </p>
         <dl className="job-row-relations">
           <div>
             <dt>Müşteri</dt>
@@ -133,6 +144,7 @@ export function JobRow({ job, user, onCommand }: {
           <PriorityChip priority={job.priority} longLabel />
           {overdueSignal && (
             <span className="job-overdue-signal" data-job-overdue-signal="true">
+              <SignalGlyph name="clock" className="job-overdue-signal-icon" />
               {overdueSignal}
             </span>
           )}
@@ -178,6 +190,7 @@ export function JobRow({ job, user, onCommand }: {
               expectedVersion: job.version,
             })}
           >
+            <WorkflowCommandIcon command={primaryCommand} />
             {openLabels[primaryCommand]}
           </button>
         </div>
@@ -201,6 +214,7 @@ export function JobRow({ job, user, onCommand }: {
                 expectedVersion: job.version,
               })}
             >
+              <WorkflowCommandIcon command={command} />
               {openLabels[command]}
             </button>
           );

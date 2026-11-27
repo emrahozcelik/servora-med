@@ -234,6 +234,11 @@ export function StaffPerformanceReport() {
             <ReportEmptyState
               title="Aramayla eşleşen personel bulunmuyor"
               description="Farklı bir ad arayın veya arama alanını temizleyin."
+              action={(
+                <button type="button" className="secondary-button" onClick={() => setStaffSearch('')}>
+                  Aramayı temizle
+                </button>
+              )}
             />
           ) : <StaffPerformanceTable records={records} />}
         </section>

@@ -106,7 +106,7 @@ describe('read-only JobCard board', () => {
       'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
     ]);
     expect(lanes.map((lane) => lane.querySelector('h2')?.textContent)).toEqual([
-      'Hazırlanıyor1', 'Atandı1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme istendi1',
+      'Atandı1', 'Kabul edildi1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme istendi1',
     ]);
     expect(host.querySelectorAll('.job-status-shape')).toHaveLength(5);
     expect(host.querySelector('[data-workflow-lane="PLANNED"]')).toBeNull();
@@ -189,7 +189,7 @@ describe('read-only JobCard board', () => {
         params={new URLSearchParams()} /></MemoryRouter>,
     );
     const lane = host.querySelector<HTMLElement>('[data-workflow-lane="NEW"]')!;
-    expect(lane.querySelector('h2')?.textContent).toBe('Hazırlanıyor9');
+    expect(lane.querySelector('h2')?.textContent).toBe('Atandı9');
     expect(lane.querySelectorAll('[data-board-card]')).toHaveLength(4);
   });
 
@@ -275,6 +275,50 @@ describe('read-only JobCard board', () => {
     expect(card.textContent).toContain('Yönetici notu mevcut');
     expect(card.querySelector('.compact-workflow--attention')).not.toBeNull();
     expect(card.textContent).not.toContain('3 aşama tamamlandı');
+  });
+
+  it('keeps board cards free of the follow-up chain badge and list-only lateness signal', () => {
+    const followUpOverdue: JobCardListItem = {
+      ...baseItem,
+      id: 'job-followup-late',
+      type: 'SALES_MEETING',
+      engagementKind: 'FOLLOW_UP',
+      status: 'ACCEPTED',
+      latenessSeconds: 7_200,
+    };
+    const zeroLate: JobCardListItem = {
+      ...baseItem,
+      id: 'job-zero-late',
+      type: 'SALES_MEETING',
+      engagementKind: 'CUSTOMER_VISIT',
+      status: 'IN_PROGRESS',
+      latenessSeconds: 0,
+    };
+    const signalBoard: JobCardBoard = {
+      ...board,
+      columns: {
+        ...board.columns,
+        ACCEPTED: { items: [followUpOverdue], count: 1 },
+        IN_PROGRESS: { items: [zeroLate], count: 1 },
+      },
+    };
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={signalBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
+    );
+
+    // The engagement kind is already the card's type label ("Takip görüşmesi");
+    // the "Takip" badge means follow-up continuity, which list items do not
+    // carry. Lateness is evaluated only on the list-only overdue view.
+    const lateCard = host.querySelector<HTMLElement>('[data-board-card="job-followup-late"]')!;
+    expect(lateCard.querySelector('.job-board-type')?.textContent).toBe('Takip görüşmesi');
+    expect(lateCard.querySelector('.job-board-type .job-type-icon')).not.toBeNull();
+    expect(lateCard.querySelector('.follow-up-badge')).toBeNull();
+    expect(lateCard.querySelector('.job-overdue-signal')).toBeNull();
+
+    const onTimeCard = host.querySelector<HTMLElement>('[data-board-card="job-zero-late"]')!;
+    expect(onTimeCard.querySelector('.follow-up-badge')).toBeNull();
+    expect(onTimeCard.querySelector('.job-overdue-signal')).toBeNull();
   });
 
   it('labels General Task cards without delivery facts or empty delivery state', () => {
@@ -493,7 +537,7 @@ describe('responsive routed JobCard board', () => {
     const { router } = await mount('/jobs?q=klinik&view=board', listLoad, boardLoad);
     await act(async () => { await Promise.resolve(); });
     const trigger = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent?.startsWith('Filtreler'))!;
+      .find((button) => button.getAttribute('aria-label')?.startsWith('Filtreler'))!;
     await act(async () => trigger.click());
     const status = container.querySelector<HTMLSelectElement>('#job-status-sheet')!;
     await act(async () => {

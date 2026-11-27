@@ -14,6 +14,7 @@ import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { DEFAULT_LIST_PAGE_SIZE, normalizeListOffset } from './ui/pagination';
 import { ServoraListPagination } from './ui/antd/ServoraPagination';
+import { useRegisterPageCreateAction } from './shell/page-create-action';
 
 const PAGE_SIZE = DEFAULT_LIST_PAGE_SIZE;
 
@@ -47,10 +48,24 @@ function ProductFiltersView({ filters, onChange }: {
   filters: ProductFilterValues;
   onChange: (name: 'q', value: string) => void;
 }) {
-  return <form className="product-filters" role="search" onSubmit={(event) => event.preventDefault()}>
-    <div className="field-group"><label htmlFor="product-search">Ürün ara</label>
-      <input id="product-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} /></div>
-  </form>;
+  const hasQuery = Boolean(filters.q?.trim());
+  return (
+    <div className="filter-region">
+      <form className="product-filters surface-flat" role="search" onSubmit={(event) => event.preventDefault()}>
+        <div className="product-filter-controls">
+          <div className="field-group">
+            <label htmlFor="product-search">Ürün ara</label>
+            <input id="product-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} />
+          </div>
+          {hasQuery && (
+            <button type="button" className="secondary-button compact-button" onClick={() => onChange('q', '')}>
+              Temizle
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
+  );
 }
 
 function openCardIfEmpty(
@@ -73,14 +88,19 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   onOpenProduct?: (productId: string) => void;
 }) {
   const canManage = user.role !== 'STAFF';
+  const navigate = useNavigate();
+  const forbidden = state.kind === 'error' && state.code === 'FORBIDDEN';
+  useRegisterPageCreateAction(canManage && !forbidden
+    ? { label: 'Yeni ürün', run: () => navigate(paths.newProduct) }
+    : null);
 
-  if (state.kind === 'error' && state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
+  if (forbidden) return <main className="workspace product-workspace">
     <ResultState status="403" title="Bu alana erişim yetkiniz yok" description={state.message} headingLevel={1} />
   </main>;
 
   return <main className="workspace product-workspace">
     <PageHeader fallbackTitle="Ürünler"
-      actions={canManage ? <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link> : undefined}
+      actions={canManage ? <Link className="primary-button compact-button product-create-link page-create-action" to={paths.newProduct}>Yeni ürün</Link> : undefined}
     />
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
     {state.kind === 'loading' ? <div className="product-results" aria-busy="true" aria-live="polite">
@@ -88,13 +108,15 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
     </div> : state.kind === 'error' ? <div className="product-results"><ResultState status="error" title="Ürünler yüklenemedi" description={state.message}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
     /></div> : <ProductResults page={state.page} hasFilters={hasFilters}
+      onClearFilters={() => onFilterChange('q', '')}
       onOffsetChange={onOffsetChange} onOpenProduct={onOpenProduct} />}
   </main>;
 }
 
-function ProductResults({ page, hasFilters, onOffsetChange, onOpenProduct }: {
+function ProductResults({ page, hasFilters, onClearFilters, onOffsetChange, onOpenProduct }: {
   page: Paginated<Product>;
   hasFilters: boolean;
+  onClearFilters?: () => void;
   onOffsetChange?: (offset: number) => void;
   onOpenProduct?: (productId: string) => void;
 }) {
@@ -102,6 +124,11 @@ function ProductResults({ page, hasFilters, onOffsetChange, onOpenProduct }: {
     {page.items.length === 0 ? <EmptyState
       title={hasFilters ? 'Filtrelere uygun ürün bulunamadı' : 'Henüz ürün kaydı yok'}
       description={hasFilters ? 'Arama metnini değiştirin.' : 'Ürünler eklendiğinde katalog burada görünecek.'}
+      action={hasFilters && onClearFilters ? (
+        <button type="button" className="secondary-button" onClick={onClearFilters}>
+          Aramayı temizle
+        </button>
+      ) : undefined}
     />
       : <ul className="product-list">{page.items.map((product) => <li key={product.id}>
         <article className="product-row product-list-card" data-product-id={product.id}

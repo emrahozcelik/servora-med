@@ -217,7 +217,13 @@ export class RemoteBackupEngine {
       const phase = await this.options.repository.findRunById(run.id)
         .then((current) => (current?.status === 'RUNNING' ? current.phase : failure.retryable ? 'UPLOAD' : null));
       if (!failure.retryable) {
-        await service.markFailed(run.id, failure.failureCode, failure.summary);
+        await service.markFailed(
+          run.id,
+          failure.failureCode,
+          failure.summary,
+          undefined,
+          { eventType: 'BACKUP_FAILED' },
+        );
       }
       return {
         outcome: 'failed',

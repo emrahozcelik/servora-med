@@ -61,7 +61,10 @@ vi.mock('../src/services/api', async (original) => ({
 vi.mock('../src/services/products-api', async (original) => ({
   ...await original<typeof import('../src/services/products-api')>(), ...products,
 }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/jobs/scheduling')>()),
+  ...scheduling,
+}));
 
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',

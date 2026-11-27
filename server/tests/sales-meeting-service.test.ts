@@ -102,6 +102,9 @@ class SalesMeetingRepository implements JobCardRepository {
         ) ?? null;
       },
       getOrganizationTimezone: async () => 'Europe/Istanbul',
+      // SCH-001: the occupancy check is core and always runs; this fake has no
+      // competing plans, so it only records the call (it takes no lock).
+      assertCalendarAvailability: async () => undefined,
       findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],

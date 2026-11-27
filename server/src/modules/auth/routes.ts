@@ -7,9 +7,14 @@ import {
 import { hashSessionToken } from './crypto.js';
 import { createAuthHandlers } from './handlers.js';
 import { requireAuthentication, SESSION_COOKIE_NAME } from './middleware.js';
+import type { ModuleStateReader } from '../installation-modules/state.js';
 import type { AuthService } from './service.js';
 
-export type AuthRoutesOptions = { authService: AuthService; config: AppConfig };
+export type AuthRoutesOptions = {
+  authService: AuthService;
+  config: AppConfig;
+  moduleStateReader: ModuleStateReader;
+};
 
 /**
  * Authenticated-write budget for `POST /api/auth/change-password`.
@@ -39,7 +44,7 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, opt
     httpOnly: true, sameSite: 'lax', path: '/',
     secure: options.config.nodeEnv === 'production',
     maxAge: options.config.sessionTtlSeconds,
-  }, options.config.capabilities, options.config.support);
+  }, options.config.capabilities, options.config.support, options.moduleStateReader);
   const authenticated = requireAuthentication(options.authService);
 
   app.post('/login', {

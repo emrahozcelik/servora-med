@@ -97,4 +97,26 @@ describe('startLocationUnavailableAdvisory', () => {
     expect(message).toContain('Yönetici onayına gönderirken konum yeniden denenecek');
     expect(message).toContain('Konum servislerini açık tutmanız önemlidir');
   });
+
+  it('appends reason and OS-specific guidance when provided', () => {
+    const message = startLocationUnavailableAdvisory({
+      reason: 'PERMISSION_DENIED',
+      device: 'IOS',
+    });
+    expect(message).toContain('İş başlatıldı ancak konum alınamadı');
+    expect(message).toContain('Tarayıcıda bu site için konum iznini etkinleştirin');
+    expect(message).toContain('iPhone/iPad: Ayarlar > Gizlilik ve Güvenlik');
+  });
+
+  it('omits empty UNKNOWN reason guidance and handles device-only or reason-only input', () => {
+    const androidUnknown = startLocationUnavailableAdvisory({
+      reason: 'UNKNOWN',
+      device: 'ANDROID',
+    });
+    expect(androidUnknown).toContain('Android: Ayarlar > Konum bölümünden konumu açın');
+    expect(androidUnknown).not.toContain('Tarayıcıda bu site için konum iznini');
+
+    const timeoutOnly = startLocationUnavailableAdvisory({ reason: 'TIMEOUT' });
+    expect(timeoutOnly).toContain('Konum servislerini açık tutun ve daha net bir konum sinyaliyle');
+  });
 });

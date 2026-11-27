@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, type CurrentUser } from '../services/api';
 import { listStaff, type StaffProfile } from '../services/people-api';
 import { LoadingSkeleton, RecordDescriptions, ResultState } from '../ui/antd';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { counterState } from '../ui/counter-policy';
 import { ProgressiveCounter } from '../ui/ProgressiveCounter';
 import { JOB_CARD_ENGAGEMENT_LABELS, jobTypeLabels, DELIVERY_PURPOSE_LABELS } from './job-labels';
@@ -29,11 +30,13 @@ import {
 import { AvailableSlotsNotice } from './AvailableSlotsNotice';
 import { isDefinitiveMutationError } from './mutation-attempt-error';
 import {
+  CANONICAL_DURATION_MINUTES,
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './scheduling';
 import { CustomerScheduleNotice } from './CustomerScheduleNotice';
+import { ScheduleQuickControls } from './ScheduleQuickControls';
 import { useAvailableSlotSearch } from './useAvailableSlotSearch';
 import { useCustomerSchedulePreview } from './useCustomerSchedulePreview';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './PastStartAcknowledgementDrawer';
@@ -127,6 +130,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const sourceRef = useRef(sourceId);
   const titleInitializedSourceRef = useRef<string | null>(null);
   const assigneeInitializedSourceRef = useRef<string | null>(null);
+  const scheduleInitializedSourceRef = useRef<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -139,6 +143,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setTitle('');
     titleInitializedSourceRef.current = null;
     assigneeInitializedSourceRef.current = null;
+    scheduleInitializedSourceRef.current = null;
     setInstructions('');
     setScheduledLocal('');
     setSuggestionFeedback('');
@@ -205,30 +210,33 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
             : '');
           assigneeInitializedSourceRef.current = source.id;
         }
-        if (explicitNextFollowUpAt !== null) {
-          setScheduledLocal(isoInstantToLocalDateTime(explicitNextFollowUpAt));
-          setSuggestionFeedback('');
-        } else if (suggestionScheduledAt !== null) {
-          setScheduledLocal(isoInstantToLocalDateTime(suggestionScheduledAt));
-          setSuggestionFeedback(
-            'Sistem takip için 7 günlük hedefi başlangıç önerisi olarak gösterir. Gerekirse daha erken veya daha geç bir zaman seçebilirsiniz.',
-          );
-        } else if (shouldLoadSuggestion) {
-          // Never recreate the old misleading "now + 1 hour" default when a
-          // server-owned suggestion cannot be loaded. The form remains usable
-          // and the manager can choose a time manually.
-          setScheduledLocal('');
-          setSuggestionFeedback(
-            suggestionFailed
-              ? 'Önerilen takip zamanı yüklenemedi. Planlanan zamanı manuel olarak seçebilirsiniz.'
-              : 'Bu aralıkta otomatik öneri bulunamadı. Planlanan zamanı manuel olarak seçebilirsiniz.',
-          );
-        } else if (source.type === 'GENERAL_TASK') {
-          setScheduledLocal(defaultScheduledLocalValue(new Date()));
-          setSuggestionFeedback('');
-        } else {
-          setScheduledLocal('');
-          setSuggestionFeedback('');
+        if (scheduleInitializedSourceRef.current !== source.id) {
+          if (explicitNextFollowUpAt !== null) {
+            setScheduledLocal(isoInstantToLocalDateTime(explicitNextFollowUpAt));
+            setSuggestionFeedback('');
+          } else if (suggestionScheduledAt !== null) {
+            setScheduledLocal(isoInstantToLocalDateTime(suggestionScheduledAt));
+            setSuggestionFeedback(
+              'Sistem takip için 7 günlük hedefi başlangıç önerisi olarak gösterir. Gerekirse daha erken veya daha geç bir zaman seçebilirsiniz.',
+            );
+          } else if (shouldLoadSuggestion) {
+            // Never recreate the old misleading "now + 1 hour" default when a
+            // server-owned suggestion cannot be loaded. The form remains usable
+            // and the manager can choose a time manually.
+            setScheduledLocal('');
+            setSuggestionFeedback(
+              suggestionFailed
+                ? 'Önerilen takip zamanı yüklenemedi. Planlanan zamanı manuel olarak seçebilirsiniz.'
+                : 'Bu aralıkta otomatik öneri bulunamadı. Planlanan zamanı manuel olarak seçebilirsiniz.',
+            );
+          } else if (source.type === 'GENERAL_TASK') {
+            setScheduledLocal(defaultScheduledLocalValue(new Date()));
+            setSuggestionFeedback('');
+          } else {
+            setScheduledLocal('');
+            setSuggestionFeedback('');
+          }
+          scheduleInitializedSourceRef.current = source.id;
         }
         setState({
           kind: 'ready', source,
@@ -258,24 +266,28 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     assignedTo: assignedTo || null,
     scheduledStartLocal: scheduledLocal,
     jobCardId: null,
-    enabled: user.capabilities?.calendar === true
-      && state.kind === 'ready' && availableSlotType !== null && readySource?.customerId != null,
+    enabled: state.kind === 'ready' && availableSlotType !== null && readySource?.customerId != null,
   });
 
+  function updateScheduledLocal(nextValue: string) {
+    scheduleInitializedSourceRef.current = sourceRef.current;
+    setScheduledLocal(nextValue);
+  }
+
   function useAvailableSlot(slot: AvailableSlot) {
-    setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
+    updateScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
   }
 
   if (user.role === 'STAFF') {
-    return <main className="workspace"><ResultState status="403" title="Erişim yetkiniz yok"
+    return <main className="workspace"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="403" title="Erişim yetkiniz yok"
       description="Takip işlerini yalnız yöneticiler oluşturabilir." /></main>;
   }
   if (state.kind === 'loading') {
-    return <main className="task-create" aria-busy="true"><LoadingSkeleton
-      title="Takip işi hazırlanıyor" headingLevel={1} rows={6} /></main>;
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><LoadingSkeleton
+      title="Takip işi hazırlanıyor" rows={6} /></main>;
   }
   if (state.kind === 'error') {
-    return <main className="task-create"><ResultState status={state.status}
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status={state.status}
       title={state.status === '404' ? 'Kaynak iş bulunamadı' : state.status === '403' ? 'Erişim yetkiniz yok' : 'Takip işi hazırlanamadı'}
       description={state.message}
       action={state.status === 'error'
@@ -284,7 +296,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     </main>;
   }
   if (fatalError) {
-    return <main className="task-create"><ResultState status={fatalError.status}
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status={fatalError.status}
       title={fatalError.status === '403' ? 'Erişim yetkiniz yok' : fatalError.status === '404' ? 'Kaynak iş kullanılamıyor' : 'Takip işi oluşturulamadı'}
       description={fatalError.message}
       action={<button className="secondary-button" type="button" onClick={onCancel}>Kaynak işe dön</button>} />
@@ -293,14 +305,14 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
 
   const { source, staff } = state;
   if (source.type === 'SALE') {
-    return <main className="task-create"><ResultState status="error"
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="error"
       title="Takip işi oluşturulamaz"
       description="Satış kaydı takip işi kaynağı değildir."
       action={<button className="secondary-button" type="button" onClick={onCancel}>Kaynak işe dön</button>} />
     </main>;
   }
   if (source.status !== 'COMPLETED') {
-    return <main className="task-create"><ResultState status="error"
+    return <main className="task-create"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="error"
       title="Takip işi oluşturulamaz"
       description="Yalnız tamamlanmış bir işten yeni takip işi oluşturulabilir."
       action={<button className="secondary-button" type="button" onClick={onCancel}>Kaynak işe dön</button>} />
@@ -621,18 +633,36 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         <section className="follow-up-form-section" data-follow-up-section="planning" aria-labelledby="follow-up-planning-heading">
           <div className="follow-up-form-section-heading">
             <h2 id="follow-up-planning-heading">Planlama</h2>
-            <p>Zamanı belirleyin ve müşteri-personel ortak uygunluğunu gözden geçirin.</p>
+            <p>Zamanı belirleyin ve personelin uygun saatlerini gözden geçirin.</p>
           </div>
           <div className="task-field-pair">
-            <div className="field-group"><label htmlFor="follow-up-scheduled-at">Planlanan zaman{type === 'GENERAL_TASK' ? ' (isteğe bağlı)' : ''}</label>
-              <input id="follow-up-scheduled-at" type="datetime-local" required={type !== 'GENERAL_TASK'} value={scheduledLocal}
-                aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+            <div className="field-group">
+              <WheelDateTimeField
+                mode="datetime"
+                id="follow-up-scheduled-at"
+                value={scheduledLocal}
+                onChange={updateScheduledLocal}
+                required={type !== 'GENERAL_TASK'}
+                invalid={Boolean(fieldErrors.scheduledAt)}
                 aria-describedby={fieldErrors.scheduledAt ? 'follow-up-scheduled-at-error' : undefined}
-                onChange={(event) => setScheduledLocal(event.target.value)} />
+                label={`Planlanan zaman${type === 'GENERAL_TASK' ? ' (isteğe bağlı)' : ''}`}
+              />
+              <ScheduleQuickControls
+                value={scheduledLocal}
+                durationMinutes={CANONICAL_DURATION_MINUTES?.[type] ?? null}
+                disabled={pending || ambiguous}
+                onSelect={updateScheduledLocal}
+              />
               {fieldErrors.scheduledAt && <span id="follow-up-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}
             </div>
-            {type !== 'SALES_MEETING' && <div className="field-group"><label htmlFor="follow-up-due-date">Son tarih (isteğe bağlı)</label>
-              <input id="follow-up-due-date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            {type !== 'SALES_MEETING' && <div className="field-group">
+              <WheelDateTimeField
+                mode="date"
+                id="follow-up-due-date"
+                value={dueDate}
+                onChange={setDueDate}
+                label="Son tarih (isteğe bağlı)"
+              />
             </div>}
           </div>
           {suggestionFeedback && <p className="field-status" role="status">{suggestionFeedback}</p>}
@@ -643,6 +673,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
           {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
           <AvailableSlotsNotice
             {...availableSlotSearch}
+            selectedStartLocal={scheduledLocal}
             onSelect={useAvailableSlot}
           />
         </section>
@@ -657,6 +688,12 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       description="Planlanan başlangıç saati geçti. Takip işini oluşturmak için müşterinin güncel durumunu onaylayın."
       pending={ackPending}
       error={ackError}
+      onShiftToFuture={() => {
+        updateScheduledLocal(defaultScheduledLocalValue(new Date()));
+        setAckAttempt(null);
+        setAckError('');
+        setSubmitError('');
+      }}
       onDismiss={() => { if (!ackPending) { setAckAttempt(null); setAckError(''); } }}
       onConfirm={(acknowledgement) => { void confirmAcknowledgement(acknowledgement); }}
     />

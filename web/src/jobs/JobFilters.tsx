@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { CurrentUser } from '../services/api';
 import { FilterSheet, countTruthy } from '../ui/FilterSheet';
+import { SignalGlyph } from '../ui/signal-icons';
+import { useNarrowShell } from '../ui/useResponsive';
 import { ServoraCheckbox } from '../ui/antd';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import type { JobCardStatusFilter } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
 import { activeWorkflowStatusOptions } from './job-status-presentation';
@@ -49,25 +52,6 @@ function JobStatusOptions() {
   </>;
 }
 
-/** Compact filter sheet when shell is not desktop (same 64rem gate as AppShell). */
-function useNarrow() {
-  const desktopQuery = '(min-width: 64rem)';
-  const [narrow, setNarrow] = useState(() => (
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? !window.matchMedia(desktopQuery).matches
-      : false
-  ));
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia(desktopQuery);
-    const onChange = (event: MediaQueryListEvent) => setNarrow(!event.matches);
-    media.addEventListener('change', onChange);
-    setNarrow(!media.matches);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-  return narrow;
-}
-
 export function countActiveJobFilters(filters: JobSearchState): number {
   const membership = jobMembership(filters);
   const statusIsMembership = (membership.kind === 'approval' && filters.status === 'WAITING_APPROVAL')
@@ -97,7 +81,7 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
    * mode region stays rendered but shows an explicit, non-interactive state. */
   boardSupported: boolean;
 }) {
-  const narrow = useNarrow();
+  const narrow = useNarrowShell();
   const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [search, setSearch] = useState(filters.q ?? '');
@@ -105,6 +89,9 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
   const [draftStatus, setDraftStatus] = useState(filters.status ?? 'active');
   const [errors, setErrors] = useState<DraftErrors>({});
   const activeCount = countActiveJobFilters(filters);
+  // The compact trigger is icon-only, so the active-filter count moves from the
+  // visible label into the accessible name plus a small visible badge.
+  const filterTriggerLabel = activeCount > 0 ? `Filtreler, ${activeCount} etkin` : 'Filtreler';
 
   useEffect(() => setSearch(filters.q ?? ''), [filters.q]);
   useEffect(() => {
@@ -209,10 +196,24 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
           aria-describedby={errors.customerId ? 'job-customer-error' : undefined}
           onChange={(event) => setAdvanced({ ...advanced, customerId: event.target.value.trim() })} />
         {errors.customerId && <p className="field-error" id="job-customer-error" role="alert">{errors.customerId}</p>}</div>
-      <div className="field-group"><label htmlFor="job-due-after">Başlangıç tarihi</label>
-        <input id="job-due-after" type="date" value={advanced.dueAfter} onChange={(event) => setAdvanced({ ...advanced, dueAfter: event.target.value })} /></div>
-      <div className="field-group"><label htmlFor="job-due-before">Bitiş tarihi</label>
-        <input id="job-due-before" type="date" value={advanced.dueBefore} onChange={(event) => setAdvanced({ ...advanced, dueBefore: event.target.value })} /></div>
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="date"
+          id="job-due-after"
+          value={advanced.dueAfter}
+          onChange={(value) => setAdvanced({ ...advanced, dueAfter: value })}
+          label="Başlangıç tarihi"
+        />
+      </div>
+      <div className="field-group">
+        <WheelDateTimeField
+          mode="date"
+          id="job-due-before"
+          value={advanced.dueBefore}
+          onChange={(value) => setAdvanced({ ...advanced, dueBefore: value })}
+          label="Bitiş tarihi"
+        />
+      </div>
       <div className="job-filter-checkbox">
         <ServoraCheckbox
           id="job-follow-up"
@@ -272,15 +273,26 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
                   onChange={(event) => setSearch(event.target.value)}
                 />
               </div>
-              <button className="secondary-button job-search-submit" type="submit">Ara</button>
+              <button className="secondary-button job-search-submit" type="submit"
+                aria-label="Ara" title="Ara">
+                <SignalGlyph name="search" size={18} />
+              </button>
               <button
                 ref={filterTriggerRef}
                 type="button"
                 className="secondary-button filter-sheet-trigger"
                 aria-expanded={sheetOpen}
+                aria-label={filterTriggerLabel}
+                title={filterTriggerLabel}
+                data-filter-count={activeCount}
                 onClick={openSheet}
               >
-                {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
+                <SignalGlyph name="filter" size={18} />
+                {activeCount > 0 && (
+                  <span className="filter-sheet-trigger-count" aria-hidden="true" data-filter-badge="true">
+                    {activeCount}
+                  </span>
+                )}
               </button>
             </div>
           </form>
@@ -314,6 +326,11 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
       </div>
     );
   }
+
+  // A selected quick-view membership (Onay kuyruğu, Düzeltme, Kapalı) is not a
+  // filter: the same rule as the FilterSheet badge, so clearing never silently
+  // leaves the view the operator chose.
+  const hasAnyDesktopFilter = Boolean(filters.q?.trim()) || activeCount > 0;
 
   return (
     <div className="filter-region">
@@ -358,10 +375,17 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
           </div>
           <button className="secondary-button job-search-submit" type="submit">Ara</button>
         </div>
-        <details className="job-filter-disclosure">
-          <summary>Diğer filtreler</summary>
-          {advancedFields}
-        </details>
+        <div className="job-filter-disclosure-row">
+          <details className="job-filter-disclosure">
+            <summary>Diğer filtreler</summary>
+            {advancedFields}
+          </details>
+          {hasAnyDesktopFilter && (
+            <button type="button" className="secondary-button compact-button" onClick={clearSheet}>
+              Filtreleri temizle
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

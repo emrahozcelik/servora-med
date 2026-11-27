@@ -953,8 +953,8 @@ describe('deriveJobWorkflowPresentation', () => {
 
   it('shares job status labels for chip and presentation consumers', () => {
     expect(jobStatusLabels).toMatchObject({
-      NEW: 'Hazırlanıyor',
-      ACCEPTED: 'Atandı',
+      NEW: 'Atandı',
+      ACCEPTED: 'Kabul edildi',
       PLANNED: 'Planlandı',
       IN_PROGRESS: 'Uygulanıyor',
       WAITING_APPROVAL: 'Yönetici kontrolünde',
@@ -1009,12 +1009,12 @@ describe('deriveCompactWorkflowSummary', () => {
     expect(deriveCompactWorkflowSummary({
       job: { status: 'NEW' }, user: staff,
     })).toEqual({
-      ordinal: 1, total: 5, label: 'Hazırlanıyor', attention: false, expectedRole: 'STAFF',
+      ordinal: 1, total: 5, label: 'Atandı', attention: false, expectedRole: 'STAFF',
     });
     expect(deriveCompactWorkflowSummary({
       job: { status: 'ACCEPTED' }, user: staff,
     })).toEqual({
-      ordinal: 2, total: 5, label: 'Atandı', attention: false, expectedRole: 'STAFF',
+      ordinal: 2, total: 5, label: 'Kabul edildi', attention: false, expectedRole: 'STAFF',
     });
     expect(deriveCompactWorkflowSummary({
       job: { status: 'IN_PROGRESS' }, user: staff,
@@ -1170,11 +1170,222 @@ describe('JOB-010 release 2b assignment answers', () => {
 
     it('keeps the staff waiting-approval copy and the default copy without a pair', () => {
       expect(withPair(saleJob('WAITING_APPROVAL'), staff, 'APPROVE').description)
-        .toBe('Kayıtlar yönetici kontrolünde. Sizden şu an beklenen bir işlem yok.');
+        .toBe('İş yönetici kontrolüne gönderildi. Yönetici karar verene kadar bekleyin.');
       expect(withPair(saleJob('IN_PROGRESS'), staff, null).description)
         .toBe('Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.');
       expect(withPair(saleJob('WAITING_APPROVAL'), manager, null).description)
-        .toBe('Yönetici kayıtları inceleyerek işi tamamlar veya düzeltme ister.');
+        .toBe('Kayıtları inceleyip işi onaylayın veya düzeltme isteyin.');
+    });
+  });
+
+  describe('UI/UX Dilim 3 workflow copy and role-aware responsibility', () => {
+    it('uses consequence-led submit confirm label, clean requirement label, and clean cancel consequence', () => {
+      const inProgress = derive(jobWith({
+        status: 'IN_PROGRESS',
+        assignedTo: 's1',
+        workflowContext: contextWith({ allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'] }),
+      }), staff);
+      expect(inProgress.primaryTransition?.confirmation?.confirmLabel).toBe('Kontrole gönder');
+      expect(inProgress.secondaryTransitions.find((t) => t.command === 'CANCEL')?.consequence)
+        .toBe('İptal edilen iş yeniden açılamaz.');
+      expect(requirementLabels.SALE_ITEMS_VALID).toBe('Geçerli ürün ve miktar kayıtları');
+    });
+
+    it('renders 2nd-person responsibility for the assigned staff and 3rd-person for others', () => {
+      const newJob = jobWith({
+        status: 'NEW',
+        assignedTo: 's1',
+        assignee: { id: 's1', name: 'Ayşe Personel' },
+        workflowContext: contextWith({ allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'] }),
+      });
+      expect(derive(newJob, staff).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Şimdi sizden beklenen',
+        description: 'Atanan işi kabul ederek sorumluluğu alın.',
+      });
+      expect(derive(newJob, manager).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personel kabulü bekleniyor',
+        description: 'Atanan personelin işi kabul etmesi bekleniyor.',
+      });
+
+      const expiredNewJob = jobWith({
+        ...newJob,
+        assignmentOffer: {
+          id: 'offer-1',
+          state: 'EXPIRED',
+          openedAt: '2026-07-17T08:00:00.000Z',
+          acceptanceDueAt: '2026-07-17T08:30:00.000Z',
+          urgentReason: null,
+          assignee: { id: 's1', name: 'Ayşe Personel' },
+          closedAt: '2026-07-17T08:30:00.000Z',
+          closeReason: 'PLANNED_WINDOW_PASSED',
+          closeText: null,
+          proposedScheduledAt: null,
+          proposedScheduledEndsAt: null,
+          proposalAcceptedAt: null,
+        },
+      });
+      expect(derive(expiredNewJob, staff).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Atama teklifi süresi doldu',
+        description: 'Atama teklifinin süresi doldu. Yöneticinin yeniden atama yapması bekleniyor.',
+      });
+      expect(derive(expiredNewJob, manager).responsibility).toMatchObject({
+        role: 'MANAGEMENT',
+        title: 'Karar sizde',
+        description: 'Personel teklifi süresinde yanıtlamadı; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+
+      const acceptedStartable = jobWith({
+        status: 'ACCEPTED',
+        assignedTo: 's1',
+        assignee: { id: 's1', name: 'Ayşe Personel' },
+        scheduledAt: '2026-07-17T10:00:00.000Z',
+        earlyStartAuthorization: null,
+        workflowContext: contextWith({ allowedCommands: ['START', 'CANCEL'] }),
+      });
+      expect(derive(acceptedStartable, staff).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Şimdi sizden beklenen',
+        description: 'Kabul ettiğiniz işi uygulamak için başlatın.',
+      });
+      expect(derive(acceptedStartable, manager).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personelin başlatması bekleniyor',
+        description: 'Atanan personelin işi başlatması bekleniyor.',
+      });
+
+      const acceptedTooEarly = jobWith({
+        ...acceptedStartable,
+        workflowContext: contextWith({ allowedCommands: ['CANCEL'] }),
+      });
+      expect(derive(acceptedTooEarly, staff).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Şimdi sizden beklenen',
+        description: 'Kabul ettiğiniz iş, planlanan başlangıç saatine yaklaştığında başlatılabilir.',
+      });
+
+      const inProgress = jobWith({
+        status: 'IN_PROGRESS',
+        assignedTo: 's1',
+        assignee: { id: 's1', name: 'Ayşe Personel' },
+        workflowContext: contextWith({ allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'] }),
+      });
+      expect(derive(inProgress, staff).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Şimdi sizden beklenen',
+        description: 'Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.',
+      });
+      expect(derive(inProgress, manager).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Uygulama devam ediyor',
+        description: 'Atanan personel kayıtları tamamlayıp yönetici kontrolüne gönderecek.',
+      });
+
+      const revision = jobWith({
+        status: 'REVISION_REQUESTED',
+        assignedTo: 's1',
+        assignee: { id: 's1', name: 'Ayşe Personel' },
+        workflowContext: contextWith({ allowedCommands: ['RESUME', 'CANCEL'] }),
+      });
+      expect(derive(revision, staff).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Düzeltme gerekiyor',
+        description: 'Yönetici düzeltme istedi. Düzeltmeye başlayıp kayıtları güncelleyin.',
+      });
+      expect(derive(revision, manager).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Düzeltme gerekiyor',
+        description: 'Düzeltme istendi. Atanan personelin düzeltmeye başlaması bekleniyor.',
+      });
+
+      const waiting = jobWith({
+        status: 'WAITING_APPROVAL',
+        assignedTo: 's1',
+        assignee: { id: 's1', name: 'Ayşe Personel' },
+        workflowContext: contextWith({ allowedCommands: ['APPROVE', 'REQUEST_REVISION'] }),
+      });
+      expect(derive(waiting, manager).responsibility).toMatchObject({
+        role: 'MANAGEMENT',
+        title: 'Yönetici kontrolü',
+        description: 'Kayıtları inceleyip işi onaylayın veya düzeltme isteyin.',
+      });
+      expect(derive(waiting, admin).responsibility).toMatchObject({
+        role: 'MANAGEMENT',
+        title: 'Yönetici kontrolü',
+        description: 'Kayıtları inceleyip işi onaylayın veya düzeltme isteyin.',
+      });
+      expect(derive(waiting, staff).responsibility).toMatchObject({
+        role: 'MANAGEMENT',
+        title: 'Yönetici kontrolünde',
+        description: 'İş yönetici kontrolüne gönderildi. Yönetici karar verene kadar bekleyin.',
+      });
+    });
+
+    it('hands a closed assignment offer back to management with a state-specific description', () => {
+      const base = jobWith({
+        status: 'NEW',
+        assignedTo: 's1',
+        assignee: { id: 's1', name: 'Ayşe Personel' },
+        workflowContext: contextWith({ allowedCommands: ['CANCEL'] }),
+      });
+      const closed = (offer: Partial<NonNullable<typeof base.assignmentOffer>>) => jobWith({
+        ...base,
+        assignmentOffer: {
+          id: 'offer-1',
+          state: 'DECLINED',
+          openedAt: '2026-07-17T08:00:00.000Z',
+          acceptanceDueAt: '2026-07-17T08:30:00.000Z',
+          urgentReason: null,
+          assignee: { id: 's1', name: 'Ayşe Personel' },
+          closedAt: '2026-07-17T08:20:00.000Z',
+          closeReason: 'SCHEDULE_CONFLICT',
+          closeText: 'Önümüzdeki haftaya ziyaret sağlanacak',
+          proposedScheduledAt: null,
+          proposedScheduledEndsAt: null,
+          proposalAcceptedAt: null,
+          ...offer,
+        },
+      });
+
+      expect(derive(closed({}), manager).responsibility).toMatchObject({
+        role: 'MANAGEMENT',
+        title: 'Karar sizde',
+        description: 'Personel görevi reddetti; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+      expect(derive(closed({ state: 'RELEASED' }), manager).responsibility).toMatchObject({
+        title: 'Karar sizde',
+        description: 'Personel görevi geri bıraktı; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+      expect(derive(closed({ state: 'EXPIRED' }), manager).responsibility).toMatchObject({
+        title: 'Karar sizde',
+        description: 'Personel teklifi süresinde yanıtlamadı; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+      expect(derive(closed({
+        state: 'WITHDRAWN', closeReason: 'PLANNED_WINDOW_PASSED',
+      }), manager).responsibility).toMatchObject({
+        title: 'Karar sizde',
+        description: 'Planlanan zaman geçti; yeni zaman belirleyin veya sorumlu personeli değiştirin.',
+      });
+
+      // A withdrawal from acting already opened a newer offer: the plain copy stays.
+      expect(derive(closed({ state: 'WITHDRAWN', closeReason: 'RESCHEDULED' }), manager)
+        .responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personel kabulü bekleniyor',
+      });
+      // An open offer still waits for the Staff answer.
+      expect(derive(closed({ state: 'OPEN', closedAt: null, closeReason: null, closeText: null }), manager)
+        .responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personel kabulü bekleniyor',
+      });
+      // The accepted answer keeps its own branch.
+      expect(derive(closed({ state: 'ACCEPTED' }), manager).responsibility).toMatchObject({
+        role: 'STAFF',
+        title: 'Personel kabulü bekleniyor',
+      });
     });
   });
 });

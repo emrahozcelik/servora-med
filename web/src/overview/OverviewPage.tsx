@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { OpenSubmissionLateSection } from '../jobs/SubmissionLateness';
@@ -81,10 +81,15 @@ function OverviewList({ children }: { children: ReactNode }) {
 export function OverviewPage({
   user,
   load = getOverview,
+  onUnavailable,
 }: {
   user: CurrentUser;
   load?: () => Promise<OverviewResponse>;
+  /** Called when the server answers 404: the module may have been switched off (MOD-002 §8). */
+  onUnavailable?: () => void;
 }) {
+  const onUnavailableRef = useRef(onUnavailable);
+  useEffect(() => { onUnavailableRef.current = onUnavailable; });
   const [state, setState] = useState<
     { kind: 'loading' }
     | { kind: 'error'; message: string }
@@ -100,6 +105,7 @@ export function OverviewPage({
         kind: 'error',
         message: error instanceof Error ? error.message : 'Genel bakış yüklenemedi.',
       });
+      if ((error as { status?: unknown } | null)?.status === 404) onUnavailableRef.current?.();
     }
   }, [load]);
 
@@ -190,7 +196,9 @@ export function OverviewPage({
         {
           label: 'Kontrol bekleyen',
           value: overview.waitingApproval,
-          href: paths.approvalReports,
+          // The actionable queue is the Jobs "Onay kuyruğu" view; the approval
+          // report under Raporlar is analysis, not the place to decide.
+          href: `${paths.jobs}?status=WAITING_APPROVAL`,
           tone: 'default' as const,
           statusPhrase: overview.waitingApproval > 0 ? 'Yönetici değerlendirmesinde' : 'Bekleyen onay yok',
         },
@@ -251,7 +259,7 @@ export function OverviewPage({
               ) : (
                 <p className="overview-queue-count">Kontrol bekleyen iş yok.</p>
               )}
-              <Link className="overview-queue-link" to={paths.approvalReports}>
+              <Link className="overview-queue-link" to={`${paths.jobs}?status=WAITING_APPROVAL`}>
                 Onay kuyruğuna git
               </Link>
             </OperationalCard>
@@ -330,6 +338,10 @@ export function OverviewPage({
           <section className="overview-section" aria-labelledby="work-type-dist-title">
             <h2 id="work-type-dist-title">İş dağılımı</h2>
             <OperationalCard title="Türlere göre iş dağılımı">
+              {/* Counts are JobCards created in the overview period (reports module). */}
+              <p className="overview-distribution-period">
+                Bu dönemde oluşturulan işler · {formatOverviewDate(overview.range.from, timeZone)} – {formatOverviewDate(overview.range.to, timeZone)}
+              </p>
               <ul className="overview-distribution-list">
                 {overview.workTypeDistribution.map((item) => (
                   <li key={item.type}>

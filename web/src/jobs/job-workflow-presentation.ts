@@ -1,6 +1,7 @@
 import type { CurrentUser } from '../services/api';
 import { jobStatusLabels } from './job-labels';
 import type {
+  AssignmentOffer,
   DeliveryItem,
   FollowUpCycleEndReason,
   JobCard,
@@ -103,7 +104,7 @@ export const requirementLabels: Record<SubmissionRequirement['code'], string> = 
   SALE_ORIGIN_VALID: 'Geçerli kaynak ziyaret',
   SALE_TIME_VALID: 'Gerçekleşen satış zamanı',
   SALE_ITEM_PRESENT: 'En az bir satış ürünü',
-  SALE_ITEMS_VALID: 'Geçerli ürün ve miktar snapshot’ları',
+  SALE_ITEMS_VALID: 'Geçerli ürün ve miktar kayıtları',
   CUSTOMER_ELIGIBLE: 'Aktif ve geçerli müşteri',
   ASSIGNEE_ELIGIBLE: 'Aktif ve uygun sorumlu personel',
   DELIVERY_ITEM_PRESENT: 'En az bir ürün kalemi',
@@ -308,7 +309,7 @@ function commandCopy(
             ...(mandatoryFollowUp ? ['Takip işi planı işle birlikte yöneticiye iletilir'] : []),
             'İş geçmişine kayıt ekler',
           ],
-          confirmLabel: 'Tamamla ve yönetici onayına gönder',
+          confirmLabel: 'Kontrole gönder',
         },
       };
     case 'APPROVE':
@@ -352,7 +353,7 @@ function commandCopy(
     case 'CANCEL':
       return {
         label: 'İşi iptal et',
-        consequence: 'İptal terminaldir; iş yeniden açılamaz.',
+        consequence: 'İptal edilen iş yeniden açılamaz.',
         successMessage: 'İş iptal edildi.',
       };
   }
@@ -447,13 +448,41 @@ function derivePhaseItems(
   };
 }
 
+/**
+ * JOB-010 recovery copy: what a closed offer leaves management to do. Null when
+ * the offer still waits for an answer, or was withdrawn by an action that
+ * already opened a newer offer.
+ */
+function closedOfferRecoveryDescription(offer: AssignmentOffer): string | null {
+  const nextStep = 'yeni zaman belirleyin veya sorumlu personeli değiştirin.';
+  switch (offer.state) {
+    case 'DECLINED':
+      return `Personel görevi reddetti; ${nextStep}`;
+    case 'RELEASED':
+      return `Personel görevi geri bıraktı; ${nextStep}`;
+    case 'EXPIRED':
+      return `Personel teklifi süresinde yanıtlamadı; ${nextStep}`;
+    case 'WITHDRAWN':
+      return offer.closeReason === 'PLANNED_WINDOW_PASSED'
+        ? `Planlanan zaman geçti; ${nextStep}`
+        : null;
+    case 'OPEN':
+    case 'ACCEPTED':
+      return null;
+  }
+}
+
 function responsibilityFor(
   status: JobCardStatus,
   role: ExpectedRole,
   user: CurrentUser,
-  lifecycle: JobLifecycleFacts,
+  job: JobCard,
+  workflowContext: JobWorkflowContext,
   pairManagedCommand: LifecycleCommand | null,
 ): JobWorkflowPresentation['responsibility'] {
+  const { lifecycle, allowedCommands } = workflowContext;
+  const viewerIsAssignee = user.role === 'STAFF' && job.assignee.id === user.id;
+  const viewerIsManagement = user.role === 'MANAGER' || user.role === 'ADMIN';
   const pairManaged = (description: string): JobWorkflowPresentation['responsibility'] => ({
     role,
     title: 'Şimdi sizden beklenen',
@@ -470,19 +499,70 @@ function responsibilityFor(
   };
 
   switch (status) {
-    case 'NEW':
-      return {
-        role,
-        title: 'Şimdi sizden beklenen',
-        description: 'Atanan işi kabul ederek sorumluluğu alın.',
-        consequence: null,
-        submission: null,
-      };
+    case 'NEW': {
+      // A closed offer leaves the next move with management: the plain
+      // "waiting for Staff acceptance" line would be wrong.
+      if (viewerIsManagement && job.assignmentOffer != null) {
+        const recoveryDescription = closedOfferRecoveryDescription(job.assignmentOffer);
+        if (recoveryDescription !== null) {
+          return {
+            role: 'MANAGEMENT',
+            title: 'Karar sizde',
+            description: recoveryDescription,
+            consequence: null,
+            submission: null,
+          };
+        }
+      }
+      if (job.assignmentOffer?.state === 'EXPIRED') {
+        return viewerIsAssignee
+          ? {
+            role: 'STAFF',
+            title: 'Atama teklifi süresi doldu',
+            description: 'Atama teklifinin süresi doldu. Yöneticinin yeniden atama yapması bekleniyor.',
+            consequence: null,
+            submission: null,
+          }
+          : {
+            role: 'STAFF',
+            title: 'Atama teklifi yanıtlanmadı',
+            description: 'Atama teklifi süresi dolduğu için yeniden atama yapılması gerekiyor.',
+            consequence: null,
+            submission: null,
+          };
+      }
+      return viewerIsAssignee
+        ? {
+          role,
+          title: 'Şimdi sizden beklenen',
+          description: 'Atanan işi kabul ederek sorumluluğu alın.',
+          consequence: null,
+          submission: null,
+        }
+        : {
+          role,
+          title: 'Personel kabulü bekleniyor',
+          description: 'Atanan personelin işi kabul etmesi bekleniyor.',
+          consequence: null,
+          submission: null,
+        };
+    }
     case 'ACCEPTED':
+      if (!viewerIsAssignee) {
+        return {
+          role,
+          title: 'Personelin başlatması bekleniyor',
+          description: 'Atanan personelin işi başlatması bekleniyor.',
+          consequence: null,
+          submission: null,
+        };
+      }
       return {
         role,
         title: 'Şimdi sizden beklenen',
-        description: 'Kabul ettiğiniz işi uygulamak için başlatın.',
+        description: !allowedCommands.includes('START') && job.scheduledAt && !job.earlyStartAuthorization && job.type !== 'SALE'
+          ? 'Kabul ettiğiniz iş, planlanan başlangıç saatine yaklaştığında başlatılabilir.'
+          : 'Kabul ettiğiniz işi uygulamak için başlatın.',
         consequence: null,
         submission: null,
       };
@@ -491,13 +571,21 @@ function responsibilityFor(
         return pairManaged('Bu satış kaydı bağlı ziyaretle birlikte gönderilir. '
           + 'Ziyaret kartını açıp ziyareti kontrole gönderin.');
       }
-      return {
-        role,
-        title: 'Şimdi sizden beklenen',
-        description: 'Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.',
-        consequence: null,
-        submission: null,
-      };
+      return viewerIsAssignee
+        ? {
+          role,
+          title: 'Şimdi sizden beklenen',
+          description: 'Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.',
+          consequence: null,
+          submission: null,
+        }
+        : {
+          role,
+          title: 'Uygulama devam ediyor',
+          description: 'Atanan personel kayıtları tamamlayıp yönetici kontrolüne gönderecek.',
+          consequence: null,
+          submission: null,
+        };
     case 'REVISION_REQUESTED':
       if (pairManagedCommand === 'RESUME') {
         return {
@@ -509,13 +597,14 @@ function responsibilityFor(
       return {
         role,
         title: 'Düzeltme gerekiyor',
-        description: 'Yönetici düzeltme istedi. Düzeltmeye başlayıp kayıtları güncelleyin.',
+        description: viewerIsAssignee
+          ? 'Yönetici düzeltme istedi. Düzeltmeye başlayıp kayıtları güncelleyin.'
+          : 'Düzeltme istendi. Atanan personelin düzeltmeye başlaması bekleniyor.',
         consequence: null,
         submission: null,
       };
     case 'WAITING_APPROVAL': {
-      const staffViewer = user.role === 'STAFF';
-      if (!staffViewer && pairManagedCommand === 'APPROVE') {
+      if (viewerIsManagement && pairManagedCommand === 'APPROVE') {
         return {
           ...pairManaged('Bu satış kaydı bağlı ziyaretle birlikte onaylanır. '
             + 'Onayı ziyaret kartından verin.'),
@@ -525,10 +614,10 @@ function responsibilityFor(
       }
       return {
         role,
-        title: staffViewer ? 'Yönetici kontrolünde' : 'Yönetici kontrolü',
-        description: staffViewer
-          ? 'Kayıtlar yönetici kontrolünde. Sizden şu an beklenen bir işlem yok.'
-          : 'Yönetici kayıtları inceleyerek işi tamamlar veya düzeltme ister.',
+        title: viewerIsManagement ? 'Yönetici kontrolü' : 'Yönetici kontrolünde',
+        description: viewerIsManagement
+          ? 'Kayıtları inceleyip işi onaylayın veya düzeltme isteyin.'
+          : 'İş yönetici kontrolüne gönderildi. Yönetici karar verene kadar bekleyin.',
         consequence: null,
         submission: submissionFacts(),
       };
@@ -810,7 +899,7 @@ export function deriveJobWorkflowPresentation(
   }
 
   const responsibility = responsibilityFor(
-    job.status, expectedRole, user, lifecycle, input.pairManagedCommand ?? null,
+    job.status, expectedRole, user, job, workflowContext, input.pairManagedCommand ?? null,
   );
   if (primaryTransition) {
     responsibility.consequence = primaryTransition.consequence;

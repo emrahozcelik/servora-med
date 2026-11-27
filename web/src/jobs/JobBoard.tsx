@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
+import { JobTypeIcon, StatusSignalIcon } from '../ui/signal-icons';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardBoard, JobCardListItem } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
@@ -29,6 +30,7 @@ function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
       <Link to={paths.job(job.id)}>
         <strong className="job-board-card-title">{job.title}</strong>
         <span className="job-board-type">
+          <JobTypeIcon type={job.type} engagementKind={job.engagementKind} size={14} />
           {job.type === 'SALES_MEETING'
             ? jobEngagementLabel(job.engagementKind)
             : jobTypeLabels[job.type]}
@@ -122,7 +124,9 @@ export function JobBoard({ board, user, params, visibleStatus, compact = false }
               <header className="workflow-lane-heading">
                 <h2 id={headingId} className={`job-status-${status.toLowerCase()}`}>
                   <span className="workflow-lane-label">
-                    <span className="job-status-shape" aria-hidden="true" />
+                    <span className="job-status-shape" aria-hidden="true">
+                      <StatusSignalIcon status={status} className="job-status-icon" size={15} />
+                    </span>
                     <span className="workflow-lane-status">{label}</span>
                   </span>
                   <strong className="workflow-lane-count">{column.count}</strong>

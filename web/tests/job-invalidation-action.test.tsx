@@ -42,6 +42,7 @@ describe('JobInvalidationAction', () => {
       );
     });
 
+    expect(host.querySelector('#job-invalidation-title')?.textContent).toBe('Kaydı geçersiz kıl');
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[data-job-invalidation-trigger]')?.click();
@@ -56,6 +57,8 @@ describe('JobInvalidationAction', () => {
     });
     expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(host.querySelectorAll('[role="dialog"] [role="dialog"]')).toHaveLength(0);
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Bu işlem iş kaydını silmez.');
+    expect(host.querySelector('[role="dialog"]')?.textContent).not.toContain('JobCard');
 
     await act(async () => {
       Array.from(host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))

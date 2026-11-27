@@ -7,15 +7,22 @@
  * mobile shell spacing (0.5rem top padding, first-child top margin removed), so
  * the measurements reflect the merged shell contract:
  *
- *  - at 390×844 the primary command of a Staff IN_PROGRESS job and of a Manager
- *    WAITING_APPROVAL job is fully inside the first viewport,
- *  - the responsibility panel precedes the compact lifecycle summary,
- *  - the compact summary is a closed native disclosure with a >=44px target,
+ *  - at 390×844 the primary command of a typical job is fully inside the first
+ *    screen band, which excludes both the in-flow sticky top bar (3.75rem) and
+ *    the fixed bottom navigation (3.75rem),
+ *  - the lifecycle strip sits directly below the heading on both viewports; on
+ *    narrow shells the compact five-marker summary comes first and the
+ *    responsibility panel with its primary commands follows it,
+ *  - the compact summary is a closed native disclosure with a >=44px target and
+ *    stays a one-row strip (<=56px) with five phase markers,
  *  - the revision/attention state renders Delay Amber with text and never Ant's
  *    error status,
  *  - manager lateness history is a collapsed disclosure below the record
- *    details on mobile and stays expanded above the workflow on desktop,
+ *    details on mobile and above the workflow on desktop,
  *  - desktop keeps the horizontal five-step stepper and the rail decision group.
+ *
+ * The open-lateness stress case is recorded as a bounded exception (see
+ * OPEN_LATENESS_CASE); the rows include its real viewport position.
  *
  * Usage: node scripts/job-detail-mobile-priority-geometry.mjs
  * Env: SERVORA_CHROME_PATH overrides the Chromium executable.
@@ -50,9 +57,22 @@ const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
 const MOBILE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
 const MIN_TARGET_PX = 44;
-// The fixture reproduces the composed mobile shell spacing above; only the
-// sticky mobile top bar (4.5rem) still sits above the page at 390x844.
-const SHELL_CHROME_ALLOWANCE = 72;
+// Real 390x844 shell chrome (web/src/styles.css): the sticky mobile top bar is
+// `min-height: 3.75rem` (60px, in flow) and the fixed bottom navigation is also
+// `min-height: 3.75rem` (60px, overlaying the page, border-box). The fixture
+// mounts the panel at y=0 without either bar, so the visible first-screen band
+// ends at 844 - 60 (bottom nav) - 60 (top bar) = 724 in fixture coordinates.
+const TOP_BAR_HEIGHT = 60;
+const BOTTOM_NAV_HEIGHT = 60;
+const FIRST_SCREEN_LIMIT = MOBILE.height - BOTTOM_NAV_HEIGHT - TOP_BAR_HEIGHT;
+// Owner decision 2026-11-25 moved the lifecycle strip above the responsibility
+// panel. The open-lateness stress case (`staff-late`) cannot fit the strip, the
+// open lateness warning, the responsibility panel and the command group above
+// the fixed bottom navigation at 390x844: with both bars its primary command
+// starts near y=833 and is not on the first screen. It stays a recorded budget
+// so the case cannot get worse; baseline jobs keep the strict limit above.
+const OPEN_LATENESS_CASE = 'staff-late';
+const OPEN_LATENESS_PRIMARY_BOTTOM_BUDGET = 817;
 const captureDir = process.env.JOB_DETAIL_PRIORITY_CAPTURE_DIR;
 
 const failures = [];
@@ -110,10 +130,29 @@ async function measure(page) {
     const primary = document.querySelector('[data-job-decision-panel="true"] .primary-button');
     const responsibility = document.querySelector('[data-job-detail-section="responsibility"]');
     const lifecycle = document.querySelector('[data-job-detail-section="lifecycle"]');
+    const heading = document.querySelector('[data-job-detail-section="heading"]');
     const actions = document.querySelector('[data-job-detail-section="actions"]');
     const facts = document.querySelector('[data-job-detail-section="facts"]');
     const lateness = document.querySelector('[data-job-detail-section="lateness-history"]');
     const rail = document.querySelector('[data-job-detail-rail="true"]');
+    const stages = document.querySelector('[data-workflow-stages="true"]');
+    const earlyStart = document.querySelector('[data-early-start-authorization="idle"]');
+    const earlyStartReveal = document.querySelector('[data-early-start-authorization-reveal="true"]');
+    const schedule = document.querySelector('.job-schedule-edit');
+    const revisionSection = document.querySelector('[data-job-detail-section="revision"]');
+    // Spacing audit 2026-11-25: the narrow decision panel must keep a real gap to
+    // the surface that follows, and the schedule quick chips must not touch.
+    const chips = [...document.querySelectorAll('.schedule-quick-chip')]
+      .map((chip) => chip.getBoundingClientRect())
+      .sort((a, b) => (Math.abs(a.top - b.top) > 2 ? a.top - b.top : a.left - b.left));
+    const chipRows = new Map();
+    for (const chip of chips) {
+      const key = Math.round(chip.top);
+      chipRows.set(key, [...(chipRows.get(key) ?? []), chip]);
+    }
+    const chipGaps = [...chipRows.values()]
+      .flatMap((row) => row.slice(1).map((chip, index) => chip.left - row[index].right));
+    const chipGap = chipGaps.length > 0 ? Math.min(...chipGaps) : null;
     const probe = document.createElement('span');
     probe.style.color = 'var(--warning)';
     probe.style.backgroundColor = 'var(--warning-soft)';
@@ -135,13 +174,25 @@ async function measure(page) {
       } : null,
       responsibilityTop: round(responsibility?.getBoundingClientRect().top ?? null),
       lifecycleTop: round(lifecycle?.getBoundingClientRect().top ?? null),
+      lifecycleBottom: round(lifecycle?.getBoundingClientRect().bottom ?? null),
+      headingTop: round(heading?.getBoundingClientRect().top ?? null),
       actionsTop: round(actions?.getBoundingClientRect().top ?? null),
+      actionsBottom: round(actions?.getBoundingClientRect().bottom ?? null),
+      hasRevisionSection: revisionSection !== null,
+      chipGap: round(chipGap),
       factsTop: round(facts?.getBoundingClientRect().top ?? null),
       latenessTop: round(lateness?.getBoundingClientRect().top ?? null),
       compact: disclosure ? {
         open: disclosure.hasAttribute('open'),
         summaryText: summary?.textContent ?? null,
         summaryHeight: round(summary?.getBoundingClientRect().height ?? null),
+        height: round(disclosure.getBoundingClientRect().height),
+      } : null,
+      stages: stages ? {
+        count: stages.querySelectorAll('[data-stage-state]').length,
+        states: Array.from(stages.querySelectorAll('[data-stage-state]'))
+          .map((marker) => marker.getAttribute('data-stage-state')),
+        height: round(stages.getBoundingClientRect().height),
       } : null,
       horizontalSteps: document.querySelector('.servora-ant-steps-horizontal') !== null,
       attentionInSummary: attentionSummary !== null,
@@ -167,6 +218,15 @@ async function measure(page) {
       } : null,
       historyTop: round(historyRegion?.getBoundingClientRect().top ?? null),
       decisionInRail: rail !== null && rail.contains(document.querySelector('[data-job-decision-panel="true"]')),
+      earlyStart: earlyStart ? {
+        top: round(earlyStart.getBoundingClientRect().top),
+        height: round(earlyStart.getBoundingClientRect().height),
+        inMain: earlyStart.closest('.job-detail-main') !== null,
+        revealHeight: round(earlyStartReveal?.getBoundingClientRect().height ?? null),
+        revealExpanded: earlyStartReveal?.getAttribute('aria-expanded') ?? null,
+        detailHidden: document.querySelector('#early-start-authorization-detail')?.hidden ?? null,
+        scheduleTop: round(schedule?.getBoundingClientRect().top ?? null),
+      } : null,
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       minTarget: minTarget,
     };
@@ -212,7 +272,21 @@ try {
   for (const fixtureCase of ['staff-in-progress', 'manager-waiting', 'revision', 'manager-late-history', 'staff-late']) {
     const { page, errors } = await openCase(browser, url, fixtureCase, MOBILE);
     const m = await measure(page);
-    rows.push({ case: fixtureCase, layout: 'mobile', ...m });
+    const firstScreen = {
+      topBar: TOP_BAR_HEIGHT,
+      bottomNav: BOTTOM_NAV_HEIGHT,
+      // The fixture has no shell chrome, so its y=0 is the content start below
+      // the sticky top bar and the visible band ends at FIRST_SCREEN_LIMIT.
+      visibleTop: TOP_BAR_HEIGHT,
+      visibleBottom: MOBILE.height - BOTTOM_NAV_HEIGHT,
+      limitInFixture: FIRST_SCREEN_LIMIT,
+      primaryViewportTop: m.primary ? Math.round((m.primary.top + TOP_BAR_HEIGHT) * 10) / 10 : null,
+      primaryViewportBottom: m.primary ? Math.round((m.primary.bottom + TOP_BAR_HEIGHT) * 10) / 10 : null,
+      primaryFullyVisible: m.primary
+        ? m.primary.bottom + TOP_BAR_HEIGHT <= MOBILE.height - BOTTOM_NAV_HEIGHT
+        : null,
+    };
+    rows.push({ case: fixtureCase, layout: 'mobile', ...m, firstScreen });
     await capture(page, `mobile-${fixtureCase}`);
 
     invariant(errors.length === 0, `${fixtureCase}@390: page errors ${errors.join(' | ')}`);
@@ -220,28 +294,69 @@ try {
     invariant(m.primary !== null, `${fixtureCase}@390: no primary command rendered`);
     if (m.primary) {
       invariant(m.primary.top >= 0, `${fixtureCase}@390: primary command starts above the viewport (${m.primary.top})`);
-      invariant(
-        m.primary.bottom <= m.viewport.height - SHELL_CHROME_ALLOWANCE,
-        `${fixtureCase}@390: primary command bottom ${m.primary.bottom} is below the first screen `
-          + `(${m.viewport.height - SHELL_CHROME_ALLOWANCE} usable px after shell chrome)`,
-      );
+      if (fixtureCase === OPEN_LATENESS_CASE) {
+        // Documented UI-005 exception: not on the first screen, but must not
+        // regress past the recorded budget.
+        invariant(
+          m.primary.bottom <= OPEN_LATENESS_PRIMARY_BOTTOM_BUDGET,
+          `${fixtureCase}@390: primary command bottom ${m.primary.bottom} exceeds the recorded `
+            + `first-screen exception budget ${OPEN_LATENESS_PRIMARY_BOTTOM_BUDGET}`,
+        );
+        invariant(
+          firstScreen.primaryFullyVisible === false,
+          `${fixtureCase}@390: the exception no longer applies; move it back to the strict first-screen check`,
+        );
+      } else {
+        invariant(
+          m.primary.bottom <= FIRST_SCREEN_LIMIT,
+          `${fixtureCase}@390: primary command bottom ${m.primary.bottom} is below the visible first `
+            + `screen band (${FIRST_SCREEN_LIMIT} fixture px = y<=${MOBILE.height - BOTTOM_NAV_HEIGHT} in the viewport)`,
+        );
+        invariant(
+          firstScreen.primaryFullyVisible === true,
+          `${fixtureCase}@390: primary command viewport bottom ${firstScreen.primaryViewportBottom} `
+            + `is under the fixed bottom navigation (${MOBILE.height - BOTTOM_NAV_HEIGHT})`,
+        );
+      }
       invariant(m.primary.height >= MIN_TARGET_PX, `${fixtureCase}@390: primary target height ${m.primary.height}px`);
     }
     invariant(
-      m.responsibilityTop !== null && m.lifecycleTop !== null && m.responsibilityTop < m.lifecycleTop,
-      `${fixtureCase}@390: responsibility (${m.responsibilityTop}) is not above the lifecycle summary (${m.lifecycleTop})`,
+      m.headingTop !== null && m.lifecycleTop !== null && m.headingTop < m.lifecycleTop,
+      `${fixtureCase}@390: lifecycle strip (${m.lifecycleTop}) is not directly below the heading (${m.headingTop})`,
     );
     invariant(
-      m.actionsTop !== null && m.actionsTop < m.lifecycleTop,
-      `${fixtureCase}@390: primary command group (${m.actionsTop}) is not above the lifecycle summary (${m.lifecycleTop})`,
+      m.lifecycleTop !== null && m.responsibilityTop !== null && m.lifecycleTop < m.responsibilityTop,
+      `${fixtureCase}@390: lifecycle strip (${m.lifecycleTop}) is not above the responsibility panel (${m.responsibilityTop})`,
     );
+    invariant(
+      m.actionsTop !== null && m.responsibilityTop !== null && m.responsibilityTop < m.actionsTop,
+      `${fixtureCase}@390: responsibility panel (${m.responsibilityTop}) is not above the primary commands (${m.actionsTop})`,
+    );
+    // Spacing audit: the narrow decision panel must not be glued to the surface
+    // below it (revision cases insert the revision panel in between).
+    if (!m.hasRevisionSection) {
+      invariant(
+        m.actionsBottom !== null && m.factsTop !== null && m.factsTop - m.actionsBottom >= 8,
+        `${fixtureCase}@390: decision panel (${m.actionsBottom}) touches the next surface (${m.factsTop})`,
+      );
+    }
     invariant(m.compact !== null, `${fixtureCase}@390: compact lifecycle summary missing`);
     if (m.compact) {
       invariant(m.compact.open === false, `${fixtureCase}@390: compact summary is expanded by default`);
       invariant(m.compact.summaryHeight >= MIN_TARGET_PX,
         `${fixtureCase}@390: summary target height ${m.compact.summaryHeight}px`);
+      invariant(m.compact.height <= 56,
+        `${fixtureCase}@390: compact lifecycle strip occupies ${m.compact.height}px, expected <=56px`);
       invariant((m.compact.summaryText ?? '').includes('/ 5'),
         `${fixtureCase}@390: compact summary lacks the ordinal phase ("${m.compact.summaryText}")`);
+    }
+    invariant(m.stages !== null && m.stages.count === 5,
+      `${fixtureCase}@390: expected five phase markers, got ${m.stages?.count ?? 'none'}`);
+    if (m.stages) {
+      invariant(
+        m.stages.states.includes('current') || m.stages.states.includes('attention'),
+        `${fixtureCase}@390: no current/attention phase marker (${m.stages.states.join(',')})`,
+      );
     }
     invariant(m.horizontalSteps === false, `${fixtureCase}@390: horizontal stepper rendered on mobile`);
     invariant(m.errorStep === false, `${fixtureCase}@390: Ant error step status rendered`);
@@ -314,6 +429,36 @@ try {
     await page.close();
   }
 
+  // JOB-010 §1a: the early-start offer follows the schedule form inside the main
+  // column and stays a compact one-row idle state on both viewports.
+  for (const [label, viewport] of [['390', MOBILE], ['1440', DESKTOP]]) {
+    const { page, errors } = await openCase(browser, url, 'manager-early-start', viewport);
+    const m = await measure(page);
+    rows.push({ case: 'manager-early-start', layout: `early-start-${label}`, ...m });
+    await capture(page, `early-start-${label}`);
+    invariant(errors.length === 0, `manager-early-start@${label}: page errors ${errors.join(' | ')}`);
+    invariant(m.pageOverflow <= 1, `manager-early-start@${label}: page overflow ${m.pageOverflow}px`);
+    invariant(m.earlyStart !== null, `manager-early-start@${label}: early-start panel missing`);
+    if (m.earlyStart) {
+      invariant(m.earlyStart.inMain, `manager-early-start@${label}: early-start panel left the main column`);
+      invariant(
+        m.earlyStart.scheduleTop !== null && m.earlyStart.scheduleTop < m.earlyStart.top,
+        `manager-early-start@${label}: early-start panel (${m.earlyStart.top}) is not below the schedule form (${m.earlyStart.scheduleTop})`,
+      );
+      invariant(m.earlyStart.revealExpanded === 'false',
+        `manager-early-start@${label}: help/confirm flow is expanded by default`);
+      invariant(m.earlyStart.detailHidden === true,
+        `manager-early-start@${label}: collapsed detail is not hidden`);
+      invariant((m.earlyStart.revealHeight ?? 0) >= MIN_TARGET_PX,
+        `manager-early-start@${label}: reveal target ${m.earlyStart.revealHeight}px`);
+      invariant(m.earlyStart.height <= 132,
+        `manager-early-start@${label}: idle early-start panel occupies ${m.earlyStart.height}px`);
+    }
+    invariant(m.chipGap === null || m.chipGap >= 8,
+      `manager-early-start@${label}: schedule quick chips touch (${m.chipGap}px gap)`);
+    await page.close();
+  }
+
   for (const fixtureCase of ['staff-in-progress', 'manager-waiting', 'revision', 'manager-late-history']) {
     const { page, errors } = await openCase(browser, url, fixtureCase, DESKTOP);
     const m = await measure(page);
@@ -327,6 +472,10 @@ try {
     invariant(
       m.lifecycleTop !== null && m.responsibilityTop !== null && m.lifecycleTop < m.responsibilityTop,
       `${fixtureCase}@1440: lifecycle (${m.lifecycleTop}) is not above responsibility (${m.responsibilityTop})`,
+    );
+    invariant(
+      m.headingTop !== null && m.lifecycleTop !== null && m.headingTop < m.lifecycleTop,
+      `${fixtureCase}@1440: lifecycle strip (${m.lifecycleTop}) is not directly below the heading (${m.headingTop})`,
     );
     invariant(m.errorStep === false, `${fixtureCase}@1440: Ant error step status rendered`);
     if (fixtureCase === 'revision') {
@@ -343,9 +492,14 @@ try {
       }
     }
     if (fixtureCase === 'manager-late-history') {
-      invariant(m.historyDisclosure === null, 'manager-late-history@1440: history collapsed on desktop');
-      invariant(m.historyTop !== null && m.lifecycleTop !== null && m.historyTop < m.lifecycleTop,
-        `manager-late-history@1440: lateness history (${m.historyTop}) is not above the workflow (${m.lifecycleTop})`);
+      invariant(
+        m.historyDisclosure !== null && !m.historyDisclosure.open,
+        'manager-late-history@1440: history is not a collapsed disclosure on desktop',
+      );
+      invariant(m.historyTop !== null && m.lifecycleTop !== null && m.historyTop > m.lifecycleTop,
+        `manager-late-history@1440: lateness history (${m.historyTop}) is not below the lifecycle strip (${m.lifecycleTop})`);
+      invariant(m.historyTop !== null && m.responsibilityTop !== null && m.historyTop < m.responsibilityTop,
+        `manager-late-history@1440: lateness history (${m.historyTop}) is not above the responsibility panel (${m.responsibilityTop})`);
     }
     await page.close();
   }

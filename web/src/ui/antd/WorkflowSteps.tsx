@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Steps } from 'antd';
 
+import { SignalGlyph } from '../signal-icons';
+
 export type WorkflowStepState = 'complete' | 'current' | 'upcoming' | 'skipped' | 'attention';
 
 export type WorkflowStepItem = Readonly<{
@@ -44,6 +46,33 @@ const STATE_ICON: Partial<Record<WorkflowStepState, string>> = {
 function attentionIcon(): ReactNode {
   return (
     <span className="servora-workflow-attention-icon" aria-hidden="true">!</span>
+  );
+}
+
+/**
+ * UI-005 compact strip: five small phase markers joined by a line. The markers
+ * are decorative (the ordered list below carries the phase names), so they stay
+ * `aria-hidden`; complete is a filled check, current a ring, upcoming hollow,
+ * attention Delay Amber with its own `!` glyph.
+ */
+function StageMarkers({ items }: { items: readonly WorkflowStepItem[] }): ReactNode {
+  return (
+    <span className="servora-workflow-stages" aria-hidden="true" data-workflow-stages="true">
+      {items.map((item) => (
+        <span
+          key={item.key}
+          className={`servora-workflow-stage servora-workflow-stage--${item.state}`}
+          data-stage-state={item.state}
+        >
+          {item.state === 'complete' && (
+            <SignalGlyph name="check" className="servora-workflow-stage-glyph" size={10} />
+          )}
+          {item.state === 'attention' && (
+            <span className="servora-workflow-stage-attention-glyph">!</span>
+          )}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -132,24 +161,18 @@ export function WorkflowSteps({ items, currentKey }: {
               ? 'servora-workflow-steps-summary servora-workflow-steps-summary--attention'
               : 'servora-workflow-steps-summary'}
           >
+            <StageMarkers items={items} />
             <span className="servora-workflow-steps-summary-phase">
               {currentItem ? (
                 <>
                   <strong>{currentIndex + 1} / {items.length}</strong>
                   {' · '}
-                  {currentItem.label}
+                  {/* Attention trades the phase name for its explicit state word
+                      so the one-row strip still says why it is amber; the phase
+                      name stays in the markers and the ordered list. */}
+                  {currentItem.state === 'attention' ? STATE_TEXT.attention : currentItem.label}
                 </>
               ) : 'İş süreci'}
-            </span>
-            <span className="servora-workflow-steps-summary-state">
-              {currentItem ? (
-                <>
-                  {STATE_ICON[currentItem.state]
-                    ? <span className="servora-workflow-step-state-icon">{STATE_ICON[currentItem.state]}</span>
-                    : null}
-                  {STATE_TEXT[currentItem.state]}
-                </>
-              ) : `${items.length} aşama`}
             </span>
           </summary>
           {steps}

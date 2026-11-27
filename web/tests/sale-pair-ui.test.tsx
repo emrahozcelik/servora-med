@@ -130,6 +130,8 @@ type Scenario = {
   /** SALE-002: the sale's own origin projection. */
   saleOrigin?: 'visit' | 'standalone';
   onLifecycle?: (path: string, body: Record<string, unknown>) => Response | null;
+  /** Holds the pair discovery requests until resolved, to observe the loading pair. */
+  pairGate?: Promise<void>;
 };
 
 function saleDetailsFor(s: Scenario) {
@@ -180,7 +182,10 @@ function mockFetch(s: Scenario) {
       if (handled) return handled;
       throw new Error(`Unexpected POST ${path}`);
     }
-    if (path.endsWith('/sale-create-context')) return Response.json(saleCreateContextFor(s));
+    if (path.endsWith('/sale-create-context')) {
+      if (s.pairGate) await s.pairGate;
+      return Response.json(saleCreateContextFor(s));
+    }
     if (path.endsWith('/sale-details')) return Response.json(saleDetailsFor(s));
     if (path.endsWith('/sales')) return Response.json({ ...emptyPage, limit: 20, offset: 0 });
     if (path.endsWith('/activity')) return Response.json({ ...emptyPage, limit: 50 });
@@ -192,7 +197,10 @@ function mockFetch(s: Scenario) {
     // SALE-002 S3: the approve dialog's delivery section loads the active staff;
     // an empty list keeps these S2 pair tests about the pair, not the delivery.
     if (path === '/api/staff') return Response.json([]);
-    if (s.sale && path === `/api/job-cards/${s.sale.id}`) return Response.json(s.sale);
+    if (s.sale && path === `/api/job-cards/${s.sale.id}`) {
+      if (s.pairGate) await s.pairGate;
+      return Response.json(s.sale);
+    }
     if (path === `/api/job-cards/${s.visit.id}`) return Response.json(s.visit);
     throw new Error(`Unexpected GET ${path}`);
   });
@@ -278,7 +286,7 @@ describe('SALE-002 S2 pair UI', () => {
 
     await typeInto(submitDialog.querySelector('textarea')!, 'Görüşme tamamlandı');
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(submitDialog, 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
 
@@ -368,6 +376,35 @@ describe('SALE-002 S2 pair UI', () => {
     expect(approve?.body).toMatchObject({ expectedVersion: 4, expectedSaleVersion: 7 });
     expect(approve?.body).not.toHaveProperty('delivery');
     expect(host.textContent).toContain('Bağlı satış kaydı da tamamlandı.');
+  });
+
+  it('locks the approve confirm while the pair loads without reporting it as a follow-up error', async () => {
+    const visit = visitCard({
+      status: 'WAITING_APPROVAL',
+      commands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+      lifecycle: {
+        startedAt: '2026-11-23T09:05:00.000Z',
+        submittedAt: '2026-11-23T12:00:00.000Z',
+        submittedBy: { id: staff.id, name: staff.name },
+      },
+    });
+    const sale = saleCard({ status: 'WAITING_APPROVAL', commands: [] });
+    let releasePair!: () => void;
+    const pairGate = new Promise<void>((resolve) => { releasePair = resolve; });
+    const mock = await render(visit.id, manager, { visit, sale, pairGate });
+
+    await act(async () => { buttonByName(host, 'Kontrolü tamamla ve işi kapat')!.click(); await flush(); });
+    const approveDialog = dialog();
+    expect(approveDialog.textContent).toContain('Bağlı satış bilgisi yükleniyor…');
+    const confirm = buttonByName(approveDialog, 'İşi onayla')!;
+    expect(confirm.disabled).toBe(true);
+    expect(approveDialog.querySelector('.form-error')).toBeNull();
+
+    await act(async () => { releasePair(); await flush(); await flush(); await flush(); });
+    expect(buttonByName(dialog(), 'İşi onayla')!.disabled).toBe(false);
+    expect(dialog().querySelector('.form-error')).toBeNull();
+    expect(dialog().textContent).not.toContain('Bağlı satış kaydı yükleniyor');
+    expect(mock.posts.some((post) => post.path.endsWith('/approve'))).toBe(false);
   });
 
   it('warns that a legacy unsubmitted sale stays open when the visit is approved', async () => {
@@ -506,7 +543,7 @@ describe('SALE-002 S2 pair UI', () => {
 
     await typeInto(submitDialog.querySelector('textarea')!, 'Ziyaret tamamlandı');
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(submitDialog, 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
     const submit = mock.posts.find((post) => post.path.endsWith('/submit-for-approval'));
@@ -641,7 +678,7 @@ describe('SALE-002 S2 pair UI', () => {
     await act(async () => { buttonByName(host, 'Kontrole gönder')!.click(); await flush(); });
     await typeInto(dialog().querySelector('textarea')!, 'Ziyaret tamamlandı');
     await act(async () => {
-      buttonByName(dialog(), 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(dialog(), 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
 
@@ -667,7 +704,7 @@ describe('SALE-002 S2 pair UI', () => {
 
     await typeInto(submitDialog.querySelector('textarea')!, 'Ziyaret tamamlandı');
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')!.click();
+      buttonByName(submitDialog, 'Kontrole gönder')!.click();
       await flush(); await flush();
     });
     const submit = mock.posts.find((post) => post.path.endsWith('/submit-for-approval'));

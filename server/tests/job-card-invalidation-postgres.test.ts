@@ -537,7 +537,7 @@ describe.skipIf(!databaseUrl)('R3A JobCard INVALIDATED PostgreSQL acceptance', (
         [fixture.organizationId, scheduled, fixture.staff.id, now, `R3A:${scheduled}`],
       );
 
-      const messaging = new MessagingService(fixture.pool, true);
+      const messaging = new MessagingService(fixture.pool);
       const conversation = await messaging.createOrGetConversation(fixture.safeAdmin, {
         contextType: 'JOB', jobId: scheduled, participantUserIds: [fixture.staff.id],
       });

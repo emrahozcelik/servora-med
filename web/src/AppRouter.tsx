@@ -7,6 +7,7 @@ import { resolveHomePath } from './shell/navigation-model';
 import { canAccessRoute } from './shell/route-access';
 import { readStaffPerformanceSearch } from './reports/report-search';
 import type { CurrentUser } from './services/api';
+import { PageHeader } from './ui/PageHeader';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
 import { ResultState } from './ui/antd/ResultState';
 
@@ -207,6 +208,8 @@ type AppRouterProps = {
   notice: string;
   onDeliveryCreated: () => void;
   onSessionEnded: () => void;
+  /** Module endpoint answered 404 (module switched off): ask the shell to revalidate the identity once. */
+  onModuleUnavailable?: () => void;
 };
 
 function ForbiddenView() {
@@ -376,7 +379,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
   const sourceId = sp.get('source');
   if (!canAccessRoute('followUpCreate', user)) return <ForbiddenView />;
   if (!sourceId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
-    return <main className="workspace"><ResultState status="error" title="Geçersiz takip bağlantısı"
+    return <main className="workspace"><PageHeader fallbackTitle="Takip işi planla" /><ResultState status="error" title="Geçersiz takip bağlantısı"
       description="Takip işi oluşturmak için geçerli bir kaynak iş bağlantısı gerekir."
       action={<button className="secondary-button" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>}
     /></main>;
@@ -386,7 +389,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
     onCreated={(jobCardId) => navigate(paths.job(jobCardId))} />;
 }
 
-export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
+export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded, onModuleUnavailable }: AppRouterProps) {
   const navigate = useNavigate();
   const overviewAllowed = canAccessRoute('overview', user);
   const calendarAllowed = canAccessRoute('calendar', user);
@@ -398,11 +401,11 @@ export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded }: A
         <Route path="/" element={<Navigate to={landingPath} replace />} />
         <Route path="/login" element={<Navigate to={landingPath} replace />} />
         <Route path={paths.overview} element={overviewAllowed
-          ? <OverviewPage user={user} /> : <Navigate to={paths.jobs} replace />} />
+          ? <OverviewPage user={user} onUnavailable={onModuleUnavailable} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.calendar} element={calendarAllowed
           ? <CalendarPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.messages} element={messagingAllowed
-          ? <MessagingPage user={user} /> : <Navigate to={paths.jobs} replace />} />
+          ? <MessagingPage user={user} onUnavailable={onModuleUnavailable} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.docs} element={<DocumentationPage user={user} />} />
         <Route path={paths.help} element={<HelpCenterPage user={user} />} />
         <Route path={paths.settings} element={<SettingsLandingPage user={user} />} />

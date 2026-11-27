@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { authenticatedUser } from '../src/modules/capabilities/service.js';
+import {
+  authenticatedUser,
+  withModuleCapabilities,
+} from '../src/modules/capabilities/service.js';
 
 const staff = {
   id: 'staff-1', organizationId: 'org-1', name: 'Ayşe',
@@ -62,5 +65,31 @@ describe('authenticated capability contract', () => {
     expect(authenticatedUser(admin, undefined, undefined).capabilities.demoDatasetCreation).toBe(false);
     expect(authenticatedUser(manager, undefined, undefined).capabilities.demoDatasetCreation).toBe(false);
     expect(authenticatedUser(staff, undefined, undefined).capabilities.demoDatasetCreation).toBe(false);
+  });
+
+  it('withModuleCapabilities spreads module values over capabilities or defaults', () => {
+    expect(withModuleCapabilities(undefined, { overviewDashboard: true })).toEqual({
+      overviewDashboard: true,
+      calendar: false,
+      messaging: false,
+      backup: false,
+      demoDatasetCreation: false,
+    });
+
+    const base = {
+      duplicateCustomerComparison: true,
+      overviewDashboard: true,
+      calendar: false,
+      messaging: true,
+      backup: false,
+      demoDatasetCreation: false,
+    };
+    expect(withModuleCapabilities(base, { overviewDashboard: false, calendar: true })).toEqual({
+      ...base,
+      overviewDashboard: false,
+      calendar: true,
+    });
+    expect(withModuleCapabilities(base, {})).toEqual(base);
+    expect(withModuleCapabilities(base, { overviewDashboard: undefined })).toEqual(base);
   });
 });

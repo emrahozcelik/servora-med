@@ -1,5 +1,10 @@
-import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
+import { assertModuleEnabled } from '../installation-modules/gate.js';
+import {
+  readModuleEnabledOrFalse,
+  type ModuleStateLogger,
+  type ModuleStateReader,
+} from '../installation-modules/state.js';
 import type { OverviewReadModel } from './repository.js';
 import type { ReportsReadModel } from '../reports/ports.js';
 import type { MessagingReadPort } from '../messaging/types.js';
@@ -10,25 +15,22 @@ import type {
   WorkTypeDistributionItem,
 } from './types.js';
 
-const overviewUnavailable = () => new AppError(
-  'NOT_FOUND',
-  404,
-  'Sayfa bulunamadı.',
-);
-
 export class OverviewService {
   constructor(
-    private readonly enabled: boolean,
+    private readonly moduleState: ModuleStateReader,
     private readonly repository: OverviewReadModel,
     private readonly reports?: ReportsReadModel,
     private readonly now: () => Date = () => new Date(),
     private readonly calendarEnabled = false,
-    private readonly messagingEnabled = false,
     private readonly messagingRead?: MessagingReadPort,
   ) {}
 
-  async getOverview(actor: SafeUser, query: OverviewQuery) {
-    if (!this.enabled) throw overviewUnavailable();
+  async getOverview(
+    actor: SafeUser,
+    query: OverviewQuery,
+    logger: ModuleStateLogger = console,
+  ) {
+    await this.assertEnabled(logger);
     const requestTime = this.now();
     const overview = await (actor.role === 'STAFF'
       ? this.repository.getStaffOverview(actor, query, requestTime)
@@ -57,7 +59,8 @@ export class OverviewService {
     }
 
     // Message unread summary owned by messaging module
-    if (this.messagingEnabled && this.messagingRead) {
+    const messagingEnabled = await readModuleEnabledOrFalse(this.moduleState, 'MESSAGING', logger);
+    if (messagingEnabled && this.messagingRead) {
       try {
         const unreadTotal = await this.messagingRead.getUnreadCount(
           actor.organizationId,
@@ -70,6 +73,19 @@ export class OverviewService {
       }
     }
 
-    return {...overview, upcomingWork, ...(actor.role !== 'STAFF' ? { workTypeDistribution } : {}), ...(this.messagingEnabled ? { messageUnreadSummary } : {})};
+    return {
+      ...overview,
+      upcomingWork,
+      ...(actor.role !== 'STAFF' ? { workTypeDistribution } : {}),
+      ...(messagingEnabled && messageUnreadSummary !== undefined ? { messageUnreadSummary } : {}),
+    };
+  }
+
+  /**
+   * Runtime module gate (MOD-002): disabled → the existing 404; a missing row
+   * or a read failure → 503 (fail closed, no env fallback).
+   */
+  private async assertEnabled(logger: ModuleStateLogger): Promise<void> {
+    await assertModuleEnabled(this.moduleState, 'OVERVIEW', logger);
   }
 }

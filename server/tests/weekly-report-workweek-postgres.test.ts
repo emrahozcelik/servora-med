@@ -1081,7 +1081,7 @@ describe.skipIf(!databaseUrl)('WR-WEEK working-week period, Monday deadline & le
 
       // Apply 068 on top of the 067 schema with legacy +6 data present.
       const upgrade = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
-      expect(upgrade).toEqual({ appliedVersions: ['068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start'] });
+      expect(upgrade).toEqual({ appliedVersions: ['068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start', '073_assignment_offer_time_proposal', '074_installation_operator_and_module_state', '075_installation_module_registry_widening'] });
 
       // Legacy +6 rows remain untouched and valid.
       const legacyReport = (await pool.query<{ period_start: string; period_end: string }>(

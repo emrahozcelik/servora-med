@@ -17,7 +17,10 @@ const calendarApi = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/services/calendar-api', () => calendarApi);
-vi.mock('../src/jobs/jobs-api', () => ({ patchJobCard: vi.fn() }));
+vi.mock('../src/jobs/jobs-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/jobs/jobs-api')>()),
+  patchJobCard: vi.fn(),
+}));
 
 import { CalendarPage } from '../src/calendar/CalendarPage';
 

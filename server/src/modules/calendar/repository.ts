@@ -17,7 +17,7 @@ import {
   manualEventCreateRequestHash,
   manualEventPatchRequestHash,
 } from './request-hash.js';
-import { JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from '../job-cards/job-card-duration.js';
+import { findStaffOccupancyConflicts } from '../job-cards/occupancy.js';
 import { resolveSourceAccess } from '../job-cards/policy.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 
@@ -501,47 +501,28 @@ export class PostgresCalendarRepository implements CalendarRepository {
     endsAt: string,
     excludedEventId: string | null,
   ) {
-    const result = await client.query<CalendarConflict & {
-      starts_at: Date;
-      ends_at: Date | null;
-      assigned_user_name: string;
-      related_job_path: string | null;
-    }>(
-      `SELECT 'MANUAL'::text AS source, e.id, e.title, e.starts_at, e.ends_at,
-         u.name AS assigned_user_name, NULL::text AS related_job_path
-       FROM calendar_events e
-       JOIN users u ON u.organization_id = e.organization_id AND u.id = e.assigned_user_id
-       WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
-         AND e.id <> COALESCE($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-         AND e.starts_at < $4 AND $3 < e.ends_at
-       UNION ALL
-       SELECT 'JOB', j.id, j.title, j.scheduled_at, ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL},
-         u.name, '/jobs/' || j.id::text
-       FROM job_cards j
-       JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
-       WHERE j.organization_id = $1 AND j.assigned_to = $2
-         AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
-         AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-         AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
-         AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-         AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-       ORDER BY starts_at ASC, id ASC LIMIT 10`,
-      [organizationId, assignedUserId, startsAt, endsAt, excludedEventId],
-    );
-    if (result.rows.length > 0) {
+    const conflicts = await findStaffOccupancyConflicts(client, {
+      organizationId,
+      assignedUserId,
+      startsAt,
+      endsAt,
+      excludeCalendarEventId: excludedEventId,
+      includeCalendarEvents: true,
+    });
+    if (conflicts.length > 0) {
       throw new AppError(
         'CALENDAR_CONFLICT',
         409,
         'Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.',
         {
-          conflicts: result.rows.map((row) => ({
+          conflicts: conflicts.map((row) => ({
             source: row.source,
             id: row.id,
             title: row.title,
-            startsAt: row.starts_at.toISOString(),
-            endsAt: row.ends_at?.toISOString() ?? null,
-            assignedUser: { id: assignedUserId, name: row.assigned_user_name },
-            relatedJobPath: row.related_job_path,
+            startsAt: row.startsAt.toISOString(),
+            endsAt: row.endsAt.toISOString(),
+            assignedUser: { id: assignedUserId, name: row.assignedUserName },
+            relatedJobPath: row.relatedJobPath,
           })),
         },
       );

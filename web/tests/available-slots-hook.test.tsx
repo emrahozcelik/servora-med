@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAvailableSlotSearch } from '../src/jobs/useAvailableSlotSearch';
-import { localDateTimeToIso } from '../src/jobs/scheduling';
+import { isoInstantToLocalDateTime, localDateTimeToIso } from '../src/jobs/scheduling';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -16,17 +16,19 @@ vi.mock('../src/jobs/jobs-api', async (original) => ({
 
 function Probe({
   type = 'SALES_MEETING',
+  assignedTo = 'staff-1',
   start = '2026-08-16T10:00',
   jobCardId = null,
 }: {
   type?: 'SALES_MEETING' | 'PRODUCT_DELIVERY';
+  assignedTo?: string;
   start?: string;
   jobCardId?: string | null;
 }) {
   const result = useAvailableSlotSearch({
     type,
     customerId: 'customer-1',
-    assignedTo: 'staff-1',
+    assignedTo,
     scheduledStartLocal: start,
     jobCardId,
     enabled: true,
@@ -140,5 +142,53 @@ describe('useAvailableSlotSearch', () => {
       });
     });
     expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'ready', count: '1' });
+  });
+
+  it('keeps returned slots and skips re-querying when scheduledStartLocal moves to a returned slot within the same scope', async () => {
+    const slotA = { startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' };
+    const slotB = { startsAt: '2026-08-18T14:00:00.000Z', endsAt: '2026-08-18T15:00:00.000Z' };
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [slotA, slotB] });
+
+    await act(async () => root.render(<Probe />));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'ready', count: '2' });
+
+    // Selecting slotA updates scheduledStartLocal without wiping slots or firing a search.
+    await act(async () => root.render(<Probe start={isoInstantToLocalDateTime(slotA.startsAt)} />));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'ready', count: '2' });
+
+    // Switching to slotB within the same scope also preserves slots without re-querying.
+    await act(async () => root.render(<Probe start={isoInstantToLocalDateTime(slotB.startsAt)} />));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'ready', count: '2' });
+
+    // Changing scope (assignedTo) re-queries even while scheduledStartLocal matches slotB.
+    await act(async () => root.render(
+      <Probe assignedTo="staff-2" start={isoInstantToLocalDateTime(slotB.startsAt)} />,
+    ));
+    expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'searching', count: '0' });
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'ready', count: '2' });
+
+    // Manually editing scheduledStartLocal to a non-slot time clears and re-searches normally.
+    await act(async () => root.render(<Probe assignedTo="staff-2" start="2026-08-19T09:30" />));
+    expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'searching', count: '0' });
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledTimes(3);
   });
 });

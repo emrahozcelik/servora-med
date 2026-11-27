@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WeeklyReportCreateScreen } from '../src/WeeklyReportCreate';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -82,6 +83,12 @@ async function flush() {
   await act(async () => { await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 describe('Weekly report create screen', () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -89,15 +96,11 @@ describe('Weekly report create screen', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resizeTo(1024);
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),
     });
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
     people.listStaff.mockResolvedValue([AYSE, MEHMET, ZEYNEP]);
     weeklyApi.getWeeklyReportReference.mockResolvedValue(REFERENCE);
     weeklyApi.createWeeklyReport.mockResolvedValue({
@@ -127,6 +130,25 @@ describe('Weekly report create screen', () => {
     ));
     await flush();
   }
+
+  it('renders and commits the compact wheel trigger for a custom report week', async () => {
+    resizeTo(390);
+    await render(staffUser, { initialPeriodStart: '2026-08-10' });
+    const trigger = host.querySelector<HTMLButtonElement>('#weekly-period')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const day = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Gün"]')!;
+    await act(async () => {
+      day.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+  });
 
   function submit() {
     const form = host.querySelector('form');

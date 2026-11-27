@@ -100,6 +100,10 @@ button is introduced.
     No revocation or earliest-instant field in V1.
   - With a valid authorization, `START` is allowed any time before the
     tolerance boundary.
+  - Job detail presentation (2026-11-25): the grant surface sits next to the
+    schedule, not at the top of the page, and the UI hides the grant offer
+    when `scheduledAt` is missing or not in the future. Server eligibility
+    above is unchanged.
   - A "valid reschedule" means a new planned time set by whoever may change it:
     management for jobs in the window (§4); Staff too for jobs outside it,
     where JOB-006 §5 still applies. The tolerance then follows the new time.
@@ -307,6 +311,17 @@ already too short" rule in §3: when the remaining time before
 reschedule. This prevents a Staff member from being charged with OVR-2
 `LATE_START` for accepting on time, and gives the new commitment its own
 schedule revision.
+
+The job detail management already reads carries the latest offer's
+`closedAt`, `closeReason` and `closeText`, and the `JOB_ASSIGNMENT_DECLINED` /
+`JOB_ASSIGNMENT_RELEASED` activity row carries the same reason as an
+`ASSIGNMENT_DECISION` detail, so recovery does not depend on the "needs
+action" list row alone. The activity reason is shown to management and to the
+Staff member who answered; another Staff reader of the card (a later assignee)
+sees only that the assignment was declined or released. The job detail renders
+the reason with reason-ordered recovery actions: "Yeni zaman belirle" (saving
+the planned time opens a new offer), "Sorumlu personeli değiştir", and the
+secondary "Aynı zamanla yeniden teklif et".
 
 ### 9. Concurrency, idempotency and versioning
 
@@ -594,13 +609,62 @@ request). The web parser stays strict.
 - Assigned Staff: action "Düzenleme / sonlandırma önerisi gönder" on job
   detail (dialog: reason select with Turkish labels + mandatory text), then a
   status line "Öneriniz yöneticide" with the reason.
-- Management: on job detail, the open request with actions "Düzeltildi",
-  "Yeniden planlandı", "Bağlı yeni iş oluşturuldu" (job id input), "Reddet"
-  (note required) and a pointer to the existing cancel command; on the
-  overview, a section "Personel önerileri" (open list), placed next to the
-  open-late section.
+- Management: on job detail, the open request as a guidance panel (see
+  "Management guidance for an open request" below); on the overview, a
+  section "Personel önerileri" (open list), placed next to the open-late
+  section.
 - New notification kinds and activity events get Turkish copy; loading,
   success and error states everywhere.
+
+### Management guidance for an open request
+
+Owner feedback (2026-11-24): the first panel offered record-only resolutions
+("Düzeltildi", "Yeniden planlandı") as one-click buttons beside the real
+commands, so a manager could believe a button rescheduled or corrected the job
+and feared an irreversible click. The resolve endpoint is unchanged; it still
+only records the resolution. The panel is reorganized in the web client only;
+the server contract, vocabulary and permissions are unchanged.
+
+1. **Headline and facts.** "<Staff name> bu iş için değişiklik istiyor", then
+   "Neden" (reason label), "Personelin açıklaması" (the text) and "Gönderim".
+2. **"Ne yapabilirsiniz" — real actions first.** Buttons that run an existing
+   command or open an existing editor, never a record-only resolution:
+   - "Yeni zaman belirle": focuses the planned-time editor (as in the declined
+     offer guidance). Shown when the planned time is editable.
+   - "Sorumlu personeli değiştir": opens the existing reassignment form.
+   - "İşi iptal et": opens the existing cancel command dialog. Shown only when
+     `CANCEL` is in `allowedCommands`; cancelling closes the request as
+     `CANCELLED` (existing server rule).
+   The order follows the reason: `CUSTOMER_POSTPONED`, `CUSTOMER_ABSENT` and
+   `VISIT_NOT_POSSIBLE` put "Yeni zaman belirle" first; `CUSTOMER_CHANGED_MIND`
+   puts "İşi iptal et" first; `OTHER`, `WRONG_PRODUCT` and
+   `MISSING_STOCK_OR_EQUIPMENT` put "Sorumlu personeli değiştir" first. Only the
+   first action is primary.
+3. **Saving a new planned time closes the request.** While a request is open,
+   the planned-time editor shows a checked option "Personel önerisini
+   'Yeniden planlandı' olarak kapat" and sends the existing PATCH
+   `changeRequestResolution: { changeRequestId, resolution: 'RESCHEDULED' }`
+   (OVR-5b §4.11), so the reschedule and the closure are one transaction.
+   Unchecking it leaves the request open.
+4. **"Öneriyi kapat" — record-only closures, separated and confirmed.** A
+   secondary group below the actions, introduced by "Bu seçenekler işi
+   değiştirmez; yalnızca öneriyi kapatır ve personele bildirim gider.":
+   - "Gerekli düzeltmeyi yaptım" → `CORRECTED`
+   - "Zamanı değiştirdim" → `RESCHEDULED`
+   - "Yerine yeni iş açtım" → `LINKED_JOB_CREATED`; the job is chosen from the
+     same customer's other jobs (existing job list filtered by `customerId`,
+     this job excluded), never typed as an id. Without a customer the option
+     is not shown.
+   - "Öneriyi reddet" → `REJECTED` (note required, unchanged).
+   Every closure opens a confirmation that names the outcome and states:
+   "Öneri kapatılır ve geri açılamaz. Personel gerekirse yeni bir öneri
+   gönderebilir." The history label of each resolution is unchanged.
+5. **After a real action.** When the job is reassigned while the request is
+   still open, the panel says "Sorumlu personel değişti; öneriyi kapatmayı
+   unutmayın." and keeps the closures available.
+6. States: loading/success/error on every command; `CHANGE_REQUEST_NOT_OPEN`
+   refreshes the card and explains that the request was already closed.
+   Mobile: the actions stack in the documented order, 44px targets.
 
 ### Ownership for parallel work
 
@@ -768,9 +832,11 @@ candidate, under the JobCard lock:
 ### Reads
 
 - Job detail: `assignmentOffer: { id, state, acceptanceDueAt, openedAt,
-  urgentReason, assignee: { id, name } } | null` — the latest offer, visible to
-  management and the assignee. An `OPEN` offer past its deadline is presented
-  with `state: 'EXPIRED'`.
+  urgentReason, assignee: { id, name }, closedAt, closeReason, closeText } | null`
+  — the latest offer, visible to management and the assignee, with its persisted
+  close instant, reason code and text (`null` while `OPEN` and on a read-time
+  `EXPIRED`). An `OPEN` offer past its deadline is presented with
+  `state: 'EXPIRED'`.
 - `GET /api/job-cards/assignment-offers/needs-action?limit&offset`
   (management only): jobs still `NEW` whose latest offer is `DECLINED`,
   `RELEASED`, `EXPIRED`, `WITHDRAWN`/`PLANNED_WINDOW_PASSED`, or `OPEN` with an
@@ -783,6 +849,30 @@ candidate, under the JobCard lock:
   badge); management "Yeniden teklif et" with the past-start acknowledgement
   dialog when needed; overview section "Müdahale gereken atamalar"; Turkish
   copy for every new code. The web never computes deadlines.
+
+#### Jobs page intervention panel
+
+The Jobs page ("Aktif işler" membership, MANAGER/ADMIN only) repeats the
+overview's server-owned intervention lists under one "Müdahale gerekenler"
+heading: open Staff change/termination requests ("Personel önerileri"), offers
+needing a management answer ("Müdahale gereken atamalar") and unaccepted
+past-start jobs ("Kabul bekleyen işler"). Each group shows at most three compact
+rows with the reason label, assignee and relevant time, plus a link to the
+overview when a group's total exceeds the preview. An offer the server marks
+urgent keeps its urgent reason (for example "Başlangıç geçti") and the
+customer-time risk wording, so an `OPEN` offer is never reduced to a calm
+"Yanıt bekliyor". A failed read keeps the groups that loaded and shows an inline
+"Müdahale gerekenler yüklenemedi" error with "Tekrar dene"; it never looks like
+an empty panel. Below 64rem the panel is a native disclosure that starts closed
+so the first job row keeps the UI-005 first-screen budget; its summary carries
+the heading, count and an inline chevron, and the viewer's open/closed choice is
+remembered on the device in `localStorage` under
+`servora.jobs.attentionPanel.open` (unavailable storage falls back to closed).
+Desktop always shows the panel expanded. While the disclosure is closed, a
+failure and its "Tekrar dene" action stay directly below the summary, so the
+error is never hidden. These are reads of the existing lists — no new endpoint
+or business rule — and the "Düzeltme istenenler" quick view remains the
+manager-requested revision membership, unchanged.
 
 ### Ownership for parallel work
 

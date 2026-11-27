@@ -118,8 +118,11 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
   });
 
   async function render(job: JobCard, user: CurrentUser, extra: {
+    message?: string;
     overdueHistory?: ReactNode;
     invalidationAction?: ReactNode;
+    notes?: ReactNode;
+    messagingAction?: ReactNode;
     children?: ReactNode;
   } = {}) {
     await act(async () => {
@@ -129,10 +132,12 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
           items={[]}
           user={user}
           pending={false}
-          message=""
+          message={extra.message ?? ''}
           onCommand={() => {}}
           overdueHistory={extra.overdueHistory}
           invalidationAction={extra.invalidationAction}
+          notes={extra.notes}
+          messagingAction={extra.messagingAction}
         >
           {extra.children}
         </JobDetailPanel>
@@ -144,11 +149,46 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     return host.querySelector(`[data-job-detail-section="${name}"]`);
   }
 
+  /** Direct children of <main>, in DOM order, with their section name. */
+  function topLevelSections(): string[] {
+    const main = host.querySelector('main.job-detail');
+    expect(main, 'main.job-detail').not.toBeNull();
+    return Array.from(main!.children)
+      .map((element) => element.getAttribute('data-job-detail-section'))
+      .filter((name): name is string => name !== null);
+  }
+
   function precedes(earlier: Element, later: Element) {
     return Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
   }
 
-  it('puts the staff primary command above the compact lifecycle summary', async () => {
+  it('keeps the lifecycle strip as the immediate section after the heading, before feedback', async () => {
+    function expectStripImmediatelyAfterHeading() {
+      // The owner decision puts the strip directly below the heading, so no
+      // feedback/notice/warning surface may intervene — not just "after it".
+      expect(section('heading')!.nextElementSibling).toBe(section('lifecycle'));
+      expect(topLevelSections().slice(0, 3)).toEqual(['heading', 'lifecycle', 'feedback']);
+    }
+    // matchMedia stubs do not emit changes, so each viewport gets a fresh mount.
+    async function remount() {
+      await act(async () => root.unmount());
+      host.remove();
+      host = document.createElement('div');
+      document.body.append(host);
+      root = createRoot(host);
+    }
+
+    setViewport(true);
+    await render(staffInProgress, staff, { message: 'İş kontrole gönderildi.' });
+    expectStripImmediatelyAfterHeading();
+
+    await remount();
+    setViewport(false);
+    await render(staffInProgress, staff, { message: 'İş kontrole gönderildi.' });
+    expectStripImmediatelyAfterHeading();
+  });
+
+  it('puts the compact lifecycle strip directly below the heading, then the staff primary command', async () => {
     setViewport(true);
     await render(staffInProgress, staff);
 
@@ -157,11 +197,13 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     const lifecycle = section('lifecycle')!;
     const facts = section('facts')!;
 
+    expect(lifecycle).not.toBeNull();
     expect(responsibility).not.toBeNull();
     expect(actions).not.toBeNull();
+    expect(precedes(section('heading')!, lifecycle)).toBe(true);
+    expect(precedes(lifecycle, responsibility)).toBe(true);
     expect(precedes(responsibility, actions)).toBe(true);
-    expect(precedes(actions, lifecycle)).toBe(true);
-    expect(precedes(lifecycle, facts)).toBe(true);
+    expect(precedes(actions, facts)).toBe(true);
 
     const decisionPanels = host.querySelectorAll('[data-job-decision-panel="true"]');
     expect(decisionPanels).toHaveLength(1);
@@ -178,13 +220,47 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     expect(disclosure!.hasAttribute('open')).toBe(false);
   });
 
-  it('puts the manager decision above the compact lifecycle summary', async () => {
+  it('renders the compact phase strip as five markers joined in one row', async () => {
+    setViewport(true);
+    await render(staffInProgress, staff);
+
+    const stages = host.querySelector<HTMLElement>('[data-workflow-stages="true"]')!;
+    expect(stages).not.toBeNull();
+    expect(stages.getAttribute('aria-hidden')).toBe('true');
+    const markers = Array.from(stages.querySelectorAll('[data-stage-state]'))
+      .map((marker) => marker.getAttribute('data-stage-state'));
+    expect(markers).toEqual(['complete', 'complete', 'current', 'upcoming', 'upcoming']);
+    // Complete is a filled check glyph; the current phase is a ring, not a fill.
+    expect(stages.querySelectorAll('.servora-workflow-stage--complete svg')).toHaveLength(2);
+    expect(stages.querySelector('.servora-workflow-stage--current svg')).toBeNull();
+    // The ordered list keeps the text and current-step semantics (UI-005).
+    const list = host.querySelector('ol[aria-label="İş süreci"]')!;
+    expect(list.querySelector('[aria-current="step"]')?.textContent).toBe('Uygulanıyor: Şu an');
+  });
+
+  it('marks an attention phase with Delay Amber text and an icon in the strip', async () => {
+    setViewport(true);
+    await render(revisionRequested, staff);
+
+    const summary = host.querySelector('[data-workflow-compact="true"] summary')!;
+    expect(summary.textContent).toContain('3 / 5 · Dikkat gerekiyor');
+    expect(summary.classList.contains('servora-workflow-steps-summary--attention')).toBe(true);
+    const attention = host.querySelector('[data-workflow-stages="true"] [data-stage-state="attention"]')!;
+    expect(attention.querySelector('.servora-workflow-stage-attention-glyph')?.textContent).toBe('!');
+    // The worded attention state and its icon stay in the expanded stepper and
+    // in the always-present ordered list.
+    expect(host.querySelector('ol[aria-label="İş süreci"] [aria-current="step"]')?.textContent)
+      .toBe('Uygulanıyor: Dikkat gerekiyor');
+    expect(host.querySelector('.servora-ant-steps-item-error')).toBeNull();
+  });
+
+  it('puts the manager decision below the lifecycle strip and the responsibility panel', async () => {
     setViewport(true);
     await render(managerWaiting, manager);
 
     expect(section('responsibility')!.textContent).toContain('Yönetici kontrolü');
+    expect(precedes(section('lifecycle')!, section('responsibility')!)).toBe(true);
     expect(precedes(section('responsibility')!, section('actions')!)).toBe(true);
-    expect(precedes(section('actions')!, section('lifecycle')!)).toBe(true);
     const primary = host.querySelector<HTMLButtonElement>(
       '[data-job-decision-panel="true"] .primary-button',
     )!;
@@ -192,10 +268,11 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     expect(primary.closest('.job-detail-work-rail')).toBeNull();
   });
 
-  it('keeps the desktop structure: lifecycle, then rail decision', async () => {
+  it('keeps the desktop structure: lifecycle directly below the heading, then the rail decision', async () => {
     setViewport(false);
     await render(staffInProgress, staff);
 
+    expect(precedes(section('heading')!, section('lifecycle')!)).toBe(true);
     expect(precedes(section('lifecycle')!, section('responsibility')!)).toBe(true);
     const rail = host.querySelector('.job-detail-work-rail')!;
     expect(rail.querySelector('[data-job-decision-panel="true"]')).not.toBeNull();
@@ -217,14 +294,16 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     expect(lateness.contains(host.querySelector('[data-test-history]'))).toBe(true);
   });
 
-  it('keeps the manager lateness history above the workflow on desktop', async () => {
+  it('keeps manager lateness history above the workflow but below the lifecycle strip on desktop', async () => {
     setViewport(false);
     const history = <section data-overdue-history="ready" data-test-history>Gecikme kaydı</section>;
     await render(managerWaiting, manager, { overdueHistory: history });
 
     expect(section('lateness-history')).toBeNull();
     const rendered = host.querySelector('[data-test-history]')!;
-    expect(precedes(rendered, section('lifecycle')!)).toBe(true);
+    expect(precedes(section('lifecycle')!, rendered)).toBe(true);
+    expect(precedes(section('heading')!, rendered)).toBe(true);
+    expect(precedes(rendered, section('responsibility')!)).toBe(true);
   });
 
   it('keeps the revision responsibility ahead of the revision details on narrow shells', async () => {
@@ -232,11 +311,66 @@ describe('mobile job work priority (DECISIONS.md UI-005)', () => {
     await render(revisionRequested, staff);
 
     expect(section('responsibility')!.textContent).toContain('Düzeltme gerekiyor');
+    expect(host.querySelector('#revision-loop-title')?.textContent).toBe('Düzeltme notu');
+    expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
+      .toBe('Düzeltmeye başlamanız bekleniyor.');
+    expect(precedes(section('lifecycle')!, section('responsibility')!)).toBe(true);
     expect(precedes(section('responsibility')!, section('actions')!)).toBe(true);
-    expect(precedes(section('actions')!, section('lifecycle')!)).toBe(true);
-    expect(precedes(section('lifecycle')!, section('revision')!)).toBe(true);
+    expect(precedes(section('actions')!, section('revision')!)).toBe(true);
     expect(host.querySelector('[data-job-decision-panel="true"]')?.textContent)
       .toContain('Düzeltmeye başla');
+ 
+    // Management reads the same panel in the third person.
+    await render(revisionRequested, manager);
+    expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
+      .toBe('Personelin düzeltmeyi başlatması bekleniyor.');
+    expect(host.querySelector('[data-revision-context="next-action"]')?.textContent)
+      .toBe('Personel kayıtları güncelleyip işi yeniden kontrole gönderecek.');
+  });
+
+  it('deduplicates manager review headings/submission facts and places invalidation below notes in rail', async () => {
+    setViewport(false);
+    await render(managerWaiting, manager, {
+      messagingAction: <div data-test-messaging="true">Mesaj</div>,
+      notes: <section data-test-notes="true">Notlar</section>,
+      invalidationAction: <section data-invalidation-action="true">Kaydı geçersiz kıl</section>,
+    });
+
+    expect(host.querySelector('#workflow-responsibility-title')?.textContent).toBe('Yönetici kontrolü');
+    expect(host.querySelector('#approval-review-title')?.textContent).toBe('Yönetici kontrolü özeti');
+    expect(host.querySelector('.workflow-responsibility-submission')).toBeNull();
+
+    const rail = host.querySelector('.job-detail-work-rail')!;
+    const messaging = rail.querySelector('[data-test-messaging]')!;
+    const notes = rail.querySelector('[data-test-notes]')!;
+    const invalidation = rail.querySelector('[data-invalidation-action]')!;
+    expect(precedes(messaging, notes)).toBe(true);
+    expect(precedes(notes, invalidation)).toBe(true);
+
+    // Staff WAITING_APPROVAL keeps submission facts in CurrentResponsibilityPanel and shows submitted checklist copy.
+    await render(
+      jobCard('WAITING_APPROVAL', ['WITHDRAW_FROM_APPROVAL', 'CANCEL'], {
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        submittedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+      staff,
+    );
+    expect(host.querySelector('.workflow-responsibility-submission')).not.toBeNull();
+    expect(host.querySelector('#workflow-requirements-title')?.textContent).toBe('Gönderilen kayıt özeti');
+
+    // Resumed revision in IN_PROGRESS updates revision loop context copy.
+    await render(
+      jobCard('IN_PROGRESS', ['SUBMIT_FOR_APPROVAL', 'CANCEL'], {
+        revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+        revisionRequestedBy: { id: 'm1', name: 'Murat Yönetici' },
+        revisionReason: 'Teslim miktarını düzeltin',
+      }),
+      staff,
+    );
+    expect(host.querySelector('[data-revision-context="expected-role"]')?.textContent)
+      .toBe('Düzeltme üzerinde çalışıyorsunuz.');
+    expect(host.querySelector('[data-revision-context="next-action"]')?.textContent)
+      .toBe('Yönetici notunu giderip kayıtları güncelledikten sonra yeniden kontrole gönderin.');
   });
 });
 

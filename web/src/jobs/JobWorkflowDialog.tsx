@@ -44,10 +44,16 @@ export type JobWorkflowDialogKind =
 export function JobWorkflowDialog(props: {
   dialog: JobWorkflowDialogKind;
   pending: boolean;
+  pendingLabel?: string;
   uncertain?: boolean;
   onClose: () => void;
   onConfirm: (reason: string) => void;
   followUp?: FollowUpProposalSectionProps;
+  loadingFollowUp?: boolean;
+  followUpLoadError?: string | null;
+  /** Locks the confirm while another dependency (the visit pair) is still loading. */
+  confirmBlocked?: boolean;
+  validatePrelude?: () => string | null;
   /**
    * SALE-002 §8.1: pair summary rendered above the preludes for the visit
    * submit / approve / revision dialogs, and appended to the withdraw
@@ -67,6 +73,8 @@ export function JobWorkflowDialog(props: {
   assignmentReason?: {
     draft: AssignmentReasonDraft;
     inlineError: string | null;
+    /** JOB-012: inline error of the proposed-time field. */
+    scheduleError: string | null;
     onChange: (patch: Partial<AssignmentReasonDraft>) => void;
   };
   /**
@@ -81,9 +89,10 @@ export function JobWorkflowDialog(props: {
   restoreFocusEnabledRef?: RefObject<boolean>;
 }): ReactNode {
   const {
-    dialog, pending, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
+    dialog, pending, pendingLabel, uncertain = false, onClose, onConfirm, followUp, cancelContinuity,
     assignmentReason, revisionCorrection, returnFocusRef, restoreFocusEnabledRef,
     pairNote, pairDetails = [], saleDelivery,
+    loadingFollowUp = false, followUpLoadError = null, confirmBlocked = false, validatePrelude,
   } = props;
   const continuity = dialog.kind === 'cancel' ? cancelContinuity : undefined;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
@@ -108,13 +117,13 @@ export function JobWorkflowDialog(props: {
     );
   }
 
-  const title = dialog.kind === 'approve'
+  const title = dialog.kind === 'approve' || dialog.kind === 'submit'
     ? (dialog.presentation.confirmation?.title ?? dialog.presentation.label)
     : dialog.presentation.label;
   const deliveryCopy = dialog.kind === 'approve' && saleDelivery?.draft.enabled
     ? saleDeliveryApproveCopy(followUp !== undefined)
     : undefined;
-  const approveDetails = dialog.kind === 'approve'
+  const dialogDetails = dialog.kind === 'approve' || dialog.kind === 'submit'
     ? [
         ...(dialog.presentation.confirmation?.details ?? []),
         ...(deliveryCopy ? [deliveryCopy.detail] : []),
@@ -127,10 +136,10 @@ export function JobWorkflowDialog(props: {
       : dialog.kind === 'revision'
         ? 'Personelin neyi düzeltmesi gerektiğini açıklayın.'
         : dialog.kind === 'decline' || dialog.kind === 'release'
-          ? `${dialog.presentation.consequence} Seçtiğiniz neden ve açıklama yöneticiye iletilir.`
+          ? `${dialog.presentation.consequence}\nSeçtiğiniz neden ve açıklama yöneticiye iletilir.`
           : continuity?.draft.decision === 'RESCHEDULE'
             ? 'İptal edilen iş yeniden açılamaz; seçtiğiniz zamana yeni bir takip ziyareti oluşturulur. İptal nedenini iş geçmişine ekleyin.'
-            : 'Bu işlem terminaldir; iptal edilen iş yeniden açılamaz. İptal nedenini iş geçmişine ekleyin.';
+            : 'İptal edilen iş yeniden açılamaz.\nİptal nedenini iş geçmişine ekleyin.';
   const reasonLabel = dialog.kind === 'submit'
     ? 'Tamamlanma sonucu'
     : dialog.kind === 'approve'
@@ -165,6 +174,7 @@ export function JobWorkflowDialog(props: {
             <AssignmentReasonSection
               draft={assignmentReason.draft}
               inlineError={assignmentReason.inlineError}
+              scheduleError={assignmentReason.scheduleError}
               onChange={assignmentReason.onChange}
               initialFocusRef={followUpInitialFocusRef}
             />
@@ -177,13 +187,26 @@ export function JobWorkflowDialog(props: {
               />
             </fieldset>
           : undefined;
+  const followUpStatusContent = (dialog.kind === 'submit' || dialog.kind === 'approve')
+    && (loadingFollowUp || followUpLoadError)
+    ? (
+        <>
+          {loadingFollowUp && (
+            <p className="field-status" role="status">Takip önerisi yükleniyor…</p>
+          )}
+          {followUpLoadError && (
+            <p className="form-error" role="alert">{followUpLoadError}</p>
+          )}
+        </>
+      )
+    : undefined;
   // The pair summary is informational, so it sits above the (optionally
   // disabled) prelude and never becomes the initial focus target.
   const deliveryContent = dialog.kind === 'approve' && saleDelivery
     ? <SaleApprovalDeliverySection {...saleDelivery} />
     : undefined;
-  const prelude = pairNote || preludeContent || deliveryContent
-    ? <>{pairNote}{preludeContent}{deliveryContent}</>
+  const prelude = pairNote || followUpStatusContent || preludeContent || deliveryContent
+    ? <>{pairNote}{followUpStatusContent}{preludeContent}{deliveryContent}</>
     : undefined;
   const hasPreludeFocus = followUp !== undefined
     || continuity !== undefined
@@ -194,7 +217,7 @@ export function JobWorkflowDialog(props: {
       open
       title={title}
       description={uncertain ? 'İşlemin sonucu henüz doğrulanamadı. Alanlar kilitli; tekrar deneme özgün isteği gönderir.' : description}
-      details={approveDetails}
+      details={dialogDetails}
       reasonLabel={reasonLabel}
       helperText={dialog.kind === 'submit'
         ? 'Bu açıklama, yönetici kontrolüne gönderilen iş kaydında saklanır.'
@@ -206,9 +229,12 @@ export function JobWorkflowDialog(props: {
       maxLength={2000}
       required={dialog.kind !== 'approve'}
       pending={pending}
+      pendingLabel={pendingLabel}
+      confirmDisabled={loadingFollowUp || confirmBlocked}
       inputsDisabled={uncertain}
       destructive={dialog.kind === 'cancel' || dialog.kind === 'decline' || dialog.kind === 'release'}
       prelude={prelude}
+      validatePrelude={validatePrelude}
       initialFocusRef={hasPreludeFocus ? followUpInitialFocusRef : undefined}
       initialFocusReady={hasPreludeFocus}
       returnFocusRef={returnFocusRef}

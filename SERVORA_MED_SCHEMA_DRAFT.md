@@ -575,6 +575,117 @@ Applied migrations 001–008 are immutable. Migration 009 is additive for accept
 scheduling. Reports and General Task required no dedicated schema migration beyond the
 shared JobCard engine.
 
+### 8.1 MOD-002 installation operator and module state (migration 074)
+
+Migration `074_installation_operator_and_module_state.sql`. Contract:
+[docs/features/operator-module-pilot.md](docs/features/operator-module-pilot.md) §2, §5, §6.
+
+All five tables are installation level. None has `organization_id` (same precedent as
+the backup tables). The operator is never a `users` row; `sessions`,
+`processed_actions` and `audit_events` are unchanged.
+
+#### operator_accounts
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| id | UUID PK | default `gen_random_uuid()` |
+| email | TEXT NOT NULL | unique index `operator_accounts_email_unique_idx`; CHECK `email = lower(btrim(email))` and non-empty |
+| name | TEXT NOT NULL | CHECK non-empty after trim |
+| password_hash | TEXT NOT NULL | CHECK non-empty; scrypt V2 hash from `auth/crypto.ts` |
+| is_active | BOOLEAN NOT NULL | default `TRUE` |
+| version | INTEGER NOT NULL | default 1; CHECK `>= 1` |
+| created_at | TIMESTAMPTZ NOT NULL | default now |
+| updated_at | TIMESTAMPTZ NOT NULL | default now |
+
+#### operator_account_capabilities
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| operator_id | UUID NOT NULL | FK to `operator_accounts(id)` |
+| capability | TEXT NOT NULL | CHECK `IN ('MODULE_MANAGEMENT')`; PK `(operator_id, capability)` |
+
+The capability list is fixed in code (`OPERATOR_CAPABILITIES`). Later slices extend both
+the code list and this CHECK.
+
+#### operator_sessions
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| id | UUID PK | default `gen_random_uuid()` |
+| operator_id | UUID NOT NULL | FK to `operator_accounts(id)`; index `operator_sessions_operator_id_idx` |
+| token_hash | CHAR(64) NOT NULL | UNIQUE; CHECK `^[0-9a-f]{64}$` (SHA-256 of the opaque token) |
+| created_at | TIMESTAMPTZ NOT NULL | default now |
+| expires_at | TIMESTAMPTZ NOT NULL | CHECK `expires_at > created_at` |
+| revoked_at | TIMESTAMPTZ NULL | set by logout, CLI revoke/reset and restore reset |
+
+#### installation_module_state
+
+One typed row per registry key. It is not a generic settings bag (UI-002).
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| module_key | TEXT PK | CHECK `IN ('OVERVIEW')` (shape CHECK since 075, §8.2) |
+| enabled | BOOLEAN NOT NULL | effective state |
+| version | INTEGER NOT NULL | default 1; CHECK `>= 1` |
+| source | TEXT NOT NULL | CHECK `IN ('ENV_TAKEOVER', 'OPERATOR')` (`FRESH_INSTALL` added in 075, §8.2) |
+| updated_at | TIMESTAMPTZ NOT NULL | default now |
+| updated_by_operator_id | UUID NULL | FK to `operator_accounts(id)` |
+
+CHECK `(source = 'OPERATOR') = (updated_by_operator_id IS NOT NULL)`.
+
+#### operator_audit_events
+
+Installation-level audit trail, separate from `audit_events`.
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| id | UUID PK | default `gen_random_uuid()` |
+| actor_kind | TEXT NOT NULL | CHECK `IN ('OPERATOR', 'HOST_CLI', 'SYSTEM')` |
+| operator_id | UUID NULL | FK to `operator_accounts(id)` `ON DELETE RESTRICT`; required iff `actor_kind = 'OPERATOR'` |
+| event_type | TEXT NOT NULL | CHECK `IN` `OPERATOR_GRANTED`, `OPERATOR_PASSWORD_RESET`, `OPERATOR_REVOKED`, `OPERATOR_LOGIN_SUCCEEDED`, `MODULE_STATE_TAKEN_OVER`, `MODULE_STATE_CHANGED`, `OPERATOR_ACCESS_RESET_BY_RESTORE` |
+| target_operator_id | UUID NULL | FK to `operator_accounts(id)` `ON DELETE RESTRICT` |
+| module_key | TEXT NULL | CHECK `NULL` or `'OVERVIEW'` (shape CHECK since 075, §8.2) |
+| old_value | JSONB NULL | JSON object, text length at most 512 |
+| new_value | JSONB NULL | JSON object, text length at most 512 |
+| occurred_at | TIMESTAMPTZ NOT NULL | default now |
+
+Shape checks:
+
+- Account events (`OPERATOR_GRANTED`, `OPERATOR_PASSWORD_RESET`, `OPERATOR_REVOKED`,
+  `OPERATOR_LOGIN_SUCCEEDED`, `OPERATOR_ACCESS_RESET_BY_RESTORE`) require
+  `target_operator_id` and no `module_key`.
+- Module events (`MODULE_STATE_TAKEN_OVER`, `MODULE_STATE_CHANGED`) require `module_key`
+  and no `target_operator_id`.
+- Module events require `new_value` with a boolean `enabled`. `MODULE_STATE_TAKEN_OVER`
+  has no `old_value`; `MODULE_STATE_CHANGED` requires an `old_value` object with a
+  boolean `enabled`.
+
+Indexes:
+
+- `operator_audit_events_login_idx` on `(target_operator_id, occurred_at DESC)`, partial
+  on `OPERATOR_LOGIN_SUCCEEDED` (last login in the CLI `list`).
+- `operator_audit_events_takeover_idx` on `(module_key)`, partial on
+  `MODULE_STATE_TAKEN_OVER` (fail-closed takeover lookup).
+
+### 8.2 MOD-003 shared registry widening (migration 075)
+
+Migration `075_installation_module_registry_widening.sql`. Decision: `DECISIONS.md`
+MOD-003. It replaces constraints of §8.1 with the same names and adds one index; no
+data is changed.
+
+- `installation_module_state.module_key` and `operator_audit_events.module_key`: shape
+  CHECK `^[A-Z][A-Z0-9_]{1,31}$` (audit column still nullable) instead of
+  `IN ('OVERVIEW')`. The list of valid keys lives in the code registry; startup refuses
+  a row whose key is not registered.
+- `installation_module_state.source`: `IN ('ENV_TAKEOVER', 'OPERATOR', 'FRESH_INSTALL')`.
+  `FRESH_INSTALL` is the first row of a module without a legacy env key (created off).
+- `operator_audit_events.event_type`: adds `MODULE_STATE_INITIALIZED`. It is a module
+  event (requires `module_key`, no `target_operator_id`) and follows the
+  `MODULE_STATE_TAKEN_OVER` value rule (boolean `enabled` in `new_value`, no
+  `old_value`).
+- Index `operator_audit_events_module_idx` on `(module_key, occurred_at)`, partial on
+  `module_key IS NOT NULL`.
+
 ## 9. Explicit Omissions
 
 - stock quantity and stock movements

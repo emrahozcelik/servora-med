@@ -33,7 +33,17 @@
 .duplicate-radio { display: flex; align-items: center; gap: .75rem; min-height: 44px; }
 .duplicate-radio input { inline-size: 1.25rem; block-size: 1.25rem; }
 .duplicate-reason { display: grid; gap: .5rem; margin-block: 1rem; max-width: 36rem; }
-.duplicate-reason select { min-height: 44px; padding: .5rem; font: inherit; }
+.duplicate-reason select {
+  min-height: var(--control-height);
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.duplicate-reason select:hover { border-color: var(--border-control-hover); }
+.duplicate-reason select:focus-visible { border-color: var(--accent); }
 .duplicate-terminal, .duplicate-unresolved { margin-block: 1rem; padding: 1rem; border: 1px solid var(--rule); border-radius: var(--radius); }
 .duplicate-history { margin-block: 2rem; }
 .duplicate-history-list { list-style: none; margin: 1rem 0; padding: 0; }

@@ -14,7 +14,7 @@ const TIMELINE_ITEMS = [
   {
     key: 'smoke-activity-1',
     action: 'Düzeltme için geri gönderildi',
-    detail: 'Yönetici kontrolünde → Düzeltme gerekiyor',
+    detail: 'Yönetici kontrolünde → Düzeltme istendi',
     reason: 'Teslim miktarını doğrulayın',
     actor: 'Emrah Yönetici',
     occurredAt: '2026-07-18T09:00:00.000Z',
@@ -23,7 +23,7 @@ const TIMELINE_ITEMS = [
 ];
 
 const DESCRIPTION_ITEMS = [
-  { key: 'status', label: 'Durum', content: 'Hazırlanıyor' },
+  { key: 'status', label: 'Durum', content: 'Atandı' },
   { key: 'customer', label: 'Müşteri', content: 'DentArt Ağız ve Diş Sağlığı' },
 ];
 

@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 
 import { JobDetailPanel } from '../src/JobDetail';
+import { EarlyStartAuthorizationSection } from '../src/jobs/EarlyStartAuthorization';
 import type {
   DeliveryItem, JobCard, JobLifecycleFacts, JobWorkflowContext, LifecycleCommand,
 } from '../src/jobs/jobs-api';
@@ -14,7 +15,8 @@ import { ServoraAntProvider } from '../src/ui/antd';
  * two lateness endpoints only. Everything else is component props.
  *
  * Cases (query param `case`):
- *  - staff-in-progress, manager-waiting, revision, staff-late, manager-late-history
+ *  - staff-in-progress, manager-waiting, revision, staff-late, manager-late-history,
+ *    manager-early-start
  */
 
 const params = new URLSearchParams(window.location.search);
@@ -84,6 +86,7 @@ function jobCard(
   status: JobCard['status'],
   commands: LifecycleCommand[],
   lifecycle: Partial<JobLifecycleFacts> = {},
+  actions: JobWorkflowContext['allowedActions'] = ['VIEW_NOTES', 'ADD_NOTE'],
 ): JobCard {
   return {
     id: 'job-fixture',
@@ -109,7 +112,7 @@ function jobCard(
     // OVR-5 detail DTO fields; the fixture has no open lateness.
     hasOpenOverdueIncident: false,
     correctionDueAt: null,
-    workflowContext: workflowContext(commands, lifecycle),
+    workflowContext: workflowContext(commands, lifecycle, actions),
   };
 }
 
@@ -160,6 +163,16 @@ const cases: Record<string, { job: JobCard; user: CurrentUser }> = {
       submittedAt: '2026-11-18T09:10:00.000Z',
       submittedBy: { id: staff.id, name: staff.name },
     }),
+    user: manager,
+  },
+  // JOB-010 §1a idle early-start offer on an assignment-stage job. The fixed
+  // clock keeps the planned 09:00 start in the future for the capture.
+  'manager-early-start': {
+    job: jobCard('ACCEPTED', ['START', 'CANCEL'], {
+      acceptedAt: '2026-11-12T06:20:00.000Z',
+      acceptedBy: { id: staff.id, name: staff.name },
+      startedAt: null,
+    }, ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE']),
     user: manager,
   },
 };
@@ -266,8 +279,16 @@ createRoot(root).render(
         ? undefined
         : <OverdueIncidentHistorySection
           jobId={current.job.id}
-          collapsible={!window.matchMedia('(min-width: 64rem)').matches}
+          collapsible
         />}
+      earlyStart={fixtureCase === 'manager-early-start' ? (
+        <EarlyStartAuthorizationSection
+          job={current.job}
+          user={current.user}
+          onGranted={() => undefined}
+          now={new Date('2026-11-20T07:00:00.000Z')}
+        />
+      ) : undefined}
     />
   </ServoraAntProvider>,
 );

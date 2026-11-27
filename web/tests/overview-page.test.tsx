@@ -131,7 +131,10 @@ describe('OverviewPage', () => {
     expect(html).toContain('Onay kuyruğu');
     expect(html).toContain('3</strong> iş onay bekliyor');
     expect(html).toContain('En eskisi 2 sa 0 dk bekliyor.');
-    expect(html).toContain('href="/reports/approvals"');
+    // Both the KPI and the queue card open the actionable Jobs queue, never
+    // the analysis report.
+    expect(html.match(/href="\/jobs\?status=WAITING_APPROVAL"/g)).toHaveLength(2);
+    expect(html).not.toContain('/reports/approvals');
     expect(html).toContain('Tamamlanma eğilimi');
     expect(html).not.toContain('Kontrol kuyruğunda');
 
@@ -167,6 +170,8 @@ describe('OverviewPage', () => {
   it('renders canonical Turkish work-type labels without raw enums', async () => {
     const html = await render(managementOverview);
     expect(html).toContain('İş dağılımı');
+    // The counts' period is stated on the card itself, not only in the header.
+    expect(html).toContain('Bu dönemde oluşturulan işler · 1 Temmuz 2026 – 26 Temmuz 2026');
     expect(html).toContain('Genel görev');
     expect(html).toContain('Haftalık rapor');
     expect(html).not.toContain('WEEKLY_REPORT');

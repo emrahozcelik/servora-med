@@ -8,19 +8,19 @@ product
 
 ## Users
 
-Servora-Med, medikal ve dental ürün firmalarında çalışan üç temel kullanıcı grubuna hizmet eder:
+Servora-Med (kullanıcı arayüzünde white-label **Dünya Dental** markasıyla sunulur) medikal ve dental ürün firmalarında çalışan üç temel kullanıcı grubuna hizmet eder:
 
-- Saha ve satış personeli, mobil cihazdan müşteri ziyareti, ürün teslimi ve genel görevlerini hızlıca kaydeder ve yönetici onayına gönderir.
-- Yöneticiler, ekibin açık işlerini, gecikmeleri, teslimleri ve onay kuyruğunu izler; işleri onaylar veya düzeltmeye gönderir.
-- Sistem yöneticileri, kullanıcıları, rolleri ve temel firma kayıtlarını yönetir.
+- Saha ve satış personeli, mobil cihazdan müşteri ziyareti, ürün teslimi, satış kaydı, haftalık rapor, genel görev ve takvimdeki kişisel planlarını hızlıca kaydeder, mesajlaşma üzerinden ekiple haberleşir ve işlerini yönetici onayına gönderir.
+- Yöneticiler, Genel Bakış paneli ve iş kuyruğu üzerinden ekibin açık işlerini, gecikmeleri, teslimleri, satışları, raporları ve onay kuyruğunu izler; işleri onaylar veya düzeltmeye gönderir ve takvim/takip planlamasını yönetir.
+- Sistem yöneticileri, kullanıcıları, rolleri, ürün kataloğunu, müşteri/mükerrer inceleme kayıtlarını, temel firma ayarlarını ve yedekleme/kurtarma işlemlerini yönetir.
 
 Personel arayüzü sahada, çoğunlukla tek elle ve değişken bağlantı koşullarında kullanılabilir olmalıdır. Yönetici arayüzü daha yoğun operasyon bilgisini hızlı taramaya ve güvenilir karar vermeye uygun olmalıdır.
 
 ## Product Purpose
 
-Servora-Med, medikal ve dental firmaların müşteri ilişkilerini, ürün teslimlerini ve personel işlerini JobCard merkezli bir operasyon akışında yönetmesini sağlar.
+Servora-Med, medikal ve dental firmaların müşteri ilişkilerini, satış kayıtlarını, ürün teslimlerini, haftalık raporlarını, takvim planlarını ve operasyonel ekip iletişimini JobCard merkezli bir akışta yönetmesini sağlar.
 
-Ürünün temel amacı, serbest kart kullanımının hızını yapılandırılmış ticari veri ve denetlenebilir iş kurallarıyla birleştirmektir. Personel bir işi tamamladığını bildirir, ancak yönetici onayı olmadan JobCard `COMPLETED` olmaz. Kritik işlemler activity geçmişinde izlenebilir kalır.
+Ürünün temel amacı, serbest kart kullanımının hızını yapılandırılmış ticari veri ve denetlenebilir iş kurallarıyla birleştirmektir. Personel bir işi tamamladığını bildirir, ancak yönetici onayı olmadan JobCard `COMPLETED` olmaz. Kritik işlemler activity geçmişinde izlenebilir kalır; kapsam sahibi `PRODUCT_REQUIREMENTS.md` belgesidir.
 
 Başarı şu sonuçlarla ölçülür:
 

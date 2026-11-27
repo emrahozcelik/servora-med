@@ -131,15 +131,23 @@ describe('WORKING-DAY contract — SYSTEM: the automatic follow-up candidate ite
 });
 
 describe('WORKING-DAY contract — SYSTEM: generated available-slot candidates never advertise Sunday', () => {
-  it('9a: skips the whole Sunday date and keeps every other day', () => {
+  it('9a: skips the whole Sunday date and keeps same-day Saturday plus every other day', () => {
     const candidates = generateAvailableSlotCandidates({
       startsAt: new Date(`${SAT}T09:00:00.000Z`),
       endsAt: new Date(`${SAT}T10:00:00.000Z`),
       timezone: 'UTC',
       horizonDays: 4,
     });
-    // Day offsets 1..4 from Saturday: Sunday is dropped, the rest survive.
-    expect(dateKeysOf(candidates)).toEqual(['2026-09-14', '2026-09-15', '2026-09-16']);
+    // Same-day Saturday [09:30..18:00] (18 slots) followed by offsets 1..4 with Sunday dropped.
+    expect(dateKeysOf(candidates)).toEqual([
+      ...Array.from({ length: 18 }, () => '2026-09-12'),
+      '2026-09-14',
+      '2026-09-15',
+      '2026-09-16',
+    ]);
+    expect(candidates[0]!.startsAt.toISOString()).toBe(`${SAT}T09:30:00.000Z`);
+    expect(candidates[17]!.startsAt.toISOString()).toBe(`${SAT}T18:00:00.000Z`);
+    expect(candidates[17]!.endsAt.toISOString()).toBe(`${SAT}T19:00:00.000Z`);
   });
 
   it('9b: drops a Friday candidate whose duration spills into Saturday-then-Sunday', () => {

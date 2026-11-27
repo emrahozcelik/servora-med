@@ -9,6 +9,8 @@ import { Pool } from 'pg';
 import { toErrorResponse } from '../src/errors/index.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { moduleGate } from '../src/modules/installation-modules/gate.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { MessagingService } from '../src/modules/messaging/service.js';
 import { messagingRoutes } from '../src/modules/messaging/routes.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
@@ -48,7 +50,7 @@ const MIGRATIONS = [
   '040_demo_lifecycle_simplification.sql',
   '041_user_lifecycle_reconciliation.sql',
   '042_unsuccessful_visit_reason.sql',
-  '043_job_card_schedule_and_assignment_history.sql', '047_job_card_overdue_incidents.sql', '048_overdue_episode_activation_legacy_first.sql', '053_overdue_submission_reminders.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql',
+  '043_job_card_schedule_and_assignment_history.sql', '047_job_card_overdue_incidents.sql', '048_overdue_episode_activation_legacy_first.sql', '053_overdue_submission_reminders.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql', '073_assignment_offer_time_proposal.sql',
 ] as const;
 
 type Fixture = {
@@ -135,7 +137,7 @@ function jobService(pool: Pool): JobCardService {
 }
 
 function messaging(pool: Pool): MessagingService {
-  return new MessagingService(pool, true);
+  return new MessagingService(pool);
 }
 
 async function createCanonical(
@@ -169,6 +171,7 @@ async function buildApp(service: MessagingService, actor: SafeUser) {
     prefix: '/api/messaging',
     service,
     authenticate,
+    gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
   });
   return app;
 }
@@ -247,20 +250,25 @@ describe('M9: explicit Job assignee sync', () => {
     });
   });
 
-  it('rejects nonparticipant Admin/Manager with opaque 404', async () => {
+  it('allows same-org nonparticipant Admin/Manager to sync without adding them as participant', async () => {
     await withFixture(async ({ pool, admin, manager, staffA, staffB }) => {
       const job = await createJob(pool, admin, 'Sync job 2', staffA.id);
       const conversationId = await createCanonical(pool, admin, job.id, staffA);
+      await seedMessage(pool, admin, conversationId, 'Önceki mesaj');
       const jsvc = jobService(pool);
       const patched = await jsvc.patch(admin, job.id, {
         expectedVersion: job.version, assignedTo: staffB.id,
       });
-      const app = await buildApp(messaging(pool), manager);
+      const svc = messaging(pool);
+      const app = await buildApp(svc, manager);
       const res = await syncRequest(app, conversationId, {
         clientActionId: 'm9-nonpart-1',
         assignmentTransitionId: patched.assignmentTransitionId as string,
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ conversationId, synced: true, changed: true });
+      expect(await participantIdsOf(pool, conversationId)).toEqual([admin.id, staffB.id].sort());
+      expect(await svc.getUnreadCount(staffB)).toBe(0);
     });
   });
 
@@ -406,7 +414,7 @@ describe('M9: explicit Job assignee sync', () => {
     });
   });
 
-  it('replay after membership loss is denied', async () => {
+  it('replay after Admin/Manager membership loss still succeeds via org-wide authority', async () => {
     await withFixture(async ({ pool, admin, staffA, staffB }) => {
       const job = await createJob(pool, admin, 'Auth replay job', staffA.id);
       const conversationId = await createCanonical(pool, admin, job.id, staffA);
@@ -423,7 +431,9 @@ describe('M9: explicit Job assignee sync', () => {
         [conversationId, admin.id],
       );
       const replay = await syncRequest(app, conversationId, body);
-      expect(replay.status).toBe(404);
+      expect(replay.status).toBe(200);
+      expect(replay.body).toMatchObject({ conversationId, synced: true, changed: false });
+      expect(await participantIdsOf(pool, conversationId)).toEqual([staffB.id]);
     });
   });
 
@@ -619,6 +629,7 @@ describe('M9: explicit Job assignee sync', () => {
         prefix: '/api/messaging',
         service: messaging(pool),
         authenticate,
+        gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
       });
       const res = await app.inject({
         method: 'POST',

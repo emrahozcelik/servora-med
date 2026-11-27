@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FollowUpCreatePage } from '../src/jobs/FollowUpCreatePage';
+import { stubMatchMedia } from './helpers/match-media';
 import { CUSTOMERLESS_FOLLOW_UP_EXPLANATION } from '../src/jobs/follow-up-presentation';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { JobCard } from '../src/jobs/jobs-api';
@@ -42,7 +43,9 @@ vi.mock('../src/services/crm-api', async (original) => ({
 vi.mock('../src/services/products-api', async (original) => ({
   ...await original<typeof import('../src/services/products-api')>(), ...products,
 }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (original) => ({
+  ...await original<typeof import('../src/jobs/scheduling')>(), ...scheduling,
+}));
 
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
@@ -136,6 +139,12 @@ async function flush() {
   await act(async () => { await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
 async function waitForAvailableSlotSearch() {
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); await Promise.resolve(); });
 }
@@ -147,11 +156,7 @@ describe('Follow-up create page', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    resizeTo(1024);
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `action-${++action}`),
@@ -197,6 +202,25 @@ describe('Follow-up create page', () => {
       onCancel={() => {}} onCreated={onCreated} />));
     await flush();
   }
+
+  it('renders and commits the compact wheel trigger for the planned follow-up time', async () => {
+    resizeTo(390);
+    await render();
+    const trigger = host.querySelector<HTMLButtonElement>('#follow-up-scheduled-at')!;
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.hasAttribute('name')).toBe(false);
+    const before = trigger.textContent;
+    await act(async () => trigger.click());
+    const hour = document.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+    await act(async () => {
+      hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    const ok = [...document.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+      .find((button) => button.textContent === 'Tamam')!;
+    await act(async () => ok.click());
+    expect(trigger.textContent).not.toBe(before);
+    expect(document.body.style.overflow).toBe('');
+  });
 
   it('does not load or expose an operational form to Staff', async () => {
     await render(staffUser);
@@ -554,6 +578,20 @@ describe('Follow-up create page', () => {
     expect(host.querySelector('.available-slots-notice')).not.toBeNull();
   });
 
+  it('searches and renders available slots when the Calendar module is off', async () => {
+    await render({
+      ...manager,
+      capabilities: { overviewDashboard: true, calendar: false, messaging: true },
+    });
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await waitForAvailableSlotSearch();
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-2',
+    }));
+    expect(host.querySelector('.available-slots-notice')).not.toBeNull();
+    expect(host.querySelector('[data-available-slot]')).not.toBeNull();
+  });
+
   it('does not search for or render available slots for a General Task follow-up', async () => {
     await render(manager, {
       ...source, type: 'GENERAL_TASK', customerId: null, contactId: null,
@@ -825,6 +863,45 @@ describe('Follow-up create page', () => {
     expect(host.querySelector('[data-follow-up-instructions-counter]')!.getAttribute('data-counter-state'))
       .toBe('attention');
   });
+
+  it('preserves user-edited scheduledLocal on same-source reload and supports quick controls + shift-to-future', async () => {
+    await render();
+    expect(host.textContent).toContain('Zamanı belirleyin ve personelin uygun saatlerini gözden geçirin.');
+    expect(host.textContent).not.toContain('müşteri-personel ortak uygunluğunu');
+    expect(host.querySelector('.schedule-duration-preview')?.textContent).toContain('(60 dk)');
+
+    change(host.querySelector('#follow-up-scheduled-at') as HTMLInputElement, '2026-08-01T13:16');
+    const admin = { ...manager, role: 'ADMIN' as const };
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={admin}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T13:16');
+
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    expect(host.querySelector('.schedule-duration-preview')?.textContent).toContain('(30 dk)');
+
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'GENERAL_TASK');
+    expect(host.querySelector('.schedule-duration-preview')).toBeNull();
+
+    // Shift to future from past-start acknowledgement drawer
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'SALES_MEETING');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Takip kapsamı');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    jobs.createFollowUp.mockRejectedValueOnce(
+      new ApiError(409, 'PAST_START_ACKNOWLEDGEMENT_REQUIRED', 'Başlangıç saati geçti.'),
+    );
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(host.querySelector('form.past-start-acknowledgement-form')).not.toBeNull();
+
+    scheduling.defaultScheduledLocalValue.mockReturnValueOnce('2026-08-18T10:30');
+    const shiftBtn = Array.from(host.querySelectorAll('form.past-start-acknowledgement-form button'))
+      .find((b) => b.textContent === 'Saati şimdiye / geleceğe al') as HTMLButtonElement;
+    expect(shiftBtn).toBeTruthy();
+    await act(async () => shiftBtn.click());
+    expect(host.querySelector('form.past-start-acknowledgement-form')).toBeNull();
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value).toBe('2026-08-18T10:30');
+  });
 });
 
 describe('Follow-up create ambiguous attempt contract', () => {
@@ -834,11 +911,7 @@ describe('Follow-up create ambiguous attempt contract', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false, media: '', onchange: null,
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-    }));
+    resizeTo(1024);
     let action = 0;
     Object.defineProperty(globalThis.crypto, 'randomUUID', {
       configurable: true, value: vi.fn(() => `fu-action-${++action}`),
@@ -948,5 +1021,18 @@ describe('Follow-up create ambiguous attempt contract', () => {
     await flush();
     expect(jobs.createFollowUp).toHaveBeenCalledTimes(1);
     expect(host.querySelector('[data-original-retry]')).toBeNull();
+  });
+
+  it('renders PageHeader h1 even on early-return access and load error states', async () => {
+    await act(async () => root.render(
+      <FollowUpCreatePage
+        sourceId={source.id}
+        user={{ ...manager, role: 'STAFF' }}
+        onCancel={() => {}}
+        onCreated={onCreated}
+      />,
+    ));
+    expect(host.querySelector('h1')?.textContent).toBe('Takip işi planla');
+    expect(host.textContent).toContain('Erişim yetkiniz yok');
   });
 });

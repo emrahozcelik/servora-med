@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { BackupServiceTransitionPrimitives } from './service.js';
-import type { BackupWorkerRepository } from './repository.js';
+import type { BackupFailureTransitionAudit, BackupWorkerRepository } from './repository.js';
 import { getDueScheduledSlot } from './scheduler.js';
 import {
   BACKUP_RETRY_MAX_ATTEMPTS,
@@ -103,8 +103,14 @@ export class LeaseBoundBackupService implements BackupServiceTransitionPrimitive
     return this.service.advancePhase(id, toPhase, filesArchiveRequired, this.leaseToken);
   }
 
-  markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string) {
-    return this.service.markFailed(id, failureCode, failureSummary, this.leaseToken);
+  markFailed(
+    id: string,
+    failureCode: BackupFailureCode,
+    failureSummary: string,
+    _leaseToken?: string,
+    systemAudit?: BackupFailureTransitionAudit,
+  ) {
+    return this.service.markFailed(id, failureCode, failureSummary, this.leaseToken, systemAudit);
   }
 
   markCancelled(id: string) {
@@ -224,27 +230,15 @@ export class BackupWorker {
     await repository.touchSchedulerHeartbeat(tickAt);
     const result = await repository.tryWithBackupExclusionLock(async () => {
       await this.options.reclaimWorkspaces?.();
-      const recovered = await repository.recoverExpiredRuns(tickAt);
-      for (const recoveredRun of recovered) {
-        await repository.appendSystemBackupAudit(recoveredRun.id, 'BACKUP_FAILED', {
-          status: recoveredRun.status,
-          phase: recoveredRun.phase,
-          failureCode: recoveredRun.failureCode,
-        });
-      }
+      // Recovery appends BACKUP_FAILED inside the same statement as the
+      // FAILED transition; claims append BACKUP_STARTED inside the claim.
+      await repository.recoverExpiredRuns(tickAt);
 
       const leaseToken = this.randomId();
       const leaseUntil = new Date(tickAt.getTime() + this.leaseMs);
       const cleanupClaim = await repository.claimExpiredCleanupRun(tickAt, leaseToken, leaseUntil);
       const claim = cleanupClaim ?? (await this.scheduleAndClaim(tickAt, leaseToken, leaseUntil));
       if (!claim) return { kind: 'idle' } as const;
-
-      await repository.appendSystemBackupAudit(claim.run.id, 'BACKUP_STARTED', {
-        origin: claim.run.origin,
-        scope: claim.run.scope,
-        retentionClass: claim.run.retentionClass,
-        phase: claim.run.phase,
-      });
 
       await this.executeClaim(claim);
       return { kind: 'claimed', runId: claim.run.id } as const;
@@ -332,17 +326,21 @@ export class BackupWorker {
         if (leaseLost) return;
         if (outcome.kind === 'completed') return;
         if (outcome.kind === 'terminal-failure') {
+          // `persisted` means the executing engine already committed FAILED
+          // together with its BACKUP_FAILED audit; otherwise the worker's
+          // own transition must carry the audit.
           if (!outcome.persisted) {
+            // The lease-bound adapter injects the claim token; passing the
+            // trailing descriptor makes BACKUP_FAILED commit with the FAILED
+            // transition in one statement.
             await context.service.markFailed(
               claim.run.id,
               outcome.failureCode,
               outcome.failureSummary,
+              undefined,
+              { eventType: 'BACKUP_FAILED' },
             );
           }
-          await this.options.repository.appendSystemBackupAudit(claim.run.id, 'BACKUP_FAILED', {
-            failureCode: outcome.failureCode,
-            failureSummary: outcome.failureSummary,
-          });
           return;
         }
         if (!isRetryableBackupFailure(outcome.failureCode)) {
@@ -350,11 +348,9 @@ export class BackupWorker {
             claim.run.id,
             outcome.failureCode,
             outcome.failureSummary,
+            undefined,
+            { eventType: 'BACKUP_FAILED' },
           );
-          await this.options.repository.appendSystemBackupAudit(claim.run.id, 'BACKUP_FAILED', {
-            failureCode: outcome.failureCode,
-            failureSummary: outcome.failureSummary,
-          });
           return;
         }
         if (attempt >= this.retryMaxAttempts) {
@@ -362,11 +358,9 @@ export class BackupWorker {
             claim.run.id,
             outcome.failureCode,
             outcome.failureSummary,
+            undefined,
+            { eventType: 'BACKUP_FAILED' },
           );
-          await this.options.repository.appendSystemBackupAudit(claim.run.id, 'BACKUP_FAILED', {
-            failureCode: outcome.failureCode,
-            failureSummary: outcome.failureSummary,
-          });
           return;
         }
         await this.sleep(retryDelayMs(attempt));

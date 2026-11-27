@@ -32,7 +32,10 @@ vi.mock('../src/jobs/sale-api', () => sale);
 vi.mock('../src/services/crm-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/crm-api')>(), ...crm }));
 vi.mock('../src/services/people-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/people-api')>(), ...people }));
 vi.mock('../src/services/products-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/products-api')>(), ...productsApi }));
-vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/scheduling', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/jobs/scheduling')>()),
+  ...scheduling,
+}));
 vi.mock('../src/realtime/RealtimeProvider', () => ({ useRealtimeInvalidation: () => {} }));
 
 const manager: CurrentUser = {

@@ -448,4 +448,66 @@ describe('RealtimeService', () => {
 
     expect(closed).toBe(1);
   });
+
+  it('skips messaging events in replay and live catchup while advancing the cursor when messagingVisible is false', async () => {
+    const bus = new InMemoryRealtimeEventBus();
+    const convEvent = (
+      id: bigint,
+      type: RealtimeEventRecord['type'],
+      entityType: RealtimeEventRecord['entityType'] = 'conversation',
+    ): RealtimeEventRecord => ({
+      ...event(id),
+      type,
+      entityType,
+      entityId: `conv-${id}`,
+      resourceKeys: ['messaging'],
+    });
+
+    const durable: RealtimeEventRecord[] = [
+      convEvent(2n, 'conversation.created'),
+      event(3n),
+      convEvent(4n, 'message.sent'),
+      convEvent(5n, 'conversation.participants_changed'),
+    ];
+    const replayCalls: bigint[] = [];
+    const repository = {
+      visibleHighWater: async () => 5n,
+      replayVisible: async (_viewer: unknown, afterId: bigint) => {
+        replayCalls.push(afterId);
+        return durable.filter((item) => item.id > afterId);
+      },
+    };
+    let visible = false;
+    const visibilityChecks = vi.fn(async () => visible);
+    const sent: string[] = [];
+    const service = new RealtimeService(repository, bus, undefined, visibilityChecks);
+
+    const sub = await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      1n,
+      { send: async (value) => { sent.push(`${value.id}:${value.type}`); } },
+    );
+
+    // Initial replay read visibility once for the batch, skipped 2/4/5, delivered 3, and advanced lastSent to 5.
+    expect(sent).toEqual(['3:job.started']);
+    expect(visibilityChecks).toHaveBeenCalledTimes(1);
+
+    // Live batch while still disabled: skips 6, advances lastSent to 6 (replayVisible receives 5n -> 6n).
+    const liveMsg = convEvent(6n, 'message.sent');
+    durable.push(liveMsg);
+    bus.publish(liveMsg);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sent).toEqual(['3:job.started']);
+    expect(replayCalls).toEqual([1n, 5n]);
+
+    // Turn messaging back on and emit a new job event: cursor starts after 6n (skipped rows are not re-sent).
+    visible = true;
+    const nextJob = event(7n);
+    durable.push(nextJob);
+    bus.publish(nextJob);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(replayCalls).toEqual([1n, 5n, 6n]);
+    expect(sent).toEqual(['3:job.started', '7:job.started']);
+    sub.close();
+  });
 });

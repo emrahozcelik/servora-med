@@ -78,7 +78,6 @@ async function encryptedHandoff(
 async function completeCleanup(
   runId: string,
   tempRoot: string,
-  repository: BackupWorkerRepository,
   context: BackupWorkerExecutionContext,
 ): Promise<BackupWorkerExecutionOutcome> {
   let cleanupWarning: string | undefined;
@@ -88,13 +87,11 @@ async function completeCleanup(
     // Never expose an absolute path or an exception detail in operator data.
     cleanupWarning = 'Yerel çalışma alanı temizlenemedi; uzak doğrulama korunarak tamamlandı.';
   }
-  await context.service.completeRun(
-    runId,
-    cleanupWarning ? { cleanupWarning } : undefined,
-  );
-  await repository.appendSystemBackupAudit(runId, 'BACKUP_COMPLETED', {
-    status: 'SUCCESS',
-    warningCode: cleanupWarning ? 'CLEANUP_FAILED' : null,
+  await context.service.completeRun(runId, {
+    cleanupWarning,
+    // BACKUP_COMPLETED commits with the SUCCESS transition; merging the
+    // workspace warning into this descriptor keeps a single atomic write.
+    systemAudit: { eventType: 'BACKUP_COMPLETED' },
   });
   return { kind: 'completed' };
 }
@@ -131,7 +128,7 @@ export function createBackupPipelineExecutor(options: BackupPipelineOptions) {
           phase: run.phase,
         });
       }
-      return completeCleanup(run.id, options.tempRoot, options.repository, context);
+      return completeCleanup(run.id, options.tempRoot, context);
     }
 
     const localEngine = new LocalBackupEngine({
@@ -201,7 +198,7 @@ export function createBackupPipelineExecutor(options: BackupPipelineOptions) {
     }
 
     if (run.phase === 'CLEANUP') {
-      return completeCleanup(run.id, options.tempRoot, options.repository, context);
+      return completeCleanup(run.id, options.tempRoot, context);
     }
     throw new Error(`backup run ${run.id} stopped at unsupported phase ${run.phase ?? 'null'}`);
   };

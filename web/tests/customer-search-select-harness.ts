@@ -3,13 +3,10 @@ import { act } from 'react';
 import { vi } from 'vitest';
 
 import { CUSTOMER_SEARCH_DEBOUNCE_MS } from '../src/jobs/CustomerSearchSelect';
+import { stubMatchMedia as stubShellMatchMedia } from './helpers/match-media';
 
-export function stubMatchMedia() {
-  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-    matches: false, media: '', onchange: null,
-    addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-  }));
+export function stubMatchMedia(): void {
+  stubShellMatchMedia();
 }
 
 export async function settle() {

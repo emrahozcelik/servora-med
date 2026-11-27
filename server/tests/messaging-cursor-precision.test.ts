@@ -8,6 +8,8 @@ import { Pool } from 'pg';
 
 import { toErrorResponse } from '../src/errors/index.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
+import { moduleGate } from '../src/modules/installation-modules/gate.js';
+import { staticModuleStateReader } from '../src/modules/installation-modules/state.js';
 import { messagingRoutes } from '../src/modules/messaging/routes.js';
 import { MessagingService } from '../src/modules/messaging/service.js';
 
@@ -118,7 +120,7 @@ function decodeCursor(cursor: string): { ca: string; id: string } {
 describe('MSG-CURSOR-PRECISION negative control (sub-millisecond keyset boundary)', () => {
   it('CURSOR-PREC-1: microsecond timestamps survive one DB round-trip with full precision', async () => {
     await withFixture(async ({ pool, org, admin, staff }) => {
-      const svc = new MessagingService(pool, true);
+      const svc = new MessagingService(pool);
       const conv = await svc.createOrGetConversation(admin, {
         contextType: 'GENERAL', title: 'precision', participantUserIds: [staff.id],
       });
@@ -135,7 +137,7 @@ describe('MSG-CURSOR-PRECISION negative control (sub-millisecond keyset boundary
 
   it('CURSOR-PREC-2: walking A,B,C with limit=1 through the real HTTP cursor contract returns every row', async () => {
     await withFixture(async ({ pool, org, admin, staff }) => {
-      const svc = new MessagingService(pool, true);
+      const svc = new MessagingService(pool);
       const conv = await svc.createOrGetConversation(admin, {
         contextType: 'GENERAL', title: 'precision', participantUserIds: [staff.id],
       });
@@ -151,7 +153,12 @@ describe('MSG-CURSOR-PRECISION negative control (sub-millisecond keyset boundary
       const authenticate: preHandlerHookHandler = async (request) => {
         (request as { currentUser?: SafeUser }).currentUser = staff;
       };
-      await app.register(messagingRoutes, { prefix: '/api/messaging', service: svc, authenticate });
+      await app.register(messagingRoutes, {
+        prefix: '/api/messaging',
+        service: svc,
+        authenticate,
+        gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
+      });
 
       const seen: string[] = [];
       let cursor: string | null = null;
@@ -180,7 +187,7 @@ describe('MSG-CURSOR-PRECISION negative control (sub-millisecond keyset boundary
   });
 
   it('CURSOR-PREC-3: identical database timestamps keep deterministic id tie-breaking with no skip/dup', async () => {    await withFixture(async ({ pool, org, admin, staff }) => {
-      const svc = new MessagingService(pool, true);
+      const svc = new MessagingService(pool);
       const conv = await svc.createOrGetConversation(admin, {
         contextType: 'GENERAL', title: 'tiebreak', participantUserIds: [staff.id],
       });
@@ -217,7 +224,7 @@ describe('MSG-CURSOR-PRECISION negative control (sub-millisecond keyset boundary
           options: `-c search_path=${schema},public -c TimeZone=${timezone}`,
         });
         try {
-          const svc = new MessagingService(tzPool, true);
+          const svc = new MessagingService(tzPool);
           const conv = await svc.createOrGetConversation(admin, {
             contextType: 'GENERAL', title: `tz-${timezone}`, participantUserIds: [staff.id],
           });
@@ -259,7 +266,7 @@ describe('MSG-CURSOR-PRECISION negative control (sub-millisecond keyset boundary
 
   it('CURSOR-PREC-5: legacy millisecond cursor is accepted; next server cursor is exact', async () => {
     await withFixture(async ({ pool, org, admin, staff }) => {
-      const svc = new MessagingService(pool, true);
+      const svc = new MessagingService(pool);
       const conv = await svc.createOrGetConversation(admin, {
         contextType: 'GENERAL', title: 'legacy', participantUserIds: [staff.id],
       });
@@ -280,7 +287,12 @@ describe('MSG-CURSOR-PRECISION negative control (sub-millisecond keyset boundary
       const authenticate: preHandlerHookHandler = async (request) => {
         (request as { currentUser?: SafeUser }).currentUser = staff;
       };
-      await app.register(messagingRoutes, { prefix: '/api/messaging', service: svc, authenticate });
+      await app.register(messagingRoutes, {
+        prefix: '/api/messaging',
+        service: svc,
+        authenticate,
+        gate: moduleGate(staticModuleStateReader(true), 'MESSAGING'),
+      });
 
       // Hand-crafted legacy token: millisecond precision, as older servers issued.
       const legacy = Buffer.from(JSON.stringify({ ca: '2026-01-15T10:20:30.123Z', id: ID_A })).toString('base64url');

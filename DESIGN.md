@@ -9,7 +9,7 @@ description: Reliable, simple, and orderly product UI for mobile field action an
 
 **Creative North Star: "The Clear Field Ledger"**
 
-Servora-Med should feel like a carefully maintained field ledger translated into a modern product interface. Information is calm, structured, and immediately trustworthy. The surface gives staff enough guidance to act quickly on a phone while preserving the density managers need to oversee work on a desktop.
+Servora-Med (platform name; rendered to end users under the white-label **Dünya Dental** identity) should feel like a carefully maintained field ledger translated into a modern product interface. Information is calm, structured, and immediately trustworthy. The surface gives staff enough guidance to act quickly on a phone while preserving the density managers need to oversee work on a desktop.
 
 The physical scene is a field employee using a phone in a bright clinic corridor and a manager scanning approvals on a desktop during a busy workday. This requires a light-first, high-contrast system with restrained color, readable controls, visible focus, and no dependence on subtle translucency. Dark mode is not assumed; it can be designed later from measured need.
 
@@ -34,22 +34,22 @@ The implemented palette uses warm, lightly tinted neutrals and a low-chroma mine
 
 ### Primary
 
-- **Mineral Blue** (`oklch(47% 0.105 238deg)`): Primary actions, current selection, and the smallest set of active state indicators. Focus uses the related `oklch(58% 0.14 238deg)` token.
+- **Mineral Blue** (`--accent`, with `--accent-hover`, `--accent-soft`, and focus ring `--focus` defined in `servora-visual-tokens.ts`): Primary actions, current selection, and the smallest set of active state indicators.
 
 ### Neutral
 
-- **Daylight Paper** (`oklch(98.5% 0.004 235deg)`): Main content background; softly tinted rather than pure white.
-- **Quiet Canvas** (`oklch(95.5% 0.009 235deg)`): Navigation, toolbar, and grouped-workflow background.
-- **Graphite Ink** (`oklch(26% 0.016 246deg)`): Primary text; tinted rather than pure black.
-- **Muted Record** (`oklch(47% 0.018 246deg)`): Secondary text and supporting metadata.
-- **Soft Rule** (`oklch(86% 0.012 238deg)`): Borders and dividers that clarify grouping without boxing every element.
+- **Daylight Paper** (`--paper`): Main content background; softly tinted rather than pure white.
+- **Quiet Canvas** (`--canvas`, over `--frame` page background and `--surface-hover` hover tint): Navigation, toolbar, and grouped-workflow background.
+- **Graphite Ink** (`--ink`): Primary text; tinted rather than pure black.
+- **Muted Record** (`--muted`): Secondary text and supporting metadata.
+- **Soft Rule** (`--rule`, plus `--border-control` / `--border-control-hover` for interactive inputs): Borders and dividers that clarify grouping without boxing every element.
 
 ### Semantic
 
-- **Critical Red** (`oklch(44% 0.14 28deg)`): Errors and destructive outcomes only.
-- **Delay Amber** (`oklch(39% 0.08 70deg)` on `oklch(95% 0.025 80deg)`): Warnings, lateness, and attention states only.
-- **Confirmed Green** (`oklch(38% 0.08 150deg)` on `oklch(95% 0.025 150deg)`): Successful completion and approval only.
-- **Information Blue** (`oklch(41% 0.105 238deg)` on `oklch(92% 0.025 238deg)`): Neutral informational state when the primary accent would imply action.
+- **Critical Red** (`--error`, `--error-soft`, `--error-wash`): Errors and destructive outcomes only.
+- **Delay Amber** (`--warning`, `--warning-soft`, `--warning-wash`): Warnings, lateness, and attention states only.
+- **Confirmed Green** (`--success`, `--success-soft`): Successful completion and approval only.
+- **Information Blue** (`--info`, `--info-soft`): Neutral informational state when the primary accent would imply action.
 
 **The Concentrated Signal Rule.** Primary and semantic colors should clarify hierarchy, selection, urgency, and outcome without flooding the interface. There is no fixed percentage cap, but repeated saturated accents, decorative gradients, and color-only status remain prohibited.
 
@@ -59,7 +59,7 @@ The implemented palette uses warm, lightly tinted neutrals and a low-chroma mine
 
 ## Typography
 
-**Direction:** The implemented stack is `'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`. The variable font is self-hosted through `@fontsource-variable/plus-jakarta-sans` (no CDN; `latin-ext` covers Turkish glyphs), with platform-native fallbacks. `servora-visual-tokens.ts` owns the canonical family string.
+**Direction:** The implemented stack is `'Source Sans 3 Variable', 'Source Sans 3', ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`. The variable font is self-hosted through `@fontsource-variable/source-sans-3` (no CDN; `latin-ext` covers Turkish glyphs), with platform-native fallbacks. `servora-visual-tokens.ts` owns the canonical family string. Source Sans 3 replaced Plus Jakarta Sans on 2026-11-24 (owner choice): Jakarta's wide geometric forms and tight word spacing crowded dense Turkish text. The owner chose Source Sans 3 from a side-by-side render of Inter, IBM Plex Sans and Source Sans 3 on the job-detail guidance screen at 390 px; it is compact and open, so dense lists, numbers and dates stay legible.
 
 **Character:** Clear and contemporary without feeling clinical, technical, or decorative. The family must remain highly legible in Turkish, dense operational lists, form labels, quantities, dates, and status metadata.
 
@@ -145,8 +145,8 @@ Corners stay quiet. Radius is not a brand flourish; it only keeps touch targets 
 ```yaml
 components:
   button-primary:
-    backgroundColor: "oklch(47% 0.105 238deg)"
-    textColor: "oklch(98.5% 0.004 235deg)"
+    backgroundColor: "var(--accent) (via servora-visual-tokens.ts)"
+    textColor: "var(--paper)"
     rounded: 0.6rem
   form-control:
     height: 2.75rem
@@ -166,11 +166,11 @@ components:
 
 ### Ant Design foundation
 
-Ant Design `6.5.1` is an exact-pinned runtime dependency for reviewed complex
-primitives. `DESIGN.md` remains the source of truth for visual tokens,
-interaction rules, responsive structure, and accessibility. Production modules
-outside `web/src/ui/antd/` must not import Ant Design directly; feature screens
-consume Servora-owned adapters instead of raw primitives.
+Ant Design (exact-pinned in `web/package.json`, currently `6.7.0`) is the runtime
+library for reviewed complex primitives. `DESIGN.md` and `servora-visual-tokens.ts` remain
+the source of truth for visual tokens, interaction rules, responsive structure, and
+accessibility. Production modules outside `web/src/ui/antd/` must not import Ant Design
+directly; feature screens consume Servora-owned adapters instead of raw primitives.
 
 The application root pairs `ConfigProvider` with Ant Design `App`, uses the
 `servora-ant` class prefix and Turkish locale, maps the canonical Servora tokens
@@ -198,21 +198,21 @@ ConfirmationAction
 ReasonDialog
 WorkflowSteps
 ActivityTimeline
-useAppFeedback
-```
-
-**Approved new adapter families when repository preflight confirms need:**
-
-```text
-ServoraCard / OperationalCard
+OperationalCard
 MetricStatistic
 ServoraCalendar
-ServoraProgress
 UserAvatar
 IconSegmented
 ContentCollapse / ContentAnchor
 SettingsTabs
+ServoraTable / StaffPerformanceTable
+ServoraPagination / ServoraListPagination
+ServoraSelect
+ServoraCheckbox
+useAppFeedback
 ```
+
+Future Ant adapter families (such as `ServoraProgress`) require repository preflight to confirm genuine need before being added.
 
 Do not wrap every Ant component merely to rename it. Create an adapter when Servora needs stable domain props, token/semantic styling, accessibility behavior, responsive behavior, or an import boundary.
 
@@ -295,15 +295,27 @@ Desktop list rows stay flat when list/table scanning is better; Card is not mand
 
 ### FormControl
 
-Text inputs, selects, and textareas share padding, border, radius, min-height, hover, focus, disabled, optional hint (`aria-describedby`), and error presentation. Bare selects (for example staff profile filters) must join this contract rather than native-unstyled outliers.
+Text inputs, selects, and textareas share `--border-control` / `--border-control-hover` / `--focus`, `--radius-control`, `--control-height`, padding (`0.72rem 0.85rem` for inputs/textareas; `0 0.85rem` for selects), hover/focus/disabled/error states, and optional hint (`aria-describedby`). Static short option lists (including filter toolbars, calendar assignee filter, report dropdowns, and duplicate resolution reason selects) use native `<select>` under this shared FormControl CSS contract; async or searchable large datasets use the owned `ServoraSelect` adapter.
+
+### Date and time input (mobile wheel)
+
+`WheelDateTimeField` (`web/src/ui/WheelDateTimeField.tsx`) is the shared date/time control for every application screen that collects a date, time, or date-time: job creation, calendar plans, sales, delivery, follow-up, assignment proposals, correction deadlines, filters, reports, settings and job detail. Each field keeps its previous id and, where the replaced input had one, its name, label, `required`/`disabled`, `aria-describedby`, and native value contract in every mode: `YYYY-MM-DDTHH:mm` (datetime), `YYYY-MM-DD` (date), `HH:mm` (time), or `''`. Desktop (`useNarrowShell()` false, the 64rem shell gate) renders the unchanged native `<input type="datetime-local|date|time">`, so a form swaps its input without changing state handling. Compact viewports (below the 64rem shell gate) render a field-styled 44px trigger that shows the value in Turkish (`Çar 26 Kas · 10:30`) or `Seçin`, and open a bottom sheet of 44px scroll-snap wheels: day (`Bugün`, `Yarın`, then weekday labels) / hour / minute for datetime, day / month / year for date, and hour / minute for time. `Tamam` commits through `onChange`; `Vazgeç`, the backdrop and Escape discard the draft. The committed value uses one `resolveSelection` rule for both the settled wheel path and a fast confirmation: wheel centers are flushed synchronously, the combination is kept when it is inside `min`/`max`, otherwise it moves to the nearest bound exactly. An off-grid bound minute is offered in its hour's minute wheel and keeps that hour selectable, so `09:43` or `09:58` can be chosen and confirmed. An empty value starts at now rounded up to the next `minuteStep` value inside its hour; `min`/`max` clamp the initial selection and disable out-of-range wheel entries. A time range may wrap midnight (`22:00–02:00`), and the day wheel renders the whole explicit `min`/`max` range so `Home`/`End` reach the real bounds. Optional fields expose `Temizle`, which commits `''`; required fields do not. On compact viewports a visually clipped native input with the same `type`/`value`/`min`/`max`/`required` (and the same `name` when the replaced input had one) keeps `FormData` and constraint validation identical to the input it replaces, and its `invalid` event shows the reason under the trigger (`En erken: …` / `En geç: …` for range errors, the mode's `… seçin.` message for a missing required value) with `aria-invalid` + `aria-describedby`; only the first invalid field in a submit takes focus. Each wheel is one focusable `spinbutton` (ArrowUp/ArrowDown, PageUp/PageDown, Home/End) and scrolling respects `prefers-reduced-motion`. The sheet owns its title + `Vazgeç`/`Tamam` footer and reuses the shared overlay focus-trap/restore helpers; it is neither a filter sheet nor a form drawer.
+
+### Filter Bars, Search & Pagination
+
+- List and report toolbars wrap filters inside `.filter-region` and prefer `.surface-flat` (`var(--canvas)` + `--rule` border, no card-on-card shadow) with a desktop reset action (`Filtreleri temizle` / `Filtreleri sıfırla` / `Temizle`) whenever non-default filters are active. On viewports below `64rem`, high-density list filters collapse into `FilterSheet` while keeping primary search accessible. There the compact toolbar renders the search submit and the `FilterSheet` trigger as icon-only 44 × 44 controls (shared `search` / `filter` glyphs in `ui/signal-icons.tsx`) named `Ara` and `Filtreler` (or `Filtreler, N etkin`), with the active filter count also shown as a small badge; desktop keeps the worded `Ara` submit. A selected quick-view membership (Onay kuyruğu, Düzeltme, Kapalı) and a report grouping are view choices, not filters, so they never show the reset action. Report date presets highlight from the URL range, so a reload or the default range keeps the right preset pressed.
+- Fixed-page offset lists standardize on `ServoraListPagination` (`Sayfa X / Y · Toplam N <öğe>`), hiding automatically on single-page results (reports whose count is part of the answer keep `Toplam N <öğe>` via `showSinglePageTotal`) and preserving keyboard focus across page transitions. Cursor-based continuation streams (duplicate pair scan, job notes, older messages, notifications, append-mode staff lateness) intentionally keep explicit cursor buttons rather than total-page counters.
+- Expandable table rows use an icon-only chevron toggle (44px, `aria-expanded`, record-specific accessible name and a tooltip) instead of a repeated word in every row; mobile cards keep a worded `Ayrıntıları göster` disclosure.
 
 ### Status and priority chips
 
 Both are required for operational scanning. Soft fill + visible Turkish label (and optional non-color shape). Color never alone. No left side-stripe accents on cards or chips.
 
+The shape channel is the shared inline SVG set in `web/src/ui/signal-icons.tsx` (status, priority, job type, lifecycle command, and signal glyphs). Glyphs are `aria-hidden` and never replace the visible label; no icon library is introduced. Status tones: `Atandı` neutral, `Kabul edildi` Information Blue, `Uygulanıyor` accent, `Yönetici kontrolünde` and `Düzeltme istendi` Delay Amber (attention, never Critical Red), `Tamamlandı` Confirmed Green, `İptal edildi` Critical Red, `Geçersiz` muted. Lateness signals use Delay Amber with explicit time text. The `Takip` badge marks follow-up continuity (a card created from another card's follow-up), not the `Takip görüşmesi` meeting kind, which is already the type label. Activity timeline markers use the same five tones (success, info, warning, danger, neutral); an advisory location difference is shown once, as a Delay Amber badge.
+
 ### New job control
 
-One primary **Yeni iş** control per viewport. Desktop (≥1024px): the global top bar disclosure menu, available on every route, without focus trap; Escape returns focus. Route page headers, including Jobs, do not render a second create control. Create options come from one ordered source (`web/src/jobs/new-job-options.ts`) shared by the create menu and the command palette quick actions. Mobile/tablet (`<1024px`): the single create entry is the centered bottom-navigation action, which opens the existing bottom sheet with focus containment while it is modal; it is available on every mobile route for the roles that could already create jobs. The former jobs-list sticky create bar is removed. Routes remain the existing create flows.
+One primary create control per viewport. Desktop (≥1024px): the top bar owns it. By default it is the global **Yeni iş** disclosure menu, without focus trap; Escape returns focus. A page whose own primary job is creating a different record registers that create action (`web/src/shell/page-create-action.tsx`) and the top bar shows it in place of **Yeni iş**: Ürünler → **Yeni ürün** (only for roles that may manage the catalog), Müşteriler → **Yeni müşteri**, Takvim → **Yeni plan**. The page decides the label, permission and disabled state; when it registers nothing the top bar falls back to **Yeni iş**. Jobs and every other route keep **Yeni iş**. On desktop, page headers do not render a second create control (the page's own button carries `.page-create-action` and is hidden at ≥1024px); below 1024px those page buttons stay, because the mobile top bar has no create control. Create options come from one ordered source (`web/src/jobs/new-job-options.ts`) shared by the create menu and the command palette quick actions. Mobile/tablet (`<1024px`): the single create entry is the centered bottom-navigation action, which opens the existing bottom sheet with focus containment while it is modal; it is available on every mobile route for the roles that could already create jobs. The former jobs-list sticky create bar is removed. Routes remain the existing create flows.
 
 ### Mobile top bar
 
@@ -373,7 +385,7 @@ Role-aware home remains navigation policy: overview when eligible/enabled, other
 - **Route identity registry:** static identity, generic titles, deterministic param-aware hierarchy, breadcrumb semantics. MUST NOT own authorization, home policy, fetching, or domain types.
 - **Resolved-identity layer:** the single combination of static identity, params, and runtime label. MUST NOT fetch or render.
 - **AppShell:** viewport switch, drawer with focus trap/restore, topbar/bottom-nav/content composition, document-title wiring from the resolved identity, home-target resolution passed to Brand. MUST NOT recompute titles or return targets.
-- **Desktop top bar:** global quick search (`⌘K` / `Ctrl K`, lazy-loaded command palette over pages, customers and job cards through existing role-scoped endpoints), the single desktop **Yeni iş**, notifications, and the account menu (a disclosure with profile, security and settings links and `Oturumu kapat`). Search yields width before the account name truncates. MUST NOT render the route title or a brand. The desktop sidebar footer carries only copyright and build identity.
+- **Desktop top bar:** global quick search (`⌘K` / `Ctrl K`, lazy-loaded command palette over pages, customers and job cards through existing role-scoped endpoints), the single desktop create control (**Yeni iş**, or the current page's registered create action), notifications, and the account menu (a disclosure with profile, security and settings links and `Oturumu kapat`). Search yields width before the account name truncates. MUST NOT render the route title or a brand. The desktop sidebar footer carries only copyright and build identity.
 - **PageHeader:** H1, eyebrow, description, breadcrumb region, return-context region, actions passthrough. MUST NOT own authorization, business actions, tabs, filters, or data fetching.
 - **MobileTopBar:** resolved route title, notification affordance. MUST NOT own a menu trigger, breadcrumb, hierarchy, return logic, or brand.
 - **Brand component:** variant-to-asset mapping, accessible semantics, sizing contract, linked/non-linked rendering from supplied target. MUST NOT own role, home, or authorization policy.
@@ -399,19 +411,26 @@ use the owned Ant Design boundary in later implementation PRs.
 
 - **Lifecycle stepper** (`.servora-workflow-steps` via `WorkflowSteps`): screen-reader
   ordered list plus visual Ant Steps of presentation phases
-  (`Oluşturuldu` → `Planlandı` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
-  Current step uses `aria-current="step"`. Complete, current, skipped (`Planlama atlandı`),
+  (`Atandı` → `Kabul edildi` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
+  Current step uses `aria-current="step"`. Complete, current, skipped (`Atlandı`),
   attention (revision loop), and upcoming states use text/icon semantics plus restrained
   color—never color alone. Attention is Delay Amber with explicit text; it is never
   Critical Red and never Ant's `error` status. Desktop: five-column when space permits;
   fall back to compact vertical without horizontal page scroll. Mobile: a one-line
   compact summary (`3 / 5 · Uygulanıyor`) that expands into the full vertical stepper
   through a native disclosure (UI-005).
-- **Mobile job detail order** (UI-005, below 1024px): title and status chips →
-  responsibility panel with its primary command(s) → compact lifecycle summary →
-  requirements, record details, notes and history. Manager-only lateness history is a
+- **Mobile job detail order** (UI-005, below 1024px, owner decision 2026-11-25): title and
+  status chips → compact lifecycle strip → responsibility panel with its primary command(s) →
+  requirements, record details, notes and history. The strip is the job card's signature
+  header: one row of five phase markers joined by a line plus `3 / 5 · Uygulanıyor`, expanding
+  into the full vertical stepper; an attention phase reads `Dikkat gerekiyor` in Delay Amber. Manager-only lateness history is a
   collapsed disclosure below the workflow; the open lateness signal keeps its place.
   Desktop keeps the stepper above the record and the decision group in the work rail.
+- **Early-start authorization**: lives with the schedule it describes (after the schedule edit
+  form, or after the record facts). Idle is one row, `İzin verilmedi` plus a secondary
+  `Erken başlamaya izin ver` disclosure that reveals the help text and the confirm action; a
+  granted authorization is a single status line. The offer is hidden when the job has no
+  planned start or its planned start is not in the future.
 - **Responsibility panel**: calm Surface grouping that states who should act next and what
   consequence follows the primary command. Management intervention outside review stays
   secondary even when allowed.
@@ -420,12 +439,39 @@ use the owned Ant Design boundary in later implementation PRs.
 - **Approval review panel**: Manager/Admin summary of submission facts and readiness before
   decision controls. Primary decision is **Kontrolü tamamla ve işi kapat** (confirmation
   required); secondary is **Düzeltme için personele geri gönder** with mandatory reason.
+- **Management guidance panels**: lead with the facts and the real commands in reason
+  order (only the first action is primary); record-only resolutions sit in their own
+  separated, confirmed group that states they do not change the job.
 - **Workflow dialogs**: confirmation for completion and withdraw-to-edit; reason capture for
   revision and cancel. Contain focus, support Escape when safe, restore focus to the opener,
   disable controls while pending, announce status/errors via live regions.
-- **Terminal banner**: cancellation is not a green completion. Banner shows actor, time,
-  reason, and frozen source phase; completed state uses Confirmed Green only for true
-  success.
+- **Terminal banner**: cancellation (`CANCELLED` / `İptal edildi`) and historical
+  invalidation (`INVALIDATED` / `Geçersiz`) are not green completions. Banner shows actor,
+  time, reason, and frozen source phase (plus restoration cue where applicable); completed
+  state (`COMPLETED` / `Tamamlandı`) uses Confirmed Green only for true success.
+- **Planning & scheduling surfaces**: every date and time control is the shared
+  `WheelDateTimeField` (native input on desktop, wheel sheet on compact). Job detail
+  presents the planned time as one compact summary row (the owning label plus
+  `Per 26 Kas · 13:00–13:30 (30 dk)`) with a secondary 44px `Değiştir` action; the
+  editor opens only on request, from the change-request/assignment "new time"
+  guidance (with focus), or from the past-start "shift forward" path. Editing keeps
+  the wheel field, one horizontally scrolling scroll-snap row of quick presets with
+  a right-edge overflow affordance, planned interval/duration preview, and running
+  Sunday/past-start `status` hints. `Personel için uygun saatler` becomes a compact
+  horizontal day strip: a `Per 26 Kas` label followed by 44px start-time chips
+  whose accessible name carries the full interval (`26 Kasım Perşembe 10:00–10:30`);
+  `Daha fazla göster` is a compact text button at the end of the strip. Selecting a
+  chip commits the same value as the slot list did. The reason textarea
+  (`Tarih değişikliği gerekçesi`, `rows=2` with the 500-character hint) appears only
+  once the value differs from the saved one and the job carries open lateness (or
+  the server demands it on submit). The action row is primary
+  `Planlanan zamanı kaydet` plus secondary `Vazgeç`, which restores the saved value
+  and collapses the editor. Desktop keeps the same structure; preset and slot
+  strips may wrap instead of scrolling there. Unacknowledged past-start submissions
+  recover in-flow through `PastStartAcknowledgementDrawer` with an optional shortcut
+  to shift forward to the next open working slot. Calendar unifies manual plans
+  under **Kişisel plan** (concise `Plan` chip in desktop month cells to prevent
+  1024px clipping; `Yeni plan` in the desktop top bar via `page-create-action.tsx`).
 - **Compact workflow summary** (list/board): ordinal phase string such as
   `3 / 5 · Uygulanıyor` with optional attention flag. Secondary to the technical status
   chip; never replaces board column status labels.
@@ -477,22 +523,6 @@ captures. UI-001 and PRODUCT.md continue to own accessibility completion.
 - **Don't** reach for a modal before inline disclosure, a dedicated page, or a non-blocking panel has been considered.
 
 
-## Phase U visual direction amendment — 2026-07-26
+## Historical Direction Pointer (Phase U — 2026-07-26)
 
-The Phase U dashboard reference direction is the SaaS + AI dashboard composition at `demos.shadcndashboard.dev`, translated into Servora's domain and component boundary rather than copied. The target similarity is information architecture—role-aware summary, time controls, metrics, trends, upcoming work, recent work, notes, messages, and direct actions—not Tailwind, shadcn, demo colors, or demo business copy.
-
-Phase U delivery priorities recorded on 2026-07-26 (historical checkpoint):
-
-1. complete this Ant visual documentation reconciliation checkpoint,
-2. complete the U2 Calendar post-merge visual correction (branch: `fix/phase-u2-calendar-visual-closeout`),
-3. create a Workspace Visual Composition checkpoint for Overview, Documentation, Help Center, Settings, Result states, and shared Card/Statistic/Avatar/Segmented primitives,
-4. build U3 messaging and advanced analytics on those primitives,
-5. keep Phase T5 as final state, reflow, accessibility, and regression closure rather than a redesign phase.
-
-Authoritative details live in:
-
-```text
-docs/superpowers/specs/2026-07-26-servora-ant-visual-language.md
-docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md
-docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md
-```
+The July 2026 Phase U visual direction amendment (overview/analytics/calendar/messaging integration against Ant primitives) has been shipped and incorporated into the sections above. Archival rationale and resolved plans live in `docs/superpowers/specs/2026-07-26-servora-ant-visual-language.md`, `docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md`, and `docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md`.

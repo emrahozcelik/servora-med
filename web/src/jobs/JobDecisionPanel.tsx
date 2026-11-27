@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { SignalGlyph, WorkflowCommandIcon } from '../ui/signal-icons';
 import type {
   JobWorkflowPresentation,
   RecordEditPresentation,
@@ -14,6 +15,7 @@ export function JobDecisionPanel({
   recordEditAction,
   pending,
   pendingLabel,
+  pendingCommand,
   startLocationCaptureEnabled,
   submitLocationCaptureEnabled = false,
   startScheduleBlockedReason,
@@ -26,6 +28,7 @@ export function JobDecisionPanel({
   recordEditAction: JobWorkflowPresentation['recordEditAction'];
   pending: boolean;
   pendingLabel?: string;
+  pendingCommand?: LifecycleCommand | null;
   startLocationCaptureEnabled: boolean;
   /**
    * Slice 1: advisory SUBMIT snapshot. Shown only when a SUBMIT_FOR_APPROVAL
@@ -60,6 +63,9 @@ export function JobDecisionPanel({
   const commandBlocked = (command: LifecycleCommand) => pending
     || disabledCommands.includes(command)
     || Boolean(startScheduleBlockedReason && command === 'START');
+  const commandPending = (command: LifecycleCommand) => pending
+    && (pendingCommand == null || pendingCommand === command);
+  const recordEditPending = pending && pendingCommand == null;
 
   const destructiveTransitions = secondary.filter((t) => t.command === 'CANCEL');
   const secondaryTransitions = secondary.filter((t) => t.command !== 'CANCEL');
@@ -69,16 +75,26 @@ export function JobDecisionPanel({
     aria-label="İş işlemleri"
     data-job-decision-panel="true"
   >
-    {startLocationCaptureEnabled && hasStart && <p className="start-location-notice">
-      İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
-      Konum iş geçmişinde saklanır. Konum alınamazsa iş yine başlar ve yönetici
-      onayına gönderirken tekrar denenir. Konum servislerinin açık olması önemlidir.
-    </p>}
-    {submitLocationCaptureEnabled && hasSubmit && <p className="submit-location-notice">
-      Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
-      Konum, yetkili kullanıcıların görebildiği iş geçmişinde saklanır.
-      Konum alınamazsa gönderim engellenmez.
-    </p>}
+    {startLocationCaptureEnabled && hasStart && <div className="start-location-notice">
+      <p>İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.</p>
+      <details className="location-notice-more">
+        <summary>Ayrıntı</summary>
+        <span>
+          Konum iş geçmişinde saklanır. Konum alınamazsa iş yine başlar ve yönetici
+          onayına gönderirken tekrar denenir. Konum servislerinin açık olması önemlidir.
+        </span>
+      </details>
+    </div>}
+    {submitLocationCaptureEnabled && hasSubmit && <div className="submit-location-notice">
+      <p>Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.</p>
+      <details className="location-notice-more">
+        <summary>Ayrıntı</summary>
+        <span>
+          Konum, yetkili kullanıcıların görebildiği iş geçmişinde saklanır.
+          Konum alınamazsa gönderim engellenmez.
+        </span>
+      </details>
+    </div>}
     {hasStart && startScheduleBlockedReason && (
       <p
         className="start-schedule-reason"
@@ -87,6 +103,11 @@ export function JobDecisionPanel({
         aria-live="polite"
       >
         {startScheduleBlockedReason}
+      </p>
+    )}
+    {pending && pendingLabel === 'Konum alınıyor…' && (
+      <p className="field-status location-capture-status" role="status" aria-live="polite">
+        Konum alınıyor…
       </p>
     )}
     <div className="review-buttons">
@@ -99,7 +120,12 @@ export function JobDecisionPanel({
           : undefined}
         onClick={(event) => onCommand(primary.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : primary.label}
+        {commandPending(primary.command) ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <WorkflowCommandIcon command={primary.command} />
+            {primary.label}
+          </>
+        )}
       </button>}
       {secondaryTransitions.map((transition) => <button
         key={transition.command}
@@ -108,8 +134,16 @@ export function JobDecisionPanel({
         disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
+        {commandPending(transition.command) ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <WorkflowCommandIcon command={transition.command} />
+            {transition.label}
+          </>
+        )}
       </button>)}
+      {(primary || secondaryTransitions.length > 0) && destructiveTransitions.length > 0 && (
+        <span className="review-buttons-separator" aria-hidden="true" />
+      )}
       {destructiveTransitions.map((transition) => <button
         key={transition.command}
         className="destructive-button compact-button"
@@ -117,7 +151,12 @@ export function JobDecisionPanel({
         disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
+        {commandPending(transition.command) ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <WorkflowCommandIcon command={transition.command} />
+            {transition.label}
+          </>
+        )}
       </button>)}
     </div>
     {recordEditAction && <div className="detail-action-record-edit">
@@ -128,7 +167,12 @@ export function JobDecisionPanel({
         disabled={pending}
         onClick={(event) => onRecordEdit?.(recordEditAction.action, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : recordEditAction.label}
+        {recordEditPending ? (pendingLabel ?? 'İşleniyor…') : (
+          <>
+            <SignalGlyph name="edit" className="button-leading-icon" size={15} />
+            {recordEditAction.label}
+          </>
+        )}
       </button>
     </div>}
   </section>;

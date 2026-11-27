@@ -7,6 +7,7 @@ import {
 } from 'react';
 
 import { DrawerCloseButton } from '../DrawerCloseButton';
+import { lockBodyScroll } from '../scroll-lock';
 import { restoreFocus, trapTabKey } from './overlay-focus';
 
 export type ResponsiveFormDrawerProps = {
@@ -43,11 +44,10 @@ export function ResponsiveFormDrawer({
     if (!open) return;
     openerRef.current = returnFocusRef?.current
       ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseScrollLock = lockBodyScroll();
     closeRef.current?.focus();
     return () => {
-      document.body.style.overflow = previous;
+      releaseScrollLock();
       restoreFocus(returnFocusRef, openerRef.current);
     };
   }, [open, returnFocusRef]);

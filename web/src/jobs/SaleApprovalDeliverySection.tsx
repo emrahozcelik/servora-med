@@ -4,6 +4,7 @@ import { ProductSelect } from '../ProductSelect';
 import { listStaff, type StaffProfile } from '../services/people-api';
 import type { Product } from '../services/products-api';
 import { DELIVERY_PURPOSE_LABELS, pastStartAcknowledgementLabels } from './job-labels';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import {
   DELIVERY_PURPOSES,
   PAST_START_ACKNOWLEDGEMENT_CODES,
@@ -277,19 +278,19 @@ export function SaleApprovalDeliverySection(props: SaleApprovalDeliverySectionPr
 
         <div className="sale-delivery-pair">
           <div className="field-group">
-            <label htmlFor={ids.scheduledAt}>Planlanan teslim zamanı</label>
-            <input
+            <WheelDateTimeField
+              mode="datetime"
               id={ids.scheduledAt}
-              type="datetime-local"
-              required
               value={draft.scheduledLocal}
-              aria-invalid={invalid('scheduledAt')}
-              aria-describedby={describedBy('scheduledAt', ids.scheduledHelp)}
-              onChange={(event) => onChange({
-                scheduledLocal: event.target.value,
+              onChange={(value) => onChange({
+                scheduledLocal: value,
                 // The acknowledgement answered one specific past start.
                 ackRequired: false, ackCode: '', ackText: '',
               }, 'scheduledAt')}
+              required
+              invalid={invalid('scheduledAt')}
+              aria-describedby={describedBy('scheduledAt', ids.scheduledHelp)}
+              label="Planlanan teslim zamanı"
             />
             <span className="form-help" id={ids.scheduledHelp}>
               Cihazınızın yerel saat dilimi: {Intl.DateTimeFormat().resolvedOptions().timeZone}

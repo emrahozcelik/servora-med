@@ -5,6 +5,7 @@ import {
   createEnrichmentContact, getCustomer, getCustomerEnrichmentScope, type Contact,
 } from '../services/crm-api';
 import { PhoneInput } from '../ui/PhoneInput';
+import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import type {
   JobCard, MeetingDetailField, MeetingDetails, MeetingOutcome, PatchMeetingDetailsInput,
   UnsuccessfulVisitReasonCode,
@@ -15,6 +16,7 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
 import { isDefinitiveMutationError } from './mutation-attempt-error';
+import { isoInstantToLocalDateTime } from './scheduling';
 
 const unsuccessfulReasonLabels: Record<UnsuccessfulVisitReasonCode, string> = {
   CONTACT_NOT_AVAILABLE: 'İlgili kişi mevcut değil',
@@ -294,18 +296,34 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     {(feedback || error) && <div ref={feedbackRef} className={`detail-feedback${error ? ' detail-feedback-error' : ''}`}
       role={error ? 'alert' : 'status'} tabIndex={-1}>{error || feedback}</div>}
     <form className="meeting-result-form" onSubmit={submit} noValidate><fieldset disabled={mutationPending || ambiguous}>
-      <div className="field-group"><label htmlFor="meeting-actual-at">
-        Gerçekleşme zamanı{meetingOptional ? ' (isteğe bağlı)' : ''}
-      </label>
-        <input id="meeting-actual-at" type="datetime-local" value={meetingAt}
-          required={!meetingOptional}
-          aria-invalid={fieldErrors.meetingAt ? true : undefined}
-          aria-describedby={describedBy(
-            'meeting-timezone-help',
-            meetingOptional && 'meeting-time-optional-help',
-            fieldErrors.meetingAt && 'meeting-actual-at-error',
-          )}
-          onChange={(event) => setMeetingAt(event.target.value)} />
+      <div className="field-group">
+        <label htmlFor="meeting-actual-at">
+          Gerçekleşme zamanı{meetingOptional ? ' (isteğe bağlı)' : ''}
+        </label>
+        <div className="meeting-actual-at-row">
+          <WheelDateTimeField
+            mode="datetime"
+            id="meeting-actual-at"
+            value={meetingAt}
+            onChange={setMeetingAt}
+            required={!meetingOptional}
+            invalid={Boolean(fieldErrors.meetingAt)}
+            aria-describedby={describedBy(
+              'meeting-timezone-help',
+              meetingOptional && 'meeting-time-optional-help',
+              fieldErrors.meetingAt && 'meeting-actual-at-error',
+            )}
+            ariaLabel={`Gerçekleşme zamanı${meetingOptional ? ' (isteğe bağlı)' : ''}`}
+          />
+          <button
+            className="secondary-button compact-button"
+            type="button"
+            disabled={mutationPending || ambiguous}
+            onClick={() => setMeetingAt(isoInstantToLocalDateTime(new Date().toISOString()))}
+          >
+            Şimdi
+          </button>
+        </div>
         <span id="meeting-timezone-help" className="field-status">Saat dilimi: {timezoneLabel()}</span>
         {meetingOptional && <span id="meeting-time-optional-help" className="field-status">
           Görüşme gerçekleşmediyse bu alanı boş bırakabilirsiniz.
@@ -376,7 +394,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
           <div className="form-actions">
             <button className="secondary-button compact-button" type="button" disabled={contactCreatePending}
               onClick={() => { setCreatingContact(false); setContactCreateError(''); }}>Vazgeç</button>
-            <button className="primary-button compact-button" type="button" disabled={contactCreatePending}
+            <button className="secondary-button compact-button" type="button" disabled={contactCreatePending}
               onClick={() => { void submitNewContact(); }}>
               {contactCreatePending ? 'Ekleniyor…' : 'İlgili kişiyi ekle'}
             </button>

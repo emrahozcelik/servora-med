@@ -21,6 +21,7 @@ import {
   assertCanTransition,
   assertDeliveryReadyForSubmission,
   assertFollowUpSourceEligible,
+  assertNeverJobCardValue,
   assertSalesMeetingJob,
   getAllowedJobActions,
   getAllowedLifecycleCommands,
@@ -28,10 +29,14 @@ import {
 } from '../src/modules/job-cards/policy.js';
 import {
   JOB_CARD_STATUSES,
+  JOB_CARD_TYPES,
   JOB_WORKFLOW_ACTIONS,
   type DeliveryItem,
   type JobCard,
   type JobCardActor,
+  type JobCardStatus,
+  type JobCardType,
+  type LifecycleCommand,
 } from '../src/modules/job-cards/types.js';
 
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
@@ -538,5 +543,94 @@ it('keeps action projection and write/read guards in parity', () => {
       { ...item, quantity: 0 }, { ...item, productId: '' },
       { ...item, deliveryPurpose: undefined }, { ...item, deliveredAt: undefined },
     ]) expect(() => assertDeliveryReadyForSubmission(job, [invalid as DeliveryItem])).toThrow();
+  });
+
+  /**
+   * Exhaustiveness characterization: the command dispatch handles every
+   * JobCard type and every non-terminal status explicitly. Pinning the whole
+   * table proves that adding an explicit branch changed no current answer and
+   * that a new union member cannot silently inherit an existing rule.
+   */
+  it('pins lifecycle commands for every type and non-terminal status', () => {
+    type NonTerminalStatus = Exclude<JobCardStatus, 'COMPLETED' | 'CANCELLED' | 'INVALIDATED'>;
+    const nonTerminalStatuses = [
+      'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+    ] as const satisfies readonly NonTerminalStatus[];
+    const expected: Record<
+      JobCardType,
+      Record<NonTerminalStatus, [LifecycleCommand[], LifecycleCommand[]]>
+    > = {
+      PRODUCT_DELIVERY: {
+        NEW: [['ACCEPT_ASSIGNMENT', 'CANCEL'], ['CANCEL']],
+        ACCEPTED: [['START', 'CANCEL'], ['CANCEL']],
+        IN_PROGRESS: [['SUBMIT_FOR_APPROVAL', 'CANCEL'], ['SUBMIT_FOR_APPROVAL', 'CANCEL']],
+        WAITING_APPROVAL: [
+          ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+          ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        ],
+        REVISION_REQUESTED: [['RESUME', 'CANCEL'], ['RESUME', 'CANCEL']],
+      },
+      GENERAL_TASK: {
+        NEW: [['ACCEPT_ASSIGNMENT', 'CANCEL'], ['CANCEL']],
+        ACCEPTED: [['START', 'CANCEL'], ['CANCEL']],
+        IN_PROGRESS: [['SUBMIT_FOR_APPROVAL', 'CANCEL'], ['SUBMIT_FOR_APPROVAL', 'CANCEL']],
+        WAITING_APPROVAL: [
+          ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+          ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        ],
+        REVISION_REQUESTED: [['RESUME', 'CANCEL'], ['RESUME', 'CANCEL']],
+      },
+      SALES_MEETING: {
+        NEW: [['ACCEPT_ASSIGNMENT', 'CANCEL'], ['CANCEL']],
+        ACCEPTED: [['START', 'CANCEL'], ['CANCEL']],
+        IN_PROGRESS: [['SUBMIT_FOR_APPROVAL', 'CANCEL'], ['SUBMIT_FOR_APPROVAL', 'CANCEL']],
+        WAITING_APPROVAL: [
+          ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+          ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        ],
+        REVISION_REQUESTED: [['RESUME', 'CANCEL'], ['RESUME', 'CANCEL']],
+      },
+      WEEKLY_REPORT: {
+        NEW: [['ACCEPT_ASSIGNMENT'], ['CANCEL']],
+        ACCEPTED: [['START'], ['CANCEL']],
+        IN_PROGRESS: [['SUBMIT_FOR_APPROVAL'], ['SUBMIT_FOR_APPROVAL', 'CANCEL']],
+        WAITING_APPROVAL: [
+          ['WITHDRAW_FROM_APPROVAL'],
+          ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        ],
+        REVISION_REQUESTED: [['RESUME'], ['RESUME', 'CANCEL']],
+      },
+      SALE: {
+        NEW: [['ACCEPT_ASSIGNMENT', 'CANCEL'], ['CANCEL']],
+        ACCEPTED: [['START', 'SUBMIT_FOR_APPROVAL', 'CANCEL'], ['CANCEL']],
+        IN_PROGRESS: [['SUBMIT_FOR_APPROVAL', 'CANCEL'], ['SUBMIT_FOR_APPROVAL', 'CANCEL']],
+        WAITING_APPROVAL: [
+          ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+          ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        ],
+        REVISION_REQUESTED: [['RESUME', 'CANCEL'], ['RESUME', 'CANCEL']],
+      },
+    };
+
+    // A new vocabulary member must extend this table, never inherit a row.
+    expect(nonTerminalStatuses).toEqual(
+      JOB_CARD_STATUSES.filter((status) => !['COMPLETED', 'CANCELLED', 'INVALIDATED'].includes(status)),
+    );
+    expect(Object.keys(expected).sort()).toEqual([...JOB_CARD_TYPES].sort());
+
+    for (const type of JOB_CARD_TYPES) {
+      for (const status of nonTerminalStatuses) {
+        const [staffCommands, managementCommands] = expected[type][status];
+        const candidate = { ...job, type, status };
+        expect(getAllowedLifecycleCommands(staff, candidate)).toEqual(staffCommands);
+        expect(getAllowedLifecycleCommands(manager, candidate)).toEqual(managementCommands);
+        expect(getAllowedLifecycleCommands(admin, candidate)).toEqual(managementCommands);
+      }
+    }
+  });
+
+  it('throws a clear internal error when an unhandled card value reaches the guard', () => {
+    expect(() => assertNeverJobCardValue('ARCHIVED' as never, 'status'))
+      .toThrowError('Unhandled JobCard status: ARCHIVED');
   });
 });

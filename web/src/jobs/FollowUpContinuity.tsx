@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { OperationalCard, RecordDescriptions } from '../ui/antd';
+import { SignalGlyph } from '../ui/signal-icons';
 import { jobCardStatusLabel, jobTypeLabels } from './job-labels';
 import {
   getJobCard,
@@ -28,7 +29,12 @@ function formatInstant(value: string | null) {
 }
 
 export function FollowUpBadge({ visible }: { visible: boolean }) {
-  return visible ? <span className="follow-up-badge">{FOLLOW_UP_BADGE_LABEL}</span> : null;
+  return visible ? (
+    <span className="follow-up-badge">
+      <SignalGlyph name="follow-up" className="follow-up-badge-icon" size={13} />
+      {FOLLOW_UP_BADGE_LABEL}
+    </span>
+  ) : null;
 }
 
 /**
@@ -66,19 +72,54 @@ export function SystemSelectedFollowUpNotice({ proposal }: { proposal: FollowUpP
   </section>;
 }
 
+/**
+ * Read-only confirmation shown when Staff proposed/adjusted the follow-up slot
+ * (proposal origin STAFF_ADJUSTED) while waiting for manager approval.
+ */
+export function StaffFollowUpProposalNotice({ proposal }: { proposal: FollowUpProposal }) {
+  return <section className="follow-up-proposal-card follow-up-staff-notice" role="status"
+    aria-label="Personel takip önerisi">
+    <div className="follow-up-proposal-heading">
+      <h3>Önerilen takip planı</h3>
+      <span className="follow-up-proposal-badge">PERSONEL ÖNERİSİ</span>
+    </div>
+    <p className="follow-up-proposal-summary">
+      <time dateTime={proposal.scheduledAt}>{formatInstant(proposal.scheduledAt)}</time>
+      {' · '}{jobTypeLabels[proposal.type]}
+      {proposal.proposedBy?.name ? <> · Öneren: {proposal.proposedBy.name}</> : null}
+    </p>
+    {proposal.followUpInstructions?.trim() ? (
+      <p className="follow-up-staff-notice-instructions">
+        <strong>Takip kapsamı:</strong> {proposal.followUpInstructions}
+      </p>
+    ) : null}
+    <p className="form-help follow-up-proposal-notice">
+      Takip planı personel tarafından önerildi. Yönetici onayı bekleniyor; yönetici gerekirse zamanı değiştirebilir.
+    </p>
+  </section>;
+}
+
 export function FollowUpSourcePanel({ job }: { job: JobCard }) {
   const context = job.followUpContext;
   if (!context) return null;
   const summary = context.sourceSummary;
   return <section className="follow-up-source-context" aria-labelledby="follow-up-source-context-title"
     data-follow-up-source-access={context.sourceAccess}>
+    {context.followUpInstructions?.trim() ? (
+      <p className="follow-up-instructions-preview">
+        <strong>Takip kapsamı:</strong> {context.followUpInstructions}
+      </p>
+    ) : null}
     <details className="follow-up-source-disclosure">
       <summary><span id="follow-up-source-context-title">{FOLLOW_UP_SOURCE_TITLE}</span></summary>
       <div className="follow-up-source-disclosure__content">
         {context.sourceAccess === 'FULL' && context.sourceJobPath
           ? <a className="inline-action" href={context.sourceJobPath}>Önceki işi aç</a>
           : null}
-        <p className="follow-up-instructions"><strong>Takip kapsamı</strong><span>{context.followUpInstructions}</span></p>
+        {/* Non-empty instructions are already shown above the disclosure. */}
+        {context.followUpInstructions?.trim() ? null : (
+          <p className="follow-up-instructions"><strong>Takip kapsamı</strong><span>{context.followUpInstructions}</span></p>
+        )}
         <RecordDescriptions ariaLabel="Önceki iş özeti" items={[
           { key: 'type', label: 'İş türü', content: jobTypeLabels[summary.sourceType] },
           { key: 'planned', label: FOLLOW_UP_DATE_LABELS.planned, content: formatInstant(summary.sourcePlannedAt) },
@@ -131,7 +172,7 @@ export function FollowUpCreateAction({ onCreate, existingChildrenCount, disabled
 
 function ChildRow({ item }: { item: FollowUpListItem }) {
   return <li className="follow-up-child-row">
-    <div><span className="follow-up-badge">{FOLLOW_UP_BADGE_LABEL}</span>
+    <div><FollowUpBadge visible />
       <a href={paths.job(item.id)}><strong>{item.title}</strong></a></div>
     <dl><div><dt>Tür</dt><dd>{jobTypeLabels[item.type]}</dd></div>
       <div><dt>Durum</dt><dd>{jobCardStatusLabel(item.status)}</dd></div>

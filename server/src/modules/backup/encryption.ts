@@ -221,7 +221,13 @@ export class LocalEncryptionEngine {
           'Yedek şifreleme beklenmeyen bir hatayla kesildi.',
           error instanceof Error ? tail(String(error.message ?? '')) : null,
         );
-      await service.markFailed(runId, 'ENCRYPTION_FAILED', failure.summary);
+      await service.markFailed(
+        runId,
+        'ENCRYPTION_FAILED',
+        failure.summary,
+        undefined,
+        { eventType: 'BACKUP_FAILED' },
+      );
       // LOCAL FAILURE CLEANUP: best-effort removal of THIS run's workspace
       // (plaintext package + partial ciphertext) for ordinary handled
       // failures. Collision-class failures preserve everything. The

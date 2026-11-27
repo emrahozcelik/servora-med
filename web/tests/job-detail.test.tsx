@@ -1468,7 +1468,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -2355,6 +2355,10 @@ describe('Staff JobCard detail', () => {
     await renderRealtimeScreen(accepted, source, fetch);
 
     await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
       buttonByName(host, 'Planlanan zamanı kaydet')?.click();
       await Promise.resolve();
     });
@@ -2800,6 +2804,10 @@ describe('Staff JobCard detail', () => {
       await renderScreen(card);
       expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(true);
       expect(host.querySelector('.job-notes form')).not.toBeNull();
+      await act(async () => {
+        buttonByName(host, 'Değiştir')?.click();
+        await Promise.resolve();
+      });
       expect(host.querySelector('#job-scheduled-at')).not.toBeNull();
       expect(host.querySelector('label[for="job-scheduled-at"]')?.textContent)
         .toContain('Planlanan görüşme zamanı');
@@ -3525,7 +3533,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(submitDialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(getCurrentPosition).toHaveBeenCalledOnce();
@@ -3789,7 +3797,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(submitDialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(getCurrentPosition).toHaveBeenCalledTimes(2);
@@ -3854,7 +3862,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(submitDialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -4314,7 +4322,7 @@ describe('Staff JobCard detail', () => {
               submittedAt: '2026-07-17T12:00:00.000Z',
             }, { allowedActions: [] }),
           },
-          confirm: 'Tamamla ve yönetici onayına gönder',
+          confirm: 'Kontrole gönder',
           reason: 'Teslim tamamlandı',
           needsDialog: true as const,
         };
@@ -6307,6 +6315,10 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
       const input = document.getElementById('job-scheduled-at') as HTMLInputElement;
       expect(input).not.toBeNull();
       input.value = '2026-07-21T13:00';
@@ -6907,7 +6919,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -7262,7 +7274,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -7334,7 +7346,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     await act(async () => {
-      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      buttonByName(dialog, 'Kontrole gönder')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(submitBodies).toHaveLength(1);
@@ -7350,5 +7362,316 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('İş yönetici onayına gönderildi ancak konum alınamadı');
     expect(host.textContent).toContain('Konum servislerini açık tutun ve daha net bir konum sinyaliyle');
     expect(host.textContent).toContain('Android: Ayarlar > Konum bölümünden konumu açın');
+  });
+
+  it('formats dueDate with formatCalendarDay and appends end interval + duration to valid scheduleFactContent', () => {
+    const gtHtml = renderToStaticMarkup(
+      <JobDetailPanel job={generalTask} items={[]} user={staffUser} pending={false} message="" onCommand={() => {}} />,
+    );
+    expect(gtHtml).toContain('<time dateTime="2026-07-20">20 Temmuz 2026</time>');
+
+    const sameDayHtml = renderToStaticMarkup(
+      <JobDetailPanel job={job} items={[]} user={staffUser} pending={false} message="" onCommand={() => {}} />,
+    );
+    const startDate = new Date(job.scheduledAt!);
+    const endDate = new Date(job.scheduledEndsAt!);
+    const endTime = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(endDate);
+    expect(sameDayHtml).toContain(`dateTime="${job.scheduledAt}"`);
+    expect(sameDayHtml).toContain(`–${endTime} (30 dk)`);
+    expect(startDate.getDate()).toBe(endDate.getDate());
+
+    const crossDayJob: JobCard = {
+      ...job,
+      scheduledAt: '2026-07-20T10:00:00.000Z',
+      scheduledEndsAt: '2026-07-21T11:30:00.000Z',
+    };
+    const crossDayHtml = renderToStaticMarkup(
+      <JobDetailPanel job={crossDayJob} items={[]} user={staffUser} pending={false} message="" onCommand={() => {}} />,
+    );
+    const fullEnd = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+      .format(new Date(crossDayJob.scheduledEndsAt!));
+    expect(crossDayHtml).toContain(`– ${fullEnd} (1530 dk)`);
+  });
+
+  it('opens the Staff change-request drawer when clicking Değişiklik önerisi gönder in the locked schedule form', async () => {
+    const lockedOffered: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      assignmentOffer: {
+        id: 'offer-1',
+        state: 'ACCEPTED',
+        openedAt: '2026-07-17T08:00:00.000Z',
+        acceptanceDueAt: '2026-07-17T09:00:00.000Z',
+        urgentReason: null,
+        assignee: { id: staffUser.id, name: staffUser.name },
+        closedAt: '2026-07-17T08:30:00.000Z',
+        closeReason: null,
+        closeText: null,
+        proposedScheduledAt: null,
+        proposedScheduledEndsAt: null,
+        proposalAcceptedAt: null,
+      },
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'REQUEST_CHANGE', 'VIEW_NOTES'],
+      }),
+    };
+    await renderScreen(lockedOffered);
+
+    await act(async () => {
+      buttonByName(host, 'Değiştir')?.click();
+      await Promise.resolve();
+    });
+    const requestBtn = buttonByName(host, 'Değişiklik önerisi gönder');
+    expect(requestBtn).not.toBeNull();
+    await act(async () => requestBtn!.click());
+    expect(host.querySelector('[data-servora-form-drawer="true"]')).not.toBeNull();
+  });
+
+  it('keeps focus in place on saveDeliveredAt and sequentially saves all delivery items with version chaining', async () => {
+    const item1: DeliveryItem = { ...item, id: 'i1', productNameSnapshot: 'İmplant Seti', deliveredAt: null };
+    const item2: DeliveryItem = { ...item, id: 'i2', productNameSnapshot: 'Abutment Seti', deliveredAt: null };
+    const deliveryCard: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES'],
+        submissionReadiness: null,
+      }),
+    };
+    let currentItems = [item1, item2];
+    let currentCard = deliveryCard;
+    const patchCalls: Array<{ url: string; body: { expectedVersion: number; deliveredAt: string } }> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.includes('/delivery-items/') && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as { expectedVersion: number; deliveredAt: string };
+        patchCalls.push({ url, body });
+        const targetId = url.split('/delivery-items/')[1]!;
+        const updatedItem = {
+          ...(currentItems.find((entry) => entry.id === targetId)!),
+          deliveredAt: body.deliveredAt,
+        };
+        currentItems = currentItems.map((entry) => (entry.id === targetId ? updatedItem : entry));
+        currentCard = { ...currentCard, version: body.expectedVersion + 1 };
+        return Response.json({ item: updatedItem, jobCardVersion: currentCard.version });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: currentItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (detailUrlMatches(url, deliveryCard.id)) return Response.json(currentCard);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(deliveryCard, staffUser, fetch);
+
+    // Single item save must not jump focus to top feedback banner.
+    const firstInput = host.querySelector('#delivery-actual-at-i1') as HTMLInputElement;
+    firstInput.focus();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(firstInput, '2026-07-20T12:00');
+      firstInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      (host.querySelectorAll('form.delivery-actual-time-form')[0] as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanı kaydedildi.');
+    expect(document.activeElement).not.toBe(host.querySelector('.detail-feedback'));
+
+    // Bulk apply fills only the line without a recorded time; i1 keeps 12:00.
+    const bulkBtn = buttonByName(host, 'Boş kalemlere şimdiki saati uygula') as HTMLButtonElement;
+    expect(bulkBtn).not.toBeNull();
+    expect(bulkBtn.classList.contains('delivery-bulk-action')).toBe(true);
+    await act(async () => {
+      bulkBtn.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls[1]!.url).toContain('/delivery-items/i2');
+    expect(patchCalls[1]!.body.expectedVersion).toBe(4);
+    expect(patchCalls.filter((call) => call.url.endsWith('/delivery-items/i1'))).toHaveLength(1);
+    expect(host.textContent).toContain('1 kalem için gerçekleşen teslim zamanı kaydedildi.');
+    // Nothing is left empty, so the shortcut disappears.
+    expect(buttonByName(host, 'Boş kalemlere şimdiki saati uygula')).toBeNull();
+  });
+
+  it('reports partial failure count and refreshes truth when bulk delivery save fails mid-chain', async () => {
+    const item1: DeliveryItem = { ...item, id: 'i1', productNameSnapshot: 'İmplant Seti', deliveredAt: null };
+    const item2: DeliveryItem = { ...item, id: 'i2', productNameSnapshot: 'Abutment Seti', deliveredAt: null };
+    const deliveryCard: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES'],
+        submissionReadiness: null,
+      }),
+    };
+    let currentItems = [item1, item2];
+    let currentCard = deliveryCard;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.includes('/delivery-items/') && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as { expectedVersion: number; deliveredAt: string };
+        if (url.endsWith('/delivery-items/i1')) {
+          const updatedItem = { ...item1, deliveredAt: body.deliveredAt };
+          currentItems = [updatedItem, item2];
+          currentCard = { ...currentCard, version: 4 };
+          return Response.json({ item: updatedItem, jobCardVersion: 4 });
+        }
+        return Response.json({ error: 'Sürüm çakışması', code: 'VERSION_CONFLICT' }, { status: 409 });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: currentItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (detailUrlMatches(url, deliveryCard.id)) return Response.json(currentCard);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(deliveryCard, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Boş kalemlere şimdiki saati uygula')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('1/2 kalem kaydedildi');
+    expect(host.querySelector('.detail-feedback-error')).not.toBeNull();
+    expect(host.textContent).toContain('Kaydedildi:');
+  });
+
+  it('swaps only the active command button label and renders location-capture-status during START capture, plus OS guidance on unavailable START', async () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    const updated: JobCard = {
+      ...accepted,
+      status: 'IN_PROGRESS',
+      version: accepted.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    let failCapture: PositionErrorCallback | undefined;
+    const getCurrentPosition = vi.fn((_success: PositionCallback, failure?: PositionErrorCallback) => {
+      failCapture = failure;
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15',
+      platform: 'iPhone',
+      maxTouchPoints: 5,
+      geolocation: { getCurrentPosition },
+    });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/start') && init?.method === 'POST') return Response.json(updated);
+      if (detailUrlMatches(url, accepted.id)) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(accepted, staffUser, fetch);
+
+    act(() => {
+      buttonByName(host, 'İşi başlat')?.click();
+    });
+
+    const captureStatus = host.querySelector('.location-capture-status');
+    expect(captureStatus?.textContent).toBe('Konum alınıyor…');
+    expect(buttonByName(host, 'Konum alınıyor…')?.disabled).toBe(true);
+    // Secondary CANCEL button keeps its own label while disabled.
+    const cancelBtn = buttonByName(host, 'İşi iptal et') as HTMLButtonElement | null;
+    expect(cancelBtn).not.toBeNull();
+    expect(cancelBtn?.disabled).toBe(true);
+
+    await act(async () => {
+      failCapture?.({ code: 1, message: 'denied' } as GeolocationPositionError);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('İş başlatıldı ancak konum alınamadı');
+    expect(host.textContent).toContain('Tarayıcıda bu site için konum iznini etkinleştirin');
+    expect(host.textContent).toContain('iPhone/iPad: Ayarlar > Gizlilik ve Güvenlik');
+  });
+
+  it('passes pendingLabel to JobWorkflowDialog during SUBMIT location capture and dispatch', async () => {
+    const inProgress: JobCard = {
+      ...generalTask,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { allowedActions: [], submitLocationCaptureEnabled: true }),
+    };
+    const waiting: JobCard = {
+      ...inProgress,
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T10:00:00.000Z',
+      }, { allowedActions: [] }),
+    };
+    let resolveCapture!: PositionErrorCallback;
+    const getCurrentPosition = vi.fn((_s: PositionCallback, failure?: PositionErrorCallback) => {
+      if (failure) resolveCapture = failure;
+    });
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    let resolveSubmit!: (value: Response) => void;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
+        return new Promise<Response>((resolve) => { resolveSubmit = resolve; });
+      }
+      if (detailUrlMatches(url, inProgress.id)) return Response.json(inProgress);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(inProgress, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reason = dialog.querySelectorAll<HTMLTextAreaElement>('textarea').item(0)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Görev tamamlandı');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => {
+      buttonByName(dialog, 'Kontrole gönder')?.click();
+    });
+    expect(buttonByName(dialog, 'Konum alınıyor…')?.disabled).toBe(true);
+
+    await act(async () => {
+      resolveCapture({ code: 2, message: 'unavailable' } as GeolocationPositionError);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(buttonByName(dialog, 'Kontrole gönderiliyor…')?.disabled).toBe(true);
+
+    await act(async () => {
+      resolveSubmit(Response.json(waiting));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 });

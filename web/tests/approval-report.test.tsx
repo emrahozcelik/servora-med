@@ -1,9 +1,23 @@
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApprovalReportView } from '../src/reports/ApprovalReport';
+import { ApprovalReport, ApprovalReportView } from '../src/reports/ApprovalReport';
+import { getApprovalReport } from '../src/reports/reports-api';
 import type { ApprovalReportResponse } from '../src/reports/report-types';
+
+vi.mock('../src/reports/reports-api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../src/reports/reports-api')>(),
+  getApprovalReport: vi.fn(),
+}));
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn().mockReturnValue({
+  matches: true, media: '(min-width: 64rem)', addEventListener: vi.fn(), removeEventListener: vi.fn(),
+}) });
 
 const report: ApprovalReportResponse = {
   summary: { pendingCount: 2, oldestWaitingMinutes: 1500, averageWaitingMinutes: 190,
@@ -90,5 +104,34 @@ describe('Approval report presentation', () => {
     );
     expect(html).toContain('Onay bekleyen iş bulunmuyor.');
     expect(html).not.toContain('data-servora-operational-table="true"');
+  });
+});
+
+describe('ApprovalReport pagination', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    vi.mocked(getApprovalReport).mockReset();
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it('uses ServoraListPagination when results span multiple pages and hides it on a single page', async () => {
+    vi.mocked(getApprovalReport).mockResolvedValue({ ...report, total: 60, limit: 50, offset: 0 });
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/reports/approvals']}>
+        <ApprovalReport />
+      </MemoryRouter>,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.textContent).toContain('Sayfa 1 / 2 · Toplam 60 iş');
+    expect(host.querySelector('.servora-list-pagination')).not.toBeNull();
   });
 });

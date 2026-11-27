@@ -246,7 +246,7 @@ export const servoraVisualTokens = {
 
   typography: {
     fontFamily:
-      "'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+      "'Source Sans 3 Variable', 'Source Sans 3', ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
     bodySizePx: 16,
   },
 } as const satisfies {

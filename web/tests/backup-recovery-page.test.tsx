@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BackupRecoveryPage } from '../src/settings/BackupRecoveryPage';
+import { stubMatchMedia } from './helpers/match-media';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -30,8 +31,13 @@ function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-function installFetch(override: (url: string, init?: RequestInit) => Response | Promise<Response> | undefined = () => undefined) {
-  const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+function resizeTo(width: number) {
+  stubMatchMedia({ narrow: width < 1024 });
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
+
+function installFetch(override: (url: string, init?: RequestInit) => Response | Promise<Response> | undefined = () => undefined) {  const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const overridden = override(url, init);
     if (overridden !== undefined) return overridden;
     if (url === '/api/admin/backup-overview') return Promise.resolve(response({
@@ -64,6 +70,37 @@ async function render(initialEntry = '/settings/data-management/backup-recovery'
 afterEach(() => vi.unstubAllGlobals());
 
 describe('BackupRecoveryPage', () => {
+  it('renders and commits the compact wheel trigger for the backup time', async () => {
+    resizeTo(390);
+    installFetch();
+    const { container, root } = await render('/settings/data-management/backup-recovery?section=schedule');
+    try {
+      const triggers = container.querySelectorAll<HTMLButtonElement>('#backup-schedule-time');
+      expect(triggers).toHaveLength(1);
+      const trigger = triggers[0]!;
+      expect(trigger.disabled).toBe(false);
+      expect(trigger.tagName).toBe('BUTTON');
+      expect(trigger.hasAttribute('name')).toBe(false);
+      const before = trigger.textContent;
+      await act(async () => {
+        (container.querySelector('#backup-schedule-time') as HTMLButtonElement)
+          .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+      expect(container.querySelector('.wheel-sheet')).not.toBeNull();
+      const hour = container.querySelector<HTMLElement>('[role="spinbutton"][aria-label="Saat"]')!;
+      await act(async () => {
+        hour.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      });
+      const ok = [...container.querySelectorAll<HTMLButtonElement>('.wheel-sheet-actions button')]
+        .find((button) => button.textContent === 'Tamam')!;
+      await act(async () => ok.click());
+      expect(trigger.textContent).not.toBe(before);
+      expect(document.body.style.overflow).toBe('');
+    } finally {
+      await act(async () => root.unmount());
+      resizeTo(1024);
+    }
+  });
   it('renders the four admin sections and preserves separate status dimensions', async () => {
     installFetch();
     const { container, root } = await render();
