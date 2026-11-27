@@ -58,6 +58,9 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   useEffect(() => {
     const target = reloadTargetVersion.current;
     if (target !== null) {
+      // With a page-owned serialized reload, only its reconciled result may
+      // unlock: a first newer round can still be followed by a failed read.
+      if (onRefresh !== undefined) return;
       if (details.jobCardVersion > target) {
         reloadTargetVersion.current = null;
         release();

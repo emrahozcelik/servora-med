@@ -1900,6 +1900,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const reconciledRealtimeGeneration = useRef(0);
   /** Counts fully reconciled canonical reads, so a caller can tell success. */
   const reconciledReadCount = useRef(0);
+  /**
+   * A 403/404 deferred because a newer mutation started; access must be
+   * rechecked once that mutation ends unless a newer canonical read already
+   * proved it.
+   */
+  const accessRecheckPending = useRef(false);
   const mutationEpoch = useRef(0);
   const mutationOwner = useRef<{ sessionToken: number; operationToken: number } | null>(null);
   const mutationOperationToken = useRef(0);
@@ -1932,6 +1938,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
     if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
       reconciledReadCount.current += 1;
+      accessRecheckPending.current = false;
       setRealtimeStale(false);
       // A notice raised while a drain was incomplete is temporary: the next
       // real reconcile turns the stored receipt back into its normal success
@@ -1969,6 +1976,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       setPendingCommand(null);
       setStartPendingPhase(null);
       setSubmitPendingPhase(null);
+      if (accessRecheckPending.current) {
+        // The deferred access answer was never superseded by a newer canonical
+        // read: recheck it through the existing serialized drain.
+        accessRecheckPending.current = false;
+        realtimeReloadRequested.current = true;
+        void requestRealtimeDrain();
+      }
     }
   }
 
@@ -2348,6 +2362,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (isOperationCurrent(sessionToken, operationJobId)
         && mutationEpoch.current !== roundEpochAtStart) {
         realtimeDrainRequested.current = true;
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+          accessRecheckPending.current = true;
+        }
         return true;
       }
       if (isOperationCurrent(sessionToken, operationJobId)) {
