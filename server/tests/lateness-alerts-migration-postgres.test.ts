@@ -23,7 +23,7 @@ import {
  * and activity CHECKs, and the schema head. Contract §10 DB.
  */
 
-const SCHEMA_VERSION = '075_installation_module_registry_widening';
+const SCHEMA_VERSION = '076_assignment_offer_suggested_solution';
 
 /**
  * Complete `in_app_notifications_kind_check` vocabulary before 069 (065 is the

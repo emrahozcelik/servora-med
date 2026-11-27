@@ -108,13 +108,19 @@ export function requiresPastStartAcknowledgement(
 }
 
 /**
- * JOB-012: the only answer reason a time proposal may accompany. Every other
- * reason says the assignment cannot be done, not that another time would work.
+ * RESCUE-002: when an answer must carry a proposed time, and when it must not.
+ * A typed suggestion ties the time to `RESCHEDULE_SELF` independent of the
+ * reason; a legacy answer (no suggestion) keeps the JOB-012 rule that only a
+ * schedule conflict may propose one.
  */
-export function assignmentProposalRequiresReason(
-  reasonCode: string,
-): reasonCode is 'SCHEDULE_CONFLICT' {
-  return reasonCode === 'SCHEDULE_CONFLICT';
+export function assignmentProposalRequirement(input: {
+  reasonCode: string;
+  suggestedSolution: string | null;
+}): 'REQUIRED' | 'FORBIDDEN' {
+  if (input.suggestedSolution !== null) {
+    return input.suggestedSolution === 'RESCHEDULE_SELF' ? 'REQUIRED' : 'FORBIDDEN';
+  }
+  return input.reasonCode === 'SCHEDULE_CONFLICT' ? 'REQUIRED' : 'FORBIDDEN';
 }
 
 /**

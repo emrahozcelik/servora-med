@@ -90,6 +90,7 @@ function offer(overrides: Partial<AssignmentOfferRecord> = {}): AssignmentOfferR
     closeReason: 'SCHEDULE_CONFLICT',
     closeText: 'Aynı saatte başka bir klinik teslimi var.',
     proposedScheduledAt: new Date('2026-11-25T09:00:00.000Z'),
+    suggestedSolution: null,
     proposalAcceptedAt: null,
     proposalAcceptedBy: null,
     ...overrides,
@@ -156,6 +157,7 @@ function offerView(overrides: Partial<JobAssignmentOfferRecord> = {}): JobAssign
     closeReason: 'SCHEDULE_CONFLICT',
     closeText: 'Aynı saatte başka bir klinik teslimi var.',
     proposedScheduledAt: new Date('2026-11-25T09:00:00.000Z'),
+    suggestedSolution: null,
     proposalAcceptedAt: null,
     ...overrides,
   };
@@ -238,6 +240,25 @@ describe('JOB-012 request identity', () => {
       ...base,
       assignmentReason: { ...base.assignmentReason, proposedScheduledAt: '2026-11-25T12:00:00+03:00' },
     })).toBe(withProposal);
+  });
+
+  it('RESCUE-002: binds a typed suggestion only when it is present', () => {
+    const legacy = lifecycleRequestHash(base);
+    // Absent and explicit null are both the legacy body.
+    expect(lifecycleRequestHash({
+      ...base,
+      assignmentReason: { ...base.assignmentReason, suggestedSolution: null },
+    })).toBe(legacy);
+    const suggested = lifecycleRequestHash({
+      ...base,
+      assignmentReason: { ...base.assignmentReason, suggestedSolution: 'MANAGEMENT_DECIDES' },
+    });
+    const otherSuggestion = lifecycleRequestHash({
+      ...base,
+      assignmentReason: { ...base.assignmentReason, suggestedSolution: 'REASSIGN' },
+    });
+    expect(suggested).not.toBe(legacy);
+    expect(otherSuggestion).not.toBe(suggested);
   });
 
   it('identifies the confirmation by job, version and proposal offer', () => {
@@ -390,6 +411,116 @@ describe('JOB-012 Staff answer validation', () => {
       reasonText: 'Aynı saatte başka bir klinik teslimi var.',
       proposedScheduledAt: '2026-11-25T09:00:00.000Z',
     });
+  });
+});
+
+describe('RESCUE-002 Staff suggestion validation', () => {
+  const untouchedRepository = () => ({
+    findCompletedCriticalAction: vi.fn(),
+    reserveLifecycleIntent: vi.fn(),
+    executeCriticalAction: vi.fn(),
+  });
+
+  const decision = {
+    clientActionId: 'action-suggestion',
+    expectedVersion: 3,
+    reasonText: 'Planım bu iş için uygun değil.',
+  };
+
+  it('requires a suggestion for a new reason code', async () => {
+    const repository = untouchedRepository();
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision, reasonCode: 'OUT_OF_TOWN',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+      details: { fieldErrors: { suggestedSolution: 'Çözüm önerisi zorunludur.' } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown suggestion', async () => {
+    const repository = untouchedRepository();
+    await expect(buildService({ repository }).releaseAssignment(staff, JOB_ID, {
+      ...decision,
+      reasonCode: 'ON_LEAVE',
+      suggestedSolution: 'NOT_A_SOLUTION' as never,
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { suggestedSolution: expect.any(String) } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
+  it('requires a time with RESCHEDULE_SELF whatever the reason', async () => {
+    const repository = untouchedRepository();
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision, reasonCode: 'ON_LEAVE', suggestedSolution: 'RESCHEDULE_SELF',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { proposedScheduledAt: 'Önerilen zaman zorunludur.' } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
+  it('rejects a time with any other suggestion using the contract copy', async () => {
+    const repository = untouchedRepository();
+    const copy = 'Önerilen zaman yalnızca "Başka bir zamanda kendim yapabilirim" seçildiğinde verilebilir.';
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision,
+      reasonCode: 'SCHEDULE_CONFLICT',
+      suggestedSolution: 'REASSIGN',
+      proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { proposedScheduledAt: copy } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
+  it('decides the suggestion/time rule before instant parsing on the new path', async () => {
+    const repository = untouchedRepository();
+    const copy = 'Önerilen zaman yalnızca "Başka bir zamanda kendim yapabilirim" seçildiğinde verilebilir.';
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision,
+      reasonCode: 'OUT_OF_TOWN',
+      suggestedSolution: 'REASSIGN',
+      // Not a canonical instant: the suggestion rule must win.
+      proposedScheduledAt: '2026-11-28T14:30',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { proposedScheduledAt: copy } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
+  it('keeps the legacy parse-first error for a malformed time', async () => {
+    const repository = untouchedRepository();
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision,
+      reasonCode: 'ON_LEAVE',
+      proposedScheduledAt: '2026-11-28T14:30',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { proposedScheduledAt: 'proposedScheduledAt geçersizdir.' } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
+  it('accepts SCHEDULE_CONFLICT + REASSIGN without a time and any reason + RESCHEDULE_SELF with one', async () => {
+    const repository = untouchedRepository();
+    const stop = new Error('reservation reached');
+    repository.reserveLifecycleIntent.mockRejectedValue(stop);
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision, reasonCode: 'SCHEDULE_CONFLICT', suggestedSolution: 'REASSIGN',
+    })).rejects.toBe(stop);
+    await expect(buildService({ repository }).releaseAssignment(staff, JOB_ID, {
+      ...decision,
+      reasonCode: 'MISSING_STOCK_OR_EQUIPMENT',
+      suggestedSolution: 'RESCHEDULE_SELF',
+      proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+    })).rejects.toBe(stop);
+    expect(repository.reserveLifecycleIntent).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -673,6 +804,7 @@ describe('JOB-012 reads', () => {
       decision: 'DECLINED',
       reasonCode: 'SCHEDULE_CONFLICT',
       reasonText: 'Aynı saatte başka bir klinik teslimi var.',
+      suggestedSolution: null,
       proposedScheduledAt: '2026-11-25T09:00:00.000Z',
     });
     expect(presentActivity(record, { viewer: { id: STAFF_ID, role: 'STAFF' } }).details)
@@ -683,8 +815,48 @@ describe('JOB-012 reads', () => {
       decision: 'DECLINED',
       reasonCode: null,
       reasonText: null,
+      suggestedSolution: null,
       proposedScheduledAt: null,
     });
     expect(presentActivity(record).details).toMatchObject({ proposedScheduledAt: null });
+  });
+
+  it('presents the RESCUE-002 suggestion only to management and the answering Staff member', () => {
+    const record = {
+      id: 'activity-2',
+      jobCardId: JOB_ID,
+      actorId: STAFF_ID,
+      actorName: 'Saha Personeli',
+      eventType: 'JOB_ASSIGNMENT_RELEASED' as const,
+      oldValue: null,
+      newValue: null,
+      metadata: {
+        offerId: OFFER_ID,
+        reasonCode: 'OUT_OF_TOWN',
+        reasonText: 'Şehir dışındayım.',
+        suggestedSolution: 'RESCHEDULE_SELF',
+        proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+      },
+      clientActionId: null,
+      createdAt: NOW,
+    };
+    expect(presentActivity(record, { viewer: { id: MANAGER_ID, role: 'MANAGER' } }).details)
+      .toMatchObject({
+        kind: 'ASSIGNMENT_DECISION',
+        decision: 'RELEASED',
+        reasonCode: 'OUT_OF_TOWN',
+        suggestedSolution: 'RESCHEDULE_SELF',
+        proposedScheduledAt: '2026-11-25T09:00:00.000Z',
+      });
+    expect(presentActivity(record, { viewer: { id: STAFF_ID, role: 'STAFF' } }).details)
+      .toMatchObject({ suggestedSolution: 'RESCHEDULE_SELF' });
+    expect(presentActivity(record, { viewer: { id: OTHER_STAFF_ID, role: 'STAFF' } }).details)
+      .toMatchObject({ suggestedSolution: null, proposedScheduledAt: null });
+    // An unknown stored value degrades to null instead of a raw string.
+    expect(presentActivity({
+      ...record,
+      metadata: { ...record.metadata, suggestedSolution: 'NOT_A_SOLUTION' },
+    }, { viewer: { id: MANAGER_ID, role: 'MANAGER' } }).details)
+      .toMatchObject({ suggestedSolution: null });
   });
 });

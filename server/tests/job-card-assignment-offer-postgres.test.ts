@@ -406,7 +406,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]?.version).toMatch(/^075_/);
+      expect(head.rows[0]?.version).toMatch(/^076_/);
       for (const table of ['job_card_assignment_offers', 'job_card_assignment_offer_notifications']) {
         const found = await pool.query<{ name: string | null }>(
           'SELECT to_regclass($1)::text AS name', [table],
@@ -560,6 +560,7 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
         closeText: null,
         proposedScheduledAt: null,
         proposedScheduledEndsAt: null,
+        suggestedSolution: null,
         proposalAcceptedAt: null,
       });
       expect(offeredDetail.workflowContext.allowedCommands).toContain('ACCEPT_ASSIGNMENT');

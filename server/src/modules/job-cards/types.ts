@@ -149,16 +149,45 @@ export const JOB_ASSIGNMENT_OFFER_ACK_CODES = [
 ] as const;
 export type JobAssignmentOfferAckCode = (typeof JOB_ASSIGNMENT_OFFER_ACK_CODES)[number];
 
-/** JOB-010 §5: Staff decline/release reason codes (Q5). */
-export const JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES = [
+/**
+ * JOB-010 §5: the original Staff decline/release reason codes (Q5). A legacy
+ * answer (no typed suggestion) still accepts exactly these five.
+ */
+export const JOB_ASSIGNMENT_OFFER_LEGACY_DECLINE_REASON_CODES = [
   'SCHEDULE_CONFLICT',
   'ON_LEAVE',
   'TOO_FAR',
   'MISSING_STOCK_OR_EQUIPMENT',
   'OTHER',
 ] as const;
+
+/**
+ * RESCUE-002: Staff decline/release reason codes. The three new codes are
+ * appended after the original five so no existing value is renamed or
+ * reordered. UI display order is owned by the web label map.
+ */
+export const JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES = [
+  ...JOB_ASSIGNMENT_OFFER_LEGACY_DECLINE_REASON_CODES,
+  'OUT_OF_TOWN',
+  'CUSTOMER_POSTPONED',
+  'WRONG_PRODUCT',
+] as const;
 export type JobAssignmentOfferDeclineReasonCode =
   (typeof JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES)[number];
+
+/**
+ * RESCUE-002: the typed solution a decline/release answer proposes to
+ * management. A suggestion never authorizes a mutation; management decides.
+ */
+export const JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS = [
+  'RESCHEDULE_SELF',
+  'REASSIGN',
+  'CORRECT_DETAILS',
+  'CANCEL_REQUEST',
+  'MANAGEMENT_DECIDES',
+] as const;
+export type JobAssignmentOfferSuggestedSolution =
+  (typeof JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS)[number];
 
 /** JOB-010 §3: every management/system producer that takes an offer back. */
 export const JOB_ASSIGNMENT_OFFER_WITHDRAW_REASON_CODES = [
@@ -190,12 +219,19 @@ export type JobAssignmentOfferView = {
   closeReason: string | null;
   closeText: string | null;
   /**
-   * JOB-012: the time the answering Staff member proposed on a
-   * `SCHEDULE_CONFLICT` decline/release, or null. The end is derived at read
-   * time from the job's planned duration, never stored.
+   * JOB-012: the time the answering Staff member proposed when the suggestion
+   * is `RESCHEDULE_SELF`, or null. It is private to management and the
+   * answering member (JOB-012 item 5); any other Staff viewer sees null. The
+   * end is derived at read time from the job's planned duration, never stored.
    */
   proposedScheduledAt: string | null;
   proposedScheduledEndsAt: string | null;
+  /**
+   * RESCUE-002: the typed solution the answer proposes, or null. Null also
+   * covers a legacy answer and a Staff viewer who did not answer this offer
+   * (JOB-013 item 5).
+   */
+  suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
   /** JOB-012: set once, when management confirmed the proposal. */
   proposalAcceptedAt: string | null;
 };
@@ -220,9 +256,16 @@ export type AssignmentOfferDecisionInput = {
   reasonCode: JobAssignmentOfferDeclineReasonCode;
   reasonText: string;
   /**
-   * JOB-012: the alternative time a `SCHEDULE_CONFLICT` answer proposes.
-   * Required with `SCHEDULE_CONFLICT`, forbidden with every other reason, and
-   * always in the future. Management confirms it explicitly.
+   * RESCUE-002: the typed solution the answer proposes. When present, a time is
+   * required only with `RESCHEDULE_SELF` and forbidden with every other
+   * suggestion. When absent/null (legacy), only the original five reasons are
+   * accepted and `SCHEDULE_CONFLICT` still requires a time.
+   */
+  suggestedSolution?: JobAssignmentOfferSuggestedSolution | null;
+  /**
+   * JOB-012: the alternative time a `RESCHEDULE_SELF` answer proposes (or, on
+   * the legacy path, a `SCHEDULE_CONFLICT` answer). Always in the future.
+   * Management confirms it explicitly.
    */
   proposedScheduledAt?: string | null;
 };
@@ -643,6 +686,8 @@ export type JobAssignmentOfferRecord = {
   closeText: string | null;
   /** JOB-012: the pending Staff proposal, or null. */
   proposedScheduledAt: Date | null;
+  /** RESCUE-002: the typed solution the answer proposes, or null (legacy). */
+  suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
   /** JOB-012: set once, when management confirmed the proposal. */
   proposalAcceptedAt: Date | null;
 };
@@ -1282,6 +1327,8 @@ export type JobCardActivityDetails =
       decision: 'DECLINED' | 'RELEASED';
       reasonCode: JobAssignmentOfferDeclineReasonCode | null;
       reasonText: string | null;
+      /** RESCUE-002: the typed solution the answer proposed, or null. */
+      suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
       /** JOB-012: the Staff proposal, under the same reader scope. */
       proposedScheduledAt: string | null;
     }
