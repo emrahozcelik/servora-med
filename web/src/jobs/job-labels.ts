@@ -3,6 +3,7 @@ import type {
   AssignmentOfferState,
   AssignmentOfferUrgentReason,
   AssignmentReasonCode,
+  AssignmentSuggestedSolution,
   ChangeRequestReasonCode,
   DeliveryPurpose,
   JobCardActivityStatus,
@@ -176,13 +177,31 @@ export function assignmentOfferUrgentReasonLabel(
 export const assignmentReasonLabels: Record<AssignmentReasonCode, string> = {
   SCHEDULE_CONFLICT: 'Plan çakışması',
   ON_LEAVE: 'İzinli / müsait değilim',
+  OUT_OF_TOWN: 'Şehir dışındayım',
   TOO_FAR: 'Konum çok uzak',
+  CUSTOMER_POSTPONED: changeRequestReasonLabels.CUSTOMER_POSTPONED,
+  WRONG_PRODUCT: changeRequestReasonLabels.WRONG_PRODUCT,
   MISSING_STOCK_OR_EQUIPMENT: 'Stok veya ekipman eksik',
   OTHER: 'Diğer',
 };
 
 export function assignmentReasonLabel(code: AssignmentReasonCode | null | undefined): string {
   return code ? assignmentReasonLabels[code] : 'Neden belirtilmedi';
+}
+
+/** RESCUE-002: the typed solution the Staff member proposes. */
+export const assignmentSuggestedSolutionLabels: Record<AssignmentSuggestedSolution, string> = {
+  RESCHEDULE_SELF: 'Başka bir zamanda kendim yapabilirim',
+  REASSIGN: 'Başka bir personele verilsin',
+  CORRECT_DETAILS: 'İş bilgileri düzeltilsin',
+  CANCEL_REQUEST: 'İptal edilmesini öneriyorum',
+  MANAGEMENT_DECIDES: 'Yönetici karar versin',
+};
+
+export function assignmentSuggestedSolutionLabel(
+  code: AssignmentSuggestedSolution | null | undefined,
+): string {
+  return code ? assignmentSuggestedSolutionLabels[code] : 'Öneri belirtilmedi';
 }
 
 /**
@@ -192,7 +211,10 @@ export function assignmentReasonLabel(code: AssignmentReasonCode | null | undefi
 export const assignmentOfferCloseReasonLabels: Record<AssignmentOfferCloseReason, string> = {
   SCHEDULE_CONFLICT: 'Plan çakışması',
   ON_LEAVE: 'İzinli / müsait değil',
+  OUT_OF_TOWN: 'Şehir dışında',
   TOO_FAR: 'Konum çok uzak',
+  CUSTOMER_POSTPONED: changeRequestReasonLabels.CUSTOMER_POSTPONED,
+  WRONG_PRODUCT: changeRequestReasonLabels.WRONG_PRODUCT,
   MISSING_STOCK_OR_EQUIPMENT: 'Stok veya ekipman eksik',
   OTHER: 'Diğer',
   REASSIGNED: 'Sorumlu personel değiştirildi',

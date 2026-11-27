@@ -23,9 +23,9 @@ jobs:
       # the output schema is valid. No wall-clock thresholds here.
       - run: node ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke
 
-  server:
+  server-checks:
     runs-on: ubuntu-latest
-    services:
+    services: &server-postgres
       postgres:
         image: postgres:17-alpine
         env:
@@ -39,16 +39,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-    env:
+    env: &server-test-environment
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/servora_med_test
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/servora_med_test
       NODE_ENV: test
-    defaults:
+    defaults: &server-working-directory
       run:
         working-directory: server
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - &server-node
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -223,7 +224,8 @@ jobs:
         run: bash ../ops/ci/verify-cloudflared-ingress.sh
       - name: env-example deployment contract
         run: bash ../ops/ci/verify-env-examples.sh
-      - name: Install PostgreSQL 17 client tools
+      - &install-postgres-client
+        name: Install PostgreSQL 17 client tools
         run: |
           set -Eeuo pipefail
           # Match service container major (postgres:17) for pg_dump/pg_restore.
@@ -238,7 +240,8 @@ jobs:
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
           /usr/lib/postgresql/17/bin/pg_dump --version
           /usr/lib/postgresql/17/bin/pg_restore --version
-      - name: Install age 1.3.1 (BR3 post-quantum backup encryption)
+      - &install-age
+        name: Install age 1.3.1 (BR3 post-quantum backup encryption)
         run: |
           set -Eeuo pipefail
           # Official upstream release artifact, pinned, with the published
@@ -280,16 +283,89 @@ jobs:
           node --input-type=module -e "await import('./dist/modules/health/host-backup-observation.js')"
       - run: npx tsx src/db/migrate.ts
       - run: npm run schema:check
-      - run: npm test -- --run
-        env:
-          PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
-          PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
-          PSQL_BIN: /usr/lib/postgresql/17/bin/psql
+      - run: node --test ../ops/tests/server-vitest-shards.test.mjs
       - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-67d3318.test.mjs ../ops/tests/historical-recovery-disposition.test.mjs ../ops/tests/historical-archive-preflight.test.mjs ../ops/tests/historical-archive-stage.test.mjs ../ops/tests/historical-stage-readback.test.mjs ../ops/tests/historical-in-place-preservation.test.mjs ../ops/tests/recovery-doc-contract.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs ../ops/recovery-tools/profile-reseal.test.mjs ../ops/recovery-tools/profile-reseal-failures.test.mjs ../ops/recovery-tools/profile-reseal-cli.test.mjs ../ops/recovery-tools/profile-reseal-lock.test.mjs ../ops/recovery-tools/packaging-exclusion.test.mjs ../ops/recovery-tools/profile-reseal-wrapper.test.mjs ../ops/recovery-tools/profile-reseal-e2e.test.mjs
       - name: forward-only contract and adapter regressions
         run: node --test ../ops/tests/forward-transition.test.mjs ../ops/tests/forward-host.test.mjs ../ops/tests/forward-host-recovery.test.mjs ../ops/tests/forward-continuity.test.mjs
       - name: Security audit (HIGH/CRITICAL, no exceptions)
         run: node ../web/scripts/audit-high-policy.mjs --workspace server
+      - name: Discover the full server Vitest inventory
+        run: |
+          ./node_modules/.bin/vitest list --filesOnly --json="$RUNNER_TEMP/server-files.json"
+          node ../ops/ci/server-vitest-shards.mjs inventory "$RUNNER_TEMP/server-files.json" "$RUNNER_TEMP/coverage.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-vitest-inventory-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/coverage.json
+          if-no-files-found: error
+          retention-days: 30
+
+  server-shard:
+    name: server-shard (${{ matrix.index }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [1, 2, 3, 4]
+    services: *server-postgres
+    env: *server-test-environment
+    defaults: *server-working-directory
+    steps:
+      - uses: actions/checkout@v6
+      - *server-node
+      - *install-postgres-client
+      - *install-age
+      - run: npm ci
+      - run: npm run build
+      - run: npx tsx src/db/migrate.ts
+      - run: npm run schema:check
+      - name: Run server Vitest shard
+        env:
+          SHARD_INDEX: ${{ matrix.index }}
+          PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
+          PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
+          PSQL_BIN: /usr/lib/postgresql/17/bin/psql
+        run: >-
+          npm test -- --run --config vitest.ci.config.ts --shard="$SHARD_INDEX/4"
+          --includeTaskLocation --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/server-tests.json"
+      - name: Record server test identities and results
+        env:
+          SHARD_INDEX: ${{ matrix.index }}
+        run: node ../ops/ci/server-vitest-shards.mjs shard "$RUNNER_TEMP/server-tests.json" "$RUNNER_TEMP/coverage.json" "$SHARD_INDEX"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-vitest-${{ matrix.index }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/coverage.json
+          if-no-files-found: error
+          retention-days: 30
+
+  server:
+    # Stable aggregate check consumed by release-package and the hosted receipt.
+    if: ${{ always() }}
+    needs: [server-checks, server-shard]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Require every server job to succeed
+        env:
+          SERVER_CHECKS: ${{ needs.server-checks.result }}
+          SERVER_SHARDS: ${{ needs.server-shard.result }}
+        run: test "$SERVER_CHECKS" = success && test "$SERVER_SHARDS" = success
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # REST listing by run ID includes reports from attempts reused by a partial rerun.
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          pattern: server-vitest-*
+          path: ${{ runner.temp }}/server-coverage
+      - name: Verify all files ran in the expected server shards
+        run: node ops/ci/server-vitest-shards.mjs verify "$RUNNER_TEMP/server-coverage"
 
   web:
     # Playwright 1.55.1 has browser/dependency builds for Ubuntu 24.04.

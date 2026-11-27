@@ -3668,6 +3668,60 @@ alternative is usually later the same day.
 Contract, data, API and acceptance scenarios:
 [docs/features/assignment-time-proposal.md](docs/features/assignment-time-proposal.md).
 
+> Item 1 is amended by JOB-013: the proposal follows the Staff member's typed
+> suggestion (`RESCHEDULE_SELF`), not the reason. Items 2–5 are unchanged.
+
+## JOB-013 — Typed suggestion on a declined or released assignment (RESCUE-002)
+
+- **Date:** 2026-11-27
+- **Status:** Accepted by the owner (connected-workflows planning package,
+  PR #522 06 §3 / D13: "ret/geri bırakma ve yönetici müdahalesi önerileri
+  kabul edildi", 2026-11-26; slice choices confirmed 2026-11-27: all three
+  reason codes, five mandatory suggestions, time tied to "kendim yaparım").
+  Amends JOB-010 Q5 (reason codes) and JOB-012 item 1. Does not change the
+  offer state machine, JobCard statuses, occupancy (SCH-001), change-request
+  vocabulary or the management confirmation command.
+
+### Context
+
+A Staff member who cannot do an assigned job could only give one of five
+reasons, and could propose another time only for `SCHEDULE_CONFLICT`. A Staff
+member out of town or on leave who could do the job another day had no way to
+say so, and management had to infer what the Staff member suggested from free
+text.
+
+### Decision
+
+1. The decline/release reason vocabulary gains `OUT_OF_TOWN`,
+   `CUSTOMER_POSTPONED` and `WRONG_PRODUCT` (additive). The last two are the
+   same literals and labels as the change-request codes; the two vocabularies
+   and their CHECKs stay separate.
+2. A decline or release carries a typed **suggested solution**, separate from
+   the reason: `RESCHEDULE_SELF`, `REASSIGN`, `CORRECT_DETAILS`,
+   `CANCEL_REQUEST`, `MANAGEMENT_DECIDES`. It is mandatory for the current
+   client and never authorizes a mutation: management still decides, and Staff
+   still never cancel (JOB-010 D1).
+3. The JOB-012 time proposal is **required** with `RESCHEDULE_SELF` and
+   **forbidden** with every other suggestion, whatever the reason. JOB-012
+   items 2–5 apply unchanged.
+4. Compatibility: a request without a suggestion follows the JOB-012 rules
+   exactly (only the five original reasons; time required with
+   `SCHEDULE_CONFLICT`, forbidden otherwise) and stores no suggestion. A new
+   reason without a suggestion is rejected. Existing rows are unchanged and
+   no suggestion is inferred for them.
+5. The suggestion is shown to management and to the answering Staff member
+   only, like the reason.
+
+Contract, data and API: [docs/features/assignment-time-proposal.md](docs/features/assignment-time-proposal.md)
+§ JOB-013.
+
+### Consequences
+
+- Migration 076 widens the offer close-reason CHECKs, adds
+  `suggested_solution` and ties `proposed_scheduled_at` to it.
+- Management sees what the Staff member proposes. A single recovery form and
+  suggestion-based action ordering remain RESCUE-003.
+
 ## SCH-001 — Staff occupancy is a core rule; the Calendar module contributes
 
 - **Date:** 2026-11-25

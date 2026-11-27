@@ -345,6 +345,13 @@ migration-disabled branch. Local CI is **optional**, not the mandatory
 source of deployment evidence when GitHub Actions `CI` is green.
 The source SHA must be current `main`; do not reuse an older SHA's CI or archive.
 
+The `server` check aggregates `server-checks` and four balanced Vitest shards.
+Each shard runs serially against its own PostgreSQL 17 service. The gate verifies
+all shard results against independently discovered files for the exact commit.
+Reports are bound to the workflow run, and partial reruns use the latest report
+for each shard in that run. The timing weights in `ops/ci/server-vitest-weights.json`
+come from CI-PERF-001. Newly discovered files are included with a default weight.
+
 After the three mandatory GitHub CI jobs succeed on `push/main`, the
 `release-package` job builds and verifies the exact-SHA Linux release archive,
 then publishes the immutable-name Actions artifact
@@ -717,6 +724,95 @@ migration-applied deployment never receives an automatic application or
 database rollback. A healthy application with a failed postdeploy backup is
 reported as `LIVE_BUT_POSTDEPLOY_BACKUP_FAILED` and is not rolled back solely
 for that backup failure.
+
+#### Recovering from `LIVE_BUT_OBSERVATION_STATE_FAILED`
+
+The run fails with `reason=LIVE_BUT_OBSERVATION_STATE_FAILED` (host line
+`OBSERVATION_STATE_FILE_CONTRACT_INVALID`, runner line
+`POSTDEPLOY_OBSERVATION_HINT=…`) when the release is live and healthy and the
+postdeploy dump was written and verified, but the observation state does not
+carry the postdeploy freshness proof the host helper requires. Nothing is
+rolled back. `/var/lib/servora-med/deploy/<sha>.state` stays at
+`postdeploy=not_run`. Public backup health evaluates local freshness and the
+established scheduled baseline independently. A later backup can restore local
+freshness, and an established scheduled baseline from an earlier boot requires
+a fresh, verified scheduled run.
+
+Root cause observed on 2026-11-24 (runs 45367120236 and 45370383361, SHA
+505fa20, read-only host inspection): the socket-activated collector
+`servora-med-time-evidence@.service` runs about nine `systemctl`/`chronyc`
+subprocesses inside a fixed 2000 ms budget (`RuntimeMaxSec=3`). Under deploy
+load (release extract, service restart, pg_dump) it exceeded that budget and
+exited `status=1` on every call for about two minutes. Outside the deploy
+windows the same socket succeeded every time. The writer's single before-dump
+sample therefore returned `TRUSTED_TIME_UNKNOWN`, which left `latestAttemptTime`
+and `latestVerifiedProof` null. The NTS quorum was not the cause: two of three
+sources still allow a sample.
+
+The backup writer now backs off on an unknown sample (waits of 5, 15, 30, 60 and
+90 s, six attempts, about 200 s) so that it samples after the load settles.
+With the fix, this failure means trusted time stayed unknown for that whole
+window, or that another contract field did not match. The proof requirements,
+the collector budget and the `nts-quorum-v1` source policy are unchanged.
+
+1. Diagnose read-only, as root on the host:
+
+   ```bash
+   journalctl -u servora-med-postdeploy-backup.service --since -2h | grep backup-observation
+   journalctl -u 'servora-med-time-evidence@*' --since -2h | grep -E 'status=|Deactivated|Failed'
+   chronyc -N sources
+   chronyc -N authdata
+   ```
+
+   `backup-observation: TRUSTED_TIME_UNKNOWN sample=<before|after> attempts=<n>`
+   confirms the trusted-time cause. Collector exits with `status=1` only during
+   the deploy window point to load. Collector failures that persist while the
+   host is idle, or fewer than two reachable `NTS` sources (`time.cloudflare.com`,
+   `bevtime1.metrologie.at`, `1.ntp.ubuntu.com`), are a time-infrastructure
+   incident: stop and investigate. If no `TRUSTED_TIME_UNKNOWN` line is
+   present, stop and investigate the contract mismatch before rerunning.
+2. Never edit `observation-v1.json` or `<sha>.state` by hand. Never copy or
+   synthesize a time proof, and never relax the chrony configuration, the
+   collector budget or the installed units to pass the gate.
+
+##### Normal Production Deploy recovery
+
+Use this path for a normal deployment once the host is idle and R4 attempt
+ownership and activation barriers are clear. If `main` still points to the live
+release and that release contains the writer backoff, rerun the failed Production
+Deploy workflow or dispatch it again on `main`. A rerun of a release without the
+backoff reproduced the failure on 2026-11-24 (run 45370383361). If the live
+release lacks the backoff or `main` has moved on, use the normal deployment
+procedure for the newer `main` containing the fix. The runner rejects a stale
+SHA with `REMOTE_MAIN_MISMATCH`.
+
+A same-SHA rerun re-verifies the already-staged bytes
+(`RELEASE_STAGE=EXISTING_BYTE_IDENTICAL`), takes a new predeploy backup, checks
+the migration catalog, and reactivates the same release with a brief restart.
+It then runs health and browser smoke checks and takes one new postdeploy
+backup. Use the normal migration authorization rules if the catalog reports
+pending migrations. A passing rerun ends with `postdeploy_backup=PASS` and
+writes `postdeploy=success`. The rerun records the current release as
+`old_release`, so that same release is its automatic rollback target.
+
+##### Attempt-bound (R4) recovery
+
+If the failed deploy used an attempt ID or the host has a pending R4 attempt or
+activation barrier, preserve the owning attempt and its evidence. The normal
+deploy path rejects pending R4 ownership with `RECOVERY_ATTEMPT_PENDING`. A
+failure after `POSTDEPLOY_BACKUP_INTENT` can leave the dump without a sealed
+postdeploy receipt. The controller reports
+`POSTDEPLOY_BACKUP_AMBIGUOUS_OPERATOR_REVIEW_REQUIRED` on re-entry at that
+checkpoint. Follow [R4 smoke, backup and observation](r4-forward-recovery.md#smoke-backup-and-observation)
+for operator review and recovery on the owning attempt before any further
+backup, deploy, or rollback action.
+
+A larger collector budget would remove the load sensitivity itself. It is not
+part of this change, because the collector runs from the hash-pinned
+forward-tools copy (`/usr/local/libexec/servora-med-forward-tools/<manifest>/trusted-time.mjs`
+through the `90-servora-forward-time.conf` drop-in), and the reader unit hash is
+pinned in `trusted-time.mjs`. Changing either needs a separately approved
+forward-tools install on the host.
 
 The deployment path contains no personnel/customer importer, seed, demo-data,
 or admin-bootstrap invocation. No business-data import occurs during

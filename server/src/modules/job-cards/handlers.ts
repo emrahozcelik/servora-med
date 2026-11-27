@@ -170,7 +170,9 @@ const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 // JOB-010 release 2b: Staff decline/release answers and the management re-offer.
 const ASSIGNMENT_DECISION_FIELDS = [
   'clientActionId', 'expectedVersion', 'reasonCode', 'reasonText',
-  // JOB-012: the alternative time a schedule-conflict answer proposes.
+  // RESCUE-002: the typed solution the answer proposes to management.
+  'suggestedSolution',
+  // JOB-012: the alternative time a RESCHEDULE_SELF answer proposes.
   'proposedScheduledAt',
 ] as const;
 const ASSIGNMENT_REOFFER_FIELDS = [

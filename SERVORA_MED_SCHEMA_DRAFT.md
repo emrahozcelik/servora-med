@@ -686,6 +686,22 @@ data is changed.
 - Index `operator_audit_events_module_idx` on `(module_key, occurred_at)`, partial on
   `module_key IS NOT NULL`.
 
+### 8.3 JOB-013 assignment answer suggestion (migration 076)
+
+Migration `076_assignment_offer_suggested_solution.sql`. Decision: `DECISIONS.md`
+JOB-013; contract: `docs/features/assignment-time-proposal.md` § JOB-013. Additive, no
+data is changed; existing rows keep a null suggestion.
+
+- `job_card_assignment_offers.close_reason`: the `DECLINED`/`RELEASED` reasons gain
+  `OUT_OF_TOWN`, `CUSTOMER_POSTPONED`, `WRONG_PRODUCT` (close-reason and closure CHECKs
+  replaced with the same names and the complete lists).
+- `suggested_solution TEXT NULL`: `RESCHEDULE_SELF`, `REASSIGN`, `CORRECT_DETAILS`,
+  `CANCEL_REQUEST`, `MANAGEMENT_DECIDES`; only on `DECLINED`/`RELEASED`.
+- `proposed_scheduled_at` is allowed only with `RESCHEDULE_SELF`, or with a null
+  suggestion and `SCHEDULE_CONFLICT` (earlier clients); `RESCHEDULE_SELF` requires it.
+- The migration refuses to run if the 065/073 constraints it replaces differ from their
+  accepted definitions.
+
 ## 9. Explicit Omissions
 
 - stock quantity and stock movements

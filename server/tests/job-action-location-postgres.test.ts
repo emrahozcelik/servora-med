@@ -52,7 +52,7 @@ const migrations = [
   '050_overdue_incident_scanner_source.sql',
   '053_overdue_submission_reminders.sql',
   '054_job_action_locations_submit_approval.sql',
-  '055_job_submit_location_comparison.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql', '073_assignment_offer_time_proposal.sql',
+  '055_job_submit_location_comparison.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql', '073_assignment_offer_time_proposal.sql', '076_assignment_offer_suggested_solution.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {

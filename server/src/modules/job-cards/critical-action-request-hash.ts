@@ -149,6 +149,8 @@ export type LifecycleRequestIdentity = {
   assignmentReason?: {
     code: string;
     text: string;
+    /** RESCUE-002: present only when the answer carries a typed suggestion. */
+    suggestedSolution?: string | null;
     proposedScheduledAt?: string | null;
   } | null;
   /**
@@ -219,6 +221,11 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
         assignmentReason: {
           code: identity.assignmentReason.code,
           text: identity.assignmentReason.text.trim(),
+          // RESCUE-002: present only when the typed suggestion is non-null, so
+          // every legacy decline/release hash stays byte-identical.
+          ...(identity.assignmentReason.suggestedSolution
+            ? { suggestedSolution: identity.assignmentReason.suggestedSolution }
+            : {}),
           // JOB-012: present only when the answer proposed a time, so every
           // pre-JOB-012 decline/release hash stays byte-identical.
           ...(identity.assignmentReason.proposedScheduledAt

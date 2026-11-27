@@ -89,7 +89,7 @@ import {
 } from './sale-pair-policy.js';
 import {
   assignmentOfferRequiredState,
-  assignmentProposalRequiresReason,
+  assignmentProposalRequirement,
   assignmentProposedInterval,
   computeAcceptanceDueAt,
   decideAssignmentOfferOpen,
@@ -179,6 +179,9 @@ import {
   JOB_CHANGE_REQUEST_DECISIONS,
   JOB_CHANGE_REQUEST_REASON_CODES,
   JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES,
+  JOB_ASSIGNMENT_OFFER_LEGACY_DECLINE_REASON_CODES,
+  JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS,
+  type JobAssignmentOfferSuggestedSolution,
 } from './types.js';
 import {
   jobCardInvalidationRequestHash,
@@ -494,6 +497,8 @@ type LifecycleDefinition = {
   assignmentReason?: {
     code: string;
     text: string;
+    /** RESCUE-002: the typed solution the answer proposes. */
+    suggestedSolution?: JobAssignmentOfferSuggestedSolution | null;
     /** JOB-012: the proposed time a schedule-conflict answer carries. */
     proposedScheduledAt?: string | null;
   } | null;
@@ -1568,22 +1573,34 @@ export class JobCardService {
       urgentReason: JobAssignmentOfferUrgentReason | null;
       assigneeId: string;
       assigneeName: string | null;
+      assigneeUserId: string;
       closedAt: Date | null;
       closeReason: string | null;
       closeText: string | null;
       proposedScheduledAt: Date | null;
+      suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
       proposalAcceptedAt: Date | null;
     } | null | undefined,
     evaluatedAt: Date,
     job: Pick<PersistedJobCardDetail, 'type' | 'scheduledAt' | 'scheduledEndsAt'>,
+    viewer: JobCardActor,
   ): JobAssignmentOfferView | null {
     if (offer === null || offer === undefined) return null;
     const expired = offer.state === 'OPEN'
       && evaluatedAt.valueOf() >= offer.acceptanceDueAt.valueOf();
+    // JOB-012 item 5 / JOB-013 item 5: the proposal and the typed suggestion
+    // are private to management and the Staff member who answered this offer.
+    // After a reassignment the previous answer's offer can still be the latest
+    // one (for example while the assignment window is disabled); the new
+    // assignee must not read the previous member's answer.
+    const answerVisible = viewer.role !== 'STAFF' || offer.assigneeUserId === viewer.id;
+    const showAnswer = !expired && answerVisible;
     // JOB-012: the proposed end is derived from the persisted planned duration,
     // exactly like the confirmation's interval — never stored, never computed
     // by the client.
-    const proposedScheduledAt = offer.proposedScheduledAt?.toISOString() ?? null;
+    const proposedScheduledAt = showAnswer
+      ? offer.proposedScheduledAt?.toISOString() ?? null
+      : null;
     const proposedInterval = proposedScheduledAt === null
       ? null
       : assignmentProposedInterval(job, proposedScheduledAt);
@@ -1601,6 +1618,7 @@ export class JobCardService {
       closeText: expired ? null : offer.closeText,
       proposedScheduledAt,
       proposedScheduledEndsAt: proposedInterval?.endsAt.toISOString() ?? null,
+      suggestedSolution: showAnswer ? offer.suggestedSolution : null,
       proposalAcceptedAt: offer.proposalAcceptedAt?.toISOString() ?? null,
     };
   }
@@ -6035,47 +6053,95 @@ export class JobCardService {
   }
 
   /**
-   * JOB-010 §5 + JOB-012: the answer's structured reason and its optional
-   * proposal, validated before the reservation so nothing is written. The
-   * proposal is required with `SCHEDULE_CONFLICT` and forbidden with every
-   * other reason. Its "in the future" bound is time-dependent, so it is checked
-   * against the 049 reservation instant (`assertProposalInFuture`), after the
-   * replay lookup: a completed answer still replays once its proposal passed.
+   * JOB-010 §5 + JOB-012 + RESCUE-002: the answer's structured reason, its
+   * typed suggestion and its optional proposal, validated before the
+   * reservation so nothing is written. A new-client answer may suggest any of
+   * the five solutions; a time is required only with `RESCHEDULE_SELF` and
+   * forbidden with every other suggestion. A legacy answer (no suggestion)
+   * keeps the JOB-012 rule: only the original five reasons, with a time
+   * required for `SCHEDULE_CONFLICT` and forbidden otherwise.
    */
   private assignmentDecisionReason(
     input: AssignmentOfferDecisionInput,
-  ): { code: string; text: string; proposedScheduledAt: string | null } {
+  ): {
+    code: string;
+    text: string;
+    suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
+    proposedScheduledAt: string | null;
+  } {
     if (!(JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES as readonly string[])
       .includes(input.reasonCode)) {
       throw validation('reasonCode');
     }
-    const proposed = input.proposedScheduledAt === undefined || input.proposedScheduledAt === null
+    const suggestedSolution = input.suggestedSolution === undefined
+      || input.suggestedSolution === null
       ? null
-      : isoInstant(input.proposedScheduledAt, 'proposedScheduledAt');
-    if (assignmentProposalRequiresReason(input.reasonCode)) {
-      if (proposed === null) {
-        throw new AppError(
-          'VALIDATION_ERROR',
-          400,
-          'Önerilen zaman zorunludur.',
-          { fieldErrors: { proposedScheduledAt: 'Önerilen zaman zorunludur.' } },
-        );
-      }
-    } else if (proposed !== null) {
+      : input.suggestedSolution;
+    if (suggestedSolution !== null
+      && !(JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS as readonly string[])
+        .includes(suggestedSolution)) {
+      throw validation('suggestedSolution');
+    }
+    // The three RESCUE-002 reason codes exist only with a typed suggestion; a
+    // legacy client cannot select them and have the server fabricate one.
+    if (suggestedSolution === null
+      && !(JOB_ASSIGNMENT_OFFER_LEGACY_DECLINE_REASON_CODES as readonly string[])
+        .includes(input.reasonCode)) {
       throw new AppError(
         'VALIDATION_ERROR',
         400,
-        'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.',
-        {
-          fieldErrors: {
-            proposedScheduledAt: 'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.',
-          },
-        },
+        'Çözüm önerisi zorunludur.',
+        { fieldErrors: { suggestedSolution: 'Çözüm önerisi zorunludur.' } },
+      );
+    }
+    const hasProposedTime = input.proposedScheduledAt !== undefined
+      && input.proposedScheduledAt !== null;
+    // RESCUE-002: the "time only with RESCHEDULE_SELF" rule is decided before
+    // instant parsing, so a malformed time sent with another suggestion still
+    // gets the contract copy instead of a generic parse error. The legacy path
+    // deliberately keeps its existing parse-first order below.
+    if (suggestedSolution !== null
+      && suggestedSolution !== 'RESCHEDULE_SELF'
+      && hasProposedTime) {
+      const message = 'Önerilen zaman yalnızca "Başka bir zamanda kendim yapabilirim" seçildiğinde verilebilir.';
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        message,
+        { fieldErrors: { proposedScheduledAt: message } },
+      );
+    }
+    const proposed = input.proposedScheduledAt === undefined
+      || input.proposedScheduledAt === null
+      ? null
+      : isoInstant(input.proposedScheduledAt, 'proposedScheduledAt');
+    const requirement = assignmentProposalRequirement({
+      reasonCode: input.reasonCode,
+      suggestedSolution,
+    });
+    if (requirement === 'REQUIRED' && proposed === null) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Önerilen zaman zorunludur.',
+        { fieldErrors: { proposedScheduledAt: 'Önerilen zaman zorunludur.' } },
+      );
+    }
+    if (requirement === 'FORBIDDEN' && proposed !== null) {
+      // Only the legacy path can reach this now; the new-client path is
+      // rejected above before parsing.
+      const message = 'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.';
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        message,
+        { fieldErrors: { proposedScheduledAt: message } },
       );
     }
     return {
       code: input.reasonCode,
       text: requireLifecycleReason(input.reasonText, 'reasonText'),
+      suggestedSolution,
       proposedScheduledAt: proposed,
     };
   }
@@ -7467,6 +7533,7 @@ export class JobCardService {
             || definition.command === 'RELEASE_ASSIGNMENT')) {
           const reasonCode = definition.assignmentReason?.code ?? null;
           const reasonText = definition.assignmentReason?.text ?? null;
+          const suggestedSolution = definition.assignmentReason?.suggestedSolution ?? null;
           const closeState = definition.command === 'ACCEPT_ASSIGNMENT'
             ? 'ACCEPTED' as const
             : definition.command === 'DECLINE_ASSIGNMENT'
@@ -7482,6 +7549,9 @@ export class JobCardService {
             closedBy: actor.id,
             closeReason: closeState === 'ACCEPTED' ? null : reasonCode,
             closeText: closeState === 'ACCEPTED' ? null : reasonText,
+            // RESCUE-002: the typed suggestion lives on the answer that closed
+            // the offer; it never fabricates one for a legacy client.
+            suggestedSolution: closeState === 'ACCEPTED' ? null : suggestedSolution,
             // JOB-012: the proposal lives on the answer that closed the offer.
             proposedScheduledAt: closeState === 'ACCEPTED'
               ? null
@@ -7500,6 +7570,9 @@ export class JobCardService {
                 offerId: lifecycleAssignmentOffer.id,
                 reasonCode,
                 reasonText,
+                ...(suggestedSolution === null
+                  ? {}
+                  : { suggestedSolution }),
                 ...(assignmentProposal === null
                   ? {}
                   : { proposedScheduledAt: assignmentProposal.startsAt.toISOString() }),
@@ -9443,7 +9516,7 @@ export class JobCardService {
       // JOB-010 release 2b: latest offer, EXPIRED at read time once its
       // deadline passed.
       assignmentOffer: this.presentAssignmentOffer(
-        persisted.assignmentOffer, evaluatedAt, persisted,
+        persisted.assignmentOffer, evaluatedAt, persisted, actor,
       ),
     };
   }
