@@ -6,6 +6,7 @@ import type { MessagingService } from './service.js';
 export type MessagingRoutesOptions = {
   service: MessagingService;
   authenticate: preHandlerHookHandler;
+  gate: preHandlerHookHandler;
 };
 
 export const messagingRoutes: FastifyPluginAsync<MessagingRoutesOptions> = async (
@@ -13,16 +14,17 @@ export const messagingRoutes: FastifyPluginAsync<MessagingRoutesOptions> = async
   options,
 ) => {
   const handlers = createMessagingHandlers(options.service);
+  const preHandler = [options.authenticate, options.gate];
 
-  app.get('/conversations', { preHandler: options.authenticate }, handlers.listConversations);
-  app.get('/recipients', { preHandler: options.authenticate }, handlers.getRecipients);
-  app.post('/conversations', { preHandler: options.authenticate }, handlers.createOrGetConversation);
-  app.get('/conversations/job/:jobId', { preHandler: options.authenticate }, handlers.getJobConversationByJobId);
-  app.get('/conversations/:conversationId/messages', { preHandler: options.authenticate }, handlers.listMessages);
-  app.post('/conversations/:conversationId/messages', { preHandler: options.authenticate }, handlers.sendMessage);
-  app.post('/conversations/:conversationId/archive', { preHandler: options.authenticate }, handlers.archiveConversation);
-  app.post('/conversations/:conversationId/unarchive', { preHandler: options.authenticate }, handlers.unarchiveConversation);
-  app.patch('/conversations/:conversationId/read', { preHandler: options.authenticate }, handlers.markRead);
-  app.get('/unread-count', { preHandler: options.authenticate }, handlers.unreadCount);
-  app.post('/conversations/:conversationId/job-assignee-sync', { preHandler: options.authenticate }, handlers.syncJobAssignee);
+  app.get('/conversations', { preHandler }, handlers.listConversations);
+  app.get('/recipients', { preHandler }, handlers.getRecipients);
+  app.post('/conversations', { preHandler }, handlers.createOrGetConversation);
+  app.get('/conversations/job/:jobId', { preHandler }, handlers.getJobConversationByJobId);
+  app.get('/conversations/:conversationId/messages', { preHandler }, handlers.listMessages);
+  app.post('/conversations/:conversationId/messages', { preHandler }, handlers.sendMessage);
+  app.post('/conversations/:conversationId/archive', { preHandler }, handlers.archiveConversation);
+  app.post('/conversations/:conversationId/unarchive', { preHandler }, handlers.unarchiveConversation);
+  app.patch('/conversations/:conversationId/read', { preHandler }, handlers.markRead);
+  app.get('/unread-count', { preHandler }, handlers.unreadCount);
+  app.post('/conversations/:conversationId/job-assignee-sync', { preHandler }, handlers.syncJobAssignee);
 };

@@ -208,8 +208,8 @@ type AppRouterProps = {
   notice: string;
   onDeliveryCreated: () => void;
   onSessionEnded: () => void;
-  /** Overview answered 404 (module switched off): ask the shell to revalidate the identity once. */
-  onOverviewUnavailable?: () => void;
+  /** Module endpoint answered 404 (module switched off): ask the shell to revalidate the identity once. */
+  onModuleUnavailable?: () => void;
 };
 
 function ForbiddenView() {
@@ -389,7 +389,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
     onCreated={(jobCardId) => navigate(paths.job(jobCardId))} />;
 }
 
-export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded, onOverviewUnavailable }: AppRouterProps) {
+export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded, onModuleUnavailable }: AppRouterProps) {
   const navigate = useNavigate();
   const overviewAllowed = canAccessRoute('overview', user);
   const calendarAllowed = canAccessRoute('calendar', user);
@@ -401,11 +401,11 @@ export function AppRouter({ user, notice, onDeliveryCreated, onSessionEnded, onO
         <Route path="/" element={<Navigate to={landingPath} replace />} />
         <Route path="/login" element={<Navigate to={landingPath} replace />} />
         <Route path={paths.overview} element={overviewAllowed
-          ? <OverviewPage user={user} onUnavailable={onOverviewUnavailable} /> : <Navigate to={paths.jobs} replace />} />
+          ? <OverviewPage user={user} onUnavailable={onModuleUnavailable} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.calendar} element={calendarAllowed
           ? <CalendarPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.messages} element={messagingAllowed
-          ? <MessagingPage user={user} /> : <Navigate to={paths.jobs} replace />} />
+          ? <MessagingPage user={user} onUnavailable={onModuleUnavailable} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.docs} element={<DocumentationPage user={user} />} />
         <Route path={paths.help} element={<HelpCenterPage user={user} />} />
         <Route path={paths.settings} element={<SettingsLandingPage user={user} />} />

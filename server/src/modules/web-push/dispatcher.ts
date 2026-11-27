@@ -1,6 +1,7 @@
 import type { PushPayloadV1 } from './payload.js';
 import type { WebPushSender, WebPushSendResult } from './sender.js';
 import type {
+  AbandonModuleDisabledDeliveriesInput,
   ClaimDueWebPushDeliveriesInput,
   ClaimedWebPushDelivery,
   RecordAbandonedInput,
@@ -11,7 +12,7 @@ import type {
 } from './repository.js';
 import type { PublicNotification } from '../notifications/presenter.js';
 import { presentNotification } from '../notifications/presenter.js';
-import type { NotificationRecord } from '../notifications/types.js';
+import type { NotificationEntityType, NotificationRecord } from '../notifications/types.js';
 
 export const WEB_PUSH_DISPATCH_CONCURRENCY = 4;
 export const WEB_PUSH_POLL_INTERVAL_MS = 5_000;
@@ -71,6 +72,7 @@ function errorCodeForStatus(statusCode: number): string {
 export type DispatcherDeps = Readonly<{
   repository: {
     cleanupDueDeliveries(at: Date): Promise<number>;
+    abandonModuleDisabledDeliveries(input: AbandonModuleDisabledDeliveriesInput): Promise<number>;
     claimDueDeliveries(input: ClaimDueWebPushDeliveriesInput): Promise<readonly ClaimedWebPushDelivery[]>;
     withDeliveryLifecycleLock<T>(
       delivery: ClaimedWebPushDelivery,
@@ -85,6 +87,7 @@ export type DispatcherDeps = Readonly<{
   sender: WebPushSender;
   buildPayload: (notification: PublicNotification) => PushPayloadV1;
   topicBuilder: (notificationId: string) => string;
+  readMessagingEnabled?: () => Promise<boolean>;
   clock?: DispatcherClock;
   onError?: (error: unknown) => void;
 }>;
@@ -123,6 +126,8 @@ export function createDispatcher(
   let intervalHandle: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
   let pollInFlight = false;
+  // The current poll cycle, so stop() can wait for its repository work.
+  let cycleInFlight: Promise<void> | null = null;
   const activeSends = new Map<string, {
     controller: AbortController;
     promise: Promise<void>;
@@ -272,15 +277,45 @@ export function createDispatcher(
       } catch {
         // cleanup failures are non-fatal
       }
+      if (stopping) return;
+
+      let messagingState: boolean | 'UNREADABLE' = true;
+      if (deps.readMessagingEnabled) {
+        try {
+          messagingState = await deps.readMessagingEnabled();
+        } catch {
+          messagingState = 'UNREADABLE';
+        }
+      }
+
+      if (stopping) return;
+
+      if (messagingState === false) {
+        try {
+          await deps.repository.abandonModuleDisabledDeliveries({
+            entityTypes: ['conversation'],
+            at,
+            errorCode: 'MODULE_DISABLED',
+          });
+        } catch (error) {
+          reportError(error);
+        }
+      }
+
+      if (stopping) return;
 
       const availableSlots = WEB_PUSH_DISPATCH_CONCURRENCY - activeSends.size;
       if (availableSlots <= 0) return;
+
+      const excludedEntityTypes: readonly NotificationEntityType[] =
+        messagingState === true ? [] : ['conversation'];
 
       let deliveries: readonly ClaimedWebPushDelivery[];
       try {
         deliveries = await deps.repository.claimDueDeliveries({
           limit: availableSlots,
           at,
+          excludedEntityTypes,
         } satisfies ClaimDueWebPushDeliveriesInput);
       } catch {
         return;
@@ -304,7 +339,13 @@ export function createDispatcher(
       // runCycle already handles expected poll failures; this catch contains
       // any unexpected rejection so the interval callback never escapes as
       // an unhandled rejection.
-      void runCycle().catch(reportError);
+      if (cycleInFlight !== null) return;
+      const cycle: Promise<void> = runCycle()
+        .catch(reportError)
+        .finally(() => {
+          if (cycleInFlight === cycle) cycleInFlight = null;
+        });
+      cycleInFlight = cycle;
     }, cfg.pollIntervalMs);
   }
 
@@ -315,10 +356,29 @@ export function createDispatcher(
       intervalHandle = null;
     }
 
+    const deadline = Date.now() + cfg.gracePeriodMs;
+
+    // A cycle already past its stopping checks may still be running a
+    // repository statement; wait for it (bounded) so no poll-cycle mutation
+    // lands after stop() resolves.
+    if (cycleInFlight !== null) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        cycleInFlight,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, cfg.gracePeriodMs);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+
     if (activeSends.size === 0) return;
 
     const timeout = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error('Shutdown timeout')), cfg.gracePeriodMs),
+      setTimeout(
+        () => reject(new Error('Shutdown timeout')),
+        Math.max(0, deadline - Date.now()),
+      ),
     );
 
     const waitForActive = Promise.all(

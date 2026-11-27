@@ -25,6 +25,7 @@ import { useWebPush } from '../web-push/WebPushProvider';
 
 type NotificationCenterProps = Readonly<{
   identityKey: string;
+  visibilityKey?: string;
   mobile: boolean;
 }>;
 
@@ -37,7 +38,7 @@ function mergeById(current: readonly InAppNotification[], later: readonly InAppN
   return [...current, ...later.filter((notification) => !ids.has(notification.id))];
 }
 
-export function NotificationCenter({ identityKey, mobile }: NotificationCenterProps) {
+export function NotificationCenter({ identityKey, visibilityKey, mobile }: NotificationCenterProps) {
   const navigate = useNavigate();
   const titleId = useId();
   const panelId = useId();
@@ -151,6 +152,16 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     void loadUnread();
     if (openRef.current) void loadPage(null, false);
   });
+
+  const previousScopeRef = useRef({ identityKey, visibilityKey });
+
+  useEffect(() => {
+    const previous = previousScopeRef.current;
+    previousScopeRef.current = { identityKey, visibilityKey };
+    if (previous.identityKey !== identityKey || previous.visibilityKey === visibilityKey) return;
+    void loadUnread();
+    if (openRef.current) void loadPage(null, false);
+  }, [identityKey, visibilityKey]);
 
   useEffect(() => {
     if (!open) return;

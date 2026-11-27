@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/modules/auth/crypto.js';
 import type { AuthRepository } from '../src/modules/auth/repository.js';
 import type { AuthUserRecord, SessionRecord } from '../src/modules/auth/types.js';
 import type { NotificationRepository } from '../src/modules/notifications/repository.js';
-import type { NotificationCursor, NotificationRecord } from '../src/modules/notifications/types.js';
+import { NotificationService } from '../src/modules/notifications/service.js';
+import type { NotificationCursor, NotificationEntityType, NotificationRecord } from '../src/modules/notifications/types.js';
 
 const config = {
   nodeEnv: 'test' as const, host: '127.0.0.1', port: 3000,
@@ -64,13 +65,17 @@ class MemoryNotificationRepository implements NotificationRepository {
   ];
   nextCursor: NotificationCursor | null = null;
 
-  async unreadCount(viewer: { organizationId: string; userId: string }) {
+  async unreadCount(
+    viewer: { organizationId: string; userId: string },
+    _excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ) {
     this.viewer = viewer;
     return 3;
   }
   async list(
     viewer: { organizationId: string; userId: string },
     query: { limit: number; cursor: NotificationCursor | null },
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
   ) {
     this.viewer = viewer;
     this.listQuery = query;
@@ -78,35 +83,50 @@ class MemoryNotificationRepository implements NotificationRepository {
       items: this.records
         .filter((item) => item.organizationId === viewer.organizationId
           && item.recipientUserId === viewer.userId
-          && !this.dismissed.includes(item.id))
+          && !this.dismissed.includes(item.id)
+          && !excludedEntityTypes.includes(item.entityType))
         .slice(0, query.limit),
       nextCursor: this.nextCursor,
     };
   }
-  async markRead(viewer: { organizationId: string; userId: string }, notificationId: string) {
+  async markRead(
+    viewer: { organizationId: string; userId: string },
+    notificationId: string,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ) {
     this.viewer = viewer;
     this.marked.push(notificationId);
     const record = this.records.find((item) => item.id === notificationId);
     if (!record || record.organizationId !== viewer.organizationId
-      || record.recipientUserId !== viewer.userId) return null;
+      || record.recipientUserId !== viewer.userId
+      || excludedEntityTypes.includes(record.entityType)) return null;
     if (record.readAt) return record;
     const read = { ...record, readAt: new Date('2026-07-21T11:00:00.000Z') };
     this.records = this.records.map((item) => item.id === notificationId ? read : item);
     return read;
   }
 
-  async dismiss(viewer: { organizationId: string; userId: string }, notificationId: string) {
+  async dismiss(
+    viewer: { organizationId: string; userId: string },
+    notificationId: string,
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ) {
     const record = this.records.find((item) => item.id === notificationId);
     if (!record || record.organizationId !== viewer.organizationId
-      || record.recipientUserId !== viewer.userId) return false;
+      || record.recipientUserId !== viewer.userId
+      || excludedEntityTypes.includes(record.entityType)) return false;
     if (!this.dismissed.includes(notificationId)) this.dismissed.push(notificationId);
     return true;
   }
 
-  async clearRead(viewer: { organizationId: string; userId: string }) {
+  async clearRead(
+    viewer: { organizationId: string; userId: string },
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ) {
     const ids = this.records
       .filter((item) => item.organizationId === viewer.organizationId
-        && item.recipientUserId === viewer.userId && item.readAt)
+        && item.recipientUserId === viewer.userId && item.readAt
+        && !excludedEntityTypes.includes(item.entityType))
       .map((item) => item.id);
     for (const id of ids) if (!this.dismissed.includes(id)) this.dismissed.push(id);
     return ids.length;
@@ -114,12 +134,16 @@ class MemoryNotificationRepository implements NotificationRepository {
 
   clearedAll: Array<{ organizationId: string; userId: string }> = [];
 
-  async clearAll(viewer: { organizationId: string; userId: string }) {
+  async clearAll(
+    viewer: { organizationId: string; userId: string },
+    excludedEntityTypes: readonly NotificationEntityType[] = [],
+  ) {
     this.clearedAll.push({ organizationId: viewer.organizationId, userId: viewer.userId });
     const ids = this.records
       .filter((item) => item.organizationId === viewer.organizationId
         && item.recipientUserId === viewer.userId
-        && !this.dismissed.includes(item.id))
+        && !this.dismissed.includes(item.id)
+        && !excludedEntityTypes.includes(item.entityType))
       .map((item) => item.id);
     for (const id of ids) this.dismissed.push(id);
     return ids.length;
@@ -169,14 +193,24 @@ async function createApp({
   mustChangePassword = false,
   userId = 'staff-1',
   organizationId = 'org-1',
-}: Readonly<{ mustChangePassword?: boolean; userId?: string; organizationId?: string }> = {}) {
+  messagingEnabled = false,
+}: Readonly<{ mustChangePassword?: boolean; userId?: string; organizationId?: string; messagingEnabled?: boolean }> = {}) {
   const authRepository = new MemoryAuthRepository({
     id: userId, organizationId, name: 'Staff', email: `${userId}@example.com`,
     passwordHash: await hashPassword('correct-password'), role: 'STAFF',
     mustChangePassword, isActive: true, version: 1,
   });
   const notificationRepository = new MemoryNotificationRepository();
-  const app = await buildApp(config, { authRepository, notificationRepository });
+  const app = await buildApp({
+    ...config,
+    capabilities: {
+      overviewDashboard: false,
+      calendar: false,
+      messaging: messagingEnabled,
+      backup: false,
+      demoDatasetCreation: false,
+    },
+  }, { authRepository, notificationRepository });
   apps.push(app);
   const login = await app.inject({ method: 'POST', url: '/api/auth/login',
     payload: { email: authRepository.user.email, password: 'correct-password' } });
@@ -411,8 +445,8 @@ describe('POST /api/notifications/read-by-entity', () => {
     expect(response.statusCode).toBe(400);
   });
 
-  it('returns 204 for a valid entity with zero matching notifications', async () => {
-    const { app, cookie, notificationRepository } = await createApp();
+  it('returns 204 for a valid entity with zero matching notifications when messaging is enabled', async () => {
+    const { app, cookie, notificationRepository } = await createApp({ messagingEnabled: true });
     const response = await app.inject({
       method: 'POST',
       url: '/api/notifications/read-by-entity',
@@ -430,6 +464,22 @@ describe('POST /api/notifications/read-by-entity', () => {
       entityType: 'conversation',
       entityId: '99999999-9999-4999-8999-999999999999',
     }]);
+  });
+
+  it('returns 404 for conversation read-by-entity while messaging is hidden', async () => {
+    const { app, cookie, notificationRepository } = await createApp({ messagingEnabled: false });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read-by-entity',
+      headers: { cookie },
+      payload: {
+        entityType: 'conversation',
+        entityId: '99999999-9999-4999-8999-999999999999',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(notificationRepository.entityReads).toEqual([]);
   });
 
   it('rejects invalid entity type and entity id', async () => {
@@ -486,5 +536,51 @@ describe('POST /api/notifications/clear-all', () => {
       method: 'GET', url: '/api/notifications', headers: { cookie },
     });
     expect(visible.json().items).toEqual([]);
+  });
+});
+
+describe('NotificationService entity exclusion', () => {
+  it('forwards hiddenEntityTypes to repository reads/clears and returns 404 on hidden markRead/dismiss/markReadByEntity', async () => {
+    const viewer = { organizationId: 'org-1', userId: 'staff-1' };
+    const repo = {
+      unreadCount: vi.fn().mockResolvedValue(2),
+      list: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      markRead: vi.fn().mockResolvedValue(null),
+      markReadByEntity: vi.fn().mockResolvedValue(1),
+      dismiss: vi.fn().mockResolvedValue(false),
+      clearRead: vi.fn().mockResolvedValue(1),
+      clearAll: vi.fn().mockResolvedValue(1),
+    };
+    const service = new NotificationService(
+      repo,
+      undefined,
+      undefined,
+      undefined,
+      async () => ['conversation'],
+    );
+
+    await expect(service.unreadCount(viewer)).resolves.toEqual({ unreadCount: 2 });
+    expect(repo.unreadCount).toHaveBeenCalledWith(viewer, ['conversation']);
+
+    await expect(service.list(viewer, { limit: 10, cursor: null })).resolves.toEqual({ items: [], nextCursor: null });
+    expect(repo.list).toHaveBeenCalledWith(viewer, { limit: 10, cursor: null }, ['conversation']);
+
+    await service.clearRead(viewer);
+    expect(repo.clearRead).toHaveBeenCalledWith(viewer, ['conversation']);
+
+    await service.clearAll(viewer);
+    expect(repo.clearAll).toHaveBeenCalledWith(viewer, ['conversation']);
+
+    await expect(service.markRead(viewer, 'notif-conv')).rejects.toMatchObject({ statusCode: 404 });
+    expect(repo.markRead).toHaveBeenCalledWith(viewer, 'notif-conv', ['conversation']);
+
+    await expect(service.dismiss(viewer, 'notif-conv')).rejects.toMatchObject({ statusCode: 404 });
+    expect(repo.dismiss).toHaveBeenCalledWith(viewer, 'notif-conv', ['conversation']);
+
+    await expect(service.markReadByEntity(viewer, 'conversation', 'conv-1')).rejects.toMatchObject({ statusCode: 404 });
+    expect(repo.markReadByEntity).not.toHaveBeenCalled();
+
+    await expect(service.markReadByEntity(viewer, 'job-card', 'job-1')).resolves.toEqual({ markedCount: 1 });
+    expect(repo.markReadByEntity).toHaveBeenCalledWith(viewer, 'job-card', 'job-1');
   });
 });

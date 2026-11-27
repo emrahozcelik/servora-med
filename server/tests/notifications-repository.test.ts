@@ -213,6 +213,50 @@ describe('Postgres notification repository', () => {
     expect(sql).toContain('entity_type = $3');
     expect(values).toEqual(['organization-1', 'recipient-1', 'conversation', 'conversation-9']);
   });
+
+  it('adds AND NOT (entity_type = ANY($n)) across unreadCount, list, markRead, dismiss, clearRead, clearAll when excludedEntityTypes is non-empty', async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [{
+        unread_count: 1,
+        id: 'n-1',
+        organization_id: 'org-1',
+        recipient_user_id: 'user-1',
+        source_realtime_event_id: '42',
+        kind: 'job.approved',
+        entity_type: 'job-card',
+        entity_id: 'job-1',
+        created_at: new Date('2026-07-21T09:30:00.000Z'),
+        read_at: null,
+        cleared_count: '1',
+      }],
+    });
+    const repository = new PostgresNotificationRepository({ query } as never);
+    const viewer = { organizationId: 'org-1', userId: 'user-1' };
+
+    await repository.unreadCount(viewer, ['conversation']);
+    expect(query.mock.calls[0]![0]).toContain('AND NOT (entity_type = ANY($3))');
+    expect(query.mock.calls[0]![1]).toEqual(['org-1', 'user-1', ['conversation']]);
+
+    await repository.list(viewer, { limit: 10, cursor: null }, ['conversation']);
+    expect(query.mock.calls[1]![0]).toContain('AND NOT (entity_type = ANY($4))');
+    expect(query.mock.calls[1]![1]).toEqual(['org-1', 'user-1', 11, ['conversation']]);
+
+    await repository.markRead(viewer, 'n-1', ['conversation']);
+    expect(query.mock.calls[2]![0]).toContain('AND NOT (entity_type = ANY($4))');
+    expect(query.mock.calls[2]![1]).toEqual(['org-1', 'user-1', 'n-1', ['conversation']]);
+
+    await repository.dismiss(viewer, 'n-1', ['conversation']);
+    expect(query.mock.calls[3]![0]).toContain('AND NOT (entity_type = ANY($4))');
+    expect(query.mock.calls[3]![1]).toEqual(['org-1', 'user-1', 'n-1', ['conversation']]);
+
+    await repository.clearRead(viewer, ['conversation']);
+    expect(query.mock.calls[4]![0]).toContain('AND NOT (entity_type = ANY($3))');
+    expect(query.mock.calls[4]![1]).toEqual(['org-1', 'user-1', ['conversation']]);
+
+    await repository.clearAll(viewer, ['conversation']);
+    expect(query.mock.calls[5]![0]).toContain('AND NOT (entity_type = ANY($3))');
+    expect(query.mock.calls[5]![1]).toEqual(['org-1', 'user-1', ['conversation']]);
+  });
 });
 
 describe('Postgres notification transaction', () => {

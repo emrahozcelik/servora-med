@@ -3831,3 +3831,45 @@ the research for three of them proposed the same migration number.
   one index (no data change).
 - Messaging, Calendar, Warehouse, Maintenance and Accounting slices build on this
   record; each still needs its own decision and contract before its registry entry.
+
+## MOD-004 — Messaging is a runtime installation module
+
+- **Date:** 2026-11-26
+- **Status:** Accepted by the owner (review of the Messaging research, PR #518,
+  `RESEARCH_ACCEPTABLE — CONTRACT_REVISION_REQUIRED`, with the revisions applied;
+  "r0 tamamlandı. sıradaki işlere geçebiliriz. Önerin mantıklı böyle devam edelim.",
+  2026-11-26). Builds on MOD-002 and MOD-003.
+
+### Context
+
+Messaging is switched by `MESSAGING_ENABLED`, read once at startup. Customers buy
+modules separately, so the installation operator must switch Messaging without a
+restart, and a customer ADMIN must not be able to switch it.
+
+### Decision
+
+1. **Registry module.** `MESSAGING` is an installation module. Its env key is taken
+   over once and then is legacy. There is no env ceiling: Messaging has no secret or
+   infrastructure in env; Web Push stays its own channel.
+2. **Off means absent, data kept.** When off, customers experience the installation as
+   if Messaging did not exist. Messaging API answers `404`, unreadable state `503`.
+   Conversations, messages, participants, read state, notifications, push rows,
+   realtime events, idempotency receipts and audit are never deleted or rewritten by
+   the switch.
+3. **One visibility decision.** While off or unreadable: conversation notifications
+   are hidden from lists, counts and bulk actions; pending message pushes are
+   abandoned with `MODULE_DISABLED` and never revived; messaging realtime events are
+   skipped in live delivery and replay; Overview omits the unread summary.
+4. **Core keeps working.** Staff offboarding, demo-data and backup/restore stay
+   independent of the module state.
+5. **Participant lifecycle (MSG-002).** Job reassignment stays independent of
+   Messaging and membership sync stays explicit (#131), but a pending assignee sync
+   can be performed later, by any same-organization ADMIN/MANAGER who can read the
+   conversation. Offboarding replacements start with unread 0; inactive users get no
+   new message notifications.
+
+### Consequences
+
+- Contract: [docs/features/messaging-module-registry.md](docs/features/messaging-module-registry.md).
+- No migration. Delivered as MSG-001 (runtime module) and MSG-002 (participant
+  lifecycle), then MSG-003 acceptance on the real app run locally (no staging exists).

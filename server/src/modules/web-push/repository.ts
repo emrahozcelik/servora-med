@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 import type { Pool, PoolClient } from 'pg';
 
+import type { NotificationEntityType } from '../notifications/types.js';
+
 export type PushSubscriptionMaterial = Readonly<{
   endpoint: string;
   p256dh: string;
@@ -148,6 +150,7 @@ export interface WebPushRepository {
     at: Date,
   ): Promise<WebPushSubscriptionRecord | null>;
   cleanupDueDeliveries(at: Date): Promise<number>;
+  abandonModuleDisabledDeliveries(input: AbandonModuleDisabledDeliveriesInput): Promise<number>;
   claimDueDeliveries(input: ClaimDueWebPushDeliveriesInput): Promise<readonly ClaimedWebPushDelivery[]>;
   withDeliveryLifecycleLock<T>(
     delivery: ClaimedWebPushDelivery,
@@ -654,14 +657,15 @@ export class PostgresWebPushRepository implements WebPushRepository {
                   WHEN delivery.attempt_count >= 6 THEN 'MAX_ATTEMPTS'
                   ELSE 'UNKNOWN'
                 END
-           FROM in_app_notifications notification
-           JOIN web_push_subscriptions subscription ON subscription.id = delivery.subscription_id
+           FROM in_app_notifications notification,
+                web_push_subscriptions subscription
            JOIN users recipient ON recipient.id = subscription.recipient_user_id
            JOIN sessions session_record ON session_record.id = subscription.session_id
-          WHERE delivery.state IN ('PENDING', 'CLAIMED')
+          WHERE notification.id = delivery.notification_id
+            AND subscription.id = delivery.subscription_id
             AND (
-              (delivery.state = 'CLAIMED' AND delivery.lease_until > $1)
-              OR delivery.id IS NOT NULL
+              delivery.state = 'PENDING'
+              OR (delivery.state = 'CLAIMED' AND delivery.lease_until <= $1)
             )
             AND (
               notification.read_at IS NOT NULL
@@ -673,7 +677,6 @@ export class PostgresWebPushRepository implements WebPushRepository {
               OR delivery.created_at <= $1 - INTERVAL '24 hours'
               OR delivery.attempt_count >= 6
             )
-            AND delivery.id = delivery.id
           RETURNING delivery.id`,
         [at],
       );
@@ -687,10 +690,45 @@ export class PostgresWebPushRepository implements WebPushRepository {
     }
   }
 
+  async abandonModuleDisabledDeliveries(
+    input: AbandonModuleDisabledDeliveriesInput,
+  ): Promise<number> {
+    if (input.entityTypes.length === 0) return 0;
+
+    const result = await this.pool.query<{ id: string }>(
+      `UPDATE web_push_deliveries delivery
+          SET state = 'ABANDONED',
+              lease_token = NULL,
+              lease_until = NULL,
+              abandoned_at = $2,
+              last_error_code = $3,
+              updated_at = $2
+         FROM in_app_notifications notification
+        WHERE notification.id = delivery.notification_id
+          AND notification.organization_id = delivery.organization_id
+          AND notification.entity_type = ANY($1)
+          AND (
+            delivery.state = 'PENDING'
+            OR (delivery.state = 'CLAIMED' AND delivery.lease_until <= $2)
+          )
+        RETURNING delivery.id`,
+      [input.entityTypes, input.at, input.errorCode],
+    );
+    return result.rowCount ?? result.rows.length;
+  }
+
   async claimDueDeliveries(
     input: ClaimDueWebPushDeliveriesInput,
   ): Promise<readonly ClaimedWebPushDelivery[]> {
     if (input.limit <= 0) return [];
+
+    const excluded = input.excludedEntityTypes ?? [];
+    const values: unknown[] = excluded.length > 0
+      ? [input.at, input.limit, excluded]
+      : [input.at, input.limit];
+    const excludedClause = excluded.length > 0
+      ? 'AND NOT (notification.entity_type = ANY($3))'
+      : '';
 
     const client = await this.pool.connect();
     try {
@@ -722,6 +760,7 @@ export class PostgresWebPushRepository implements WebPushRepository {
              )
              AND delivery.attempt_count < 6
              AND delivery.created_at > $1 - INTERVAL '24 hours'
+             ${excludedClause}
            ORDER BY delivery.next_attempt_at ASC, delivery.id ASC
            LIMIT $2
            FOR UPDATE OF delivery SKIP LOCKED
@@ -763,7 +802,7 @@ export class PostgresWebPushRepository implements WebPushRepository {
             ON notification.id = updated.notification_id
           JOIN web_push_subscriptions subscription
             ON subscription.id = updated.subscription_id`,
-        [input.at, input.limit],
+        values,
       );
       return result.rows.map(mapClaimedDelivery);
     } finally {
@@ -1023,6 +1062,13 @@ export type ClaimedWebPushDelivery = Readonly<{
 export type ClaimDueWebPushDeliveriesInput = Readonly<{
   limit: number;
   at: Date;
+  excludedEntityTypes?: readonly NotificationEntityType[];
+}>;
+
+export type AbandonModuleDisabledDeliveriesInput = Readonly<{
+  entityTypes: readonly NotificationEntityType[];
+  at: Date;
+  errorCode: string;
 }>;
 
 export type RecordDeliveredInput = Readonly<{

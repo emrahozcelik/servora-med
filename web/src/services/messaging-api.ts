@@ -168,18 +168,55 @@ export async function createOrGetConversation(input: CreateConversationInput): P
   return parseConversation(data);
 }
 
+export type AssigneeSyncHint = Readonly<{
+  transitionId: string;
+  previousAssignee: { id: string; name: string } | null;
+  newAssignee: { id: string; name: string };
+}>;
+
+export type JobConversationLookup = Conversation & {
+  assigneeSync: AssigneeSyncHint | null;
+};
+
+function parseAssigneeSyncParticipant(
+  value: unknown,
+  field: string,
+): { id: string; name: string } {
+  const v = object(value);
+  return {
+    id: string(v.id, `${field}.id`),
+    name: string(v.name, `${field}.name`),
+  };
+}
+
+function parseAssigneeSyncHint(value: unknown): AssigneeSyncHint | null {
+  if (value === null || value === undefined) return null;
+  const v = object(value);
+  return {
+    transitionId: string(v.transitionId, 'assigneeSync.transitionId'),
+    previousAssignee: v.previousAssignee === null
+      ? null
+      : parseAssigneeSyncParticipant(v.previousAssignee, 'assigneeSync.previousAssignee'),
+    newAssignee: parseAssigneeSyncParticipant(v.newAssignee, 'assigneeSync.newAssignee'),
+  };
+}
+
 /**
  * Exact authorized lookup of the canonical JOB conversation for the caller.
- * Returns the conversation only when the caller is a persisted participant
- * with current Job resource authorization. Every denied/no-conversation case
- * returns null with no conversation metadata.
+ * Returns the conversation only when the caller is authorized with current Job
+ * resource authorization, together with any pending `assigneeSync` hint for
+ * management. Every denied/no-conversation case returns null.
  */
-export async function getJobConversation(jobId: string): Promise<Conversation | null> {
+export async function getJobConversation(jobId: string): Promise<JobConversationLookup | null> {
   try {
     const data = await request(
       `/api/messaging/conversations/job/${encodeURIComponent(jobId)}`,
     );
-    return parseConversation(data);
+    const v = object(data);
+    return {
+      ...parseConversation(v),
+      assigneeSync: parseAssigneeSyncHint(v.assigneeSync),
+    };
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
