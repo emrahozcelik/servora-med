@@ -1573,6 +1573,7 @@ export class JobCardService {
       urgentReason: JobAssignmentOfferUrgentReason | null;
       assigneeId: string;
       assigneeName: string | null;
+      assigneeUserId: string;
       closedAt: Date | null;
       closeReason: string | null;
       closeText: string | null;
@@ -1582,14 +1583,24 @@ export class JobCardService {
     } | null | undefined,
     evaluatedAt: Date,
     job: Pick<PersistedJobCardDetail, 'type' | 'scheduledAt' | 'scheduledEndsAt'>,
+    viewer: JobCardActor,
   ): JobAssignmentOfferView | null {
     if (offer === null || offer === undefined) return null;
     const expired = offer.state === 'OPEN'
       && evaluatedAt.valueOf() >= offer.acceptanceDueAt.valueOf();
+    // JOB-012 item 5 / JOB-013 item 5: the proposal and the typed suggestion
+    // are private to management and the Staff member who answered this offer.
+    // After a reassignment the previous answer's offer can still be the latest
+    // one (for example while the assignment window is disabled); the new
+    // assignee must not read the previous member's answer.
+    const answerVisible = viewer.role !== 'STAFF' || offer.assigneeUserId === viewer.id;
+    const showAnswer = !expired && answerVisible;
     // JOB-012: the proposed end is derived from the persisted planned duration,
     // exactly like the confirmation's interval — never stored, never computed
     // by the client.
-    const proposedScheduledAt = offer.proposedScheduledAt?.toISOString() ?? null;
+    const proposedScheduledAt = showAnswer
+      ? offer.proposedScheduledAt?.toISOString() ?? null
+      : null;
     const proposedInterval = proposedScheduledAt === null
       ? null
       : assignmentProposedInterval(job, proposedScheduledAt);
@@ -1607,7 +1618,7 @@ export class JobCardService {
       closeText: expired ? null : offer.closeText,
       proposedScheduledAt,
       proposedScheduledEndsAt: proposedInterval?.endsAt.toISOString() ?? null,
-      suggestedSolution: expired ? null : offer.suggestedSolution,
+      suggestedSolution: showAnswer ? offer.suggestedSolution : null,
       proposalAcceptedAt: offer.proposalAcceptedAt?.toISOString() ?? null,
     };
   }
@@ -6083,7 +6094,25 @@ export class JobCardService {
         { fieldErrors: { suggestedSolution: 'Çözüm önerisi zorunludur.' } },
       );
     }
-    const proposed = input.proposedScheduledAt === undefined || input.proposedScheduledAt === null
+    const hasProposedTime = input.proposedScheduledAt !== undefined
+      && input.proposedScheduledAt !== null;
+    // RESCUE-002: the "time only with RESCHEDULE_SELF" rule is decided before
+    // instant parsing, so a malformed time sent with another suggestion still
+    // gets the contract copy instead of a generic parse error. The legacy path
+    // deliberately keeps its existing parse-first order below.
+    if (suggestedSolution !== null
+      && suggestedSolution !== 'RESCHEDULE_SELF'
+      && hasProposedTime) {
+      const message = 'Önerilen zaman yalnızca "Başka bir zamanda kendim yapabilirim" seçildiğinde verilebilir.';
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        message,
+        { fieldErrors: { proposedScheduledAt: message } },
+      );
+    }
+    const proposed = input.proposedScheduledAt === undefined
+      || input.proposedScheduledAt === null
       ? null
       : isoInstant(input.proposedScheduledAt, 'proposedScheduledAt');
     const requirement = assignmentProposalRequirement({
@@ -6099,9 +6128,9 @@ export class JobCardService {
       );
     }
     if (requirement === 'FORBIDDEN' && proposed !== null) {
-      const message = suggestedSolution === null
-        ? 'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.'
-        : 'Önerilen zaman yalnızca "Başka bir zamanda kendim yapabilirim" seçildiğinde verilebilir.';
+      // Only the legacy path can reach this now; the new-client path is
+      // rejected above before parsing.
+      const message = 'Önerilen zaman yalnızca plan çakışması nedeniyle verilebilir.';
       throw new AppError(
         'VALIDATION_ERROR',
         400,
@@ -9487,7 +9516,7 @@ export class JobCardService {
       // JOB-010 release 2b: latest offer, EXPIRED at read time once its
       // deadline passed.
       assignmentOffer: this.presentAssignmentOffer(
-        persisted.assignmentOffer, evaluatedAt, persisted,
+        persisted.assignmentOffer, evaluatedAt, persisted, actor,
       ),
     };
   }

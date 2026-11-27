@@ -54,6 +54,7 @@ const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', impor
 const MIGRATION_076 = '076_assignment_offer_suggested_solution';
 
 const WINDOW_ON = { enabled: true } as const;
+const WINDOW_OFF = { enabled: false } as const;
 /** Calendar on: the proposal path runs the same occupancy reader as reschedule. */
 const CALENDAR_ON = { enabled: true, reminderLeadMinutes: 30 } as const;
 
@@ -254,7 +255,11 @@ async function readJobEvidence(pool: Pool, jobCardId: string) {
   };
 }
 
-function buildService(pool: Pool, clock: { now: Date }) {
+function buildService(
+  pool: Pool,
+  clock: { now: Date },
+  assignmentWindow: { enabled: boolean } = WINDOW_ON,
+) {
   const published: RealtimeEventRecord[] = [];
   const publisher: RealtimeEventPublisher = { publish: (event) => published.push(event) };
   const service = new JobCardService(
@@ -265,7 +270,7 @@ function buildService(pool: Pool, clock: { now: Date }) {
     { enabled: false },
     CALENDAR_ON,
     {},
-    WINDOW_ON,
+    assignmentWindow,
   );
   return { service, published };
 }
@@ -299,20 +304,25 @@ type Seed = {
   organizationId: string;
   managerId: string;
   staffId: string;
+  otherStaffId: string;
   manager: JobCardActor;
   staff: JobCardActor;
+  otherStaff: JobCardActor;
 };
 
 async function seedOrganization(pool: Pool, label: string): Promise<Seed> {
   const organizationId = await insertOrg(pool, `RESCUE-002 ${label}`);
   const managerId = await insertUser(pool, organizationId, 'MANAGER', `${label} Müdür`);
   const staffId = await insertUser(pool, organizationId, 'STAFF', `${label} Saha Personeli`);
+  const otherStaffId = await insertUser(pool, organizationId, 'STAFF', `${label} Diğer Personel`);
   return {
     organizationId,
     managerId,
     staffId,
+    otherStaffId,
     manager: actor(managerId, organizationId, 'MANAGER'),
     staff: actor(staffId, organizationId, 'STAFF'),
+    otherStaff: actor(otherStaffId, organizationId, 'STAFF'),
   };
 }
 
@@ -645,6 +655,60 @@ describe.skipIf(!databaseUrl)('RESCUE-002 — assignment suggested solution', ()
         suggestedSolution: 'CORRECT_DETAILS',
         proposedScheduledAt: null,
       });
+    });
+  });
+
+  it('JOB-013: a reassigned Staff member cannot read the previous answer\'s suggestion', async () => {
+    await withSchema(async (pool) => {
+      const baseline = await readDbBaseline(pool);
+      const clock = { now: baseline };
+      const windowOn = buildService(pool, clock, WINDOW_ON).service;
+      const windowOff = buildService(pool, clock, WINDOW_OFF).service;
+
+      const cases = [
+        { suggestion: 'REASSIGN' as const, proposal: null },
+        {
+          suggestion: 'RESCHEDULE_SELF' as const,
+          proposal: isoOffset(baseline, 300 * MINUTE_MS),
+        },
+      ];
+      for (const testCase of cases) {
+        // A fresh organization keeps the previous case's assignment out of the
+        // next assignee's calendar.
+        const seed = await seedOrganization(pool, `Yeniden atama ${testCase.suggestion}`);
+        const { job } = await seedOfferedJob(pool, seed, baseline);
+        await windowOn.declineAssignment(seed.staff, job.id, decision({
+          expectedVersion: job.version,
+          reasonCode: 'OUT_OF_TOWN',
+          suggestedSolution: testCase.suggestion,
+          ...(testCase.proposal === null ? {} : { proposedScheduledAt: testCase.proposal }),
+        }));
+
+        // With the assignment window disabled, the reassignment opens no new
+        // offer: the previous Staff member's answered offer stays the latest.
+        await windowOff.patch(seed.manager, job.id, {
+          expectedVersion: job.version + 1,
+          assignedTo: seed.otherStaffId,
+        });
+        expect(await readOffers(pool, job.id)).toHaveLength(1);
+
+        // The new assignee may read that the assignment was declined, but not
+        // the previous member's private suggestion or time proposal.
+        expect(offerViewOf(await windowOff.detail(seed.otherStaff, job.id))).toMatchObject({
+          state: 'DECLINED',
+          closeReason: 'OUT_OF_TOWN',
+          suggestedSolution: null,
+          proposedScheduledAt: null,
+          proposedScheduledEndsAt: null,
+        });
+        // Management keeps the full answer for recovery.
+        expect(offerViewOf(await windowOff.detail(seed.manager, job.id))).toMatchObject({
+          state: 'DECLINED',
+          closeReason: 'OUT_OF_TOWN',
+          suggestedSolution: testCase.suggestion,
+          proposedScheduledAt: testCase.proposal,
+        });
+      }
     });
   });
 
@@ -1016,6 +1080,57 @@ describe.skipIf(!databaseUrl)('RESCUE-002 — assignment suggested solution', ()
         code: '23514',
         constraint: 'job_card_assignment_offers_suggested_solution_state_check',
       });
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+      await rm(legacyDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('migration 076 guard rejects a tampered 073 proposal constraint', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `rescue002guard_${randomUUID().replaceAll('-', '')}`;
+    const legacyDirectory = await mkdtemp(path.join(tmpdir(), 'rescue002-guard-'));
+    let pool: Pool | null = null;
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      for (const name of await readdir(MIGRATIONS_DIRECTORY)) {
+        if (!name.endsWith('.sql') || name >= '076_') continue;
+        await copyFile(
+          path.join(MIGRATIONS_DIRECTORY, name),
+          path.join(legacyDirectory, name),
+        );
+      }
+      const store = new PostgresMigrationStore(pool);
+      const before = await runMigrations({ migrationsDirectory: legacyDirectory, store });
+      expect(before.appliedVersions.at(-1)).toBe('075_installation_module_registry_widening');
+
+      // A hand-edited database: the constraint still mentions SCHEDULE_CONFLICT
+      // and the column, but lost the DECLINED/RELEASED state clause the 073
+      // shape promises.
+      await pool.query('ALTER TABLE job_card_assignment_offers DROP CONSTRAINT job_card_assignment_offers_proposal_state_check');
+      await pool.query(`ALTER TABLE job_card_assignment_offers
+        ADD CONSTRAINT job_card_assignment_offers_proposal_state_check
+        CHECK (proposed_scheduled_at IS NULL OR close_reason = 'SCHEDULE_CONFLICT')`);
+
+      const failure = await rejectionOf(() => runMigrations({
+        migrationsDirectory: MIGRATIONS_DIRECTORY,
+        store,
+      }));
+      expect(failure.message).toContain('must be the expected 073 shape');
+
+      // The failed migration rolled back: the head is still 075 and 076 was
+      // never recorded.
+      const applied = await pool.query<{ version: string }>(
+        'SELECT version FROM schema_migrations ORDER BY version ASC',
+      );
+      expect(applied.rows.at(-1)?.version).toBe('075_installation_module_registry_widening');
+      expect(applied.rows.some((row) => row.version === MIGRATION_076)).toBe(false);
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

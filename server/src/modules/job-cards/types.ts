@@ -220,12 +220,17 @@ export type JobAssignmentOfferView = {
   closeText: string | null;
   /**
    * JOB-012: the time the answering Staff member proposed when the suggestion
-   * is `RESCHEDULE_SELF`, or null. The end is derived at read time from the
-   * job's planned duration, never stored.
+   * is `RESCHEDULE_SELF`, or null. It is private to management and the
+   * answering member (JOB-012 item 5); any other Staff viewer sees null. The
+   * end is derived at read time from the job's planned duration, never stored.
    */
   proposedScheduledAt: string | null;
   proposedScheduledEndsAt: string | null;
-  /** RESCUE-002: the typed solution the answer proposes, or null (legacy). */
+  /**
+   * RESCUE-002: the typed solution the answer proposes, or null. Null also
+   * covers a legacy answer and a Staff viewer who did not answer this offer
+   * (JOB-013 item 5).
+   */
   suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
   /** JOB-012: set once, when management confirmed the proposal. */
   proposalAcceptedAt: string | null;

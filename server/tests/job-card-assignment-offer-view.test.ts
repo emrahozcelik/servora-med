@@ -10,12 +10,15 @@ import type {
 const NOW = new Date('2026-11-24T10:00:00.000Z');
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 
-function detailWithOffer(offer: JobAssignmentOfferRecord | null): PersistedJobCardDetail {
+function detailWithOffer(
+  offer: JobAssignmentOfferRecord | null,
+  assignedTo = 'staff-1',
+): PersistedJobCardDetail {
   return {
     id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
     title: 'İmplant seti teslimi', description: null,
     customerId: 'customer-1', contactId: null,
-    assignedTo: 'staff-1', createdBy: 'manager-1', priority: 'normal', dueDate: null,
+    assignedTo, createdBy: 'manager-1', priority: 'normal', dueDate: null,
     scheduledAt: '2026-11-24T12:00:00.000Z',
     scheduledEndsAt: '2026-11-24T13:00:00.000Z',
     engagementKind: null,
@@ -168,6 +171,21 @@ describe('JobCard detail assignment offer projection', () => {
       state: 'DECLINED',
       closeReason: 'SCHEDULE_CONFLICT',
       suggestedSolution: 'REASSIGN',
+      proposedScheduledAt: null,
+    });
+  });
+
+  it('hides the previous answer from a Staff viewer who did not answer the offer', async () => {
+    const otherStaff: JobCardActor = { id: 'staff-2', organizationId: 'org-1', role: 'STAFF' };
+    const result = await serviceWith(detailWithOffer({
+      ...declinedOffer,
+      suggestedSolution: 'REASSIGN',
+    }, 'staff-2')).detail(otherStaff, 'job-1');
+
+    expect(result.assignmentOffer).toMatchObject({
+      state: 'DECLINED',
+      closeReason: 'SCHEDULE_CONFLICT',
+      suggestedSolution: null,
       proposedScheduledAt: null,
     });
   });

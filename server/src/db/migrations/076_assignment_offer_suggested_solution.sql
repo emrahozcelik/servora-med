@@ -39,7 +39,11 @@ BEGIN
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'job_card_assignment_offers'::regclass
        AND conname = 'job_card_assignment_offers_proposal_state_check'
-       AND pg_get_constraintdef(oid) LIKE '%SCHEDULE_CONFLICT%'
+       AND pg_get_constraintdef(oid) LIKE '%proposed_scheduled_at IS NULL%'
+       AND pg_get_constraintdef(oid) LIKE '%state%'
+       AND pg_get_constraintdef(oid) LIKE '%DECLINED%'
+       AND pg_get_constraintdef(oid) LIKE '%RELEASED%'
+       AND pg_get_constraintdef(oid) LIKE '%close_reason%SCHEDULE_CONFLICT%'
        AND pg_get_constraintdef(oid) NOT LIKE '%suggested_solution%'
   ) THEN
     RAISE EXCEPTION 'job_card_assignment_offers_proposal_state_check must be the expected 073 shape before RESCUE-002';
@@ -247,8 +251,11 @@ BEGIN
        AND conname = 'job_card_assignment_offers_proposal_state_check'
        AND pg_get_constraintdef(oid) LIKE '%RESCHEDULE_SELF%'
        AND pg_get_constraintdef(oid) LIKE '%SCHEDULE_CONFLICT%'
+       AND pg_get_constraintdef(oid) LIKE '%DECLINED%'
+       AND pg_get_constraintdef(oid) LIKE '%RELEASED%'
+       AND pg_get_constraintdef(oid) LIKE '%IS TRUE%'
   ) THEN
-    RAISE EXCEPTION 'job_card_assignment_offers_proposal_state_check must tie proposals to RESCHEDULE_SELF or a legacy schedule conflict';
+    RAISE EXCEPTION 'job_card_assignment_offers_proposal_state_check must tie proposals to RESCHEDULE_SELF or a legacy schedule conflict and stay null-safe';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint

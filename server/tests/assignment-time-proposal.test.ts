@@ -478,6 +478,35 @@ describe('RESCUE-002 Staff suggestion validation', () => {
     expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
   });
 
+  it('decides the suggestion/time rule before instant parsing on the new path', async () => {
+    const repository = untouchedRepository();
+    const copy = 'Önerilen zaman yalnızca "Başka bir zamanda kendim yapabilirim" seçildiğinde verilebilir.';
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision,
+      reasonCode: 'OUT_OF_TOWN',
+      suggestedSolution: 'REASSIGN',
+      // Not a canonical instant: the suggestion rule must win.
+      proposedScheduledAt: '2026-11-28T14:30',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { proposedScheduledAt: copy } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
+  it('keeps the legacy parse-first error for a malformed time', async () => {
+    const repository = untouchedRepository();
+    await expect(buildService({ repository }).declineAssignment(staff, JOB_ID, {
+      ...decision,
+      reasonCode: 'ON_LEAVE',
+      proposedScheduledAt: '2026-11-28T14:30',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { proposedScheduledAt: 'proposedScheduledAt geçersizdir.' } },
+    });
+    expect(repository.reserveLifecycleIntent).not.toHaveBeenCalled();
+  });
+
   it('accepts SCHEDULE_CONFLICT + REASSIGN without a time and any reason + RESCHEDULE_SELF with one', async () => {
     const repository = untouchedRepository();
     const stop = new Error('reservation reached');
