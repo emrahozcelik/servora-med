@@ -235,7 +235,7 @@ export function AssignmentReasonSection({
  * clock except to hide a confirm control for an already-passed proposal.
  */
 export function AssignmentOfferSection({
-  job, user, disabled = false, onChanged, onCommitted, onRefresh, onReassign, canSetNewTime = true,
+  job, user, disabled = false, onChanged, onCommitted, onActionStart, onRefresh, onReassign, canSetNewTime = true,
 }: {
   job: JobCard;
   user: CurrentUser;
@@ -247,6 +247,8 @@ export function AssignmentOfferSection({
    * success status line.
    */
   onCommitted?: (receipt: string) => Promise<void>;
+  /** Clears the previous page receipt when a new decision starts. */
+  onActionStart?: () => void;
   /** Serialized canonical reload after a failed or conflicting decision. */
   onRefresh?: () => Promise<void>;
   /**
@@ -273,9 +275,16 @@ export function AssignmentOfferSection({
   const [proposalDoneOfferIds, setProposalDoneOfferIds] = useState<readonly string[]>([]);
   const reofferTriggerRef = useRef<HTMLButtonElement>(null);
   const proposalTriggerRef = useRef<HTMLButtonElement>(null);
+  // A conflict refresh replaces the job version; the rejection copy is still
+  // the answer to the decision the manager just made, so it must survive it.
+  const preserveErrorOnVersionChange = useRef(false);
+  const lastJobId = useRef(job.id);
 
   useEffect(() => {
-    setError('');
+    const sameJob = lastJobId.current === job.id;
+    lastJobId.current = job.id;
+    if (!sameJob || !preserveErrorOnVersionChange.current) setError('');
+    preserveErrorOnVersionChange.current = false;
     setDone(false);
     setAckOpen(false);
     setAckError('');
@@ -340,16 +349,20 @@ export function AssignmentOfferSection({
     </button>
   ) : null;
 
-  async function refreshAfterFailure() {
+  async function refreshAfterFailure(allowChangedFallback = true) {
     if (onRefresh !== undefined) {
+      preserveErrorOnVersionChange.current = true;
       await onRefresh();
       return;
     }
-    onChanged?.();
+    // Legacy callers keep their pre-receipt behaviour: proposal rejection
+    // refreshed through onChanged, a plain re-offer rejection only warned.
+    if (allowChangedFallback) onChanged?.();
   }
 
   async function confirmProposal(target: AssignmentOffer) {
     if (target.proposedScheduledAt === null) return;
+    onActionStart?.();
     setProposalPending(true);
     setProposalError('');
     try {
@@ -376,6 +389,7 @@ export function AssignmentOfferSection({
   }
 
   async function sendReoffer(acknowledgement?: PastStartAcknowledgement): Promise<boolean> {
+    onActionStart?.();
     setPending(true);
     setError('');
     if (acknowledgement !== undefined) setAckError('');
@@ -406,9 +420,11 @@ export function AssignmentOfferSection({
       } else {
         setError(message);
         // A plain re-offer rejection means the offer/job moved on; reconcile
-        // without claiming a success receipt. The acknowledgement retry keeps
-        // its drawer and inline error so the manager can correct the input.
-        await refreshAfterFailure();
+        // without claiming a success receipt. Only a page-owned refresh is
+        // used: legacy `onChanged` callers keep their local-warning behaviour.
+        // The acknowledgement retry keeps its drawer and inline error so the
+        // manager can correct the input.
+        await refreshAfterFailure(false);
       }
       return false;
     } finally {

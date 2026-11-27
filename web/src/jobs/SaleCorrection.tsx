@@ -9,7 +9,7 @@ import { loadSaleProducts, saleCount } from './sale-form';
 import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 /** One parent-versioned correction at a time, with an exact in-memory retry intent. */
-export function SaleCorrectionSection({ details, customerId, disabled, onLockChange, onChanged, onCommitted, onRefresh }: {
+export function SaleCorrectionSection({ details, customerId, disabled, onLockChange, onChanged, onCommitted, onActionStart, onRefresh }: {
   details: SaleDetails; customerId: string; disabled: boolean;
   onLockChange: (locked: boolean) => void; onChanged?: () => Promise<unknown>;
   /**
@@ -17,6 +17,8 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
    * section and never reports a failed canonical read as a failed correction.
    */
   onCommitted?: (receipt: string) => Promise<void>;
+  /** Clears the previous page receipt when a new correction starts. */
+  onActionStart?: () => void;
   /** Serialized canonical reload after a definitive conflict. */
   onRefresh?: () => Promise<void>;
 }) {
@@ -31,6 +33,9 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   const [message, setMessage] = useState('');
   const attempt = useRef<SaleCorrection | null>(null);
   const sending = useRef(false);
+  // Version displayed when the manager asked for canonical truth after a
+  // definitive conflict. The lock stays until a strictly newer version arrives.
+  const reloadTargetVersion = useRef<number | null>(null);
   const latest = useRef(details); latest.current = details;
   // Last server values reflected in the untouched form fields. A field that
   // still matches its base is not a user edit and may follow newer versions;
@@ -51,16 +56,37 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     return () => { owner.active = false; lockCallback.current(false); }; }, []);
   useEffect(() => { if (message) messageRef.current?.focus(); }, [message]);
   useEffect(() => {
+    const target = reloadTargetVersion.current;
+    if (target !== null) {
+      if (details.jobCardVersion > target) {
+        reloadTargetVersion.current = null;
+        release();
+        synchronize(details);
+        // Keep the typed quantity/addition: canonical truth must never discard
+        // the draft the manager was trying to correct.
+        return;
+      }
+      // The read resolved without a newer version: keep the lock and the draft.
+      return;
+    }
     if (attempt.current || sending.current) return;
     synchronize(details);
+    if (needsRefresh) {
+      // Another successful read (for example a realtime refresh) arrived while
+      // the correction waited for canonical truth: release without data loss.
+      release();
+      return;
+    }
     setQuantities({}); setAddition(null);
   // Parent version is authoritative; fresh DTO object identities are not edits.
   }, [details.jobCardVersion]);
   function release() {
+    reloadTargetVersion.current = null;
     attempt.current = null; setUnresolved(false); setNeedsRefresh(false); lockCallback.current(false);
   }
   async function send(value: SaleCorrection) {
     if (sending.current) return;
+    onActionStart?.();
     sending.current = true; setPending(true); setMessage(''); lockCallback.current(true);
     const owner = lifetime.current;
     try {
@@ -143,14 +169,13 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     {needsRefresh && <button type="button" className="secondary-button" disabled={pending} onClick={async () => {
       if (sending.current) return;
       sending.current = true; setPending(true);
+      reloadTargetVersion.current = latest.current.jobCardVersion;
       try {
         if (onRefresh !== undefined) {
+          // reloadStaleTruth resolves even when its read fails, so the version
+          // effect above owns release: only a strictly newer canonical version
+          // unlocks the correction and can never silently wipe the draft.
           await onRefresh();
-          if (!lifetime.current.active) return;
-          // reloadStaleTruth reports a failed read through the page's stale
-          // notice instead of rejecting. Keep the user's draft either way;
-          // resetting it here previously wiped a rejected correction.
-          release(); synchronize(latest.current);
         } else {
           await onChanged?.();
           if (lifetime.current.active) { release(); synchronize(latest.current); setQuantities({}); setAddition(null); }

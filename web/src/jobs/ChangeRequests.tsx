@@ -289,6 +289,7 @@ export function ManagementChangeRequestPanel({
   disabled = false,
   onChanged,
   onCommitted,
+  onActionStart,
   onRefresh,
   onReassign,
   canSetNewTime = true,
@@ -304,6 +305,8 @@ export function ManagementChangeRequestPanel({
    * status line.
    */
   onCommitted?: (receipt: string) => Promise<void>;
+  /** Clears the previous page receipt when a new decision starts. */
+  onActionStart?: () => void;
   /** Serialized canonical reload after a failed or conflicting decision. */
   onRefresh?: () => Promise<void>;
   /**
@@ -335,9 +338,13 @@ export function ManagementChangeRequestPanel({
 
   const requestId = request?.id ?? null;
   // The (job, request) the panel is answering. An async closure that settles
-  // after the reader moved on must not write its outcome onto another one.
-  const activeKey = useRef('');
-  activeKey.current = `${job.id}:${requestId ?? ''}`;
+  // after the reader moved on must not write its outcome onto another one, but
+  // a request that our own decision just closed (id becomes null on the
+  // refreshed card) is still the same record and must keep its receipt.
+  const latestTarget = useRef<{ jobId: string; requestId: string | null }>({
+    jobId: job.id, requestId,
+  });
+  latestTarget.current = { jobId: job.id, requestId };
   const outcomeRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
@@ -461,7 +468,8 @@ export function ManagementChangeRequestPanel({
     extra: { note?: string; linkedJobCardId?: string } = {},
   ) {
     if (request === null || locked) return;
-    const key = activeKey.current;
+    const operation = { jobId: job.id, requestId: request.id };
+    onActionStart?.();
     setPending(resolution);
     setMutationError('');
     try {
@@ -470,7 +478,10 @@ export function ManagementChangeRequestPanel({
         resolution,
         ...extra,
       });
-      if (activeKey.current !== key) return;
+      const currentTarget = latestTarget.current;
+      const stillSameRecord = currentTarget.jobId === operation.jobId
+        && (currentTarget.requestId === null || currentTarget.requestId === operation.requestId);
+      if (!stillSameRecord) return;
       const receipt = resolution === 'REJECTED'
         ? 'Öneri reddedildi. İş bilgileri değişmedi.'
         : `Öneri kapatıldı: ${changeRequestResolutionLabel(resolution)}. İş bilgileri değişmedi.`;
@@ -483,7 +494,10 @@ export function ManagementChangeRequestPanel({
       if (onCommitted !== undefined) await onCommitted(receipt);
       else onChanged?.();
     } catch (caught) {
-      if (activeKey.current !== key) return;
+      const currentTarget = latestTarget.current;
+      const stillSameRecord = currentTarget.jobId === operation.jobId
+        && (currentTarget.requestId === null || currentTarget.requestId === operation.requestId);
+      if (!stillSameRecord) return;
       if (caught instanceof ApiError && caught.code === 'CHANGE_REQUEST_NOT_OPEN') {
         // Another manager closed it meanwhile: refresh the card and say so
         // instead of leaving the drawer open on a request that no longer is.
@@ -729,6 +743,7 @@ export function ChangeRequestSection({
   openRequestSignal,
   onChanged,
   onCommitted,
+  onActionStart,
   onRefresh,
   canSetNewTime = true,
   onReassign,
@@ -741,6 +756,8 @@ export function ChangeRequestSection({
   onChanged?: () => void;
   /** UI-FEEDBACK/B: page-owned committed receipt for the management decision. */
   onCommitted?: (receipt: string) => Promise<void>;
+  /** Clears the previous page receipt when a new decision starts. */
+  onActionStart?: () => void;
   /** Serialized canonical reload after a failed management decision. */
   onRefresh?: () => Promise<void>;
   /** False when this viewer has no planned-time editor on the page. */
@@ -757,6 +774,7 @@ export function ChangeRequestSection({
         disabled={disabled}
         onChanged={onChanged}
         onCommitted={onCommitted}
+        onActionStart={onActionStart}
         onRefresh={onRefresh}
         canSetNewTime={canSetNewTime}
         onReassign={onReassign}

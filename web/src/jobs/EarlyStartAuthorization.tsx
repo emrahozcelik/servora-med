@@ -51,7 +51,7 @@ export function canGrantEarlyStartAuthorization(
  * is allowed from the planned time on, so that write would authorize nothing;
  * the action reports the expiry instead of posting.
  */
-export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitted, onRefresh, disabled = false, now = new Date() }: {
+export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitted, onActionStart, onRefresh, disabled = false, now = new Date() }: {
   job: JobCard;
   user: CurrentUser;
   onGranted?: () => void;
@@ -61,6 +61,8 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitt
    * success status line.
    */
   onCommitted?: (receipt: string) => Promise<void>;
+  /** Clears the previous page receipt when a new decision starts. */
+  onActionStart?: () => void;
   /** Serialized canonical reload after a rejected grant; never a receipt. */
   onRefresh?: () => Promise<void>;
   /** UI-FEEDBACK/A: a committed-stale record must not start this grant. */
@@ -74,13 +76,23 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitt
   const [revealed, setRevealed] = useState(false);
   const [expired, setExpired] = useState(false);
   const expiredRef = useRef<HTMLParagraphElement>(null);
+  // A conflict refresh replaces the job version; the rejection copy is still
+  // the answer to the grant the manager just attempted, so it must survive it
+  // (and the disclosed confirm form stays open to show it).
+  const preserveErrorOnVersionChange = useRef(false);
+  const lastJobId = useRef(job.id);
   // A new job version means the canonical truth changed (the grant landed, or
   // a later reschedule/reassignment voided it): drop the local success state
   // so the button is never left disabled behind a stale message.
   useEffect(() => {
+    const sameJob = lastJobId.current === job.id;
+    lastJobId.current = job.id;
+    if (!sameJob || !preserveErrorOnVersionChange.current) {
+      setError(null);
+      setRevealed(false);
+    }
+    preserveErrorOnVersionChange.current = false;
     setDone(false);
-    setError(null);
-    setRevealed(false);
     setExpired(false);
   }, [job.id, job.version]);
   // The confirm control unmounts when the offer expires, so keep keyboard
@@ -100,6 +112,7 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitt
       setExpired(true);
       return;
     }
+    onActionStart?.();
     setGranting(true);
     setError(null);
     try {
@@ -114,7 +127,10 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitt
       setError(caught instanceof ApiError ? caught.message : 'Erken başlama izni kaydedilemedi.');
       // A rejected grant (expired interval, another authorization, version
       // drift) is not a receipt: reconcile the canonical card without one.
-      if (onRefresh !== undefined) await onRefresh();
+      if (onRefresh !== undefined) {
+        preserveErrorOnVersionChange.current = true;
+        await onRefresh();
+      }
     } finally {
       setGranting(false);
     }

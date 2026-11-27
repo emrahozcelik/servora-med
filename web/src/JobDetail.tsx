@@ -2401,6 +2401,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
   }
   /**
+   * UI-FEEDBACK/B: a new manager decision retires the previous page receipt
+   * before its own request starts. A repeated success with identical wording
+   * must be a new live-region update, not a silent text mutation.
+   */
+  function clearChildReceipt() {
+    setMessage('');
+    setMessageIsError(false);
+  }
+
+  /**
    * UI-FEEDBACK/B: a manager decision made inside a child section owns the same
    * committed-receipt boundary as an in-page command. The receipt is announced
    * once by the page so it survives the child section unmounting; a failed or
@@ -2410,6 +2420,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
    * never re-sent by a caller that caught one.
    */
   async function settleChildCommit(receipt: string) {
+    // A child decision is a mutation too: invalidate reads that started before
+    // the server accepted it, exactly like the in-page handlers do before their
+    // request. An older realtime/refresh read must never overwrite the receipt
+    // with pre-decision truth when it completes last.
+    mutationEpoch.current += 1;
     let read = await refreshAfterCommit(receipt);
     if (read === 'access-lost' || read === 'inactive') return;
     if (read === 'fresh') {
@@ -2458,6 +2473,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setRealtimeReloadPending(false);
       }
     }
+  }
+  /**
+   * UI-FEEDBACK/B: the committed-stale safety reload is also a fresh canonical
+   * read, so the activity timeline must refetch even when realtime is offline
+   * and nothing else bumps `timelineKey`.
+   */
+  async function reloadCommittedTruth() {
+    await reloadStaleTruth();
+    setTimelineKey((value) => value + 1);
   }
   useRealtimeInvalidation([`job-detail:${jobId}`,
     ...(state.kind === 'ready' && state.detail.kind === 'SALE' ? ['sale-origin-context:' + user.id] : []),
@@ -3973,7 +3997,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           || !actions.includes('EDIT_JOB_FIELDS')}
         onLockChange={(locked) => { saleCorrectionLockedRef.current = locked; setSaleCorrectionLocked(locked); }}
         onCommitted={settleChildCommit}
-        onRefresh={() => reloadStaleTruth()} />}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()} />}
     {detail.kind === 'SALE' && <LinkedDeliveryPanel
       linkedDelivery={detail.job.linkedDelivery !== undefined
         ? detail.job.linkedDelivery
@@ -4044,7 +4069,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       message={committedStale.message}
       kind={committedStale.kind}
       reloadPending={pending || realtimeReloadPending}
-      onReload={() => { void reloadStaleTruth(); }}
+      onReload={() => { void reloadCommittedTruth(); }}
       feedbackRef={feedbackRef}
     /> : undefined}
     continuity={detail.kind !== 'SALE' && isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
@@ -4066,7 +4091,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         user={user}
         disabled={committedStale !== null}
         onCommitted={settleChildCommit}
-        onRefresh={() => reloadStaleTruth()}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()}
       />
     }
     changeRequest={
@@ -4081,7 +4107,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           : undefined}
         onCancel={(trigger) => { command('CANCEL', trigger); }}
         onCommitted={settleChildCommit}
-        onRefresh={() => reloadStaleTruth()}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()}
         onChanged={() => {
           setTimelineKey((value) => value + 1);
           void refreshTruth();
@@ -4094,7 +4121,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         user={user}
         disabled={invalidationLocked}
         onCommitted={settleChildCommit}
-        onRefresh={() => reloadStaleTruth()}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()}
         canSetNewTime={Boolean(presentationFor(detail).scheduleEdit)}
         onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }

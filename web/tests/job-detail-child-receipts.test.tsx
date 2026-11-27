@@ -172,9 +172,32 @@ function json(body: unknown, status = 200) {
 }
 
 class FakeRealtimeEventSource implements RealtimeEventSource {
-  addEventListener() {}
-  removeEventListener() {}
+  private readonly listeners = new Map<string, Set<EventListener>>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
   close() {}
+
+  emitJobUpdate(jobCardId: string, id: string) {
+    const event = new MessageEvent('servora.change', {
+      data: JSON.stringify({
+        id,
+        type: 'job.updated',
+        entity: { type: 'job-card', id: jobCardId },
+        resourceKeys: [`job-detail:${jobCardId}`],
+        occurredAt: '2026-11-24T10:00:00.000Z',
+      }),
+    });
+    this.listeners.get('servora.change')?.forEach((listener) => listener(event));
+  }
 }
 
 function detailUrlMatches(url: string, id: string) {
@@ -210,6 +233,7 @@ type Harness = {
   fetch: ReturnType<typeof vi.fn>;
   detailGets: () => number;
   mutationCalls: () => number;
+  activityGets: () => number;
 };
 
 function makeHarness(options: {
@@ -220,12 +244,19 @@ function makeHarness(options: {
   failure: () => Response;
   succeed: boolean;
   readFailure?: ReadFailure;
+  /** The first canonical read after a rejected decision (new truth). */
+  failureRead?: () => JobCard;
+  /** The first canonical read after a rejected decision fails (sale recheck). */
+  failFirstReadAfterAttempt?: ReadFailure;
   sale?: { before: SaleDetails; after: () => SaleDetails };
 }): Harness {
   let committed = false;
+  let attempted = false;
   let failureServed = false;
+  let failureReadServed = false;
   let detailGets = 0;
   let mutationCalls = 0;
+  let activityGets = 0;
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = withoutSaleCapability(String(input));
     const method = (init?.method ?? 'GET').toUpperCase();
@@ -233,7 +264,10 @@ function makeHarness(options: {
     if (url.endsWith('/api/notifications/read-by-entity')) return json({});
     if (url.includes('/delivery-items')) return json({ items: [] });
     if (url.includes('/notes?')) return json(emptyPage);
-    if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+    if (url.includes('/activity?')) {
+      activityGets += 1;
+      return json({ ...emptyPage, limit: 50 });
+    }
     if (url.includes('/submission-lateness')) return json({ open: null });
     if (url.includes('/overdue-incidents')) return json(emptyPage);
     if (url.includes('/follow-ups')) return json(emptyPage);
@@ -244,6 +278,7 @@ function makeHarness(options: {
     }
     if (method !== 'GET' && path.endsWith(options.mutationPath)) {
       mutationCalls += 1;
+      attempted = true;
       const response = options.succeed ? options.success() : options.failure();
       if (response.ok) committed = true;
       return response;
@@ -254,11 +289,23 @@ function makeHarness(options: {
         failureServed = true;
         return json({ error: 'Sunucu hatası.' }, options.readFailure);
       }
+      if (attempted && !committed && options.failFirstReadAfterAttempt !== undefined
+        && !failureReadServed) {
+        failureReadServed = true;
+        return json({ error: 'Sunucu hatası.' }, options.failFirstReadAfterAttempt);
+      }
+      if (attempted && !committed && options.failureRead !== undefined && !failureReadServed) {
+        failureReadServed = true;
+        return json(options.failureRead());
+      }
       return json(committed ? options.after() : options.before);
     }
     throw new Error(`Unexpected request: ${method} ${url}`);
   });
-  return { fetch, detailGets: () => detailGets, mutationCalls: () => mutationCalls };
+  return {
+    fetch, detailGets: () => detailGets, mutationCalls: () => mutationCalls,
+    activityGets: () => activityGets,
+  };
 }
 
 async function click(host: ParentNode, name: string) {
@@ -283,6 +330,8 @@ type Decision = {
   localError: string;
   /** When set, the local error element must keep this text after the refresh. */
   localErrorText?: string;
+  /** A rejected decision's canonical read may still advance the job version. */
+  failureRead?: () => JobCard;
   /** A control disabled by the committed-stale lock. */
   lockedControl: string;
   /** The child section that either unmounts or stays outside the page receipt. */
@@ -358,6 +407,14 @@ const decisions: Decision[] = [
     localReceipt: '[data-assignment-offer-reoffered="true"]',
     localError: '[data-assignment-offer] .field-error',
     localErrorText: 'Planlanan zaman aralığı atama için çok kısa.',
+    failureRead: () => ({
+      ...offerJob({
+        assignmentOffer: openOffer({
+          closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+        }),
+      }),
+      version: 4,
+    }),
     lockedControl: '[data-assignment-offer-action="reoffer"]',
     sectionGone: '[data-assignment-offer]',
     section: '[data-assignment-offer]',
@@ -417,6 +474,7 @@ const decisions: Decision[] = [
     localReceipt: '[data-early-start-authorization-status="granted"]',
     localError: '[data-early-start-authorization] [role="alert"]',
     localErrorText: 'Bu iş için geçerli bir erken başlama izni zaten var.',
+    failureRead: () => ({ ...earlyStartJob(), version: 5 }),
     lockedControl: '[data-early-start-authorization-reveal="true"]',
     section: '[data-early-start-authorization]',
   },
@@ -471,16 +529,21 @@ describe('JobDetail child decision receipts', () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderScreen(card: JobCard, fetch: ReturnType<typeof vi.fn>) {
+  async function renderScreen(
+    card: JobCard,
+    fetch: ReturnType<typeof vi.fn>,
+    source = new FakeRealtimeEventSource(),
+  ) {
     vi.stubGlobal('fetch', fetch);
     await act(async () => {
-      root.render(<RealtimeProvider eventSourceFactory={() => new FakeRealtimeEventSource()}>
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
         <JobDetailScreen jobId={card.id} user={manager} onBack={() => {}} onChanged={() => {}} />
       </RealtimeProvider>);
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await settle();
+    return source;
   }
 
   function receiptRegions(receipt: string) {
@@ -573,7 +636,8 @@ describe('JobDetail child decision receipts', () => {
         const before = decision.before();
         const harness = makeHarness({
           before, after: decision.after, mutationPath: decision.mutationPath,
-          success: decision.success, failure: decision.failure, succeed: false, sale: decision.sale,
+          success: decision.success, failure: decision.failure, succeed: false,
+          failureRead: decision.failureRead, sale: decision.sale,
         });
         await renderScreen(before, harness.fetch);
         await decision.decide(host);
@@ -606,6 +670,356 @@ describe('JobDetail child decision receipts', () => {
       });
     });
   }
+
+  it('keeps the change-request receipt when a realtime refresh closes the request in flight', async () => {
+    const before = changeRequestJob();
+    const source = new FakeRealtimeEventSource();
+    let closed = false;
+    let mutationCalls = 0;
+    let resolveMutation!: (response: Response) => void;
+    const heldMutation = new Promise<Response>((resolve) => { resolveMutation = resolve; });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'POST' && (url.split('?')[0] ?? url).endsWith(
+        '/api/job-cards/job-1/change-requests/request-1/resolve',
+      )) {
+        mutationCalls += 1;
+        return heldMutation;
+      }
+      if (detailUrlMatches(url, before.id)) {
+        return json(closed ? { ...before, version: 5, changeRequest: null } : before);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(before, fetch, source);
+    await click(host, 'Gerekli düzeltmeyi yaptım');
+    const form = host.querySelector('form.change-request-form') as HTMLFormElement | null;
+    if (!form) throw new Error('Change request closure drawer is missing');
+    await act(async () => { form.requestSubmit(); });
+
+    // The resolve request is still in flight when the realtime truth closes it.
+    closed = true;
+    await act(async () => {
+      source.emitJobUpdate('job-1', '1');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await settle();
+    expect(host.querySelector('[data-change-request="management"]')).toBeNull();
+
+    await act(async () => {
+      resolveMutation(json({
+        jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'CORRECTED',
+        resolvedAt: '2026-11-24T10:00:00.000Z',
+      }));
+    });
+    await settle();
+
+    expect(mutationCalls).toBe(1);
+    const receipt = 'Öneri kapatıldı: Düzeltildi. İş bilgileri değişmedi.';
+    expect(receiptRegions(receipt)).toHaveLength(1);
+    expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent).toContain(receipt);
+    expect(host.querySelector('[data-change-request-resolved]')).toBeNull();
+  });
+
+  it('keeps the early-start rejection visible with the refreshed version', async () => {
+    const before = earlyStartJob();
+    const harness = makeHarness({
+      before, after: () => before, mutationPath: '/api/job-cards/job-1/early-start-authorization',
+      success: () => json({ jobCardId: 'job-1', authorizationId: 'auth-1', grantedAt: '2026-11-24T10:00:00.000Z' }),
+      failure: () => json({
+        error: 'Bu iş için geçerli bir erken başlama izni zaten var.',
+        code: 'EARLY_START_ALREADY_AUTHORIZED',
+      }, 409),
+      succeed: false,
+      failureRead: () => ({ ...earlyStartJob(), version: 5 }),
+    });
+    await renderScreen(before, harness.fetch);
+    await click(host, 'Erken başlamaya izin ver');
+    await click(host, 'Erken başlama iznini kaydet');
+    await settle();
+
+    const reveal = host.querySelector<HTMLButtonElement>('[data-early-start-authorization-reveal="true"]');
+    expect(reveal?.getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('[data-early-start-authorization] [role="alert"]')?.textContent)
+      .toContain('Bu iş için geçerli bir erken başlama izni zaten var.');
+    expect(receiptRegions('Erken başlama izni kaydedildi.')).toHaveLength(0);
+    expect(harness.detailGets()).toBe(2);
+    expect(harness.mutationCalls()).toBe(1);
+  });
+
+  it('a safe reload of the committed receipt refreshes the activity timeline', async () => {
+    const before = offerJob();
+    const harness = makeHarness({
+      before,
+      after: () => ({ ...offerJob(), version: 4, assignmentOffer: null }),
+      mutationPath: '/api/job-cards/job-1/assignment-offers/accept-proposal',
+      success: () => json({
+        jobCardId: 'job-1', offerId: 'offer-1', scheduledAt: proposedStart, scheduledEndsAt: proposedEnd,
+      }),
+      failure: () => json({ error: 'Yarış.', code: 'VERSION_CONFLICT' }, 409),
+      succeed: true,
+      readFailure: 500,
+    });
+    await renderScreen(before, harness.fetch);
+    await click(host, 'Önerilen zamanı onayla');
+    const confirm = host.querySelector<HTMLButtonElement>(
+      '[role="dialog"] .product-dialog-actions .primary-button',
+    );
+    await act(async () => { confirm!.click(); });
+    await settle();
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).not.toBeNull();
+
+    const activityBefore = harness.activityGets();
+    await click(host, 'Güncel durumu yenile');
+    await settle();
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).toBeNull();
+    expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent)
+      .toContain('Önerilen zaman onaylandı; iş Ayşe Personel için kabul edildi.');
+    expect(harness.activityGets()).toBeGreaterThan(activityBefore);
+  });
+
+  it('a second decision retires the previous receipt and announces the new one', async () => {
+    const before = offerJob({
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    });
+    let version = 3;
+    let postCalls = 0;
+    let resolveSecond!: (response: Response) => void;
+    const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/delivery-items')) return json({ items: [] });
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'POST' && (url.split('?')[0] ?? url).endsWith(
+        '/api/job-cards/job-1/assignment-offers/reoffer',
+      )) {
+        postCalls += 1;
+        if (postCalls === 1) {
+          version = 4;
+          return json({
+            jobCardId: 'job-1', offerId: 'offer-2',
+            acceptanceDueAt: '2026-12-01T12:00:00.000Z', urgentReason: 'START_PASSED',
+          }, 201);
+        }
+        return second;
+      }
+      if (detailUrlMatches(url, before.id)) return json({ ...before, version });
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(before, fetch);
+
+    await click(host, 'Aynı zamanla yeniden teklif et');
+    await settle();
+    const firstReceipt = host.querySelector<HTMLElement>('[data-job-detail-section="feedback"]');
+    expect(firstReceipt?.textContent).toContain('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
+
+    await click(host, 'Aynı zamanla yeniden teklif et');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    // The previous confirmation is retired as soon as the new action starts.
+    expect(host.querySelector('[data-job-detail-section="feedback"]')).toBeNull();
+
+    version = 5;
+    await act(async () => {
+      resolveSecond(json({
+        jobCardId: 'job-1', offerId: 'offer-3',
+        acceptanceDueAt: '2026-12-02T12:00:00.000Z', urgentReason: 'START_PASSED',
+      }, 201));
+    });
+    await settle();
+    const secondReceipt = host.querySelector<HTMLElement>('[data-job-detail-section="feedback"]');
+    expect(secondReceipt?.textContent).toContain('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
+    expect(secondReceipt).not.toBe(firstReceipt);
+    expect(postCalls).toBe(2);
+  });
+
+  it('an older realtime read cannot overwrite the committed child decision', async () => {
+    const before = offerJob({
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    });
+    const after = { ...before, version: 4, assignmentOffer: null };
+    const source = new FakeRealtimeEventSource();
+    let holdNextRead = false;
+    let releaseHeld!: (response: Response) => void;
+    let committed = false;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/delivery-items')) return json({ items: [] });
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'POST' && (url.split('?')[0] ?? url).endsWith(
+        '/api/job-cards/job-1/assignment-offers/reoffer',
+      )) {
+        committed = true;
+        return json({
+          jobCardId: 'job-1', offerId: 'offer-2',
+          acceptanceDueAt: '2026-12-01T12:00:00.000Z', urgentReason: 'START_PASSED',
+        }, 201);
+      }
+      if (detailUrlMatches(url, before.id)) {
+        if (!committed && holdNextRead) {
+          holdNextRead = false;
+          return new Promise<Response>((resolve) => { releaseHeld = resolve; });
+        }
+        return json(committed ? after : before);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(before, fetch, source);
+
+    holdNextRead = true;
+    await act(async () => {
+      source.emitJobUpdate('job-1', '1');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await click(host, 'Aynı zamanla yeniden teklif et');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    // The pre-decision realtime read finishes last with the old version.
+    await act(async () => { releaseHeld(json(before)); });
+    await settle();
+    await settle();
+
+    expect(host.querySelector('[data-assignment-offer]')).toBeNull();
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).toBeNull();
+    expect(receiptRegions('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.')).toHaveLength(1);
+  });
+
+  it('keeps a re-offer version-conflict explanation after the refreshed version', async () => {
+    const before = offerJob({
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    });
+    const harness = makeHarness({
+      before, after: () => before,
+      mutationPath: '/api/job-cards/job-1/assignment-offers/reoffer',
+      success: () => json({ jobCardId: 'job-1', offerId: 'offer-2' }, 201),
+      failure: () => json({
+        error: 'İş başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT',
+      }, 409),
+      succeed: false,
+      failureRead: () => ({
+        ...offerJob({
+          assignmentOffer: openOffer({
+            closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+          }),
+        }),
+        version: 4,
+      }),
+    });
+    await renderScreen(before, harness.fetch);
+    await click(host, 'Aynı zamanla yeniden teklif et');
+    await settle();
+
+    expect(host.querySelector('[data-assignment-offer] .field-error')?.textContent)
+      .toContain('İş başka bir işlemle güncellendi.');
+    expect(receiptRegions('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.')).toHaveLength(0);
+    expect(harness.mutationCalls()).toBe(1);
+  });
+
+  it('keeps an early-start version-conflict explanation after the refreshed version', async () => {
+    const before = earlyStartJob();
+    const harness = makeHarness({
+      before, after: () => before, mutationPath: '/api/job-cards/job-1/early-start-authorization',
+      success: () => json({ jobCardId: 'job-1', authorizationId: 'auth-1', grantedAt: '2026-11-24T10:00:00.000Z' }),
+      failure: () => json({
+        error: 'İş başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT',
+      }, 409),
+      succeed: false,
+      failureRead: () => ({ ...earlyStartJob(), version: 5 }),
+    });
+    await renderScreen(before, harness.fetch);
+    await click(host, 'Erken başlamaya izin ver');
+    await click(host, 'Erken başlama iznini kaydet');
+    await settle();
+
+    expect(host.querySelector('[data-early-start-authorization-reveal="true"]')
+      ?.getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('[data-early-start-authorization] [role="alert"]')?.textContent)
+      .toContain('İş başka bir işlemle güncellendi.');
+    expect(receiptRegions('Erken başlama izni kaydedildi.')).toHaveLength(0);
+    expect(harness.mutationCalls()).toBe(1);
+  });
+
+  it('a second sale correction attempt retires the previous receipt', async () => {
+    const before = saleJob();
+    let canonicalVersion = 4;
+    let patches = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (url.includes('/api/customers/') && url.includes('/contacts')) return json(emptyPage);
+      if (method === 'PATCH' && (url.split('?')[0] ?? url).endsWith(
+        '/api/job-cards/job-1/sale-items/line-1',
+      )) {
+        patches += 1;
+        if (patches === 1) {
+          canonicalVersion = 5;
+          return json({ jobCardId: 'job-1', version: 5 });
+        }
+        return json({ error: 'Kayıt başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT' }, 409);
+      }
+      if ((url.split('?')[0] ?? url).endsWith('/api/job-cards/job-1/sale-details')) {
+        return json({
+          ...saleDetailsBefore,
+          jobCardVersion: canonicalVersion,
+          items: [{
+            ...saleDetailsBefore.items[0]!,
+            quantity: canonicalVersion === 4 ? '5' : '15',
+          }],
+        });
+      }
+      if (detailUrlMatches(url, before.id)) return json({ ...before, version: canonicalVersion });
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(before, fetch);
+
+    const quantityInput = () => host.querySelector<HTMLInputElement>(
+      'input[aria-label="İmplant Seti satış adedi"]',
+    );
+    await act(async () => { setNativeValue(quantityInput()!, '15'); });
+    await click(host, 'Adedi kaydet');
+    await settle();
+    expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent)
+      .toContain('Satış kaydı güncellendi.');
+
+    await act(async () => { setNativeValue(quantityInput()!, '20'); });
+    await click(host, 'Adedi kaydet');
+    await settle();
+
+    expect(patches).toBe(2);
+    expect(host.querySelector('[data-job-detail-section="feedback"]')).toBeNull();
+    expect(host.querySelector('.sale-correction > .detail-feedback')?.textContent)
+      .toContain('Kayıt başka bir işlemle güncellendi.');
+  });
 
   it('uses the rejection-specific receipt for a rejected change request', async () => {
     const before = changeRequestJob();
@@ -647,6 +1061,7 @@ describe('JobDetail child decision receipts', () => {
       success: () => json({ jobCardId: 'job-1', version: 5 }),
       failure: () => json({ error: 'Kayıt başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT' }, 409),
       succeed: false,
+      failFirstReadAfterAttempt: 500,
       sale: { before: saleDetailsBefore, after: () => saleDetailsAfter },
     });
     await renderScreen(before, harness.fetch);
@@ -655,12 +1070,15 @@ describe('JobDetail child decision receipts', () => {
     await click(host, 'Adedi kaydet');
     await settle();
 
-    // The reload fails after the definitive conflict; the typed draft survives.
+    // The reload read fails after the definitive conflict: the lock and the
+    // typed draft survive until a strictly newer canonical version arrives.
     await click(host, 'Güncel kaydı yükle ve düzeltmeye devam et');
     await settle();
 
     expect(harness.detailGets()).toBe(2);
     expect(harness.mutationCalls()).toBe(1);
+    expect(host.querySelector<HTMLInputElement>('.sale-correction fieldset')?.disabled).toBe(true);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).not.toBeNull();
     expect(host.querySelector<HTMLInputElement>('input[aria-label="İmplant Seti satış adedi"]')?.value)
       .toBe('15');
     expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
