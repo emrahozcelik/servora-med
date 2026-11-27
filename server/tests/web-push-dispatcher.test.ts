@@ -1010,6 +1010,52 @@ function abortAwarePending() {
       excludedEntityTypes: ['conversation'],
     });
   });
+
+  // === Shutdown / in-flight poll cycle ===
+
+  it('stop during cleanup: the in-flight cycle never abandons or claims after stop', async () => {
+    const base = makeDeps();
+    let cleanupResolve!: (count: number) => void;
+    base.repository.cleanupDueDeliveries.mockReturnValueOnce(
+      new Promise<number>((r) => { cleanupResolve = r; }),
+    );
+    const deps = { ...base, readMessagingEnabled: vi.fn().mockResolvedValue(false) };
+    const dispatcher = createDispatcher({ pollIntervalMs: 20 }, deps);
+
+    dispatcher.start();
+    await vi.waitFor(() => expect(base.repository.cleanupDueDeliveries).toHaveBeenCalledTimes(1));
+
+    const stopPromise = dispatcher.stop();
+    cleanupResolve(0);
+    await stopPromise;
+
+    expect(deps.readMessagingEnabled).not.toHaveBeenCalled();
+    expect(base.repository.abandonModuleDisabledDeliveries).not.toHaveBeenCalled();
+    expect(base.repository.claimDueDeliveries).not.toHaveBeenCalled();
+  });
+
+  it('stop resolves only after the in-flight cycle has finished its repository work', async () => {
+    const base = makeDeps();
+    let abandonResolve!: (count: number) => void;
+    base.repository.abandonModuleDisabledDeliveries.mockReturnValueOnce(
+      new Promise<number>((r) => { abandonResolve = r; }),
+    );
+    const deps = { ...base, readMessagingEnabled: vi.fn().mockResolvedValue(false) };
+    const dispatcher = createDispatcher({ pollIntervalMs: 20 }, deps);
+
+    dispatcher.start();
+    await vi.waitFor(() => expect(base.repository.abandonModuleDisabledDeliveries).toHaveBeenCalledTimes(1));
+
+    let stopped = false;
+    const stopPromise = dispatcher.stop().then(() => { stopped = true; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(stopped).toBe(false);
+
+    abandonResolve(0);
+    await stopPromise;
+    expect(stopped).toBe(true);
+    expect(base.repository.claimDueDeliveries).not.toHaveBeenCalled();
+  });
 });
 
 afterEach(() => {

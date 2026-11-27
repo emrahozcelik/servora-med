@@ -126,6 +126,8 @@ export function createDispatcher(
   let intervalHandle: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
   let pollInFlight = false;
+  // The current poll cycle, so stop() can wait for its repository work.
+  let cycleInFlight: Promise<void> | null = null;
   const activeSends = new Map<string, {
     controller: AbortController;
     promise: Promise<void>;
@@ -275,6 +277,7 @@ export function createDispatcher(
       } catch {
         // cleanup failures are non-fatal
       }
+      if (stopping) return;
 
       let messagingState: boolean | 'UNREADABLE' = true;
       if (deps.readMessagingEnabled) {
@@ -284,6 +287,8 @@ export function createDispatcher(
           messagingState = 'UNREADABLE';
         }
       }
+
+      if (stopping) return;
 
       if (messagingState === false) {
         try {
@@ -296,6 +301,8 @@ export function createDispatcher(
           reportError(error);
         }
       }
+
+      if (stopping) return;
 
       const availableSlots = WEB_PUSH_DISPATCH_CONCURRENCY - activeSends.size;
       if (availableSlots <= 0) return;
@@ -332,7 +339,13 @@ export function createDispatcher(
       // runCycle already handles expected poll failures; this catch contains
       // any unexpected rejection so the interval callback never escapes as
       // an unhandled rejection.
-      void runCycle().catch(reportError);
+      if (cycleInFlight !== null) return;
+      const cycle: Promise<void> = runCycle()
+        .catch(reportError)
+        .finally(() => {
+          if (cycleInFlight === cycle) cycleInFlight = null;
+        });
+      cycleInFlight = cycle;
     }, cfg.pollIntervalMs);
   }
 
@@ -343,10 +356,29 @@ export function createDispatcher(
       intervalHandle = null;
     }
 
+    const deadline = Date.now() + cfg.gracePeriodMs;
+
+    // A cycle already past its stopping checks may still be running a
+    // repository statement; wait for it (bounded) so no poll-cycle mutation
+    // lands after stop() resolves.
+    if (cycleInFlight !== null) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        cycleInFlight,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, cfg.gracePeriodMs);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+
     if (activeSends.size === 0) return;
 
     const timeout = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error('Shutdown timeout')), cfg.gracePeriodMs),
+      setTimeout(
+        () => reject(new Error('Shutdown timeout')),
+        Math.max(0, deadline - Date.now()),
+      ),
     );
 
     const waitForActive = Promise.all(
