@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  EXPERIMENT_SHA: ${{ github.event.pull_request.head.sha }}
+  EXPERIMENT_SHA: 03ad84d828a72391a5a829135021efcebb5bfeca
   CI_PERF_COUNT: ${{ github.base_ref == 'ci-perf-001/base-1' && '1' || github.base_ref == 'ci-perf-001/base-2' && '2' || '4' }}
 
 jobs:
