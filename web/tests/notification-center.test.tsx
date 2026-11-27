@@ -737,6 +737,102 @@ describe('NotificationCenter', () => {
     expect(container.querySelector('[aria-label="Bildirimler"]')?.textContent).not.toContain('2');
   });
 
+  it('reloads unread count when visibilityKey changes without remounting or refetching on unchanged renders', async () => {
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-1:staff-1" visibilityKey="true" mobile={false} />
+      </MemoryRouter>,
+    ));
+    await act(async () => {});
+
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    expect(trigger.querySelector('.notification-center-badge')?.textContent).toBe('2');
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-1:staff-1" visibilityKey="true" mobile={false} />
+      </MemoryRouter>,
+    ));
+    await act(async () => {});
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.notification-center-badge')?.textContent).toBe('2');
+
+    api.getUnreadNotificationCount.mockResolvedValue(0);
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-1:staff-1" visibilityKey="false" mobile={false} />
+      </MemoryRouter>,
+    ));
+    await act(async () => {});
+
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
+    expect(api.listNotifications).not.toHaveBeenCalled();
+    expect(container.querySelector('[aria-label="Bildirimler"]')).toBe(trigger);
+    expect(container.querySelector('.notification-center-badge')).toBeNull();
+  });
+
+  it('reloads the first page without closing when visibilityKey changes while the panel is open', async () => {
+    const messageNotification = {
+      ...notification,
+      id: '99999999-9999-4999-8999-999999999999',
+      kind: 'message.received' as const,
+      title: 'Yeni mesaj',
+      body: 'Ayşe yeni bir mesaj gönderdi.',
+      entity: { type: 'conversation' as const, id: 'conv-1' },
+    };
+    api.listNotifications
+      .mockResolvedValueOnce({ items: [notification, messageNotification], nextCursor: null })
+      .mockResolvedValueOnce({ items: [notification], nextCursor: null });
+
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-1:staff-1" visibilityKey="true" mobile={false} />
+      </MemoryRouter>,
+    ));
+    await act(async () => {});
+
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector(`[data-notification-id="${messageNotification.id}"]`)).not.toBeNull();
+    expect(api.listNotifications).toHaveBeenCalledTimes(1);
+
+    api.getUnreadNotificationCount.mockResolvedValue(1);
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-1:staff-1" visibilityKey="false" mobile={false} />
+      </MemoryRouter>,
+    ));
+    await act(async () => {});
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
+    expect(api.listNotifications).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('.notification-center-badge')?.textContent).toBe('1');
+    expect(container.querySelector(`[data-notification-id="${messageNotification.id}"]`)).toBeNull();
+    expect(container.querySelector(`[data-notification-id="${notification.id}"]`)).not.toBeNull();
+  });
+
+  it('does not trigger a duplicate unread fetch when identityKey and visibilityKey change together', async () => {
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-1:staff-1" visibilityKey="true" mobile={false} />
+      </MemoryRouter>,
+    ));
+    await act(async () => {});
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(1);
+
+    api.getUnreadNotificationCount.mockResolvedValue(0);
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-2:staff-2" visibilityKey="false" mobile={false} />
+      </MemoryRouter>,
+    ));
+    await act(async () => {});
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
+  });
+
   it('reloads canonical data after a notifications realtime invalidation', async () => {
     const listeners = new Map<string, EventListener>();
     const eventSource: RealtimeEventSource = {

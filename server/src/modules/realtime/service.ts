@@ -7,10 +7,20 @@ import {
   presentRealtimeEvent,
   type RealtimeEventEnvelope,
   type RealtimeEventRecord,
+  type RealtimeEventType,
   type RealtimeViewer,
 } from './types.js';
 
 const MAX_REPLAY = 500;
+const MESSAGING_EVENT_TYPES: ReadonlySet<RealtimeEventType> = new Set([
+  'conversation.created',
+  'message.sent',
+  'conversation.participants_changed',
+]);
+
+function isMessagingRealtimeEvent(event: RealtimeEventRecord): boolean {
+  return event.entityType === 'conversation' || MESSAGING_EVENT_TYPES.has(event.type);
+}
 
 export interface RealtimeStreamSink {
   send(event: RealtimeEventEnvelope): Promise<void>;
@@ -32,6 +42,7 @@ export class RealtimeService {
     private readonly repository: RealtimeEventRepository,
     private readonly bus: RealtimeEventBus,
     private readonly now: () => Date = () => new Date(),
+    private readonly messagingVisible: () => Promise<boolean> = async () => true,
   ) {}
 
   private readonly activeSubscriptions = new Set<RealtimeSubscriptionInternal>();
@@ -145,8 +156,14 @@ export class RealtimeService {
         lastSent = highWater;
         return;
       }
+      if (replay.length === 0) return;
+      const showMessaging = await this.messagingVisible();
       for (const event of replay) {
         if (event.id <= lastSent) continue;
+        if (!showMessaging && isMessagingRealtimeEvent(event)) {
+          lastSent = event.id;
+          continue;
+        }
         await send(presentRealtimeEvent(event));
         lastSent = event.id;
       }
@@ -224,27 +241,7 @@ export class RealtimeService {
           occurredAt: this.now().toISOString(),
         });
       } else {
-        const replay = await this.repository.replayVisible(
-          viewer,
-          cursor,
-          MAX_REPLAY + 1,
-        );
-        if (replay.length > MAX_REPLAY) {
-          const highWater = await this.repository.visibleHighWater(viewer);
-          lastSent = highWater;
-          await send({
-            id: highWater.toString(),
-            type: 'sync.required',
-            resourceKeys: ['workspace'],
-            occurredAt: this.now().toISOString(),
-          });
-        } else {
-          for (const event of replay) {
-            if (event.id <= lastSent) continue;
-            await send(presentRealtimeEvent(event));
-            lastSent = event.id;
-          }
-        }
+        await sendCatchUp();
       }
 
       replaying = false;

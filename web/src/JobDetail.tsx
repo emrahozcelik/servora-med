@@ -32,11 +32,12 @@ import {
   type SalePairGuidance,
 } from './jobs/sale-pair';
 import {
-  useEffect, useLayoutEffect, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useRef, useState,
   type FormEvent, type ReactNode, type Ref,
 } from 'react';
 
 import { ApiError, type CurrentUser } from './services/api';
+import type { AssigneeSyncHint } from './services/messaging-api';
 import { markNotificationsReadByEntity } from './services/notifications-api';
 import {
   acceptJobCard, approveJobCard, cancelJobCard, declineAssignment, releaseAssignment,
@@ -1660,7 +1661,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   useEffect(() => {
     setRouteRuntimeLabel(state.kind === 'ready' ? state.detail.job.title : undefined);
   }, [setRouteRuntimeLabel, state]);
-  const reassignmentSync = useReassignmentConversationSync(jobId);
+  const [messagingLookupKey, setMessagingLookupKey] = useState(0);
+  const reassignmentSync = useReassignmentConversationSync(jobId, {
+    onSynced: () => {
+      setMessagingLookupKey((value) => value + 1);
+    },
+  });
+  const handleRequestAssigneeSync = useCallback((conversationId: string, hint: AssigneeSyncHint) => {
+    if (!isManagementUser(user)) return;
+    reassignmentSync.offerFromHint(conversationId, hint);
+  }, [reassignmentSync.offerFromHint, user]);
   const [pending, setPending] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<LifecycleCommand | null>(null);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
@@ -3057,6 +3067,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         && input.assignedTo !== undefined
         && input.assignedTo !== state.detail.job.assignedTo
       ) {
+        setMessagingLookupKey((value) => value + 1);
         void reassignmentSync.offerSync({
           transitionId: patched.assignmentTransitionId,
           oldAssignee: { id: state.detail.job.assignedTo, name: state.detail.job.assignee.name },
@@ -4123,8 +4134,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         disabled={invalidationLocked}
+        refreshKey={messagingLookupKey}
         onOpenMessaging={onOpenMessaging}
         onVisibilityChange={setMessagingActionVisible}
+        onRequestAssigneeSync={handleRequestAssigneeSync}
       />
     ) : undefined}
     messagingActionVisible={messagingActionVisible}

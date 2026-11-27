@@ -329,7 +329,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
                 />
               )}
             </div>
-            <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
+            <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} visibilityKey={`messaging:${user.capabilities?.messaging === true}`} mobile={false} />
             <ShellUserMenu
               user={user}
               roleLabel={roleLabels[user.role]}
@@ -341,7 +341,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
       ) : (
         <MobileTopBar
           title={title}
-          notifications={<NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile />}
+          notifications={<NotificationCenter identityKey={`${user.organizationId}:${user.id}`} visibilityKey={`messaging:${user.capabilities?.messaging === true}`} mobile />}
         />
       )}
 

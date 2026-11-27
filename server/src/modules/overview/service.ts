@@ -1,6 +1,10 @@
-import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
-import type { ModuleStateLogger, ModuleStateReader } from '../installation-modules/state.js';
+import { assertModuleEnabled } from '../installation-modules/gate.js';
+import {
+  readModuleEnabledOrFalse,
+  type ModuleStateLogger,
+  type ModuleStateReader,
+} from '../installation-modules/state.js';
 import type { OverviewReadModel } from './repository.js';
 import type { ReportsReadModel } from '../reports/ports.js';
 import type { MessagingReadPort } from '../messaging/types.js';
@@ -11,18 +15,6 @@ import type {
   WorkTypeDistributionItem,
 } from './types.js';
 
-const overviewUnavailable = () => new AppError(
-  'NOT_FOUND',
-  404,
-  'Sayfa bulunamadı.',
-);
-
-const moduleStateUnavailable = () => new AppError(
-  'MODULE_STATE_UNAVAILABLE',
-  503,
-  'Modül durumu şu anda okunamıyor.',
-);
-
 export class OverviewService {
   constructor(
     private readonly moduleState: ModuleStateReader,
@@ -30,7 +22,6 @@ export class OverviewService {
     private readonly reports?: ReportsReadModel,
     private readonly now: () => Date = () => new Date(),
     private readonly calendarEnabled = false,
-    private readonly messagingEnabled = false,
     private readonly messagingRead?: MessagingReadPort,
   ) {}
 
@@ -68,7 +59,8 @@ export class OverviewService {
     }
 
     // Message unread summary owned by messaging module
-    if (this.messagingEnabled && this.messagingRead) {
+    const messagingEnabled = await readModuleEnabledOrFalse(this.moduleState, 'MESSAGING', logger);
+    if (messagingEnabled && this.messagingRead) {
       try {
         const unreadTotal = await this.messagingRead.getUnreadCount(
           actor.organizationId,
@@ -81,7 +73,12 @@ export class OverviewService {
       }
     }
 
-    return {...overview, upcomingWork, ...(actor.role !== 'STAFF' ? { workTypeDistribution } : {}), ...(this.messagingEnabled ? { messageUnreadSummary } : {})};
+    return {
+      ...overview,
+      upcomingWork,
+      ...(actor.role !== 'STAFF' ? { workTypeDistribution } : {}),
+      ...(messagingEnabled && messageUnreadSummary !== undefined ? { messageUnreadSummary } : {}),
+    };
   }
 
   /**
@@ -89,14 +86,6 @@ export class OverviewService {
    * or a read failure → 503 (fail closed, no env fallback).
    */
   private async assertEnabled(logger: ModuleStateLogger): Promise<void> {
-    let row;
-    try {
-      row = await this.moduleState.read('OVERVIEW');
-    } catch (error) {
-      logger.error({ err: error, module: 'OVERVIEW' }, 'Installation module state read failed');
-      throw moduleStateUnavailable();
-    }
-    if (!row) throw moduleStateUnavailable();
-    if (!row.enabled) throw overviewUnavailable();
+    await assertModuleEnabled(this.moduleState, 'OVERVIEW', logger);
   }
 }
