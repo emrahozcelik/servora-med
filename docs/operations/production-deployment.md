@@ -726,8 +726,10 @@ The run fails with `reason=LIVE_BUT_OBSERVATION_STATE_FAILED` (host line
 postdeploy dump was written and verified, but the observation state does not
 carry the postdeploy freshness proof the host helper requires. Nothing is
 rolled back. `/var/lib/servora-med/deploy/<sha>.state` stays at
-`postdeploy=not_run`, and `/api/health` reports backup `unavailable` until a
-later backup records a proof.
+`postdeploy=not_run`. Public backup health evaluates local freshness and the
+established scheduled baseline independently. A later backup can restore local
+freshness, and an established scheduled baseline from an earlier boot requires
+a fresh, verified scheduled run.
 
 Root cause observed on 2026-11-24 (runs 45367120236 and 45370383361, SHA
 505fa20, read-only host inspection): the socket-activated collector
@@ -765,22 +767,38 @@ the collector budget and the `nts-quorum-v1` source policy are unchanged.
 2. Never edit `observation-v1.json` or `<sha>.state` by hand. Never copy or
    synthesize a time proof, and never relax the chrony configuration, the
    collector budget or the installed units to pass the gate.
-3. Recover with a rerun once the host is idle, only when the live release
-   already contains the writer backoff. A same-SHA rerun of a release without
-   it reproduced the failure on 2026-11-24 (run 45370383361), so for such a
-   release, deploy the next `main` that contains the fix instead. Until then,
-   the next scheduled backup restores backup health. For a same-SHA rerun,
-   re-run the failed Production Deploy run, or dispatch it again on `main`,
-   while `main` is still at that SHA. If `main` has moved on, the runner stops
-   with `REMOTE_MAIN_MISMATCH`, so deploy the newer `main` normally. The rerun
-   re-verifies the already-staged bytes (`RELEASE_STAGE=EXISTING_BYTE_IDENTICAL`)
-   and takes a new predeploy backup. It finds no pending migrations, so
-   `allow_migrations` is not needed. It then re-activates the same release with
-   a brief service restart, runs health and the browser smoke, and takes one new
-   postdeploy backup. A passing rerun ends with `postdeploy_backup=PASS` and
-   writes `postdeploy=success`. In that rerun the recorded `old_release` is the
-   same release, so its automatic rollback target is that release and not the
-   one before it.
+
+##### Normal Production Deploy recovery
+
+Use this path for a normal deployment once the host is idle and R4 attempt
+ownership and activation barriers are clear. If `main` still points to the live
+release and that release contains the writer backoff, rerun the failed Production
+Deploy workflow or dispatch it again on `main`. A rerun of a release without the
+backoff reproduced the failure on 2026-11-24 (run 45370383361). If the live
+release lacks the backoff or `main` has moved on, use the normal deployment
+procedure for the newer `main` containing the fix. The runner rejects a stale
+SHA with `REMOTE_MAIN_MISMATCH`.
+
+A same-SHA rerun re-verifies the already-staged bytes
+(`RELEASE_STAGE=EXISTING_BYTE_IDENTICAL`), takes a new predeploy backup, checks
+the migration catalog, and reactivates the same release with a brief restart.
+It then runs health and browser smoke checks and takes one new postdeploy
+backup. Use the normal migration authorization rules if the catalog reports
+pending migrations. A passing rerun ends with `postdeploy_backup=PASS` and
+writes `postdeploy=success`. The rerun records the current release as
+`old_release`, so that same release is its automatic rollback target.
+
+##### Attempt-bound (R4) recovery
+
+If the failed deploy used an attempt ID or the host has a pending R4 attempt or
+activation barrier, preserve the owning attempt and its evidence. The normal
+deploy path rejects pending R4 ownership with `RECOVERY_ATTEMPT_PENDING`. A
+failure after `POSTDEPLOY_BACKUP_INTENT` can leave the dump without a sealed
+postdeploy receipt. The controller reports
+`POSTDEPLOY_BACKUP_AMBIGUOUS_OPERATOR_REVIEW_REQUIRED` on re-entry at that
+checkpoint. Follow [R4 smoke, backup and observation](r4-forward-recovery.md#smoke-backup-and-observation)
+for operator review and recovery on the owning attempt before any further
+backup, deploy, or rollback action.
 
 A larger collector budget would remove the load sensitivity itself. It is not
 part of this change, because the collector runs from the hash-pinned
