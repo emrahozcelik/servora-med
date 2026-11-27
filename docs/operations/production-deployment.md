@@ -345,6 +345,13 @@ migration-disabled branch. Local CI is **optional**, not the mandatory
 source of deployment evidence when GitHub Actions `CI` is green.
 The source SHA must be current `main`; do not reuse an older SHA's CI or archive.
 
+The `server` check aggregates `server-checks` and four balanced Vitest shards.
+Each shard runs serially against its own PostgreSQL 17 service. The gate verifies
+all shard results against independently discovered files for the exact commit.
+Reports are bound to the workflow run, and partial reruns use the latest report
+for each shard in that run. The timing weights in `ops/ci/server-vitest-weights.json`
+come from CI-PERF-001. Newly discovered files are included with a default weight.
+
 After the three mandatory GitHub CI jobs succeed on `push/main`, the
 `release-package` job builds and verifies the exact-SHA Linux release archive,
 then publishes the immutable-name Actions artifact
