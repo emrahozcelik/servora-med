@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    branches-ignore: [ci-perf-001/base-1, ci-perf-001/base-2, ci-perf-001/base-4]
   push:
     branches: [main]
   workflow_dispatch:

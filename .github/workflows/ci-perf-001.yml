@@ -1,0 +1,441 @@
+name: CI PERF 001
+
+on:
+  pull_request:
+    branches: [ci-perf-001/base-1, ci-perf-001/base-2, ci-perf-001/base-4]
+
+permissions:
+  contents: read
+
+env:
+  EXPERIMENT_SHA: ${{ github.event.pull_request.head.sha }}
+  CI_PERF_COUNT: ${{ github.base_ref == 'ci-perf-001/base-1' && '1' || github.base_ref == 'ci-perf-001/base-2' && '2' || '4' }}
+
+jobs:
+  benchmark-smoke:
+    name: Auth KDF benchmark smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.EXPERIMENT_SHA }}
+      - name: Verify experiment checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPERIMENT_SHA"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # Small deterministic smoke only: proves the script parses/runs, both
+      # KDF costs succeed, fixed-work uses exactly two sequential slots, and
+      # the output schema is valid. No wall-clock thresholds here.
+      - run: node ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke
+
+  server-shard:
+    name: server-shard (${{ matrix.index }})
+    strategy:
+      fail-fast: false
+      matrix:
+        index: ${{ fromJSON(github.base_ref == 'ci-perf-001/base-1' && '[1]' || github.base_ref == 'ci-perf-001/base-2' && '[1,2]' || '[1,2,3,4]') }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: servora_med_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d servora_med_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/servora_med_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/servora_med_test
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.EXPERIMENT_SHA }}
+      - name: Verify experiment checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPERIMENT_SHA"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Record runner CPU and memory
+        run: |
+          nproc
+          lscpu | awk -F: '$1 == "Model name" { print $2; exit }'
+          free -m
+      - name: Persistent bootstrap fence contracts
+        run: node --test ../ops/tests/bootstrap-fence.test.mjs ../ops/tests/bootstrap-fence-reader.test.mjs ../ops/tests/bootstrap-fence-coverage.test.mjs
+      # Fake Docker fixture only (no daemon); exercises the single-run lock
+      # with the runner's own mkdir, whose implementation is logged first.
+      - name: Local CI lock and resource lifecycle contracts
+        run: |
+          mkdir --version | head -n 1
+          node --test ../ops/tests/ci-resource-lifecycle.test.mjs
+      - name: Persistent bootstrap fence isolated Linux acceptance
+        run: |
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env BOOTSTRAP_FENCE_CONTAINER_TEST=1 \
+            node:22-bookworm node --test ops/tests/bootstrap-fence-linux.test.mjs
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env SERVORA_R4_ISOLATED_CLI_TEST=1 \
+            node:22-bookworm node --test ops/tests/installed-old-adoption-cli-root.test.mjs
+      - name: Bootstrap sudo quarantine contracts
+        run: node --test ../ops/recovery-tools/bootstrap-delegation-quarantine.test.mjs ../ops/recovery-tools/bootstrap-delegation-quarantine-cli.test.mjs
+      - name: Bootstrap sudo quarantine isolated Linux acceptance
+        run: |
+          docker build --tag "servora-bootstrap-quarantine:$GITHUB_SHA" - < ../ops/recovery-tools/bootstrap-quarantine.Dockerfile
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env BOOTSTRAP_QUARANTINE_CONTAINER_TEST=1 \
+            "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-delegation-quarantine-linux.test.mjs
+      - name: Bootstrap CLOSED installation and release contracts
+        run: node --test ../ops/recovery-tools/bootstrap-transition.test.mjs ../ops/recovery-tools/bootstrap-transition-host.test.mjs ../ops/recovery-tools/normal-deploy-transition.test.mjs
+      - name: Installed OLD cutover identity and admission separation
+        run: node --test ../ops/tests/installed-old-cutover-attestation.test.mjs ../ops/tests/cutover-attestation-host.test.mjs ../ops/tests/cutover-attestation-faults.test.mjs ../ops/tests/cutover-attestation-cli.test.mjs
+      - name: Bootstrap transition isolated Linux acceptance
+        run: |
+          for scenario in install crash release; do
+            docker run --rm --network none \
+              --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+              --workdir /source --env BOOTSTRAP_TRANSITION_CONTAINER_TEST=1 \
+              --env "BOOTSTRAP_TRANSITION_SCENARIO=$scenario" \
+              "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-transition-linux.test.mjs
+          done
+      - name: interrupted RETIRE real adapter RED and GREEN
+        run: |
+          set -Eeuo pipefail
+          RETIRE_BASELINE_DIR="$(mktemp -d)"
+          trap 'rm -r -- "$RETIRE_BASELINE_DIR"' EXIT
+          git -C .. fetch --no-tags --depth=1 origin 9e417f4d57cd31d57554cde095d23514fd5ae38d
+          git -C .. archive 9e417f4d57cd31d57554cde095d23514fd5ae38d ops | tar -x -C "$RETIRE_BASELINE_DIR"
+          cp ../ops/tests/forward-host-retirement.test.mjs "$RETIRE_BASELINE_DIR/ops/tests/"
+          set +e
+          sudo "$(command -v node)" --test --test-name-pattern='^real host RETIRE reconciliation finishes an interrupted owner removal$' \
+            "$RETIRE_BASELINE_DIR/ops/tests/forward-host-retirement.test.mjs" > "$RETIRE_BASELINE_DIR/red.log" 2>&1
+          RETIRE_RED_EXIT=$?
+          set -e
+          cat "$RETIRE_BASELINE_DIR/red.log"
+          test "$RETIRE_RED_EXIT" -eq 1
+          grep -q 'FORWARD_HOST_OUTCOME_UNKNOWN' "$RETIRE_BASELINE_DIR/red.log"
+          grep -q 'Object.reconcile' "$RETIRE_BASELINE_DIR/red.log"
+          sudo "$(command -v node)" --test ../ops/tests/forward-host-retirement.test.mjs
+      - run: |
+          bash -n \
+            ../ops/scripts/backup-postgres.sh \
+            ../ops/scripts/backup-observation.sh \
+            ../ops/scripts/restore-dr-acceptance.sh \
+            ../ops/scripts/restore-rehearsal.sh \
+            ../ops/scripts/deploy-release.sh \
+            ../ops/deploy-production.sh \
+            ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/bootstrap-fence.sh \
+            ../ops/scripts/issue-installed-old-adoption.sh \
+            ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
+            ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
+            ../ops/scripts/stage-historical-recovery-6ce4cff0.sh \
+            ../ops/scripts/predeploy-backup-launcher.sh \
+            ../ops/scripts/ensure-macos-service-identity.sh \
+            ../ops/ci/verify-caddyfile.sh \
+            ../ops/ci/verify-sse-streaming.sh \
+            ../ops/ci/verify-sse-streaming-behavior.sh \
+            ../ops/ci/verify-tunnel-caddyfile.sh \
+            ../ops/ci/verify-tunnel-caddy-behavior.sh \
+            ../ops/ci/verify-cloudflared-ingress.sh \
+            ../ops/ci/verify-db-auth-contract.sh \
+            ../ops/ci/verify-env-examples.sh \
+            ../ops/ci/verify-systemd-units.sh \
+            ../ops/ci/verify-operator-alerting.sh \
+            ../ops/ci/use-azure-apt-mirror.sh \
+            ../ops/ci/prefetch-playwright-apt-deps.sh \
+            ../ops/launchd/start-api.sh.example \
+            ../ops/launchd/run-backup.sh.example \
+            ../ops/launchd/run-backup-worker.sh.example \
+            ../ops/launchd/run-alerting.sh.example \
+            ../ops/recovery-tools/profile-reseal \
+            ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
+            ../ops/recovery-tools/bootstrap-transition \
+            ../ops/recovery-tools/normal-deploy-transition
+          node --check ../ops/scripts/backup-observation.mjs
+          node --check ../ops/scripts/bootstrap-fence.mjs
+          node --check ../ops/scripts/backup-observation-writer.mjs
+          node --check ../ops/scripts/migration-state.mjs
+          node --check ../ops/scripts/migration-reconciliation.mjs
+          node --check ../ops/recovery-tools/profile-reseal.mjs
+          node --check ../ops/recovery-tools/bootstrap-delegation-quarantine-host.mjs
+          node --check ../ops/recovery-tools/bootstrap-delegation-quarantine.mjs
+          node --check ../ops/recovery-tools/bootstrap-transition.mjs
+          node --check ../ops/recovery-tools/bootstrap-transition-host.mjs
+          node --check ../ops/recovery-tools/normal-deploy-transition.mjs
+          node --check ../ops/recovery-tools/profile-reseal-e2e-fixture.mjs
+          node --check ../ops/recovery-tools/profile-reseal-e2e.test.mjs
+          node --check ../web/scripts/production-browser-smoke.mjs
+      - name: shellcheck ops scripts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -x \
+            ../ops/scripts/backup-postgres.sh \
+            ../ops/scripts/backup-observation.sh \
+            ../ops/scripts/restore-dr-acceptance.sh \
+            ../ops/scripts/restore-rehearsal.sh \
+            ../ops/scripts/deploy-release.sh \
+            ../ops/deploy-production.sh \
+            ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/bootstrap-fence.sh \
+            ../ops/recovery-tools/profile-reseal \
+            ../ops/scripts/issue-installed-old-adoption.sh \
+            ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
+            ../ops/recovery-tools/bootstrap-transition \
+            ../ops/recovery-tools/normal-deploy-transition \
+            ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
+            ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
+            ../ops/scripts/stage-historical-recovery-6ce4cff0.sh \
+            ../ops/scripts/predeploy-backup-launcher.sh \
+            ../ops/scripts/ensure-macos-service-identity.sh \
+            ../ops/ci/verify-caddyfile.sh \
+            ../ops/ci/verify-sse-streaming.sh \
+            ../ops/ci/verify-sse-streaming-behavior.sh \
+            ../ops/ci/verify-tunnel-caddyfile.sh \
+            ../ops/ci/verify-tunnel-caddy-behavior.sh \
+            ../ops/ci/verify-cloudflared-ingress.sh \
+            ../ops/ci/verify-db-auth-contract.sh \
+            ../ops/ci/verify-env-examples.sh \
+            ../ops/ci/verify-systemd-units.sh \
+            ../ops/ci/verify-operator-alerting.sh \
+            ../ops/ci/use-azure-apt-mirror.sh \
+            ../ops/ci/prefetch-playwright-apt-deps.sh \
+            ../ops/launchd/start-api.sh.example \
+            ../ops/launchd/run-backup.sh.example \
+            ../ops/launchd/run-backup-worker.sh.example \
+            ../ops/launchd/run-alerting.sh.example
+      - name: systemd-analyze verify units
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq systemd
+          bash ../ops/ci/verify-systemd-units.sh
+      - name: host backup observation state contract
+        run: bash ../ops/ci/verify-backup-observation.sh
+      - name: operator alerting syntax, tests and unit contracts
+        run: bash ../ops/ci/verify-operator-alerting.sh
+      - name: caddy validate Caddyfile (VPS)
+        run: bash ../ops/ci/verify-caddyfile.sh
+      - name: caddy SSE streaming behavior smoke
+        run: bash ../ops/ci/verify-sse-streaming-behavior.sh
+      - name: caddy validate Caddyfile (tunnel pilot)
+        run: bash ../ops/ci/verify-tunnel-caddyfile.sh
+      - name: caddy tunnel behavior smoke
+        run: bash ../ops/ci/verify-tunnel-caddy-behavior.sh
+      - name: cloudflared ingress validate
+        run: bash ../ops/ci/verify-cloudflared-ingress.sh
+      - name: env-example deployment contract
+        run: bash ../ops/ci/verify-env-examples.sh
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          set -Eeuo pipefail
+          # Match service container major (postgres:17) for pg_dump/pg_restore.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq curl ca-certificates gnupg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+          /usr/lib/postgresql/17/bin/pg_restore --version
+      - name: Install age 1.3.1 (BR3 post-quantum backup encryption)
+        run: |
+          set -Eeuo pipefail
+          # Official upstream release artifact, pinned, with the published
+          # SHA-256 verified before use (no curl|sh, no mirrors, no vendored
+          # binaries). age >= 1.3 is required for native hybrid recipients
+          # (ML-KEM-768 + X25519, age1pq1...).
+          AGE_VERSION="v1.3.1"
+          AGE_SHA256="bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377"
+          curl -fsSL -o /tmp/age.tar.gz \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+          echo "${AGE_SHA256}  /tmp/age.tar.gz" | sha256sum --check --strict -
+          tar -xzf /tmp/age.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/age/age /tmp/age/age-keygen /tmp/age/age-inspect /usr/local/bin/
+          age --version
+          age-keygen --version
+          rm -rf /tmp/age /tmp/age.tar.gz
+      - name: password-bearing DATABASE_URL auth contract
+        run: bash ../ops/ci/verify-db-auth-contract.sh
+        env:
+          PSQL_BIN: /usr/lib/postgresql/17/bin/psql
+      - run: npm ci
+      - run: npm run build
+      - run: npx tsc --noEmit --ignoreConfig --module NodeNext --target ES2022 --strict --skipLibCheck --typeRoots node_modules/@types ../ops/tests/trusted-time-types.mts
+      - name: production release dependency smoke
+        run: |
+          set -Eeuo pipefail
+          SMOKE="$(mktemp -d)"
+          mkdir -p "$SMOKE/server" "$SMOKE/ops/scripts"
+          cp -R dist package.json package-lock.json "$SMOKE/server/"
+          cp ../ops/scripts/trusted-time.mjs ../ops/scripts/backup-observation.mjs "$SMOKE/ops/scripts/"
+          cd "$SMOKE/server"
+          npm ci --omit=dev
+          test -d node_modules/fastify
+          test -d node_modules/pg
+          node --input-type=module -e "import '@aws-sdk/client-s3'; import 'fastify'; import 'pg'; console.log('deps-ok')"
+          test -f dist/index.js
+          test -f dist/db/migrate.js
+          test -f dist/db/schema-check.js
+          node --input-type=module -e "await import('./dist/modules/health/host-backup-observation.js')"
+      - run: npx tsx src/db/migrate.ts
+      - run: npm run schema:check
+      - name: Run server Vitest and write test identities
+        run: >-
+          npm test -- --run --config vitest.ci-perf-001.config.ts --shard="${SHARD_INDEX}/${CI_PERF_COUNT}"
+          --includeTaskLocation --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/server-tests.json"
+        env:
+          SHARD_INDEX: ${{ matrix.index }}
+          PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
+          PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
+          PSQL_BIN: /usr/lib/postgresql/17/bin/psql
+      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-67d3318.test.mjs ../ops/tests/historical-recovery-disposition.test.mjs ../ops/tests/historical-archive-preflight.test.mjs ../ops/tests/historical-archive-stage.test.mjs ../ops/tests/historical-stage-readback.test.mjs ../ops/tests/historical-in-place-preservation.test.mjs ../ops/tests/recovery-doc-contract.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs ../ops/recovery-tools/profile-reseal.test.mjs ../ops/recovery-tools/profile-reseal-failures.test.mjs ../ops/recovery-tools/profile-reseal-cli.test.mjs ../ops/recovery-tools/profile-reseal-lock.test.mjs ../ops/recovery-tools/packaging-exclusion.test.mjs ../ops/recovery-tools/profile-reseal-wrapper.test.mjs ../ops/recovery-tools/profile-reseal-e2e.test.mjs
+      - name: forward-only contract and adapter regressions
+        run: node --test ../ops/tests/forward-transition.test.mjs ../ops/tests/forward-host.test.mjs ../ops/tests/forward-host-recovery.test.mjs ../ops/tests/forward-continuity.test.mjs
+      - name: Security audit (HIGH/CRITICAL, no exceptions)
+        run: node ../web/scripts/audit-high-policy.mjs --workspace server
+      - name: Validate server test inventory
+        run: >-
+          python3 ../ops/ci-perf-001/evidence.py report server ${{ matrix.index }}
+          "$RUNNER_TEMP/server-tests.json" "$RUNNER_TEMP/server-${{ matrix.index }}.json"
+      - name: Upload server test identities
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-perf-evidence-server-${{ matrix.index }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/server-${{ matrix.index }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  web:
+    # Playwright 1.55.1 has browser/dependency builds for Ubuntu 24.04.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.EXPERIMENT_SHA }}
+      - name: Verify experiment checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPERIMENT_SHA"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_SERVORA_BUILD_SHA: ${{ env.EXPERIMENT_SHA }}
+      - run: npm run bundle:check
+      - name: Run web Vitest and write test identities
+        run: >-
+          npm test -- --run --includeTaskLocation --reporter=default --reporter=json
+          --outputFile.json="$RUNNER_TEMP/web-tests.json"
+      # release-package needs this job; use the same Azure apt fallback guard.
+      # The prefetch bounds each apt download attempt so a slow mirror
+      # connection fails over instead of consuming the whole step timeout.
+      - name: Install Playwright browsers
+        timeout-minutes: 15
+        run: |
+          set -Eeuo pipefail
+          sudo bash ../ops/ci/use-azure-apt-mirror.sh
+          bash ../ops/ci/prefetch-playwright-apt-deps.sh
+          npx playwright install --with-deps chromium webkit
+      - run: npm run smoke:production-dist
+      - run: npm run smoke:responsive
+      - name: Overdue six-row pagination visual acceptance
+        run: node scripts/overdue-pagination-smoke.mjs
+        env:
+          OVERDUE_CAPTURE_DIR: ${{ runner.temp }}/servora-overdue-ui
+      - name: Upload overdue visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overdue-visual-${{ github.sha }}
+          path: ${{ runner.temp }}/servora-overdue-ui/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: People lifecycle rendered UI acceptance
+        run: node scripts/people-lifecycle-ui-smoke.mjs
+        env:
+          PEOPLE_CAPTURE_DIR: ${{ runner.temp }}/servora-people-ui
+      - name: Upload people lifecycle UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: servora-people-ui-${{ github.run_id }}
+          path: ${{ runner.temp }}/servora-people-ui/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Legacy-pattern rendered UI acceptance (UI audit C2)
+        run: npm run smoke:c2
+        env:
+          C2_CAPTURE_DIR: ${{ runner.temp }}/servora-c2-patterns-ui
+      - name: Upload legacy-pattern UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: servora-c2-patterns-ui-${{ github.run_id }}
+          path: ${{ runner.temp }}/servora-c2-patterns-ui/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Reports overview and staff browser acceptance
+        run: node scripts/reports-ui-smoke.mjs
+        env:
+          REPORTS_CAPTURE_DIR: ${{ runner.temp }}/servora-reports-ui
+      - run: node scripts/follow-up-dialog-geometry.mjs
+      - name: Security audit (HIGH/CRITICAL, no exceptions)
+        run: npm run audit:high
+      - name: Validate web test inventory
+        run: >-
+          python3 ../ops/ci-perf-001/evidence.py report web 1
+          "$RUNNER_TEMP/web-tests.json" "$RUNNER_TEMP/web.json"
+      - name: Upload web test identities
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-perf-evidence-web-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web.json
+          if-no-files-found: error
+          retention-days: 7
+
+  server:
+    name: server
+    if: ${{ always() }}
+    needs: [server-shard]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every server shard succeeded
+        env:
+          SHARD_RESULT: ${{ needs.server-shard.result }}
+        run: test "$SHARD_RESULT" = success
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.EXPERIMENT_SHA }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ci-perf-evidence-server-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/server-evidence
+          merge-multiple: true
+      - name: Require every shard and the exact server test inventory
+        run: python3 ops/ci-perf-001/evidence.py gate "$RUNNER_TEMP/server-evidence"
