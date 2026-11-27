@@ -3949,6 +3949,67 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .assignment-offer-recovery .review-buttons {
   justify-content: flex-start;
 }
+/* RESCUE-002: the mandatory suggested-solution group in the Staff
+   decline/release form. The divider lives on the wrapper so it sits above the
+   legend instead of cutting through it. */
+.assignment-suggestion-block {
+  margin-top: 1.35rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+.assignment-suggestion-block[data-invalid="true"] {
+  border-top-color: var(--border-error-strong);
+}
+.assignment-reason-section .assignment-suggestion-section {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.assignment-reason-section .assignment-suggestion-section legend {
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: 680;
+}
+.assignment-reason-section .assignment-suggestion-section .form-help {
+  margin: 0;
+}
+.assignment-suggestion-choices {
+  display: grid;
+  gap: 0.15rem;
+  border-radius: var(--radius-control);
+}
+.assignment-suggestion-choices[data-invalid="true"] {
+  outline: 1px solid var(--border-error-strong);
+  outline-offset: 0.35rem;
+}
+.assignment-suggestion-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  padding-block: 0.35rem;
+  cursor: pointer;
+}
+.assignment-suggestion-choice input {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  min-height: 0;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.assignment-suggestion-choice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Critical Red as the second channel beside the error text. IDs keep this
+   slice's invalid border ahead of the generic focus-visible select rule. */
+#assignment-reason-code[aria-invalid="true"],
+#assignment-proposed-at[aria-invalid="true"] {
+  border-color: var(--border-error-strong);
+}
 /* JOB-010 management guidance: the real commands come first; the record-only
    closures sit in their own separated, confirmed group below them. */
 .change-request-guidance {
@@ -4413,6 +4474,9 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 .product-dialog { width: min(100%, 30rem); padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.7rem; background: var(--paper); }
 .product-dialog h2 { margin: 0; font-size: 1.25rem; }
 .product-dialog p { color: var(--muted); line-height: 1.55; }
+/* Field errors keep Critical Red; the generic copy-paragraph rule above would
+   otherwise override .field-error by specificity. */
+.product-dialog .field-error { color: var(--error); }
 .product-dialog-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
 .product-dialog [aria-disabled="true"] { cursor: wait; opacity: 0.65; }
 .product-lifecycle-conflict { margin-top: 1.25rem; }

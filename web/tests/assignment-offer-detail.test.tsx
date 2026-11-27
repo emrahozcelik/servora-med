@@ -46,6 +46,7 @@ const offer: AssignmentOffer = {
   closedAt: null,
   closeReason: null,
   closeText: null,
+  suggestedSolution: null,
   proposedScheduledAt: null,
   proposedScheduledEndsAt: null,
   proposalAcceptedAt: null,
@@ -71,6 +72,7 @@ function proposedOffer(overrides: Partial<AssignmentOffer> = {}): AssignmentOffe
   return closedOffer({
     state: 'DECLINED',
     closeReason: 'SCHEDULE_CONFLICT',
+    suggestedSolution: 'RESCHEDULE_SELF',
     closeText: null,
     proposedScheduledAt: start.toISOString(),
     proposedScheduledEndsAt: new Date(start.getTime() + 30 * 60_000).toISOString(),
@@ -153,6 +155,15 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: 
 function selectValue(element: HTMLSelectElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(element, value);
   element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** RESCUE-002: the mandatory suggested-solution radio group. */
+async function chooseSuggestion(host: ParentNode, code: string) {
+  const input = host.querySelector<HTMLInputElement>(
+    `input[name="assignment-suggested-solution"][value="${code}"]`,
+  );
+  expect(input).not.toBeNull();
+  await act(async () => input!.click());
 }
 
 describe('assignment offer detail surface', () => {
@@ -813,6 +824,7 @@ describe('decline and release dialogs', () => {
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
       'OTHER',
     ));
+    await chooseSuggestion(dialog()!, 'MANAGEMENT_DECIDES');
     await act(async () => setNativeValue(
       dialog()!.querySelector('textarea') as HTMLTextAreaElement,
       '  Aynı saatte başka teslim var.  ',
@@ -831,6 +843,7 @@ describe('decline and release dialogs', () => {
       expectedVersion: 3,
       reasonCode: 'OTHER',
       reasonText: 'Aynı saatte başka teslim var.',
+      suggestedSolution: 'MANAGEMENT_DECIDES',
     });
     expect(dialog()).toBeNull();
     expect(host.textContent).toContain('Görev reddedildi. Yönetici bilgilendirildi.');
@@ -858,17 +871,13 @@ describe('decline and release dialogs', () => {
     expect(dialog()).not.toBeNull();
     expect(buttonByText(dialog()!, 'Görevi geri bırak')).not.toBeNull();
 
-    // JOB-012: release carries the same proposal field as decline.
-    await act(async () => selectValue(
-      dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
-      'SCHEDULE_CONFLICT',
-    ));
-    expect(dialog()?.querySelector('#assignment-proposed-at')).not.toBeNull();
-
+    // RESCUE-002: release carries the same suggestion as decline; the time is
+    // tied to the suggestion, not the reason.
     await act(async () => selectValue(
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
       'MISSING_STOCK_OR_EQUIPMENT',
     ));
+    await chooseSuggestion(dialog()!, 'REASSIGN');
     expect(dialog()?.querySelector('#assignment-proposed-at')).toBeNull();
     await act(async () => setNativeValue(
       dialog()!.querySelector('textarea') as HTMLTextAreaElement,
@@ -887,11 +896,12 @@ describe('decline and release dialogs', () => {
       expectedVersion: 4,
       reasonCode: 'MISSING_STOCK_OR_EQUIPMENT',
       reasonText: 'Eldiven stoğu kalmadı.',
+      suggestedSolution: 'REASSIGN',
     });
     expect(host.textContent).toContain('Görev geri bırakıldı. Yönetici bilgilendirildi.');
   });
 
-  it('shows the proposed time only for a schedule conflict and clears it on switching away', async () => {
+  it('shows the proposed time only for the reschedule-self suggestion and clears it on switching away', async () => {
     const fetchMock = mockDetailFetch(jobCard());
     await renderScreen(jobCard(), fetchMock);
 
@@ -900,7 +910,11 @@ describe('decline and release dialogs', () => {
     const proposedInput = () => dialog()?.querySelector('#assignment-proposed-at') as HTMLInputElement | null;
     expect(proposedInput()).toBeNull();
 
+    // RESCUE-002: the reason code no longer reveals the time field.
     await act(async () => selectValue(reasonSelect(), 'SCHEDULE_CONFLICT'));
+    expect(proposedInput()).toBeNull();
+
+    await chooseSuggestion(dialog()!, 'RESCHEDULE_SELF');
     expect(proposedInput()).not.toBeNull();
     expect(proposedInput()?.getAttribute('type')).toBe('datetime-local');
     expect(proposedInput()?.hasAttribute('required')).toBe(true);
@@ -912,14 +926,14 @@ describe('decline and release dialogs', () => {
     expect(dialog()?.querySelector('.schedule-quick-chips')).not.toBeNull();
 
     await act(async () => setNativeValue(proposedInput()!, futureLocal(2)));
-    await act(async () => selectValue(reasonSelect(), 'ON_LEAVE'));
+    await chooseSuggestion(dialog()!, 'REASSIGN');
     expect(proposedInput()).toBeNull();
 
-    await act(async () => selectValue(reasonSelect(), 'SCHEDULE_CONFLICT'));
+    await chooseSuggestion(dialog()!, 'RESCHEDULE_SELF');
     expect(proposedInput()?.value).toBe('');
   });
 
-  it('requires a future proposed time before a schedule-conflict decline leaves the browser', async () => {
+  it('requires a future proposed time before a reschedule-self decline leaves the browser', async () => {
     const fetchMock = mockDetailFetch(jobCard());
     await renderScreen(jobCard(), fetchMock);
 
@@ -928,6 +942,7 @@ describe('decline and release dialogs', () => {
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
       'SCHEDULE_CONFLICT',
     ));
+    await chooseSuggestion(dialog()!, 'RESCHEDULE_SELF');
     await act(async () => setNativeValue(
       dialog()!.querySelector('textarea') as HTMLTextAreaElement,
       'Aynı saatte başka teslim var.',
@@ -937,7 +952,7 @@ describe('decline and release dialogs', () => {
 
     await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
     expect(dialog()?.querySelector('#assignment-proposed-at-error')?.textContent)
-      .toBe('Plan çakışması için önerdiğiniz zamanı seçin.');
+      .toBe('Önerilen zaman zorunludur.');
     expect(declineCalls()).toHaveLength(0);
 
     await act(async () => setNativeValue(
@@ -966,6 +981,7 @@ describe('decline and release dialogs', () => {
       expectedVersion: 3,
       reasonCode: 'SCHEDULE_CONFLICT',
       reasonText: 'Aynı saatte başka teslim var.',
+      suggestedSolution: 'RESCHEDULE_SELF',
       proposedScheduledAt: localDateTimeToIso(proposedLocal),
     });
     expect(dialog()).toBeNull();
@@ -980,6 +996,7 @@ describe('decline and release dialogs', () => {
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
       'SCHEDULE_CONFLICT',
     ));
+    await chooseSuggestion(dialog()!, 'RESCHEDULE_SELF');
     await act(async () => setNativeValue(
       dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement,
       futureLocal(2),
@@ -1011,6 +1028,7 @@ describe('decline and release dialogs', () => {
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
       'SCHEDULE_CONFLICT',
     ));
+    await chooseSuggestion(dialog()!, 'RESCHEDULE_SELF');
     await act(async () => setNativeValue(
       dialog()!.querySelector('#assignment-proposed-at') as HTMLInputElement,
       futureLocal(2),
@@ -1056,7 +1074,8 @@ describe('decline and release dialogs', () => {
     expect(host.textContent).toContain('Sorumlu personel düzenleme alanı açıldı.');
   });
 
-  it('closes the stale dialog and reloads when the acceptance window has closed', async () => {    const fetchMock = mockDetailFetch(jobCard());
+  it('closes the stale dialog and reloads when the acceptance window has closed', async () => {
+    const fetchMock = mockDetailFetch(jobCard());
     await renderScreen(jobCard(), fetchMock);
 
     await act(async () => buttonByText(host, 'Görevi reddet')!.click());
@@ -1064,6 +1083,7 @@ describe('decline and release dialogs', () => {
       dialog()!.querySelector('#assignment-reason-code') as HTMLSelectElement,
       'OTHER',
     ));
+    await chooseSuggestion(dialog()!, 'MANAGEMENT_DECIDES');
     await act(async () => setNativeValue(
       dialog()!.querySelector('textarea') as HTMLTextAreaElement,
       'Yetişemedim.',

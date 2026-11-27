@@ -10,6 +10,7 @@ import { ResultState } from '../ui/antd/ResultState';
 import type { SignalGlyphName } from '../ui/signal-icons';
 import {
   assignmentOfferCloseReasonLabel,
+  assignmentSuggestedSolutionLabel,
   historicalJobStatusLabels,
   isKnownJobCardActivityEvent,
   jobActivityLabel,
@@ -162,11 +163,15 @@ function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'NOTE') return 'Not geçmişe eklendi';
   if (details.kind === 'ASSIGNMENT_DECISION') {
     // The event label already says declined/released; the detail adds the
-    // recorded reason and the Staff member's own words.
+    // recorded reason, the Staff member's own words and the typed suggestion.
     // Recorded fact, third person ("İzinli / müsait değil"), not the Staff
     // form's first-person option text.
     const reasonLabel = assignmentOfferCloseReasonLabel(details.reasonCode);
     const reasonText = details.reasonText?.trim();
+    // RESCUE-002: the suggestion is part of the answer, when one was recorded.
+    const suggestion = details.suggestedSolution
+      ? `Personelin önerisi: ${assignmentSuggestedSolutionLabel(details.suggestedSolution)}`
+      : null;
     // JOB-012: the proposed time is part of the answer, when one was asked for.
     const proposed = details.proposedScheduledAt !== null
       ? `Önerilen: ${formatInstant(details.proposedScheduledAt)}`
@@ -174,6 +179,7 @@ function detailText(details: JobCardActivityDetails) {
     return [
       reasonLabel,
       reasonText ? `“${reasonText}”` : null,
+      suggestion,
       proposed,
     ].filter(Boolean).join(' · ');
   }
