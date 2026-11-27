@@ -441,7 +441,7 @@ decision point to these answers.
 | Q2 | Staff reminder in V1, and when | Yes, once, halfway between open and deadline |
 | Q3 | Staff cancellation for jobs in the window in `IN_PROGRESS` and later | Superseded by decision D1: Staff never cancel any JobCard |
 | Q4 | Pre-rollout `NEW` jobs | No offer until the next management producer |
-| Q5 | Decline/release reason codes | `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER` |
+| Q5 | Decline/release reason codes | `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`; JOB-013 adds `OUT_OF_TOWN`, `CUSTOMER_POSTPONED`, `WRONG_PRODUCT` and a typed suggested solution ([assignment-time-proposal.md](assignment-time-proposal.md) § JOB-013) |
 | Q6 | Who receives management notifications; notify on accept? | All active MANAGER/ADMIN (as OVR-4); no accept notification |
 | Q7 | Remove the acceptance not-before gate for all types | Yes |
 | Q8 | Include `GENERAL_TASK` with `scheduledAt` | No |
@@ -713,7 +713,7 @@ runs. Turning the flag on is release 2c (owner approval). Migration: `065`.
 | `ack_code`, `ack_text` | NULL or (`CUSTOMER_CONFIRMED_LATER_TIME`, `CUSTOMER_WAITING`, `OTHER`) + text 1–2000; only with `START_PASSED` |
 | `state` | `OPEN`, `ACCEPTED`, `DECLINED`, `RELEASED`, `EXPIRED`, `WITHDRAWN` |
 | `closed_at`, `closed_by` | NULL while `OPEN`; `closed_by` NULL only for `EXPIRED` |
-| `close_reason` | `DECLINED`/`RELEASED`: `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`; `WITHDRAWN`: `REASSIGNED`, `RESCHEDULED`, `CANCELLED`, `INVALIDATED`, `OFFBOARDING_TRANSFER`, `PLANNED_WINDOW_PASSED`; NULL otherwise |
+| `close_reason` | `DECLINED`/`RELEASED`: `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER` (076 adds `OUT_OF_TOWN`, `CUSTOMER_POSTPONED`, `WRONG_PRODUCT`); `WITHDRAWN`: `REASSIGNED`, `RESCHEDULED`, `CANCELLED`, `INVALIDATED`, `OFFBOARDING_TRANSFER`, `PLANNED_WINDOW_PASSED`; NULL otherwise |
 | `close_text` | text 1–2000 required with `DECLINED`/`RELEASED`, else NULL |
 | `recorded_at` | default `now()` |
 

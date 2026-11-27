@@ -3,6 +3,7 @@
 - **Status:** Accepted product contract (owner, 2026-11-24, PR review of the
   declined-offer guidance: "personel alternatif zaman önersin"; Q1–Q4 answered
   with the recommended defaults). Extends [JOB-010](assignment-acceptance-sla.md).
+  Q1 is amended by JOB-013 (2026-11-27, RESCUE-002); see § JOB-013 below.
 - **Scope:** `PRODUCT_DELIVERY` and `SALES_MEETING` jobs in the JOB-010
   acceptance window (flag on). Customer time stays management-only: Staff only
   *propose*; management confirms. Management may still set any other time.
@@ -11,7 +12,7 @@
 
 | # | Question | Decision |
 |---|---|---|
-| Q1 | When is a proposal asked for? | **Required** when the Staff answer's reason is `SCHEDULE_CONFLICT`; not accepted for any other reason. |
+| Q1 | When is a proposal asked for? | **Required** when the Staff answer's reason is `SCHEDULE_CONFLICT`; not accepted for any other reason. *Amended by JOB-013:* required with the suggestion `RESCHEDULE_SELF`, forbidden with every other suggestion, whatever the reason; the original rule remains only for a request without a suggestion. |
 | Q2 | What does management confirmation do? | The job moves to the proposed time **and is accepted for the proposing Staff member** in the same transaction (no second Staff acceptance). |
 | Q3 | Which checks apply? | The proposed start must be in the future and the proposed interval must not conflict with the Staff member's calendar. Sunday / outside 08:00–19:00 are advisory warnings only (human-choice rule). |
 | Q4 | Which answers carry it? | Both `DECLINE_ASSIGNMENT` and `RELEASE_ASSIGNMENT`. |
@@ -25,6 +26,7 @@ On `job_card_assignment_offers`:
 - `proposal_accepted_at TIMESTAMPTZ NULL`, `proposal_accepted_by UUID NULL` —
   set once, when management confirms.
 - `CHECK (proposed_scheduled_at IS NULL OR (state IN ('DECLINED','RELEASED') AND close_reason = 'SCHEDULE_CONFLICT'))`
+  (replaced by migration 076, see § JOB-013)
 - `CHECK ((proposal_accepted_at IS NULL) = (proposal_accepted_by IS NULL))`
 - `CHECK (proposal_accepted_at IS NULL OR proposed_scheduled_at IS NOT NULL)`
 - `opened_reason` vocabulary gains `PROPOSAL_ACCEPTED`. The widened CHECK keeps
@@ -157,7 +159,85 @@ Response `200 { jobCardId, offerId, scheduledAt, scheduledEndsAt }`, where
 13. Management may ignore the proposal and reschedule freely; the existing
     reschedule path is unchanged.
 
+## JOB-013 — typed suggestion (RESCUE-002, 2026-11-27)
+
+### Vocabulary
+
+Decline/release reasons gain `OUT_OF_TOWN` ("Şehir dışındayım"),
+`CUSTOMER_POSTPONED` and `WRONG_PRODUCT` (same literals and labels as the
+change-request codes). Display order: `SCHEDULE_CONFLICT`, `ON_LEAVE`,
+`OUT_OF_TOWN`, `TOO_FAR`, `CUSTOMER_POSTPONED`, `WRONG_PRODUCT`,
+`MISSING_STOCK_OR_EQUIPMENT`, `OTHER`.
+
+Suggested solutions:
+
+| Code | Label |
+|---|---|
+| `RESCHEDULE_SELF` | Başka bir zamanda kendim yapabilirim |
+| `REASSIGN` | Başka bir personele verilsin |
+| `CORRECT_DETAILS` | İş bilgileri düzeltilsin |
+| `CANCEL_REQUEST` | İptal edilmesini öneriyorum |
+| `MANAGEMENT_DECIDES` | Yönetici karar versin |
+
+A suggestion never authorizes a mutation. `CANCEL_REQUEST` is a request to
+management; Staff never cancel (JOB-010 D1).
+
+### API
+
+Decline and release bodies gain `suggestedSolution?: string | null`.
+
+- **With a suggestion:** it must be one of the five codes (else `400
+  VALIDATION_ERROR`, `fieldErrors.suggestedSolution`); any of the eight
+  reasons is allowed. `proposedScheduledAt` is required with
+  `RESCHEDULE_SELF` ("Önerilen zaman zorunludur.") and forbidden with every
+  other suggestion ("Önerilen zaman yalnızca \"Başka bir zamanda kendim
+  yapabilirim\" seçildiğinde verilebilir."). The future, occupancy and replay
+  rules above apply unchanged.
+- **Without a suggestion** (absent or null, earlier client): the original Q1
+  rules apply and only the five original reasons are accepted; a new reason
+  returns `400` with `fieldErrors.suggestedSolution` ("Çözüm önerisi
+  zorunludur."). Nothing is inferred or stored as a suggestion.
+- The request hash includes `suggestedSolution` only when it is non-null, so
+  an earlier client's body hashes as before.
+- The detail offer view and the decline/release activity details gain
+  `suggestedSolution` (null when none), reader-scoped like `reasonCode`.
+- The management confirmation command is unchanged; it accepts any latest
+  offer that carries a proposal.
+
+### Data (migration `076`)
+
+- `close_reason` CHECKs (`close_reason_check` and the `DECLINED`/`RELEASED`
+  branch of `closure_check`) gain the three reasons.
+- `suggested_solution TEXT NULL`, CHECK in the five codes, and only on
+  `DECLINED` / `RELEASED`.
+- `proposed_scheduled_at IS NULL OR (state IN ('DECLINED','RELEASED') AND
+  (suggested_solution = 'RESCHEDULE_SELF' OR (suggested_solution IS NULL AND
+  close_reason = 'SCHEDULE_CONFLICT')))`.
+- `suggested_solution IS DISTINCT FROM 'RESCHEDULE_SELF' OR
+  proposed_scheduled_at IS NOT NULL`.
+- Additive and forward-only, no backfill; existing rows keep a null
+  suggestion.
+
+### Web
+
+The Staff form asks for the reason, then the suggestion (mandatory), then the
+time only for `RESCHEDULE_SELF`, and the explanation. Management sees
+"Personelin önerisi: <label>" beside the reason; rows without a suggestion
+look as before. Recovery action ordering is unchanged (RESCUE-003).
+
+### Acceptance scenarios (JOB-013)
+
+14. Decline or release with `OUT_OF_TOWN` + `RESCHEDULE_SELF` + a free future
+    time → proposal stored; management confirmation accepts it as in scenario 5.
+15. `SCHEDULE_CONFLICT` + `REASSIGN` with no time → accepted, no proposal.
+16. `RESCHEDULE_SELF` without a time, or a time with any other suggestion → `400`.
+17. A new reason without a suggestion → `400`; an earlier client's
+    `SCHEDULE_CONFLICT` + time without a suggestion → accepted as before.
+18. Same key with a different suggestion → idempotency conflict.
+
 ## Out of scope
 
 Staff choosing the customer time directly, multiple proposals per answer,
-proposals on `OTHER` reasons, automatic confirmation without management.
+automatic confirmation without management, a single manager recovery form and
+suggestion-based action ordering (RESCUE-003), releasing declined staff time
+(RESCUE-004).
