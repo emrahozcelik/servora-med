@@ -1,8 +1,8 @@
 # MSG-003 messaging module acceptance — local real-runtime evidence
 
-- Executed at: 2026-11-27T07:03:23.101Z
-- Commit: `0397b48af9d11ecafcaff5198addbf2361044e97` (branch `fleet/20261127-093821-deepseek-481b`)
-- Result: **FAIL** — 89 PASS, 2 FAIL, 1 NOT_RUN
+- Executed at: 2026-11-27T07:19:06.129Z
+- Commit: `98e3a8080eac9ab78ca71b1ba63b75e7c73ec46d` (branch `fleet/20261127-101353-deepseek-162a`)
+- Result: **PASS** — 91 PASS, 0 FAIL, 1 NOT_RUN
 - Command: `cd web && node scripts/msg003-messaging-acceptance.mjs`
 
 ## Scenarios
@@ -10,7 +10,7 @@
 | Scenario | Status | PASS/records | What was exercised |
 | -------- | ------ | ------------ | ------------------ |
 | A1 | PASS | 7/7 | Fresh-database takeover with MESSAGING_ENABLED=true; operator Modules page shows Mesajlaşma Açık with the takeover source |
-| A2 | FAIL | 48/50 | Two off/on operator cycles with an open MANAGER session: nav, /messages, Job Detail action, Overview summary and notification visibility |
+| A2 | PASS | 50/50 | Two off/on operator cycles with an open MANAGER session: nav, /messages, Job Detail action, Overview summary and notification visibility |
 | A3 | PASS | 4/4 | Messaging API while disabled: authenticated 404 NOT_FOUND and unauthenticated 401 |
 | A4 | NOT_RUN | 0/1 | Push queue while disabled (WEB_PUSH stays disabled; DB only) |
 | A5 | PASS | 11/11 | Pending assignee sync: reassignment while off, later notice and explicit participant sync, unread 0 for the new assignee |
@@ -18,12 +18,11 @@
 
 ## Failures observed by the harness
 
-- `A2-C1-OFF-NOTIFICATION-BADGE`: Rozet görünür: 2
-- `A2-C2-OFF-NOTIFICATION-BADGE`: Rozet görünür: 2
+- Yok
 
 ## Findings
 
-- Strict A2 criterion: after the single identity revalidation that removed navigation, /messages, the Job Detail action and the Overview summary, the already-open tab still showed the previous notification badge count (2) for the hidden message notifications (`A2-C1-OFF-NOTIFICATION-BADGE`, `A2-C2-OFF-NOTIFICATION-BADGE`). The server-side unread notification count was 0 and the opened panel was empty; a full page reload/remount cleared the badge (recorded as `*-OFF-AFTER-RELOAD-NOTIFICATION-BADGE`). This is a client-side stale count in the open session, not a server-side exposure or data deletion.
+- Yok
 
 ## Environment
 
@@ -83,6 +82,6 @@
 ## Files
 
 - `runtime-results.json` — every assertion with status, observed value and timestamp.
-- `runtime-log.txt` — harness setup, scenario and assertion log.
-- `fastify.log`, `vite.log` — captured process output.
 - `screenshots/` — scenario screenshots named `<screen>-<width>.png`.
+- Raw logs (`runtime-log.txt`, `fastify.log`, `vite.log`) are not committed: the
+  harness writes them to `$FLEET_EVIDENCE_DIR` when set, else to an OS temp directory.

@@ -1,8 +1,8 @@
 {
   "gate": "MSG003_MESSAGING_MODULE_ACCEPTANCE_LOCAL_REAL_RUNTIME",
-  "executedAt": "2026-11-27T07:03:23.101Z",
-  "featureHead": "0397b48af9d11ecafcaff5198addbf2361044e97",
-  "branch": "fleet/20261127-093821-deepseek-481b",
+  "executedAt": "2026-11-27T07:19:06.129Z",
+  "featureHead": "98e3a8080eac9ab78ca71b1ba63b75e7c73ec46d",
+  "branch": "fleet/20261127-101353-deepseek-162a",
   "runtime": {
     "fastify": "real built dist (node dist/index.js)",
     "postgresql": "disposable isolated PostgreSQL 17 cluster (initdb/pg_ctl, random loopback port)",
@@ -11,10 +11,10 @@
     "data": "synthetic only",
     "webPush": "disabled (WEB_PUSH_ENABLED=false)"
   },
-  "result": "FAIL",
+  "result": "PASS",
   "counts": {
-    "pass": 89,
-    "fail": 2,
+    "pass": 91,
+    "fail": 0,
     "notRun": 1
   },
   "scenarios": [
@@ -36,7 +36,7 @@
         {
           "id": "A1-TAKEOVER-SOURCE",
           "status": "PASS",
-          "observed": "Son değişiklik: 27 Kasım 2026 10:01 · kurulum ayarından devralındı"
+          "observed": "Son değişiklik: 27 Kasım 2026 10:17 · kurulum ayarından devralındı"
         },
         {
           "id": "A1-DESCRIPTION-VISIBLE",
@@ -63,7 +63,7 @@
     {
       "scenario": "A2",
       "title": "Two off/on operator cycles with an open MANAGER session: nav, /messages, Job Detail action, Overview summary and notification visibility",
-      "status": "FAIL",
+      "status": "PASS",
       "records": [
         {
           "id": "A2-C1-BEFORE-NOTIFICATION-BADGE",
@@ -97,8 +97,8 @@
         },
         {
           "id": "A2-C1-OFF-NOTIFICATION-BADGE",
-          "status": "FAIL",
-          "observed": "Rozet görünür: 2"
+          "status": "PASS",
+          "observed": "Rozet yok"
         },
         {
           "id": "A2-C1-OFF-NOTIFICATION-COUNT-API",
@@ -153,7 +153,7 @@
         {
           "id": "A2-C1-REVALIDATION",
           "status": "PASS",
-          "observed": "Tek odak/visibility revalidation sonrası menü döndü (75ms)"
+          "observed": "Tek odak/visibility revalidation sonrası menü döndü (76ms)"
         },
         {
           "id": "A2-C1-MESSAGES-PAGE",
@@ -222,8 +222,8 @@
         },
         {
           "id": "A2-C2-OFF-NOTIFICATION-BADGE",
-          "status": "FAIL",
-          "observed": "Rozet görünür: 2"
+          "status": "PASS",
+          "observed": "Rozet yok"
         },
         {
           "id": "A2-C2-OFF-NOTIFICATION-COUNT-API",
@@ -278,7 +278,7 @@
         {
           "id": "A2-C2-REVALIDATION",
           "status": "PASS",
-          "observed": "Tek odak/visibility revalidation sonrası menü döndü (75ms)"
+          "observed": "Tek odak/visibility revalidation sonrası menü döndü (77ms)"
         },
         {
           "id": "A2-C2-MESSAGES-PAGE",
@@ -369,7 +369,7 @@
         {
           "id": "A5-REASSIGN-OFF-DB",
           "status": "PASS",
-          "observed": "assigned_to=ed3b1a15-0d72-411b-890a-bd8fec4db03b, activity=3e0afa16-21ee-4174-a5e2-97d9854f501d"
+          "observed": "assigned_to=7c7f811a-8095-4df4-b415-0fc3c847d6e2, activity=12cdfef0-383f-4f98-b2d6-a0e3954d751a"
         },
         {
           "id": "A5-NO-PROMPT-WHILE-OFF",
@@ -394,12 +394,12 @@
         {
           "id": "A5-SYNC-DB",
           "status": "PASS",
-          "observed": "A removed, B added, B.last_read=6ef102c4-890a-4312-ac0f-b7d7cfb95bd1"
+          "observed": "A removed, B added, B.last_read=cb67aa82-2577-403d-bbcb-85417894b24d"
         },
         {
           "id": "A5-SYNC-ACTIVITY",
           "status": "PASS",
-          "observed": "{\"jobId\":\"c115d49f-1e52-40c0-b63c-8d9ee37f2350\",\"actorUserId\":\"bfcc8f6a-85ef-46fb-ab87-e5f0067d5b55\",\"contextType\":\"JOB\",\"addedUserIds\":[\"ed3b1a15-0d72-411b-890a-bd8fec4db03b\"],\"removedUserIds\":[\"b63d528f-3ea8-4e18-bc52-7cd3863caac6\"],\"assignmentTransitionId\":\"3e0afa16-21ee-4174-a5e2-97d9854f501d\"}"
+          "observed": "{\"jobId\":\"fbe55c77-6073-4dc4-9ad6-2f531ae0ba9d\",\"actorUserId\":\"4d1ee45e-51cc-437b-80aa-8966ce776a61\",\"contextType\":\"JOB\",\"addedUserIds\":[\"7c7f811a-8095-4df4-b415-0fc3c847d6e2\"],\"removedUserIds\":[\"f203f40d-cd9a-425e-bc52-b815242946c5\"],\"assignmentTransitionId\":\"12cdfef0-383f-4f98-b2d6-a0e3954d751a\"}"
         },
         {
           "id": "A5-STAFF-B-UNREAD-ZERO",
@@ -441,7 +441,7 @@
         {
           "id": "A6-DB-PARTICIPANTS",
           "status": "PASS",
-          "observed": "B removed, C added, C.last_read=6ef102c4-890a-4312-ac0f-b7d7cfb95bd1"
+          "observed": "B removed, C added, C.last_read=cb67aa82-2577-403d-bbcb-85417894b24d"
         },
         {
           "id": "A6-STAFF-C-OPENS",
@@ -456,553 +456,553 @@
       "id": "ENV-POSTGRES-ISOLATED-CLUSTER",
       "status": "PASS",
       "observed": "Disposable PostgreSQL cluster started on a random loopback port under /private/tmp",
-      "at": "2026-11-27T07:01:52.435Z"
+      "at": "2026-11-27T07:17:34.583Z"
     },
     {
       "id": "ENV-POSTGRES-DISPOSABLE-CREATED",
       "status": "PASS",
       "observed": "Dedicated disposable database created",
-      "at": "2026-11-27T07:01:52.470Z"
+      "at": "2026-11-27T07:17:34.634Z"
     },
     {
       "id": "ENV-SERVER-BUILD",
       "status": "PASS",
       "observed": "TypeScript server build completed",
-      "at": "2026-11-27T07:01:53.066Z"
+      "at": "2026-11-27T07:17:35.155Z"
     },
     {
       "id": "ENV-SERVER-MIGRATIONS",
       "status": "PASS",
       "observed": "All repository migrations completed on the disposable PostgreSQL 17 database",
-      "at": "2026-11-27T07:01:53.447Z"
+      "at": "2026-11-27T07:17:35.794Z"
     },
     {
       "id": "ENV-SYNTHETIC-FIXTURE",
       "status": "PASS",
       "observed": "Bootstrap Admin plus synthetic MANAGER, STAFF A/B/C, one customer and one GENERAL_TASK job created",
-      "at": "2026-11-27T07:01:53.759Z"
+      "at": "2026-11-27T07:17:36.127Z"
     },
     {
       "id": "ENV-OPERATOR-GRANTED",
       "status": "PASS",
       "observed": "Granted operator msg003-operator@example.test (MODULE_MANAGEMENT).",
-      "at": "2026-11-27T07:01:53.861Z"
+      "at": "2026-11-27T07:17:36.231Z"
     },
     {
       "id": "ENV-REAL-FASTIFY-READY",
       "status": "PASS",
       "observed": "Real built Fastify server answered /api/health",
-      "at": "2026-11-27T07:01:54.339Z"
+      "at": "2026-11-27T07:17:36.709Z"
     },
     {
       "id": "ENV-REAL-VITE-READY",
       "status": "PASS",
       "observed": "Real Vite dev server answered on the web origin",
-      "at": "2026-11-27T07:01:54.654Z"
+      "at": "2026-11-27T07:17:37.023Z"
     },
     {
       "id": "ENV-PLAYWRIGHT-CHROMIUM",
       "status": "PASS",
       "observed": "Playwright Chromium launched",
-      "at": "2026-11-27T07:01:54.932Z"
+      "at": "2026-11-27T07:17:37.476Z"
     },
     {
       "id": "A1-MODULE-VISIBLE",
       "status": "PASS",
       "observed": "Mesajlaşma modül satırı görünür",
-      "at": "2026-11-27T07:01:55.594Z"
+      "at": "2026-11-27T07:17:38.186Z"
     },
     {
       "id": "A1-MODULE-ENABLED",
       "status": "PASS",
       "observed": "Görünen durum=Açık",
-      "at": "2026-11-27T07:01:55.595Z"
+      "at": "2026-11-27T07:17:38.187Z"
     },
     {
       "id": "A1-TAKEOVER-SOURCE",
       "status": "PASS",
-      "observed": "Son değişiklik: 27 Kasım 2026 10:01 · kurulum ayarından devralındı",
-      "at": "2026-11-27T07:01:55.596Z"
+      "observed": "Son değişiklik: 27 Kasım 2026 10:17 · kurulum ayarından devralındı",
+      "at": "2026-11-27T07:17:38.187Z"
     },
     {
       "id": "A1-DESCRIPTION-VISIBLE",
       "status": "PASS",
       "observed": "İş ve konu merkezli kurum içi iletişim.",
-      "at": "2026-11-27T07:01:55.597Z"
+      "at": "2026-11-27T07:17:38.188Z"
     },
     {
       "id": "A1-SWITCH-CHECKED",
       "status": "PASS",
       "observed": "aria-checked=true",
-      "at": "2026-11-27T07:01:55.597Z"
+      "at": "2026-11-27T07:17:38.189Z"
     },
     {
       "id": "A1-DB-ENV-TAKEOVER",
       "status": "PASS",
       "observed": "{\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\"}",
-      "at": "2026-11-27T07:01:56.298Z"
+      "at": "2026-11-27T07:17:38.915Z"
     },
     {
       "id": "A1-DB-TAKEOVER-AUDIT",
       "status": "PASS",
       "observed": "MODULE_STATE_TAKEN_OVER enabled=true",
-      "at": "2026-11-27T07:01:56.300Z"
+      "at": "2026-11-27T07:17:38.920Z"
     },
     {
       "id": "ENV-MESSAGING-FIXTURE",
       "status": "PASS",
       "observed": "capability=true, notificationCount=2",
-      "at": "2026-11-27T07:01:56.468Z"
+      "at": "2026-11-27T07:17:39.099Z"
     },
     {
       "id": "ENV-MESSAGING-HISTORY",
       "status": "PASS",
       "observed": "messages sent=2",
-      "at": "2026-11-27T07:01:56.470Z"
+      "at": "2026-11-27T07:17:39.101Z"
     },
     {
       "id": "A2-C1-BEFORE-NOTIFICATION-BADGE",
       "status": "PASS",
       "observed": "Rozet=2",
-      "at": "2026-11-27T07:01:57.828Z"
+      "at": "2026-11-27T07:17:40.470Z"
     },
     {
       "id": "A2-C1-DIALOG-TURNS-OFF",
       "status": "PASS",
       "observed": "Kapanacaklar listesi tam",
-      "at": "2026-11-27T07:01:58.328Z"
+      "at": "2026-11-27T07:17:40.961Z"
     },
     {
       "id": "A2-C1-DIALOG-PRESERVED",
       "status": "PASS",
       "observed": "Korunanlar listesi tam",
-      "at": "2026-11-27T07:01:58.328Z"
+      "at": "2026-11-27T07:17:40.962Z"
     },
     {
       "id": "A2-C1-DIALOG-NO-DELETE",
       "status": "PASS",
       "observed": "Veriler silinmez. görünür",
-      "at": "2026-11-27T07:01:58.328Z"
+      "at": "2026-11-27T07:17:40.962Z"
     },
     {
       "id": "A2-C1-REDIRECT",
       "status": "PASS",
       "observed": "Müşteri sekmesi /jobs adresine geçti",
-      "at": "2026-11-27T07:01:58.363Z"
+      "at": "2026-11-27T07:17:41.008Z"
     },
     {
       "id": "A2-C1-OFF-NAV",
       "status": "PASS",
       "observed": "Mesajlar bağlantısı yok",
-      "at": "2026-11-27T07:01:58.369Z"
+      "at": "2026-11-27T07:17:41.013Z"
     },
     {
       "id": "A2-C1-OFF-NOTIFICATION-BADGE",
-      "status": "FAIL",
-      "observed": "Rozet görünür: 2",
-      "at": "2026-11-27T07:01:58.385Z"
+      "status": "PASS",
+      "observed": "Rozet yok",
+      "at": "2026-11-27T07:17:41.120Z"
     },
     {
       "id": "A2-C1-OFF-NOTIFICATION-COUNT-API",
       "status": "PASS",
       "observed": "server unreadCount=0",
-      "at": "2026-11-27T07:01:58.735Z"
+      "at": "2026-11-27T07:17:41.464Z"
     },
     {
       "id": "A2-C1-OFF-NOTIFICATION-LIST",
       "status": "PASS",
       "observed": "items=0, states=(none)",
-      "at": "2026-11-27T07:01:58.800Z"
+      "at": "2026-11-27T07:17:41.530Z"
     },
     {
       "id": "A2-C1-OFF-AFTER-RELOAD-NOTIFICATION-BADGE",
       "status": "PASS",
       "observed": "Rozet yok",
-      "at": "2026-11-27T07:01:59.283Z"
+      "at": "2026-11-27T07:17:42.003Z"
     },
     {
       "id": "A2-C1-OFF-OVERVIEW",
       "status": "PASS",
       "observed": "Okunmamış mesaj bölümü yok",
-      "at": "2026-11-27T07:02:00.536Z"
+      "at": "2026-11-27T07:17:43.016Z"
     },
     {
       "id": "A2-C1-OFF-JOB-DETAIL-ACTION",
       "status": "PASS",
       "observed": "Konuşma aksiyonu yok",
-      "at": "2026-11-27T07:02:01.544Z"
+      "at": "2026-11-27T07:17:44.019Z"
     },
     {
       "id": "A2-C1-OFF-MOBILE-MENU-NAV",
       "status": "PASS",
       "observed": "Mobil menüde Mesajlar yok",
-      "at": "2026-11-27T07:02:01.624Z"
+      "at": "2026-11-27T07:17:44.102Z"
     },
     {
       "id": "A2-C1-DB-PRESERVED",
       "status": "PASS",
       "observed": "notification rows=2, all unread, none deleted",
-      "at": "2026-11-27T07:02:03.155Z"
+      "at": "2026-11-27T07:17:45.619Z"
     },
     {
       "id": "A2-C1-ENABLE-DIALOG-TURNS-ON",
       "status": "PASS",
       "observed": "Açılacaklar listesi tam",
-      "at": "2026-11-27T07:02:03.682Z"
+      "at": "2026-11-27T07:17:46.148Z"
     },
     {
       "id": "A2-C1-ENABLE-DIALOG-PRESERVED",
       "status": "PASS",
       "observed": "Korunanlar listesi tam",
-      "at": "2026-11-27T07:02:03.682Z"
+      "at": "2026-11-27T07:17:46.148Z"
     },
     {
       "id": "A2-C1-ENABLE-DIALOG-NO-DELETE",
       "status": "PASS",
       "observed": "Veriler silinmez. görünür",
-      "at": "2026-11-27T07:02:03.682Z"
+      "at": "2026-11-27T07:17:46.148Z"
     },
     {
       "id": "A2-C1-REVALIDATION",
       "status": "PASS",
-      "observed": "Tek odak/visibility revalidation sonrası menü döndü (75ms)",
-      "at": "2026-11-27T07:02:29.818Z"
+      "observed": "Tek odak/visibility revalidation sonrası menü döndü (76ms)",
+      "at": "2026-11-27T07:18:12.540Z"
     },
     {
       "id": "A2-C1-MESSAGES-PAGE",
       "status": "PASS",
       "observed": "Gerçek /messages konuşma listesi yüklendi",
-      "at": "2026-11-27T07:02:30.659Z"
+      "at": "2026-11-27T07:18:13.384Z"
     },
     {
       "id": "A2-C1-ON-NOTIFICATION-BADGE",
       "status": "PASS",
       "observed": "Rozet=2",
-      "at": "2026-11-27T07:02:30.661Z"
+      "at": "2026-11-27T07:18:13.389Z"
     },
     {
       "id": "A2-C1-ON-NOTIFICATION-LIST",
       "status": "PASS",
       "observed": "items=2, states=unread,unread",
-      "at": "2026-11-27T07:02:30.711Z"
+      "at": "2026-11-27T07:18:13.441Z"
     },
     {
       "id": "A2-C1-ON-OVERVIEW",
       "status": "PASS",
       "observed": "Okunmamış mesaj / İşlem bekliyor / 2 okunmamış mesaj",
-      "at": "2026-11-27T07:02:31.627Z"
+      "at": "2026-11-27T07:18:14.352Z"
     },
     {
       "id": "A2-C1-ON-JOB-DETAIL-ACTION",
       "status": "PASS",
       "observed": "Konuşmayı aç",
-      "at": "2026-11-27T07:02:32.517Z"
+      "at": "2026-11-27T07:18:15.253Z"
     },
     {
       "id": "A2-C1-ON-NAV",
       "status": "PASS",
       "observed": "Mesajlar bağlantısı görünür",
-      "at": "2026-11-27T07:02:32.518Z"
+      "at": "2026-11-27T07:18:15.257Z"
     },
     {
       "id": "A2-C1-ON-MOBILE-MENU-NAV",
       "status": "PASS",
       "observed": "Mobil menüde Mesajlar görünür",
-      "at": "2026-11-27T07:02:32.570Z"
+      "at": "2026-11-27T07:18:15.316Z"
     },
     {
       "id": "A2-C2-BEFORE-NOTIFICATION-BADGE",
       "status": "PASS",
       "observed": "Rozet=2",
-      "at": "2026-11-27T07:02:35.312Z"
+      "at": "2026-11-27T07:18:18.141Z"
     },
     {
       "id": "A2-C2-DIALOG-TURNS-OFF",
       "status": "PASS",
       "observed": "Kapanacaklar listesi tam",
-      "at": "2026-11-27T07:02:35.848Z"
+      "at": "2026-11-27T07:18:18.680Z"
     },
     {
       "id": "A2-C2-DIALOG-PRESERVED",
       "status": "PASS",
       "observed": "Korunanlar listesi tam",
-      "at": "2026-11-27T07:02:35.848Z"
+      "at": "2026-11-27T07:18:18.680Z"
     },
     {
       "id": "A2-C2-DIALOG-NO-DELETE",
       "status": "PASS",
       "observed": "Veriler silinmez. görünür",
-      "at": "2026-11-27T07:02:35.848Z"
+      "at": "2026-11-27T07:18:18.680Z"
     },
     {
       "id": "A2-C2-REDIRECT",
       "status": "PASS",
       "observed": "Müşteri sekmesi /jobs adresine geçti",
-      "at": "2026-11-27T07:02:35.895Z"
+      "at": "2026-11-27T07:18:18.722Z"
     },
     {
       "id": "A2-C2-OFF-NAV",
       "status": "PASS",
       "observed": "Mesajlar bağlantısı yok",
-      "at": "2026-11-27T07:02:35.902Z"
+      "at": "2026-11-27T07:18:18.728Z"
     },
     {
       "id": "A2-C2-OFF-NOTIFICATION-BADGE",
-      "status": "FAIL",
-      "observed": "Rozet görünür: 2",
-      "at": "2026-11-27T07:02:35.912Z"
+      "status": "PASS",
+      "observed": "Rozet yok",
+      "at": "2026-11-27T07:18:18.835Z"
     },
     {
       "id": "A2-C2-OFF-NOTIFICATION-COUNT-API",
       "status": "PASS",
       "observed": "server unreadCount=0",
-      "at": "2026-11-27T07:02:36.289Z"
+      "at": "2026-11-27T07:18:19.191Z"
     },
     {
       "id": "A2-C2-OFF-NOTIFICATION-LIST",
       "status": "PASS",
       "observed": "items=0, states=(none)",
-      "at": "2026-11-27T07:02:36.354Z"
+      "at": "2026-11-27T07:18:19.245Z"
     },
     {
       "id": "A2-C2-OFF-AFTER-RELOAD-NOTIFICATION-BADGE",
       "status": "PASS",
       "observed": "Rozet yok",
-      "at": "2026-11-27T07:02:36.851Z"
+      "at": "2026-11-27T07:18:19.754Z"
     },
     {
       "id": "A2-C2-OFF-OVERVIEW",
       "status": "PASS",
       "observed": "Okunmamış mesaj bölümü yok",
-      "at": "2026-11-27T07:02:37.703Z"
+      "at": "2026-11-27T07:18:20.601Z"
     },
     {
       "id": "A2-C2-OFF-JOB-DETAIL-ACTION",
       "status": "PASS",
       "observed": "Konuşma aksiyonu yok",
-      "at": "2026-11-27T07:02:38.579Z"
+      "at": "2026-11-27T07:18:21.468Z"
     },
     {
       "id": "A2-C2-OFF-MOBILE-MENU-NAV",
       "status": "PASS",
       "observed": "Mobil menüde Mesajlar yok",
-      "at": "2026-11-27T07:02:38.659Z"
+      "at": "2026-11-27T07:18:21.537Z"
     },
     {
       "id": "A2-C2-DB-PRESERVED",
       "status": "PASS",
       "observed": "notification rows=2, all unread, none deleted",
-      "at": "2026-11-27T07:02:40.171Z"
+      "at": "2026-11-27T07:18:23.066Z"
     },
     {
       "id": "A2-C2-ENABLE-DIALOG-TURNS-ON",
       "status": "PASS",
       "observed": "Açılacaklar listesi tam",
-      "at": "2026-11-27T07:02:40.697Z"
+      "at": "2026-11-27T07:18:23.598Z"
     },
     {
       "id": "A2-C2-ENABLE-DIALOG-PRESERVED",
       "status": "PASS",
       "observed": "Korunanlar listesi tam",
-      "at": "2026-11-27T07:02:40.697Z"
+      "at": "2026-11-27T07:18:23.598Z"
     },
     {
       "id": "A2-C2-ENABLE-DIALOG-NO-DELETE",
       "status": "PASS",
       "observed": "Veriler silinmez. görünür",
-      "at": "2026-11-27T07:02:40.697Z"
+      "at": "2026-11-27T07:18:23.598Z"
     },
     {
       "id": "A2-C2-REVALIDATION",
       "status": "PASS",
-      "observed": "Tek odak/visibility revalidation sonrası menü döndü (75ms)",
-      "at": "2026-11-27T07:03:07.385Z"
+      "observed": "Tek odak/visibility revalidation sonrası menü döndü (77ms)",
+      "at": "2026-11-27T07:18:50.281Z"
     },
     {
       "id": "A2-C2-MESSAGES-PAGE",
       "status": "PASS",
       "observed": "Gerçek /messages konuşma listesi yüklendi",
-      "at": "2026-11-27T07:03:08.227Z"
+      "at": "2026-11-27T07:18:51.132Z"
     },
     {
       "id": "A2-C2-ON-NOTIFICATION-BADGE",
       "status": "PASS",
       "observed": "Rozet=2",
-      "at": "2026-11-27T07:03:08.230Z"
+      "at": "2026-11-27T07:18:51.137Z"
     },
     {
       "id": "A2-C2-ON-NOTIFICATION-LIST",
       "status": "PASS",
       "observed": "items=2, states=unread,unread",
-      "at": "2026-11-27T07:03:08.282Z"
+      "at": "2026-11-27T07:18:51.183Z"
     },
     {
       "id": "A2-C2-ON-OVERVIEW",
       "status": "PASS",
       "observed": "Okunmamış mesaj / İşlem bekliyor / 2 okunmamış mesaj",
-      "at": "2026-11-27T07:03:09.164Z"
+      "at": "2026-11-27T07:18:52.065Z"
     },
     {
       "id": "A2-C2-ON-JOB-DETAIL-ACTION",
       "status": "PASS",
       "observed": "Konuşmayı aç",
-      "at": "2026-11-27T07:03:10.029Z"
+      "at": "2026-11-27T07:18:52.945Z"
     },
     {
       "id": "A2-C2-ON-NAV",
       "status": "PASS",
       "observed": "Mesajlar bağlantısı görünür",
-      "at": "2026-11-27T07:03:10.032Z"
+      "at": "2026-11-27T07:18:52.949Z"
     },
     {
       "id": "A2-C2-ON-MOBILE-MENU-NAV",
       "status": "PASS",
       "observed": "Mobil menüde Mesajlar görünür",
-      "at": "2026-11-27T07:03:10.092Z"
+      "at": "2026-11-27T07:18:53.010Z"
     },
     {
       "id": "A3-AUTHENTICATED-404",
       "status": "PASS",
       "observed": "status=404, code=NOT_FOUND, error=Sayfa bulunamadı.",
-      "at": "2026-11-27T07:03:12.262Z"
+      "at": "2026-11-27T07:18:55.146Z"
     },
     {
       "id": "A3-UNAUTHENTICATED-401",
       "status": "PASS",
       "observed": "status=401, code=UNAUTHENTICATED",
-      "at": "2026-11-27T07:03:12.263Z"
+      "at": "2026-11-27T07:18:55.147Z"
     },
     {
       "id": "A3-ME-CAPABILITY-FALSE",
       "status": "PASS",
       "observed": "status=200, messaging=false",
-      "at": "2026-11-27T07:03:12.264Z"
+      "at": "2026-11-27T07:18:55.147Z"
     },
     {
       "id": "A3-OVERVIEW-OMITS-SUMMARY",
       "status": "PASS",
       "observed": "status=200, messageUnreadSummary=omitted",
-      "at": "2026-11-27T07:03:12.267Z"
+      "at": "2026-11-27T07:18:55.150Z"
     },
     {
       "id": "ENV-WEB-PUSH-DISABLED",
       "status": "PASS",
       "observed": "status=200, enabled=false",
-      "at": "2026-11-27T07:03:12.268Z"
+      "at": "2026-11-27T07:18:55.151Z"
     },
     {
       "id": "A4-NOT-RUN",
       "status": "NOT_RUN",
       "observed": "WEB_PUSH_ENABLED=false: server/src/app.ts constructs the dispatcher only when config.webPush.enabled is true, so no dispatcher tick exists to observe. No PENDING delivery row was fabricated and no assertion is claimed.",
-      "at": "2026-11-27T07:03:12.268Z"
+      "at": "2026-11-27T07:18:55.151Z"
     },
     {
       "id": "A5-REASSIGN-OFF-SAVED",
       "status": "PASS",
       "observed": "Görev B personeline atandı",
-      "at": "2026-11-27T07:03:13.305Z"
+      "at": "2026-11-27T07:18:56.222Z"
     },
     {
       "id": "A5-REASSIGN-OFF-DB",
       "status": "PASS",
-      "observed": "assigned_to=ed3b1a15-0d72-411b-890a-bd8fec4db03b, activity=3e0afa16-21ee-4174-a5e2-97d9854f501d",
-      "at": "2026-11-27T07:03:13.309Z"
+      "observed": "assigned_to=7c7f811a-8095-4df4-b415-0fc3c847d6e2, activity=12cdfef0-383f-4f98-b2d6-a0e3954d751a",
+      "at": "2026-11-27T07:18:56.226Z"
     },
     {
       "id": "A5-NO-PROMPT-WHILE-OFF",
       "status": "PASS",
       "observed": "sync prompt count=0",
-      "at": "2026-11-27T07:03:13.310Z"
+      "at": "2026-11-27T07:18:56.227Z"
     },
     {
       "id": "A5-SYNC-NOTICE",
       "status": "PASS",
       "observed": "İşin yeni sorumlusu MSG-003 Personel B bu iş konuşmasının katılımcısı değil. /  / Konuşmaya ekle",
-      "at": "2026-11-27T07:03:14.316Z"
+      "at": "2026-11-27T07:18:57.247Z"
     },
     {
       "id": "A5-SYNC-DIALOG",
       "status": "PASS",
       "observed": "Konuşma katılımcısı güncel değil /  / İşin yeni sorumlusu MSG-003 Personel B bu iş konuşmasının katılımcısı değil. / Şimdi değil derseniz konuşmadaki mevcut katılımcılar değişmez. Önceki personel ileride bu işe tekrar atanırsa konuşmaya yeniden erişebilir. /  / Şimdi değil / MSG-003 Personel A yerine MSG-003 Personel B ekle",
-      "at": "2026-11-27T07:03:15.134Z"
+      "at": "2026-11-27T07:18:58.103Z"
     },
     {
       "id": "A5-SYNC-NOTICE-GONE",
       "status": "PASS",
       "observed": "Senkron sonrası kalıcı uyarı kayboldu",
-      "at": "2026-11-27T07:03:15.570Z"
+      "at": "2026-11-27T07:18:58.568Z"
     },
     {
       "id": "A5-SYNC-DB",
       "status": "PASS",
-      "observed": "A removed, B added, B.last_read=6ef102c4-890a-4312-ac0f-b7d7cfb95bd1",
-      "at": "2026-11-27T07:03:15.576Z"
+      "observed": "A removed, B added, B.last_read=cb67aa82-2577-403d-bbcb-85417894b24d",
+      "at": "2026-11-27T07:18:58.573Z"
     },
     {
       "id": "A5-SYNC-ACTIVITY",
       "status": "PASS",
-      "observed": "{\"jobId\":\"c115d49f-1e52-40c0-b63c-8d9ee37f2350\",\"actorUserId\":\"bfcc8f6a-85ef-46fb-ab87-e5f0067d5b55\",\"contextType\":\"JOB\",\"addedUserIds\":[\"ed3b1a15-0d72-411b-890a-bd8fec4db03b\"],\"removedUserIds\":[\"b63d528f-3ea8-4e18-bc52-7cd3863caac6\"],\"assignmentTransitionId\":\"3e0afa16-21ee-4174-a5e2-97d9854f501d\"}",
-      "at": "2026-11-27T07:03:15.579Z"
+      "observed": "{\"jobId\":\"fbe55c77-6073-4dc4-9ad6-2f531ae0ba9d\",\"actorUserId\":\"4d1ee45e-51cc-437b-80aa-8966ce776a61\",\"contextType\":\"JOB\",\"addedUserIds\":[\"7c7f811a-8095-4df4-b415-0fc3c847d6e2\"],\"removedUserIds\":[\"f203f40d-cd9a-425e-bc52-b815242946c5\"],\"assignmentTransitionId\":\"12cdfef0-383f-4f98-b2d6-a0e3954d751a\"}",
+      "at": "2026-11-27T07:18:58.576Z"
     },
     {
       "id": "A5-STAFF-B-UNREAD-ZERO",
       "status": "PASS",
       "observed": "Görünen okunmamış rozeti yok",
-      "at": "2026-11-27T07:03:16.999Z"
+      "at": "2026-11-27T07:18:59.983Z"
     },
     {
       "id": "A5-STAFF-B-UNREAD-API",
       "status": "PASS",
       "observed": "unreadCount=0",
-      "at": "2026-11-27T07:03:17.001Z"
+      "at": "2026-11-27T07:18:59.985Z"
     },
     {
       "id": "A5-STAFF-B-HISTORY",
       "status": "PASS",
       "observed": "B konuşma geçmişini gördü",
-      "at": "2026-11-27T07:03:17.044Z"
+      "at": "2026-11-27T07:19:00.036Z"
     },
     {
       "id": "A6-CONFIRMATION",
       "status": "PASS",
       "observed": "Personel devre dışı bırakılsın mı? /  / Erişim sonlandırılır, aktif oturumlar kapatılır ve seçtiğiniz sorumluluk kararları uygulanır. İşlem geçmişi korunur. /  / 1 aktif iş / 0 müşteri / 0 takvim ataması / 0 takip ataması / 0 hatırlatıcı / Neden: Erişim artık gerekli değil /  / Vazgeç / Erişimi sonlandır",
-      "at": "2026-11-27T07:03:20.083Z"
+      "at": "2026-11-27T07:19:03.068Z"
     },
     {
       "id": "A6-OFFBOARD-OFF-SUCCEEDED",
       "status": "PASS",
       "observed": "Offboarding messaging kapalıyken tamamlandı",
-      "at": "2026-11-27T07:03:20.140Z"
+      "at": "2026-11-27T07:19:03.125Z"
     },
     {
       "id": "A6-DB-TRANSFER",
       "status": "PASS",
       "observed": "B inactive, job assigned C, offboarding audit=1",
-      "at": "2026-11-27T07:03:20.529Z"
+      "at": "2026-11-27T07:19:03.513Z"
     },
     {
       "id": "A6-DB-PARTICIPANTS",
       "status": "PASS",
-      "observed": "B removed, C added, C.last_read=6ef102c4-890a-4312-ac0f-b7d7cfb95bd1",
-      "at": "2026-11-27T07:03:20.535Z"
+      "observed": "B removed, C added, C.last_read=cb67aa82-2577-403d-bbcb-85417894b24d",
+      "at": "2026-11-27T07:19:03.518Z"
     },
     {
       "id": "A6-STAFF-C-OPENS",
       "status": "PASS",
       "observed": "C konuşmayı unread 0 ile açtı ve geçmişi gördü",
-      "at": "2026-11-27T07:03:22.043Z"
+      "at": "2026-11-27T07:19:05.045Z"
     },
     {
       "id": "ENV-POSTGRES-DISPOSABLE-DROPPED",
       "status": "PASS",
       "observed": "Disposable database removed",
-      "at": "2026-11-27T07:03:22.929Z"
+      "at": "2026-11-27T07:19:05.956Z"
     },
     {
       "id": "ENV-POSTGRES-CLUSTER-REMOVED",
       "status": "PASS",
       "observed": "Isolated PostgreSQL cluster stopped and removed",
-      "at": "2026-11-27T07:03:23.092Z"
+      "at": "2026-11-27T07:19:06.121Z"
     }
   ],
   "screenshots": [

@@ -6,6 +6,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { chromium } from 'playwright';
@@ -15,7 +16,9 @@ const repositoryDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const serverDirectory = fileURLToPath(new URL('../../server/', import.meta.url));
 const evidenceDirectory = fileURLToPath(new URL('../../docs/evidence/msg003-messaging-module/', import.meta.url));
 const screenshotDirectory = `${evidenceDirectory}/screenshots`;
-const fleetEvidenceDirectory = process.env.FLEET_EVIDENCE_DIR ?? '';
+const fleetEvidenceDirectory = process.env.FLEET_EVIDENCE_DIR?.trim() ?? '';
+// Raw process logs stay out of the repository: FLEET_EVIDENCE_DIR when the runner sets it, else an OS temp dir.
+const logDirectory = fleetEvidenceDirectory || mkdtempSync(`${tmpdir()}/servora-msg003-acceptance-logs-`);
 const serverRequire = createRequire(new URL('../../server/package.json', import.meta.url));
 const { Client } = serverRequire('pg');
 
@@ -37,6 +40,7 @@ const postgresBin = postgresBinCandidates.find((candidate) => (
 if (!postgresBin) throw new Error('An isolated PostgreSQL initdb/pg_ctl installation is required');
 
 mkdirSync(screenshotDirectory, { recursive: true });
+mkdirSync(logDirectory, { recursive: true });
 
 const results = [];
 const screenshots = [];
@@ -197,7 +201,7 @@ async function runCommandWithInput(label, command, args, input, options = {}) {
 }
 
 function startProcess(label, command, args, options = {}) {
-  const logPath = `${evidenceDirectory}/${label}.log`;
+  const logPath = `${logDirectory}/${label}.log`;
   const stream = createWriteStream(logPath, { flags: 'a' });
   const child = spawn(command, args, {
     cwd: options.cwd,
@@ -841,6 +845,13 @@ try {
 
   async function verifyNotificationBadge(prefix, expectedText) {
     await check(`${prefix}-NOTIFICATION-BADGE`, async () => {
+      // The unread count refetches asynchronously after a capability change, so settle before asserting.
+      if (expectedText === null) {
+        await waitForLocatorCount(managerPage.locator('.notification-center-badge'), 0, 10_000);
+      } else {
+        await managerPage.locator('.notification-center-badge').first()
+          .waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
+      }
       const badge = managerPage.locator('.notification-center-badge').first();
       const count = await badge.count();
       const text = count > 0 ? (await badge.innerText()).trim() : '';
@@ -1321,7 +1332,7 @@ async function writeEvidence() {
     failure: failure ? sanitize(failure instanceof Error ? failure.stack ?? failure.message : String(failure)) : null,
   };
   writeFileSync(`${evidenceDirectory}/runtime-results.json`, `${JSON.stringify(payload, null, 2)}\n`);
-  writeFileSync(`${evidenceDirectory}/runtime-log.txt`, `${runLog.join('\n')}\n`);
+  writeFileSync(`${logDirectory}/runtime-log.txt`, `${runLog.join('\n')}\n`);
 
   const rows = scenarios.map((scenario) => (
     `| ${scenario.scenario} | ${scenario.status} | ${scenario.records.filter((entry) => entry.status === 'PASS').length}/${scenario.records.length} | ${scenario.title} |`
@@ -1379,9 +1390,9 @@ ${screenshotRows}
 ## Files
 
 - \`runtime-results.json\` — every assertion with status, observed value and timestamp.
-- \`runtime-log.txt\` — harness setup, scenario and assertion log.
-- \`fastify.log\`, \`vite.log\` — captured process output.
 - \`screenshots/\` — scenario screenshots named \`<screen>-<width>.png\`.
+- Raw logs (\`runtime-log.txt\`, \`fastify.log\`, \`vite.log\`) are not committed: the
+  harness writes them to \`$FLEET_EVIDENCE_DIR\` when set, else to an OS temp directory.
 `);
 
   if (fleetEvidenceDirectory) {

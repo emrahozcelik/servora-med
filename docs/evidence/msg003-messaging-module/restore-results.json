@@ -1,10 +1,10 @@
 {
   "gate": "MSG003_RESTORE_DRILL_REAL_RUNTIME",
   "scenario": "MSG-003 restore/reset acceptance (contract §10)",
-  "executedAt": "2026-11-27T06:47:42.474Z",
-  "finishedAt": "2026-11-27T06:47:47.606Z",
-  "featureHead": "0397b48af9d11ecafcaff5198addbf2361044e97",
-  "branch": "fleet/20261127-093821-deepseek-7709",
+  "executedAt": "2026-11-27T07:19:29.063Z",
+  "finishedAt": "2026-11-27T07:19:34.308Z",
+  "featureHead": "98e3a8080eac9ab78ca71b1ba63b75e7c73ec46d",
+  "branch": "fleet/20261127-101353-deepseek-162a",
   "result": "PASS",
   "runtime": {
     "postgresql": "postgres (PostgreSQL) 17.11 (Homebrew)",
@@ -24,9 +24,9 @@
       "id": "R1",
       "title": "Migrated DB, first-start takeover on, operator disables MESSAGING, pg_dump",
       "status": "PASS",
-      "startedAt": "2026-11-27T06:47:43.471Z",
-      "finishedAt": "2026-11-27T06:47:44.819Z",
-      "summary": "MESSAGING takeover ON (version 1, ENV_TAKEOVER); operator login 200; PUT off 200 -> version 2; dump 356388 bytes sha256=cc25161de7d122a71928f4aca4b4b7c7626ae493bb11edbe248171dd9d2bb939; backup audit events=3",
+      "startedAt": "2026-11-27T07:19:30.115Z",
+      "finishedAt": "2026-11-27T07:19:31.466Z",
+      "summary": "MESSAGING takeover ON (version 1, ENV_TAKEOVER); operator login 200; PUT off 200 -> version 2; dump 356393 bytes sha256=d9673821bda5a5767a9afa99133c6077c010419e5c4bcc35aa0fc9d8c335a0f9; backup audit events=3",
       "checks": [
         {
           "scenario": "R1",
@@ -38,19 +38,19 @@
           "scenario": "R1",
           "check": "SYNTHETIC-CUSTOMER-SEEDED",
           "status": "PASS",
-          "observed": "bootstrap:admin completed for msg003-customer-69cd27fb@example.test"
+          "observed": "bootstrap:admin completed for msg003-customer-ec606051@example.test"
         },
         {
           "scenario": "R1",
           "check": "SERVER-FIRST-START",
           "status": "PASS",
-          "observed": "real dist server healthy on http://127.0.0.1:49683"
+          "observed": "real dist server healthy on http://127.0.0.1:58149"
         },
         {
           "scenario": "R1",
           "check": "TAKEOVER-MESSAGING-ON",
           "status": "PASS",
-          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:44.455Z\",\"updated_by_operator_id\":null}"
+          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:31.172Z\",\"updated_by_operator_id\":null}"
         },
         {
           "scenario": "R1",
@@ -62,7 +62,7 @@
           "scenario": "R1",
           "check": "OPERATOR-GRANTED",
           "status": "PASS",
-          "observed": "account={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T06:47:44.651Z\"}"
+          "observed": "account={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T07:19:31.287Z\"}"
         },
         {
           "scenario": "R1",
@@ -74,25 +74,25 @@
           "scenario": "R1",
           "check": "MESSAGING-INITIALLY-ON",
           "status": "PASS",
-          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T06:47:44.455Z\"}"
+          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T07:19:31.172Z\"}"
         },
         {
           "scenario": "R1",
           "check": "OPERATOR-SWITCHES-MESSAGING-OFF",
           "status": "PASS",
-          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
         },
         {
           "scenario": "R1",
           "check": "MESSAGING-OFF-VISIBLE-TO-OPERATOR",
           "status": "PASS",
-          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
         },
         {
           "scenario": "R1",
           "check": "CUSTOM-FORMAT-DUMP-TAKEN",
           "status": "PASS",
-          "observed": "sizeBytes=356388, sha256=cc25161de7d122a71928f4aca4b4b7c7626ae493bb11edbe248171dd9d2bb939"
+          "observed": "sizeBytes=356393, sha256=d9673821bda5a5767a9afa99133c6077c010419e5c4bcc35aa0fc9d8c335a0f9"
         }
       ]
     },
@@ -100,8 +100,8 @@
       "id": "R2",
       "title": "Operator re-enables MESSAGING after the dump (state drift)",
       "status": "PASS",
-      "startedAt": "2026-11-27T06:47:44.819Z",
-      "finishedAt": "2026-11-27T06:47:44.905Z",
+      "startedAt": "2026-11-27T07:19:31.466Z",
+      "finishedAt": "2026-11-27T07:19:31.549Z",
       "summary": "MESSAGING switched ON again: version 3 / enabled true in the primary database while the dump still holds version 2 / disabled",
       "checks": [
         {
@@ -114,13 +114,13 @@
           "scenario": "R2",
           "check": "OPERATOR-SWITCHES-MESSAGING-ON",
           "status": "PASS",
-          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.894Z\"}"
+          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.538Z\"}"
         },
         {
           "scenario": "R2",
           "check": "PRIMARY-STATE-DIFFERS-FROM-DUMP",
           "status": "PASS",
-          "observed": "primary row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.894Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"}; dump captured version 2/off"
+          "observed": "primary row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.538Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"}; dump captured version 2/off"
         },
         {
           "scenario": "R2",
@@ -134,27 +134,27 @@
       "id": "R3",
       "title": "Restore + reset-after-restore + restart: backup instant wins, old operator access rejected",
       "status": "PASS",
-      "startedAt": "2026-11-27T06:47:44.905Z",
-      "finishedAt": "2026-11-27T06:47:46.002Z",
+      "startedAt": "2026-11-27T07:19:31.549Z",
+      "finishedAt": "2026-11-27T07:19:32.695Z",
       "summary": "Restore returned MESSAGING off at version 2; reset-after-restore deactivated 1 operator and revoked 1 session; old cookie/password 401; re-grant + new password 200; customer /me messaging=false; MESSAGING_ENABLED=true ignored",
       "checks": [
         {
           "scenario": "R3",
           "check": "PG-RESTORE-INTO-NEW-DATABASE",
           "status": "PASS",
-          "observed": "pg_restore completed into disposable database msg003_restored_69cd27fb"
+          "observed": "pg_restore completed into disposable database msg003_restored_ec606051"
         },
         {
           "scenario": "R3",
           "check": "RESTORED-MODULE-STATE-EQUALS-BACKUP-INSTANT",
           "status": "PASS",
-          "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:44.453Z\",\"updated_by_operator_id\":null}], moduleAuditEvents=3, operator={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T06:47:44.651Z\"}"
+          "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:31.170Z\",\"updated_by_operator_id\":null}], moduleAuditEvents=3, operator={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T07:19:31.287Z\"}"
         },
         {
           "scenario": "R3",
           "check": "RESTORED-MESSAGING-OFF-BACKUP-VERSION",
           "status": "PASS",
-          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"}; backupApiRow={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"}; backupApiRow={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
         },
         {
           "scenario": "R3",
@@ -166,13 +166,13 @@
           "scenario": "R3",
           "check": "OPERATOR-DEACTIVATED-AND-SESSIONS-REVOKED",
           "status": "PASS",
-          "observed": "account={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":false,\"version\":2,\"updated_at\":\"2026-11-27T06:47:45.135Z\"}, activeSessions=0, resetEvents=[{\"actor_kind\":\"SYSTEM\",\"event_type\":\"OPERATOR_ACCESS_RESET_BY_RESTORE\",\"target_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"new_value\":{\"revokedSessions\":1},\"occurred_at\":\"2026-11-27T06:47:45.135Z\"}]"
+          "observed": "account={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":false,\"version\":2,\"updated_at\":\"2026-11-27T07:19:31.859Z\"}, activeSessions=0, resetEvents=[{\"actor_kind\":\"SYSTEM\",\"event_type\":\"OPERATOR_ACCESS_RESET_BY_RESTORE\",\"target_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"new_value\":{\"revokedSessions\":1},\"occurred_at\":\"2026-11-27T07:19:31.859Z\"}]"
         },
         {
           "scenario": "R3",
           "check": "RESET-LEAVES-MODULE-STATE-AT-BACKUP-INSTANT",
           "status": "PASS",
-          "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:44.453Z\",\"updated_by_operator_id\":null}]"
+          "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:31.170Z\",\"updated_by_operator_id\":null}]"
         },
         {
           "scenario": "R3",
@@ -184,7 +184,7 @@
           "scenario": "R3",
           "check": "ENV-IGNORED-AFTER-RESTORE",
           "status": "PASS",
-          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"} (env MESSAGING_ENABLED=true)"
+          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"} (env MESSAGING_ENABLED=true)"
         },
         {
           "scenario": "R3",
@@ -220,7 +220,7 @@
           "scenario": "R3",
           "check": "HOST-REGRANT-REACTIVATES-ACCOUNT",
           "status": "PASS",
-          "observed": "output=Reactivated operator msg003-operator-69cd27fb@example.test (MODULE_MANAGEMENT)., account={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":3,\"updated_at\":\"2026-11-27T06:47:45.819Z\"}"
+          "observed": "output=Reactivated operator msg003-operator-ec606051@example.test (MODULE_MANAGEMENT)., account={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":3,\"updated_at\":\"2026-11-27T07:19:32.531Z\"}"
         },
         {
           "scenario": "R3",
@@ -238,7 +238,7 @@
           "scenario": "R3",
           "check": "MODULES-SHOW-BACKUP-INSTANT-AFTER-REGRANT",
           "status": "PASS",
-          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}, backup={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}, backup={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
         },
         {
           "scenario": "R3",
@@ -258,8 +258,8 @@
       "id": "R4",
       "title": "Pre-takeover backup restore: takeover creates MESSAGING and one audit event",
       "status": "PASS",
-      "startedAt": "2026-11-27T06:47:46.002Z",
-      "finishedAt": "2026-11-27T06:47:47.256Z",
+      "startedAt": "2026-11-27T07:19:32.695Z",
+      "finishedAt": "2026-11-27T07:19:33.973Z",
       "summary": "Pre-takeover dump (no module rows) restored; first start created MESSAGING enabled=true version 1 ENV_TAKEOVER with exactly one MODULE_STATE_TAKEN_OVER event; Modules API confirms it",
       "checks": [
         {
@@ -278,7 +278,7 @@
           "scenario": "R4",
           "check": "PRE-TAKEOVER-BACKUP-RESTORED",
           "status": "PASS",
-          "observed": "pg_restore completed into msg003_pre_restored_69cd27fb; dump size=355117"
+          "observed": "pg_restore completed into msg003_pre_restored_ec606051; dump size=355132"
         },
         {
           "scenario": "R4",
@@ -290,7 +290,7 @@
           "scenario": "R4",
           "check": "TAKEOVER-CREATES-MESSAGING-ROW",
           "status": "PASS",
-          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:46.979Z\",\"updated_by_operator_id\":null}"
+          "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:33.693Z\",\"updated_by_operator_id\":null}"
         },
         {
           "scenario": "R4",
@@ -308,7 +308,7 @@
           "scenario": "R4",
           "check": "TAKEOVER-VISIBLE-ON-MODULES-API",
           "status": "PASS",
-          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T06:47:46.979Z\"}"
+          "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T07:19:33.693Z\"}"
         }
       ]
     }
@@ -324,19 +324,19 @@
       "scenario": "R1",
       "check": "SYNTHETIC-CUSTOMER-SEEDED",
       "status": "PASS",
-      "observed": "bootstrap:admin completed for msg003-customer-69cd27fb@example.test"
+      "observed": "bootstrap:admin completed for msg003-customer-ec606051@example.test"
     },
     {
       "scenario": "R1",
       "check": "SERVER-FIRST-START",
       "status": "PASS",
-      "observed": "real dist server healthy on http://127.0.0.1:49683"
+      "observed": "real dist server healthy on http://127.0.0.1:58149"
     },
     {
       "scenario": "R1",
       "check": "TAKEOVER-MESSAGING-ON",
       "status": "PASS",
-      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:44.455Z\",\"updated_by_operator_id\":null}"
+      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:31.172Z\",\"updated_by_operator_id\":null}"
     },
     {
       "scenario": "R1",
@@ -348,7 +348,7 @@
       "scenario": "R1",
       "check": "OPERATOR-GRANTED",
       "status": "PASS",
-      "observed": "account={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T06:47:44.651Z\"}"
+      "observed": "account={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T07:19:31.287Z\"}"
     },
     {
       "scenario": "R1",
@@ -360,25 +360,25 @@
       "scenario": "R1",
       "check": "MESSAGING-INITIALLY-ON",
       "status": "PASS",
-      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T06:47:44.455Z\"}"
+      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T07:19:31.172Z\"}"
     },
     {
       "scenario": "R1",
       "check": "OPERATOR-SWITCHES-MESSAGING-OFF",
       "status": "PASS",
-      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
     },
     {
       "scenario": "R1",
       "check": "MESSAGING-OFF-VISIBLE-TO-OPERATOR",
       "status": "PASS",
-      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
     },
     {
       "scenario": "R1",
       "check": "CUSTOM-FORMAT-DUMP-TAKEN",
       "status": "PASS",
-      "observed": "sizeBytes=356388, sha256=cc25161de7d122a71928f4aca4b4b7c7626ae493bb11edbe248171dd9d2bb939"
+      "observed": "sizeBytes=356393, sha256=d9673821bda5a5767a9afa99133c6077c010419e5c4bcc35aa0fc9d8c335a0f9"
     },
     {
       "scenario": "R2",
@@ -390,13 +390,13 @@
       "scenario": "R2",
       "check": "OPERATOR-SWITCHES-MESSAGING-ON",
       "status": "PASS",
-      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.894Z\"}"
+      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.538Z\"}"
     },
     {
       "scenario": "R2",
       "check": "PRIMARY-STATE-DIFFERS-FROM-DUMP",
       "status": "PASS",
-      "observed": "primary row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.894Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"}; dump captured version 2/off"
+      "observed": "primary row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":3,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.538Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"}; dump captured version 2/off"
     },
     {
       "scenario": "R2",
@@ -408,19 +408,19 @@
       "scenario": "R3",
       "check": "PG-RESTORE-INTO-NEW-DATABASE",
       "status": "PASS",
-      "observed": "pg_restore completed into disposable database msg003_restored_69cd27fb"
+      "observed": "pg_restore completed into disposable database msg003_restored_ec606051"
     },
     {
       "scenario": "R3",
       "check": "RESTORED-MODULE-STATE-EQUALS-BACKUP-INSTANT",
       "status": "PASS",
-      "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:44.453Z\",\"updated_by_operator_id\":null}], moduleAuditEvents=3, operator={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T06:47:44.651Z\"}"
+      "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:31.170Z\",\"updated_by_operator_id\":null}], moduleAuditEvents=3, operator={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":1,\"updated_at\":\"2026-11-27T07:19:31.287Z\"}"
     },
     {
       "scenario": "R3",
       "check": "RESTORED-MESSAGING-OFF-BACKUP-VERSION",
       "status": "PASS",
-      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"}; backupApiRow={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"}; backupApiRow={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
     },
     {
       "scenario": "R3",
@@ -432,13 +432,13 @@
       "scenario": "R3",
       "check": "OPERATOR-DEACTIVATED-AND-SESSIONS-REVOKED",
       "status": "PASS",
-      "observed": "account={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":false,\"version\":2,\"updated_at\":\"2026-11-27T06:47:45.135Z\"}, activeSessions=0, resetEvents=[{\"actor_kind\":\"SYSTEM\",\"event_type\":\"OPERATOR_ACCESS_RESET_BY_RESTORE\",\"target_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"new_value\":{\"revokedSessions\":1},\"occurred_at\":\"2026-11-27T06:47:45.135Z\"}]"
+      "observed": "account={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":false,\"version\":2,\"updated_at\":\"2026-11-27T07:19:31.859Z\"}, activeSessions=0, resetEvents=[{\"actor_kind\":\"SYSTEM\",\"event_type\":\"OPERATOR_ACCESS_RESET_BY_RESTORE\",\"target_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"new_value\":{\"revokedSessions\":1},\"occurred_at\":\"2026-11-27T07:19:31.859Z\"}]"
     },
     {
       "scenario": "R3",
       "check": "RESET-LEAVES-MODULE-STATE-AT-BACKUP-INSTANT",
       "status": "PASS",
-      "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:44.453Z\",\"updated_by_operator_id\":null}]"
+      "observed": "modules=[{\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"},{\"module_key\":\"OVERVIEW\",\"enabled\":false,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:31.170Z\",\"updated_by_operator_id\":null}]"
     },
     {
       "scenario": "R3",
@@ -450,7 +450,7 @@
       "scenario": "R3",
       "check": "ENV-IGNORED-AFTER-RESTORE",
       "status": "PASS",
-      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T06:47:44.743Z\",\"updated_by_operator_id\":\"b525f2e4-539e-4376-97de-77c061c1d377\"} (env MESSAGING_ENABLED=true)"
+      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updated_at\":\"2026-11-27T07:19:31.377Z\",\"updated_by_operator_id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\"} (env MESSAGING_ENABLED=true)"
     },
     {
       "scenario": "R3",
@@ -486,7 +486,7 @@
       "scenario": "R3",
       "check": "HOST-REGRANT-REACTIVATES-ACCOUNT",
       "status": "PASS",
-      "observed": "output=Reactivated operator msg003-operator-69cd27fb@example.test (MODULE_MANAGEMENT)., account={\"id\":\"b525f2e4-539e-4376-97de-77c061c1d377\",\"email\":\"msg003-operator-69cd27fb@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":3,\"updated_at\":\"2026-11-27T06:47:45.819Z\"}"
+      "observed": "output=Reactivated operator msg003-operator-ec606051@example.test (MODULE_MANAGEMENT)., account={\"id\":\"151416eb-eefc-4b14-9781-ca09e3f5e52f\",\"email\":\"msg003-operator-ec606051@example.test\",\"name\":\"MSG-003 Operator\",\"is_active\":true,\"version\":3,\"updated_at\":\"2026-11-27T07:19:32.531Z\"}"
     },
     {
       "scenario": "R3",
@@ -504,7 +504,7 @@
       "scenario": "R3",
       "check": "MODULES-SHOW-BACKUP-INSTANT-AFTER-REGRANT",
       "status": "PASS",
-      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}, backup={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T06:47:44.743Z\"}"
+      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}, backup={\"key\":\"MESSAGING\",\"enabled\":false,\"version\":2,\"source\":\"OPERATOR\",\"updatedAt\":\"2026-11-27T07:19:31.377Z\"}"
     },
     {
       "scenario": "R3",
@@ -534,7 +534,7 @@
       "scenario": "R4",
       "check": "PRE-TAKEOVER-BACKUP-RESTORED",
       "status": "PASS",
-      "observed": "pg_restore completed into msg003_pre_restored_69cd27fb; dump size=355117"
+      "observed": "pg_restore completed into msg003_pre_restored_ec606051; dump size=355132"
     },
     {
       "scenario": "R4",
@@ -546,7 +546,7 @@
       "scenario": "R4",
       "check": "TAKEOVER-CREATES-MESSAGING-ROW",
       "status": "PASS",
-      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T06:47:46.979Z\",\"updated_by_operator_id\":null}"
+      "observed": "row={\"module_key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updated_at\":\"2026-11-27T07:19:33.693Z\",\"updated_by_operator_id\":null}"
     },
     {
       "scenario": "R4",
@@ -564,21 +564,21 @@
       "scenario": "R4",
       "check": "TAKEOVER-VISIBLE-ON-MODULES-API",
       "status": "PASS",
-      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T06:47:46.979Z\"}"
+      "observed": "status=200, module={\"key\":\"MESSAGING\",\"enabled\":true,\"version\":1,\"source\":\"ENV_TAKEOVER\",\"updatedAt\":\"2026-11-27T07:19:33.693Z\"}"
     }
   ],
   "backups": [
     {
-      "name": "msg003-r1-69cd27fb",
+      "name": "msg003-r1-ec606051",
       "format": "custom",
-      "sizeBytes": 356388,
-      "sha256": "cc25161de7d122a71928f4aca4b4b7c7626ae493bb11edbe248171dd9d2bb939"
+      "sizeBytes": 356393,
+      "sha256": "d9673821bda5a5767a9afa99133c6077c010419e5c4bcc35aa0fc9d8c335a0f9"
     },
     {
-      "name": "msg003-r4-69cd27fb",
+      "name": "msg003-r4-ec606051",
       "format": "custom",
-      "sizeBytes": 355117,
-      "sha256": "ffde58bee505421112964bc79ec31753d61c02f17b76b6777a2aa9670be3c1d0"
+      "sizeBytes": 355132,
+      "sha256": "1e3fd1ebbf72f82644a0d3b93571d8a947b9625440fc979f3488393f817bdf20"
     }
   ],
   "failure": null

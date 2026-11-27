@@ -20,11 +20,12 @@
  *     takeover must create exactly one MESSAGING row (ENV_TAKEOVER) and one
  *     MODULE_STATE_TAKEN_OVER event.
  *
- * Evidence (results JSON, markdown, run log) is written under
- * docs/evidence/msg003-messaging-module/. Dump files are NOT retained because
- * they contain operator password and session hashes; only size and SHA-256 are
- * recorded. Passwords, cookies and database URLs with credentials are never
- * written to evidence.
+ * Evidence (results JSON and markdown) is written under
+ * docs/evidence/msg003-messaging-module/. Raw run logs are not committed: they go
+ * to $FLEET_EVIDENCE_DIR when set, else to an OS temp directory. Dump files are NOT
+ * retained because they contain operator password and session hashes; only size and
+ * SHA-256 are recorded. Passwords, cookies and database URLs with credentials are
+ * never written to evidence.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -42,12 +43,15 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const repositoryDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const serverDirectory = fileURLToPath(new URL('../../server/', import.meta.url));
 const evidenceDirectory = fileURLToPath(new URL('../../docs/evidence/msg003-messaging-module/', import.meta.url));
 const fleetEvidenceDirectory = process.env.FLEET_EVIDENCE_DIR?.trim() || null;
+// Raw run logs stay out of the repository: FLEET_EVIDENCE_DIR when the runner sets it, else an OS temp dir.
+const logDirectory = fleetEvidenceDirectory || mkdtempSync(`${tmpdir()}/servora-msg003-restore-logs-`);
 const serverRequire = createRequire(new URL('../../server/package.json', import.meta.url));
 const { Client } = serverRequire('pg');
 
@@ -74,6 +78,7 @@ if (!/PostgreSQL\) 17\./.test(postgresVersion)) {
 }
 
 mkdirSync(evidenceDirectory, { recursive: true });
+mkdirSync(logDirectory, { recursive: true });
 
 const startedAt = new Date().toISOString();
 const runSuffix = randomBytes(4).toString('hex');
@@ -1131,14 +1136,21 @@ operator password and session hashes. Only the size and SHA-256 are recorded.
   records are needed for this drill.
 - \`pg_dump\` was taken while the primary server was running (consistent snapshot),
   which mirrors the backup worker's live-database path, not a quiesced maintenance window.
+
+## Files
+
+- \`restore-results.json\` — every assertion, scenario status and backup artifact digest.
+- \`restore-drill.md\` — this report.
+- The raw run log (\`restore-run.log\`) is not committed: the harness writes it to
+  \`$FLEET_EVIDENCE_DIR\` when set, else to an OS temp directory.
 `;
 
   writeFileSync(`${evidenceDirectory}/restore-drill.md`, markdown);
-  writeFileSync(`${evidenceDirectory}/restore-run.log`, `${runLog.join('\n')}\n`);
+  writeFileSync(`${logDirectory}/restore-run.log`, `${runLog.join('\n')}\n`);
 
   if (fleetEvidenceDirectory) {
     mkdirSync(fleetEvidenceDirectory, { recursive: true });
-    for (const fileName of ['restore-results.json', 'restore-drill.md', 'restore-run.log']) {
+    for (const fileName of ['restore-results.json', 'restore-drill.md']) {
       copyFileSync(`${evidenceDirectory}/${fileName}`, `${fleetEvidenceDirectory}/${fileName}`);
     }
   }
