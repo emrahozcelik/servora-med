@@ -3872,4 +3872,4 @@ restart, and a customer ADMIN must not be able to switch it.
 
 - Contract: [docs/features/messaging-module-registry.md](docs/features/messaging-module-registry.md).
 - No migration. Delivered as MSG-001 (runtime module) and MSG-002 (participant
-  lifecycle), then MSG-003 acceptance on staging.
+  lifecycle), then MSG-003 acceptance on the real app run locally (no staging exists).

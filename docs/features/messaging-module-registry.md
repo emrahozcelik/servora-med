@@ -27,7 +27,7 @@ Messaging work.
 | **R0** | Shared registry widening (§2). No new module entry. | 075 (owned by R0) |
 | **MSG-001** | Messaging runtime module state: registry entry, takeover, API/capability, Overview, notifications, push, SSE, web, operator copy (§3–§8) | none |
 | **MSG-002** | Participant lifecycle: later assignee sync, sync authority, offboarding read marker, inactive participants (§9) | none expected |
-| **MSG-003** | Regression and production acceptance: off/on/off cycles, open sessions, concurrency, backup/restore, staging (§10) | none |
+| **MSG-003** | Acceptance on the real app run locally (no staging environment exists): off/on cycles, open sessions, backup/restore (§10) | none |
 
 The job-cards read port (research V4) and a broader Messaging refactor are deferred.
 
@@ -234,10 +234,15 @@ Web:
   version conflict and error states keep working.
 - JobDetail shows the persistent sync action when `assigneeSync` is set.
 
-Acceptance (MSG-003): on staging, flip Messaging off and on twice from `/operator` with an
-open customer session; verify menu, page, notifications, push and Overview each time.
-Restore: state and audit return to the backup instant, and a pre-075 backup re-runs
-takeover.
+Acceptance (MSG-003): staging does not exist and staging deployment is not authorized
+(`docs/operations/staging-contract.md`), so acceptance runs locally against the real app
+(real server, isolated PostgreSQL 17 cluster, real Vite web, Playwright, synthetic data
+only). Flip Messaging off and on twice from `/operator` with an open customer session;
+verify menu, page, Job Detail, notifications and Overview each time. Restore: state and
+audit return to the backup instant, operator access is reset, and a backup taken before
+takeover re-runs takeover. Evidence: `docs/evidence/msg003-messaging-module/`. Production
+activation (deploy with `allow_migrations`, first operator grant) is a separate,
+owner-approved step.
 
 ## 11. Docs updated with the code
 
