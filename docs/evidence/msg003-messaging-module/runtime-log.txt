@@ -1,0 +1,112 @@
+[2026-11-27T07:01:52.028Z] run: /opt/homebrew/opt/postgresql@17/bin/initdb -D /private/tmp/servora-msg003-postgres-0l24m7 --auth=trust --username=servora_msg003 --encoding=UTF8 --no-locale (postgres-initdb)
+[2026-11-27T07:01:52.323Z] run: /opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /private/tmp/servora-msg003-postgres-0l24m7 -l /private/tmp/servora-msg003-postgres-0l24m7/postgres.log -o -h 127.0.0.1 -p 53909 -F start -w (postgres-start)
+[2026-11-27T07:01:52.435Z] ENV-POSTGRES-ISOLATED-CLUSTER: PASS — Disposable PostgreSQL cluster started on a random loopback port under /private/tmp
+[2026-11-27T07:01:52.470Z] ENV-POSTGRES-DISPOSABLE-CREATED: PASS — Dedicated disposable database created
+[2026-11-27T07:01:52.471Z] run: npm run build (server-build)
+[2026-11-27T07:01:53.066Z] ENV-SERVER-BUILD: PASS — TypeScript server build completed
+[2026-11-27T07:01:53.066Z] run: npm run migrate (server-migrate)
+[2026-11-27T07:01:53.447Z] ENV-SERVER-MIGRATIONS: PASS — All repository migrations completed on the disposable PostgreSQL 17 database
+[2026-11-27T07:01:53.447Z] run: npm run bootstrap:admin (bootstrap-admin)
+[2026-11-27T07:01:53.759Z] ENV-SYNTHETIC-FIXTURE: PASS — Bootstrap Admin plus synthetic MANAGER, STAFF A/B/C, one customer and one GENERAL_TASK job created
+[2026-11-27T07:01:53.861Z] ENV-OPERATOR-GRANTED: PASS — Granted operator msg003-operator@example.test (MODULE_MANAGEMENT).
+[2026-11-27T07:01:54.339Z] ENV-REAL-FASTIFY-READY: PASS — Real built Fastify server answered /api/health
+[2026-11-27T07:01:54.654Z] ENV-REAL-VITE-READY: PASS — Real Vite dev server answered on the web origin
+[2026-11-27T07:01:54.932Z] ENV-PLAYWRIGHT-CHROMIUM: PASS — Playwright Chromium launched
+[2026-11-27T07:01:55.501Z] scenario A1 start
+[2026-11-27T07:01:55.594Z] A1-MODULE-VISIBLE: PASS — Mesajlaşma modül satırı görünür
+[2026-11-27T07:01:55.595Z] A1-MODULE-ENABLED: PASS — Görünen durum=Açık
+[2026-11-27T07:01:55.596Z] A1-TAKEOVER-SOURCE: PASS — Son değişiklik: 27 Kasım 2026 10:01 · kurulum ayarından devralındı
+[2026-11-27T07:01:55.597Z] A1-DESCRIPTION-VISIBLE: PASS — İş ve konu merkezli kurum içi iletişim.
+[2026-11-27T07:01:55.597Z] A1-SWITCH-CHECKED: PASS — aria-checked=true
+[2026-11-27T07:01:56.298Z] A1-DB-ENV-TAKEOVER: PASS — {"module_key":"MESSAGING","enabled":true,"version":1,"source":"ENV_TAKEOVER"}
+[2026-11-27T07:01:56.300Z] A1-DB-TAKEOVER-AUDIT: PASS — MODULE_STATE_TAKEN_OVER enabled=true
+[2026-11-27T07:01:56.300Z] scenario A1 end
+[2026-11-27T07:01:56.468Z] ENV-MESSAGING-FIXTURE: PASS — capability=true, notificationCount=2
+[2026-11-27T07:01:56.470Z] ENV-MESSAGING-HISTORY: PASS — messages sent=2
+[2026-11-27T07:01:56.965Z] scenario A2 start
+[2026-11-27T07:01:57.828Z] A2-C1-BEFORE-NOTIFICATION-BADGE: PASS — Rozet=2
+[2026-11-27T07:01:58.328Z] A2-C1-DIALOG-TURNS-OFF: PASS — Kapanacaklar listesi tam
+[2026-11-27T07:01:58.328Z] A2-C1-DIALOG-PRESERVED: PASS — Korunanlar listesi tam
+[2026-11-27T07:01:58.328Z] A2-C1-DIALOG-NO-DELETE: PASS — Veriler silinmez. görünür
+[2026-11-27T07:01:58.363Z] A2-C1-REDIRECT: PASS — Müşteri sekmesi /jobs adresine geçti
+[2026-11-27T07:01:58.369Z] A2-C1-OFF-NAV: PASS — Mesajlar bağlantısı yok
+[2026-11-27T07:01:58.385Z] A2-C1-OFF-NOTIFICATION-BADGE: FAIL — Rozet görünür: 2
+[2026-11-27T07:01:58.735Z] A2-C1-OFF-NOTIFICATION-COUNT-API: PASS — server unreadCount=0
+[2026-11-27T07:01:58.800Z] A2-C1-OFF-NOTIFICATION-LIST: PASS — items=0, states=(none)
+[2026-11-27T07:01:59.283Z] A2-C1-OFF-AFTER-RELOAD-NOTIFICATION-BADGE: PASS — Rozet yok
+[2026-11-27T07:02:00.536Z] A2-C1-OFF-OVERVIEW: PASS — Okunmamış mesaj bölümü yok
+[2026-11-27T07:02:01.544Z] A2-C1-OFF-JOB-DETAIL-ACTION: PASS — Konuşma aksiyonu yok
+[2026-11-27T07:02:01.624Z] A2-C1-OFF-MOBILE-MENU-NAV: PASS — Mobil menüde Mesajlar yok
+[2026-11-27T07:02:03.155Z] A2-C1-DB-PRESERVED: PASS — notification rows=2, all unread, none deleted
+[2026-11-27T07:02:03.682Z] A2-C1-ENABLE-DIALOG-TURNS-ON: PASS — Açılacaklar listesi tam
+[2026-11-27T07:02:03.682Z] A2-C1-ENABLE-DIALOG-PRESERVED: PASS — Korunanlar listesi tam
+[2026-11-27T07:02:03.682Z] A2-C1-ENABLE-DIALOG-NO-DELETE: PASS — Veriler silinmez. görünür
+[2026-11-27T07:02:03.682Z] waiting 26059ms for the identity revalidation window
+[2026-11-27T07:02:29.818Z] A2-C1-REVALIDATION: PASS — Tek odak/visibility revalidation sonrası menü döndü (75ms)
+[2026-11-27T07:02:30.659Z] A2-C1-MESSAGES-PAGE: PASS — Gerçek /messages konuşma listesi yüklendi
+[2026-11-27T07:02:30.661Z] A2-C1-ON-NOTIFICATION-BADGE: PASS — Rozet=2
+[2026-11-27T07:02:30.711Z] A2-C1-ON-NOTIFICATION-LIST: PASS — items=2, states=unread,unread
+[2026-11-27T07:02:31.627Z] A2-C1-ON-OVERVIEW: PASS — Okunmamış mesaj / İşlem bekliyor / 2 okunmamış mesaj
+[2026-11-27T07:02:32.517Z] A2-C1-ON-JOB-DETAIL-ACTION: PASS — Konuşmayı aç
+[2026-11-27T07:02:32.518Z] A2-C1-ON-NAV: PASS — Mesajlar bağlantısı görünür
+[2026-11-27T07:02:32.570Z] A2-C1-ON-MOBILE-MENU-NAV: PASS — Mobil menüde Mesajlar görünür
+[2026-11-27T07:02:35.312Z] A2-C2-BEFORE-NOTIFICATION-BADGE: PASS — Rozet=2
+[2026-11-27T07:02:35.848Z] A2-C2-DIALOG-TURNS-OFF: PASS — Kapanacaklar listesi tam
+[2026-11-27T07:02:35.848Z] A2-C2-DIALOG-PRESERVED: PASS — Korunanlar listesi tam
+[2026-11-27T07:02:35.848Z] A2-C2-DIALOG-NO-DELETE: PASS — Veriler silinmez. görünür
+[2026-11-27T07:02:35.895Z] A2-C2-REDIRECT: PASS — Müşteri sekmesi /jobs adresine geçti
+[2026-11-27T07:02:35.902Z] A2-C2-OFF-NAV: PASS — Mesajlar bağlantısı yok
+[2026-11-27T07:02:35.912Z] A2-C2-OFF-NOTIFICATION-BADGE: FAIL — Rozet görünür: 2
+[2026-11-27T07:02:36.289Z] A2-C2-OFF-NOTIFICATION-COUNT-API: PASS — server unreadCount=0
+[2026-11-27T07:02:36.354Z] A2-C2-OFF-NOTIFICATION-LIST: PASS — items=0, states=(none)
+[2026-11-27T07:02:36.851Z] A2-C2-OFF-AFTER-RELOAD-NOTIFICATION-BADGE: PASS — Rozet yok
+[2026-11-27T07:02:37.703Z] A2-C2-OFF-OVERVIEW: PASS — Okunmamış mesaj bölümü yok
+[2026-11-27T07:02:38.579Z] A2-C2-OFF-JOB-DETAIL-ACTION: PASS — Konuşma aksiyonu yok
+[2026-11-27T07:02:38.659Z] A2-C2-OFF-MOBILE-MENU-NAV: PASS — Mobil menüde Mesajlar yok
+[2026-11-27T07:02:40.171Z] A2-C2-DB-PRESERVED: PASS — notification rows=2, all unread, none deleted
+[2026-11-27T07:02:40.697Z] A2-C2-ENABLE-DIALOG-TURNS-ON: PASS — Açılacaklar listesi tam
+[2026-11-27T07:02:40.697Z] A2-C2-ENABLE-DIALOG-PRESERVED: PASS — Korunanlar listesi tam
+[2026-11-27T07:02:40.697Z] A2-C2-ENABLE-DIALOG-NO-DELETE: PASS — Veriler silinmez. görünür
+[2026-11-27T07:02:40.697Z] waiting 26611ms for the identity revalidation window
+[2026-11-27T07:03:07.385Z] A2-C2-REVALIDATION: PASS — Tek odak/visibility revalidation sonrası menü döndü (75ms)
+[2026-11-27T07:03:08.227Z] A2-C2-MESSAGES-PAGE: PASS — Gerçek /messages konuşma listesi yüklendi
+[2026-11-27T07:03:08.230Z] A2-C2-ON-NOTIFICATION-BADGE: PASS — Rozet=2
+[2026-11-27T07:03:08.282Z] A2-C2-ON-NOTIFICATION-LIST: PASS — items=2, states=unread,unread
+[2026-11-27T07:03:09.164Z] A2-C2-ON-OVERVIEW: PASS — Okunmamış mesaj / İşlem bekliyor / 2 okunmamış mesaj
+[2026-11-27T07:03:10.029Z] A2-C2-ON-JOB-DETAIL-ACTION: PASS — Konuşmayı aç
+[2026-11-27T07:03:10.032Z] A2-C2-ON-NAV: PASS — Mesajlar bağlantısı görünür
+[2026-11-27T07:03:10.092Z] A2-C2-ON-MOBILE-MENU-NAV: PASS — Mobil menüde Mesajlar görünür
+[2026-11-27T07:03:12.096Z] scenario A2 end
+[2026-11-27T07:03:12.261Z] scenario A3 start
+[2026-11-27T07:03:12.262Z] A3-AUTHENTICATED-404: PASS — status=404, code=NOT_FOUND, error=Sayfa bulunamadı.
+[2026-11-27T07:03:12.263Z] A3-UNAUTHENTICATED-401: PASS — status=401, code=UNAUTHENTICATED
+[2026-11-27T07:03:12.264Z] A3-ME-CAPABILITY-FALSE: PASS — status=200, messaging=false
+[2026-11-27T07:03:12.267Z] A3-OVERVIEW-OMITS-SUMMARY: PASS — status=200, messageUnreadSummary=omitted
+[2026-11-27T07:03:12.267Z] scenario A3 end
+[2026-11-27T07:03:12.267Z] scenario A4 start
+[2026-11-27T07:03:12.268Z] ENV-WEB-PUSH-DISABLED: PASS — status=200, enabled=false
+[2026-11-27T07:03:12.268Z] A4-NOT-RUN: NOT_RUN — WEB_PUSH_ENABLED=false: server/src/app.ts constructs the dispatcher only when config.webPush.enabled is true, so no dispatcher tick exists to observe. No PENDING delivery row was fabricated and no assertion is claimed.
+[2026-11-27T07:03:12.268Z] scenario A4 end
+[2026-11-27T07:03:12.268Z] scenario A5 start
+[2026-11-27T07:03:13.305Z] A5-REASSIGN-OFF-SAVED: PASS — Görev B personeline atandı
+[2026-11-27T07:03:13.309Z] A5-REASSIGN-OFF-DB: PASS — assigned_to=ed3b1a15-0d72-411b-890a-bd8fec4db03b, activity=3e0afa16-21ee-4174-a5e2-97d9854f501d
+[2026-11-27T07:03:13.310Z] A5-NO-PROMPT-WHILE-OFF: PASS — sync prompt count=0
+[2026-11-27T07:03:14.316Z] A5-SYNC-NOTICE: PASS — İşin yeni sorumlusu MSG-003 Personel B bu iş konuşmasının katılımcısı değil. /  / Konuşmaya ekle
+[2026-11-27T07:03:15.134Z] A5-SYNC-DIALOG: PASS — Konuşma katılımcısı güncel değil /  / İşin yeni sorumlusu MSG-003 Personel B bu iş konuşmasının katılımcısı değil. / Şimdi değil derseniz konuşmadaki mevcut katılımcılar değişmez. Önceki personel ileride bu işe tekrar atanırsa konuşmaya yeniden erişebilir. /  / Şimdi değil / MSG-003 Personel A yerine MSG-003 Personel B ekle
+[2026-11-27T07:03:15.570Z] A5-SYNC-NOTICE-GONE: PASS — Senkron sonrası kalıcı uyarı kayboldu
+[2026-11-27T07:03:15.576Z] A5-SYNC-DB: PASS — A removed, B added, B.last_read=6ef102c4-890a-4312-ac0f-b7d7cfb95bd1
+[2026-11-27T07:03:15.579Z] A5-SYNC-ACTIVITY: PASS — {"jobId":"c115d49f-1e52-40c0-b63c-8d9ee37f2350","actorUserId":"bfcc8f6a-85ef-46fb-ab87-e5f0067d5b55","contextType":"JOB","addedUserIds":["ed3b1a15-0d72-411b-890a-bd8fec4db03b"],"removedUserIds":["b63d528f-3ea8-4e18-bc52-7cd3863caac6"],"assignmentTransitionId":"3e0afa16-21ee-4174-a5e2-97d9854f501d"}
+[2026-11-27T07:03:16.999Z] A5-STAFF-B-UNREAD-ZERO: PASS — Görünen okunmamış rozeti yok
+[2026-11-27T07:03:17.001Z] A5-STAFF-B-UNREAD-API: PASS — unreadCount=0
+[2026-11-27T07:03:17.044Z] A5-STAFF-B-HISTORY: PASS — B konuşma geçmişini gördü
+[2026-11-27T07:03:17.742Z] scenario A5 end
+[2026-11-27T07:03:17.742Z] scenario A6 start
+[2026-11-27T07:03:20.083Z] A6-CONFIRMATION: PASS — Personel devre dışı bırakılsın mı? /  / Erişim sonlandırılır, aktif oturumlar kapatılır ve seçtiğiniz sorumluluk kararları uygulanır. İşlem geçmişi korunur. /  / 1 aktif iş / 0 müşteri / 0 takvim ataması / 0 takip ataması / 0 hatırlatıcı / Neden: Erişim artık gerekli değil /  / Vazgeç / Erişimi sonlandır
+[2026-11-27T07:03:20.140Z] A6-OFFBOARD-OFF-SUCCEEDED: PASS — Offboarding messaging kapalıyken tamamlandı
+[2026-11-27T07:03:20.529Z] A6-DB-TRANSFER: PASS — B inactive, job assigned C, offboarding audit=1
+[2026-11-27T07:03:20.535Z] A6-DB-PARTICIPANTS: PASS — B removed, C added, C.last_read=6ef102c4-890a-4312-ac0f-b7d7cfb95bd1
+[2026-11-27T07:03:22.043Z] A6-STAFF-C-OPENS: PASS — C konuşmayı unread 0 ile açtı ve geçmişi gördü
+[2026-11-27T07:03:22.756Z] scenario A6 end
+[2026-11-27T07:03:22.929Z] ENV-POSTGRES-DISPOSABLE-DROPPED: PASS — Disposable database removed
+[2026-11-27T07:03:22.929Z] run: /opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /private/tmp/servora-msg003-postgres-0l24m7 stop -m fast -w (postgres-stop)
+[2026-11-27T07:03:23.092Z] ENV-POSTGRES-CLUSTER-REMOVED: PASS — Isolated PostgreSQL cluster stopped and removed
