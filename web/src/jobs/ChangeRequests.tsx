@@ -288,6 +288,8 @@ export function ManagementChangeRequestPanel({
   job,
   disabled = false,
   onChanged,
+  onCommitted,
+  onRefresh,
   onReassign,
   canSetNewTime = true,
   onCancel,
@@ -296,6 +298,14 @@ export function ManagementChangeRequestPanel({
   job: JobCard;
   disabled?: boolean;
   onChanged?: () => void;
+  /**
+   * UI-FEEDBACK/B: the page owns the committed receipt so it survives this
+   * panel unmounting. When provided, the panel never renders its own success
+   * status line.
+   */
+  onCommitted?: (receipt: string) => Promise<void>;
+  /** Serialized canonical reload after a failed or conflicting decision. */
+  onRefresh?: () => Promise<void>;
   /**
    * Opens the existing record-edit reassignment form. Purpose-bound so this
    * guidance never grows a second assignee form of its own.
@@ -438,6 +448,14 @@ export function ManagementChangeRequestPanel({
     ? null
     : CLOSURE_ACTIONS.find((entry) => entry.resolution === dialog)?.label ?? null;
 
+  async function refreshAfterFailure() {
+    if (onRefresh !== undefined) {
+      await onRefresh();
+      return;
+    }
+    onChanged?.();
+  }
+
   async function submitResolution(
     resolution: ChangeRequestResolution,
     extra: { note?: string; linkedJobCardId?: string } = {},
@@ -453,13 +471,17 @@ export function ManagementChangeRequestPanel({
         ...extra,
       });
       if (activeKey.current !== key) return;
-      setResolved(resolution);
+      const receipt = resolution === 'REJECTED'
+        ? 'Öneri reddedildi. İş bilgileri değişmedi.'
+        : `Öneri kapatıldı: ${changeRequestResolutionLabel(resolution)}. İş bilgileri değişmedi.`;
+      if (onCommitted === undefined) setResolved(resolution);
       setAlreadyClosed(false);
       setDialog(null);
       setNote('');
       setLinkedJobCardId('');
       setFormError('');
-      onChanged?.();
+      if (onCommitted !== undefined) await onCommitted(receipt);
+      else onChanged?.();
     } catch (caught) {
       if (activeKey.current !== key) return;
       if (caught instanceof ApiError && caught.code === 'CHANGE_REQUEST_NOT_OPEN') {
@@ -472,7 +494,7 @@ export function ManagementChangeRequestPanel({
         setLinkedJobCardId('');
         setFormError('');
         setMutationError('');
-        onChanged?.();
+        await refreshAfterFailure();
         return;
       }
       setMutationError(caught instanceof ApiError ? caught.message : 'Öneri karara bağlanamadı.');
@@ -590,7 +612,7 @@ export function ManagementChangeRequestPanel({
             </div>
           </div>
         )}
-        {resolved !== null && (
+        {resolved !== null && onCommitted === undefined && (
           <p role="status" data-change-request-resolved={resolved}>
             Öneri kapatıldı: {changeRequestResolutionLabel(resolved)}
           </p>
@@ -706,6 +728,8 @@ export function ChangeRequestSection({
   disabled = false,
   openRequestSignal,
   onChanged,
+  onCommitted,
+  onRefresh,
   canSetNewTime = true,
   onReassign,
   onCancel,
@@ -715,6 +739,10 @@ export function ChangeRequestSection({
   disabled?: boolean;
   openRequestSignal?: number;
   onChanged?: () => void;
+  /** UI-FEEDBACK/B: page-owned committed receipt for the management decision. */
+  onCommitted?: (receipt: string) => Promise<void>;
+  /** Serialized canonical reload after a failed management decision. */
+  onRefresh?: () => Promise<void>;
   /** False when this viewer has no planned-time editor on the page. */
   canSetNewTime?: boolean;
   /** Opens the existing reassignment form (management guidance only). */
@@ -728,6 +756,8 @@ export function ChangeRequestSection({
         job={job}
         disabled={disabled}
         onChanged={onChanged}
+        onCommitted={onCommitted}
+        onRefresh={onRefresh}
         canSetNewTime={canSetNewTime}
         onReassign={onReassign}
         onCancel={onCancel}

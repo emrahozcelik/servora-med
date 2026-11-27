@@ -51,10 +51,18 @@ export function canGrantEarlyStartAuthorization(
  * is allowed from the planned time on, so that write would authorize nothing;
  * the action reports the expiry instead of posting.
  */
-export function EarlyStartAuthorizationSection({ job, user, onGranted, disabled = false, now = new Date() }: {
+export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitted, onRefresh, disabled = false, now = new Date() }: {
   job: JobCard;
   user: CurrentUser;
-  onGranted: () => void;
+  onGranted?: () => void;
+  /**
+   * UI-FEEDBACK/B: the page owns the committed receipt so it survives this
+   * section unmounting. When provided, the section never renders its own
+   * success status line.
+   */
+  onCommitted?: (receipt: string) => Promise<void>;
+  /** Serialized canonical reload after a rejected grant; never a receipt. */
+  onRefresh?: () => Promise<void>;
   /** UI-FEEDBACK/A: a committed-stale record must not start this grant. */
   disabled?: boolean;
   /** Fixed clock for deterministic tests; production uses the current time. */
@@ -100,9 +108,13 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, disabled 
         expectedVersion: job.version,
       });
       setDone(true);
-      onGranted();
+      if (onCommitted !== undefined) await onCommitted('Erken başlama izni kaydedildi.');
+      else onGranted?.();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Erken başlama izni kaydedilemedi.');
+      // A rejected grant (expired interval, another authorization, version
+      // drift) is not a receipt: reconcile the canonical card without one.
+      if (onRefresh !== undefined) await onRefresh();
     } finally {
       setGranting(false);
     }
@@ -163,7 +175,11 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, disabled 
                 {granting ? 'Kaydediliyor…' : 'Erken başlama iznini kaydet'}
               </button>
               {error && <p role="alert">{error}</p>}
-              {done && !error && <p role="status">Erken başlama izni kaydedildi.</p>}
+              {done && !error && onCommitted === undefined && (
+                <p role="status" data-early-start-authorization-status="granted">
+                  Erken başlama izni kaydedildi.
+                </p>
+              )}
             </div>
           </div>
         )

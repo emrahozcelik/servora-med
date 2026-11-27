@@ -9,9 +9,16 @@ import { loadSaleProducts, saleCount } from './sale-form';
 import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 /** One parent-versioned correction at a time, with an exact in-memory retry intent. */
-export function SaleCorrectionSection({ details, customerId, disabled, onLockChange, onChanged }: {
+export function SaleCorrectionSection({ details, customerId, disabled, onLockChange, onChanged, onCommitted, onRefresh }: {
   details: SaleDetails; customerId: string; disabled: boolean;
-  onLockChange: (locked: boolean) => void; onChanged: () => Promise<unknown>;
+  onLockChange: (locked: boolean) => void; onChanged?: () => Promise<unknown>;
+  /**
+   * UI-FEEDBACK/B: the page owns the committed receipt; it survives this
+   * section and never reports a failed canonical read as a failed correction.
+   */
+  onCommitted?: (receipt: string) => Promise<void>;
+  /** Serialized canonical reload after a definitive conflict. */
+  onRefresh?: () => Promise<void>;
 }) {
   const id = useId();
   const [soldLocal, setSoldLocal] = useState(() => isoInstantToLocalDateTime(details.soldAt));
@@ -59,9 +66,12 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     try {
       await correctSale(details.jobCardId, value);
       if (!owner.active) return;
-      await onChanged();
+      const receipt = 'Satış kaydı güncellendi.';
+      if (onCommitted !== undefined) await onCommitted(receipt);
+      else await onChanged?.();
       if (!owner.active) return;
-      release(); synchronize(latest.current); setQuantities({}); setAddition(null); setMessage('Satış kaydı güncellendi.');
+      release(); synchronize(latest.current); setQuantities({}); setAddition(null);
+      if (onCommitted === undefined) setMessage(receipt);
     } catch (caught) {
       if (!owner.active) return;
       if (isDefinitiveMutationError(caught)) {
@@ -133,7 +143,19 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     {needsRefresh && <button type="button" className="secondary-button" disabled={pending} onClick={async () => {
       if (sending.current) return;
       sending.current = true; setPending(true);
-      try { await onChanged(); if (lifetime.current.active) { release(); synchronize(latest.current); setQuantities({}); setAddition(null); } }
+      try {
+        if (onRefresh !== undefined) {
+          await onRefresh();
+          if (!lifetime.current.active) return;
+          // reloadStaleTruth reports a failed read through the page's stale
+          // notice instead of rejecting. Keep the user's draft either way;
+          // resetting it here previously wiped a rejected correction.
+          release(); synchronize(latest.current);
+        } else {
+          await onChanged?.();
+          if (lifetime.current.active) { release(); synchronize(latest.current); setQuantities({}); setAddition(null); }
+        }
+      }
       catch { if (lifetime.current.active) setMessage('Güncel kayıt yüklenemedi. Tekrar deneyin.'); }
       finally { if (lifetime.current.active) { sending.current = false; setPending(false); } }
     }}>Güncel kaydı yükle ve düzeltmeye devam et</button>}

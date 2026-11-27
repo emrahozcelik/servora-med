@@ -1282,6 +1282,10 @@ export function JobDetailPanel({
           role={messageIsError ? 'alert' : 'status'}
           tabIndex={-1}
           data-job-detail-section="feedback"
+          // The owned Ant App resets its subtree to a fixed px base; an explicit
+          // rem size keeps the page receipt readable under 200% text enlargement
+          // (UI-001 / DESIGN.md 482–484).
+          style={{ fontSize: '1rem' }}
         >
           {message}
         </div>
@@ -2396,6 +2400,33 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       realtimeDrainRequested.current = false;
     }
   }
+  /**
+   * UI-FEEDBACK/B: a manager decision made inside a child section owns the same
+   * committed-receipt boundary as an in-page command. The receipt is announced
+   * once by the page so it survives the child section unmounting; a failed or
+   * inaccessible canonical read keeps the existing committed-stale / terminal
+   * access-lost states instead of surfacing a false mutation failure. The
+   * helper never throws for a read failure, so a committed child mutation is
+   * never re-sent by a caller that caught one.
+   */
+  async function settleChildCommit(receipt: string) {
+    let read = await refreshAfterCommit(receipt);
+    if (read === 'access-lost' || read === 'inactive') return;
+    if (read === 'fresh') {
+      const drain = await drainAfterCommit(receipt);
+      if (drain === 'access-lost' || drain === 'inactive') return;
+      if (drain === 'stale') read = 'stale';
+    }
+    if (read === 'fresh') {
+      setMessage(receipt);
+      setMessageIsError(false);
+      setTimelineKey((value) => value + 1);
+    }
+    // A fresh receipt or a committed-stale notice must own focus; the child
+    // section (and its local status line) may be gone by then.
+    setFeedbackFocusRequest((value) => value + 1);
+  }
+
   async function reloadStaleTruth() {
     const operationJobId = jobId;
     const sessionToken = sessionLifetime.current.token;
@@ -3941,13 +3972,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         disabled={pending || uncertain || invalidationMutationLocked || committedStale !== null
           || !actions.includes('EDIT_JOB_FIELDS')}
         onLockChange={(locked) => { saleCorrectionLockedRef.current = locked; setSaleCorrectionLocked(locked); }}
-        onChanged={async () => {
-          try { if (!(await refreshTruth())) throw new Error('Güncel kayıt yüklenemedi.'); onChanged(); }
-          catch (caught) {
-            if (caught instanceof ApiError && caught.status === 404) setState({ kind: 'error', message: caught.message, retryable: false });
-            throw caught;
-          }
-        }} />}
+        onCommitted={settleChildCommit}
+        onRefresh={() => reloadStaleTruth()} />}
     {detail.kind === 'SALE' && <LinkedDeliveryPanel
       linkedDelivery={detail.job.linkedDelivery !== undefined
         ? detail.job.linkedDelivery
@@ -4039,10 +4065,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         disabled={committedStale !== null}
-        onGranted={() => {
-          setTimelineKey((value) => value + 1);
-          void refreshTruth();
-        }}
+        onCommitted={settleChildCommit}
+        onRefresh={() => reloadStaleTruth()}
       />
     }
     changeRequest={
@@ -4056,6 +4080,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
           : undefined}
         onCancel={(trigger) => { command('CANCEL', trigger); }}
+        onCommitted={settleChildCommit}
+        onRefresh={() => reloadStaleTruth()}
         onChanged={() => {
           setTimelineKey((value) => value + 1);
           void refreshTruth();
@@ -4067,10 +4093,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         disabled={invalidationLocked}
-        onChanged={() => {
-          setTimelineKey((value) => value + 1);
-          void refreshTruth();
-        }}
+        onCommitted={settleChildCommit}
+        onRefresh={() => reloadStaleTruth()}
         canSetNewTime={Boolean(presentationFor(detail).scheduleEdit)}
         onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
