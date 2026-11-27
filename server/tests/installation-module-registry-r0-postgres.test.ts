@@ -116,6 +116,26 @@ const OVERVIEW_DESCRIPTOR = {
   preserved: ['İşler, onaylar ve raporlar', 'Geçmiş kayıtlar ve audit kayıtları'],
 } as const;
 
+const MESSAGING_DESCRIPTOR = {
+  key: 'MESSAGING',
+  label: 'Mesajlaşma',
+  description: 'İş ve konu merkezli kurum içi iletişim.',
+  capability: 'messaging',
+  legacyEnvKey: 'MESSAGING_ENABLED',
+  whenDisabled: [
+    'Mesajlar menüsü ve sayfası',
+    'Mesajlaşma API erişimi',
+    'İş detayından mesajlaşma',
+    'Mesaj bildirimleri ve mesaj Web Push teslimatı',
+    'Okunmamış mesaj sayacı',
+  ],
+  preserved: [
+    'Konuşmalar ve mesaj geçmişi',
+    'Arşiv ve audit kayıtları',
+    'Personel devir ve offboarding işlemleri',
+  ],
+} as const;
+
 const stubOverview = {
   getStaffOverview: async () => ({ marker: 'overview-stub' }),
   getManagementOverview: async () => ({ marker: 'overview-stub' }),
@@ -369,13 +389,14 @@ async function seedState(
   );
 }
 
-/** Active operator with a session, an app, and a seeded Overview state. */
+/** Active operator with a session, an app, and seeded module states. */
 async function operatorFixture(
   options: { enabled?: boolean; source?: 'ENV_TAKEOVER' | 'FRESH_INSTALL'; email?: string } = {},
 ) {
   const email = options.email ?? `op-${randomUUID()}@example.com`;
   const id = await grant(email);
   await seedState(options.enabled ?? false, { source: options.source });
+  await seedState(false, { key: 'MESSAGING', source: options.source });
   const app = await createApp();
   const session = await operatorLogin(app, email);
   expect(session.res.statusCode).toBe(200);
@@ -606,7 +627,7 @@ describe.skipIf(!databaseUrl)('R0-2 takeover still takes over the OVERVIEW env v
   it('creates one row and one TAKEN_OVER event and is idempotent across restarts', async () => {
     const fixed = new Date('2026-11-26T09:30:00.000Z');
 
-    await takeOverInstallationModules(pool, { OVERVIEW: true }, () => fixed);
+    await takeOverInstallationModules(pool, { OVERVIEW: true, MESSAGING: false }, () => fixed);
 
     const first = await stateRow();
     expect(first).toMatchObject({
@@ -617,36 +638,37 @@ describe.skipIf(!databaseUrl)('R0-2 takeover still takes over the OVERVIEW env v
       updated_by_operator_id: null,
     });
     const events = await auditRows('MODULE_STATE_TAKEN_OVER');
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
+    expect(events).toHaveLength(2);
+    const overviewEvent = events.find((event) => event.module_key === 'OVERVIEW')!;
+    expect(overviewEvent).toMatchObject({
       actor_kind: 'SYSTEM',
       operator_id: null,
       target_operator_id: null,
       module_key: 'OVERVIEW',
       old_value: null,
     });
-    expect(events[0]!.new_value).toEqual({ enabled: true, source: 'ENV_TAKEOVER' });
-    expect(events[0]!.occurred_at.toISOString()).toBe(fixed.toISOString());
+    expect(overviewEvent.new_value).toEqual({ enabled: true, source: 'ENV_TAKEOVER' });
+    expect(overviewEvent.occurred_at.toISOString()).toBe(fixed.toISOString());
 
     // Restart twice; the env value changed after takeover has no effect.
-    await takeOverInstallationModules(pool, { OVERVIEW: false });
-    await takeOverInstallationModules(pool, { OVERVIEW: true });
+    await takeOverInstallationModules(pool, { OVERVIEW: false, MESSAGING: true });
+    await takeOverInstallationModules(pool, { OVERVIEW: true, MESSAGING: false });
 
     expect(await stateRow()).toEqual(first);
-    expect(await auditRows('MODULE_STATE_TAKEN_OVER')).toHaveLength(1);
-    expect(await auditCount()).toBe(1);
+    expect(await auditRows('MODULE_STATE_TAKEN_OVER')).toHaveLength(2);
+    expect(await auditCount()).toBe(2);
   });
 
   it('fresh install with the env value unset takes over disabled (OP11)', async () => {
-    await takeOverInstallationModules(pool, { OVERVIEW: false });
+    await takeOverInstallationModules(pool, { OVERVIEW: false, MESSAGING: false });
 
     expect(await stateRow()).toMatchObject({
       enabled: false, version: 1, source: 'ENV_TAKEOVER',
     });
     const events = await auditRows('MODULE_STATE_TAKEN_OVER');
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect(events[0]!.new_value).toEqual({ enabled: false, source: 'ENV_TAKEOVER' });
-    expect(await auditCount()).toBe(1);
+    expect(await auditCount()).toBe(2);
   });
 
   it('rejects an incomplete legacy map for a legacy registry module and writes nothing', async () => {
@@ -664,14 +686,14 @@ describe.skipIf(!databaseUrl)('R0-2 takeover still takes over the OVERVIEW env v
       await pool.query(`TRUNCATE operator_audit_events, installation_module_state CASCADE`);
 
       await Promise.all([0, 1, 2, 3, 4, 5].map((index) =>
-        takeOverInstallationModules(pools[index % 2]!, { OVERVIEW: true })));
+        takeOverInstallationModules(pools[index % 2]!, { OVERVIEW: true, MESSAGING: false })));
 
       expect((await pool.query(
         `SELECT count(*)::int AS n FROM installation_module_state`,
-      )).rows[0].n).toBe(1);
+      )).rows[0].n).toBe(2);
       expect(await stateRow()).toMatchObject({ enabled: true, source: 'ENV_TAKEOVER' });
-      expect(await auditRows('MODULE_STATE_TAKEN_OVER')).toHaveLength(1);
-      expect(await auditCount()).toBe(1);
+      expect(await auditRows('MODULE_STATE_TAKEN_OVER')).toHaveLength(2);
+      expect(await auditCount()).toBe(2);
     }
   });
 });
@@ -680,16 +702,16 @@ describe.skipIf(!databaseUrl)('R0-2 takeover still takes over the OVERVIEW env v
 
 describe.skipIf(!databaseUrl)('R0-3 takeover rejects installation state outside the registry', { timeout: 60_000 }, () => {
   it('a well-formed non-registry row stops startup and writes nothing', async () => {
-    await seedState(true, { key: 'MESSAGING', source: 'FRESH_INSTALL' });
+    await seedState(true, { key: 'CALENDAR', source: 'FRESH_INSTALL' });
     const before = await stateRows();
     const eventsBefore = await auditCount();
 
-    const error = await takeOverInstallationModules(pool, { OVERVIEW: true })
+    const error = await takeOverInstallationModules(pool, { OVERVIEW: true, MESSAGING: false })
       .then(() => null, (thrown: unknown) => thrown);
 
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('outside the registry');
-    expect((error as Error).message).toContain('MESSAGING');
+    expect((error as Error).message).toContain('CALENDAR');
     expect((error as Error).message).toContain('controlled recovery required');
 
     expect(await stateRows()).toEqual(before);
@@ -698,14 +720,14 @@ describe.skipIf(!databaseUrl)('R0-3 takeover rejects installation state outside 
   });
 
   it('names every offending key and never inserts the registry rows', async () => {
-    await seedState(true, { key: 'MESSAGING', source: 'FRESH_INSTALL' });
+    await seedState(true, { key: 'BACKUP', source: 'FRESH_INSTALL' });
     await seedState(false, { key: 'CALENDAR', source: 'FRESH_INSTALL' });
 
-    const error = await takeOverInstallationModules(pool, { OVERVIEW: true })
+    const error = await takeOverInstallationModules(pool, { OVERVIEW: true, MESSAGING: false })
       .then(() => null, (thrown: unknown) => thrown);
 
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toContain('MESSAGING');
+    expect((error as Error).message).toContain('BACKUP');
     expect((error as Error).message).toContain('CALENDAR');
     expect(await stateRow('OVERVIEW')).toBeNull();
     expect(await auditCount()).toBe(0);
@@ -716,13 +738,13 @@ describe.skipIf(!databaseUrl)('R0-3 takeover rejects installation state outside 
 
 describe.skipIf(!databaseUrl)('R0-4 takeover fails closed when a module event exists without its row', { timeout: 60_000 }, () => {
   it('a prior TAKEN_OVER event for a missing registry row fails startup and writes nothing (OP12)', async () => {
-    await takeOverInstallationModules(pool, { OVERVIEW: true });
+    await takeOverInstallationModules(pool, { OVERVIEW: true, MESSAGING: false });
     await pool.query(`DELETE FROM installation_module_state`);
     const events = await auditCount();
 
-    await expect(takeOverInstallationModules(pool, { OVERVIEW: true }))
+    await expect(takeOverInstallationModules(pool, { OVERVIEW: true, MESSAGING: false }))
       .rejects.toThrow(/controlled recovery required/);
-    await expect(takeOverInstallationModules(pool, { OVERVIEW: false }))
+    await expect(takeOverInstallationModules(pool, { OVERVIEW: false, MESSAGING: false }))
       .rejects.toThrow(/controlled recovery required/);
 
     expect(await stateRow()).toBeNull();
@@ -740,7 +762,7 @@ describe.skipIf(!databaseUrl)('R0-4 takeover fails closed when a module event ex
     );
     const events = await auditCount();
 
-    const error = await takeOverInstallationModules(pool, { OVERVIEW: true })
+    const error = await takeOverInstallationModules(pool, { OVERVIEW: true, MESSAGING: false })
       .then(() => null, (thrown: unknown) => thrown);
 
     expect(error).toBeInstanceOf(Error);
@@ -821,7 +843,7 @@ describe.skipIf(!databaseUrl)('R0-7 operator module views expose registry copy',
 
     expect(res.statusCode).toBe(200);
     const { modules } = res.json();
-    expect(modules).toHaveLength(1);
+    expect(modules).toHaveLength(2);
     expect(modules[0]).toMatchObject({
       key: OVERVIEW_DESCRIPTOR.key,
       label: OVERVIEW_DESCRIPTOR.label,
@@ -832,6 +854,16 @@ describe.skipIf(!databaseUrl)('R0-7 operator module views expose registry copy',
     });
     expect(modules[0].whenDisabled).toEqual([...OVERVIEW_DESCRIPTOR.whenDisabled]);
     expect(modules[0].preserved).toEqual([...OVERVIEW_DESCRIPTOR.preserved]);
+    expect(modules[1]).toMatchObject({
+      key: MESSAGING_DESCRIPTOR.key,
+      label: MESSAGING_DESCRIPTOR.label,
+      enabled: false,
+      version: 1,
+      source: 'ENV_TAKEOVER',
+      description: MESSAGING_DESCRIPTOR.description,
+    });
+    expect(modules[1].whenDisabled).toEqual([...MESSAGING_DESCRIPTOR.whenDisabled]);
+    expect(modules[1].preserved).toEqual([...MESSAGING_DESCRIPTOR.preserved]);
 
     // The registry descriptor is the source of the copy.
     const registryEntry = findInstallationModule('OVERVIEW')!;
@@ -868,7 +900,7 @@ describe.skipIf(!databaseUrl)('R0-7 operator module views expose registry copy',
     });
   });
 
-  it.each(['MESSAGING', 'NOPE', 'OVERVIEW2'])(
+  it.each(['CALENDAR', 'NOPE', 'OVERVIEW2'])(
     'PUT /api/operator/modules/%s stays 404 NOT_FOUND and writes nothing (OP9)',
     async (key) => {
       const { app, cookie } = await operatorFixture({ enabled: false });
@@ -881,7 +913,7 @@ describe.skipIf(!databaseUrl)('R0-7 operator module views expose registry copy',
       expect(await stateRow()).toMatchObject({ enabled: false, version: 1 });
       expect((await pool.query(
         `SELECT count(*)::int AS n FROM installation_module_state`,
-      )).rows[0].n).toBe(1);
+      )).rows[0].n).toBe(2);
       expect(await auditCount()).toBe(events);
     },
   );
@@ -894,13 +926,14 @@ describe.skipIf(!databaseUrl)('R0-8 /api/auth/me reads module capabilities from 
     const email = `op-${randomUUID()}@example.com`;
     await grant(email);
     await seedState(false);
+    await seedState(true, { key: 'MESSAGING' });
     const app = await createApp({
       config: {
         ...baseConfig,
         capabilities: {
           ...baseConfig.capabilities,
           calendar: true,
-          messaging: true,
+          messaging: false,
         },
       },
     });
@@ -945,10 +978,11 @@ describe.skipIf(!databaseUrl)('R0-8 /api/auth/me reads module capabilities from 
 // ---------------------------------------------------------------- interfaces
 
 describe.skipIf(!databaseUrl)('R0 registry widening interfaces', { timeout: 60_000 }, () => {
-  it('keeps exactly one OVERVIEW registry entry with the contract descriptor', () => {
-    expect(INSTALLATION_MODULES).toEqual([OVERVIEW_DESCRIPTOR]);
+  it('keeps OVERVIEW and MESSAGING registry entries with the contract descriptors', () => {
+    expect(INSTALLATION_MODULES).toEqual([OVERVIEW_DESCRIPTOR, MESSAGING_DESCRIPTOR]);
     expect(findInstallationModule('OVERVIEW')).toEqual(OVERVIEW_DESCRIPTOR);
-    expect(findInstallationModule('MESSAGING')).toBeUndefined();
+    expect(findInstallationModule('MESSAGING')).toEqual(MESSAGING_DESCRIPTOR);
+    expect(findInstallationModule('CALENDAR')).toBeUndefined();
   });
 
   it('exports MODULE_KEY_PATTERN matching the database regex', () => {
@@ -985,7 +1019,7 @@ describe.skipIf(!databaseUrl)('R0 registry widening interfaces', { timeout: 60_0
 
     expect(seen.slice().sort()).toEqual(INSTALLATION_MODULES.map((module) => module.key).sort());
     expect(seen).toHaveLength(INSTALLATION_MODULES.length);
-    expect(values).toEqual({ overviewDashboard: true });
+    expect(values).toEqual({ overviewDashboard: true, messaging: false });
     expect(logger.error).not.toHaveBeenCalled();
   });
 
@@ -994,7 +1028,7 @@ describe.skipIf(!databaseUrl)('R0 registry widening interfaces', { timeout: 60_0
 
     const values = await readModuleCapabilities(staticModuleStateReader({}), logger);
 
-    expect(values).toEqual({ overviewDashboard: false });
+    expect(values).toEqual({ overviewDashboard: false, messaging: false });
     expect(logger.error).toHaveBeenCalled();
   });
 
@@ -1006,7 +1040,7 @@ describe.skipIf(!databaseUrl)('R0 registry widening interfaces', { timeout: 60_0
 
     const values = await readModuleCapabilities(failing, logger);
 
-    expect(values).toEqual({ overviewDashboard: false });
+    expect(values).toEqual({ overviewDashboard: false, messaging: false });
     expect(logger.error).toHaveBeenCalled();
   });
 

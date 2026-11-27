@@ -37,6 +37,7 @@ export class NotificationService {
     private readonly realtimePublisher: RealtimeEventPublisher = NOOP_REALTIME_EVENT_PUBLISHER,
     private readonly now: () => Date = () => new Date(),
     private readonly pool?: Pick<Pool, 'connect'>,
+    private readonly hiddenEntityTypes: () => Promise<readonly NotificationEntityType[]> = async () => [],
   ) {}
 
   private publishRealtime(events: readonly RealtimeEventRecord[]) {
@@ -86,11 +87,13 @@ export class NotificationService {
   }
 
   async unreadCount(viewer: NotificationViewer) {
-    return { unreadCount: await this.repository.unreadCount(viewer) };
+    const excluded = await this.hiddenEntityTypes();
+    return { unreadCount: await this.repository.unreadCount(viewer, excluded) };
   }
 
   async list(viewer: NotificationViewer, query: NotificationListQuery) {
-    const page = await this.repository.list(viewer, query);
+    const excluded = await this.hiddenEntityTypes();
+    const page = await this.repository.list(viewer, query, excluded);
     return {
       items: page.items.map(presentNotification),
       nextCursor: page.nextCursor,
@@ -98,11 +101,12 @@ export class NotificationService {
   }
 
   async markRead(viewer: NotificationViewer, notificationId: string) {
+    const excluded = await this.hiddenEntityTypes();
     // A replayed read still emits one user-scoped invalidation: the repository
     // result cannot distinguish replay from change, and the extra invalidation
     // is harmless (receivers refresh canonical state).
     const notification = await this.mutateWithInvalidation(viewer, async (repository) => {
-      const record = await repository.markRead(viewer, notificationId);
+      const record = await repository.markRead(viewer, notificationId, excluded);
       return { result: record, changed: record !== null };
     });
     if (!notification) {
@@ -116,6 +120,10 @@ export class NotificationService {
     entityType: NotificationEntityType,
     entityId: string,
   ) {
+    const excluded = await this.hiddenEntityTypes();
+    if (excluded.includes(entityType)) {
+      throw new AppError('NOTIFICATION_NOT_FOUND', 404, 'Bildirim bulunamadı.');
+    }
     return this.mutateWithInvalidation(viewer, async (repository) => {
       const markedCount = await repository.markReadByEntity(viewer, entityType, entityId);
       return { result: { markedCount }, changed: markedCount > 0 };
@@ -123,9 +131,10 @@ export class NotificationService {
   }
 
   async dismiss(viewer: NotificationViewer, notificationId: string) {
+    const excluded = await this.hiddenEntityTypes();
     // Same replay policy as markRead: success emits, absence stays 404.
     const dismissed = await this.mutateWithInvalidation(viewer, async (repository) => {
-      const result = await repository.dismiss(viewer, notificationId);
+      const result = await repository.dismiss(viewer, notificationId, excluded);
       return { result, changed: result };
     });
     if (!dismissed) {
@@ -134,15 +143,17 @@ export class NotificationService {
   }
 
   async clearRead(viewer: NotificationViewer) {
+    const excluded = await this.hiddenEntityTypes();
     await this.mutateWithInvalidation(viewer, async (repository) => {
-      const clearedCount = await repository.clearRead(viewer);
+      const clearedCount = await repository.clearRead(viewer, excluded);
       return { result: undefined, changed: clearedCount > 0 };
     });
   }
 
   async clearAll(viewer: NotificationViewer) {
+    const excluded = await this.hiddenEntityTypes();
     await this.mutateWithInvalidation(viewer, async (repository) => {
-      const clearedCount = await repository.clearAll(viewer);
+      const clearedCount = await repository.clearAll(viewer, excluded);
       return { result: undefined, changed: clearedCount > 0 };
     });
   }

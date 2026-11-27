@@ -97,7 +97,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
 }
 
 function service(pool: Pool, publisher?: RealtimeEventPublisher): MessagingService {
-  return new MessagingService(pool, true, publisher);
+  return new MessagingService(pool, publisher);
 }
 
 /** Durable messages persisted for one idempotency key. */
