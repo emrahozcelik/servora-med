@@ -1646,10 +1646,10 @@ describe('JobDetail child decision receipts', () => {
   );
 
   /**
-   * UI-FEEDBACK/B regression (older 403 after a reconciled read): once the
-   * child decision's post-commit read has reconciled, a late deferred 403 must
-   * not schedule another GET or surface a stale/terminal state. The receipt is
-   * announced exactly once.
+   * UI-FEEDBACK/B regression (older 403 after a reconciled read): completion
+   * order cannot prove which read is newer, so a late deferred 403 schedules
+   * exactly one recheck GET. When that read proves access, no stale/terminal
+   * state appears and the receipt is announced exactly once.
    */
   it('rechecks a superseded older 403 once and keeps the record and receipt when access is proven', async () => {
     const before = offerJob({
