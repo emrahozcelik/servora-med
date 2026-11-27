@@ -17,9 +17,10 @@ import {
   assignmentOfferStateLabel,
   assignmentOfferUrgentReasonLabel,
   assignmentReasonLabels,
+  assignmentSuggestedSolutionLabel,
 } from './job-labels';
 import {
-  ASSIGNMENT_REASON_CODES,
+  ASSIGNMENT_SUGGESTED_SOLUTIONS,
   acceptAssignmentProposal,
   listAssignmentOffersNeedingAction,
   pastStartAcknowledgementPayload,
@@ -29,9 +30,19 @@ import {
   type AssignmentOfferState,
   type AssignmentOfferNeedingActionItem,
   type AssignmentReasonCode,
+  type AssignmentSuggestedSolution,
   type JobCard,
   type PastStartAcknowledgement,
 } from './jobs-api';
+
+/**
+ * RESCUE-002 display order for the Staff reason select. The vocabulary order
+ * in `jobs-api` stays append-only for the wire contract.
+ */
+const ASSIGNMENT_REASON_DISPLAY_ORDER: readonly AssignmentReasonCode[] = [
+  'SCHEDULE_CONFLICT', 'ON_LEAVE', 'OUT_OF_TOWN', 'TOO_FAR',
+  'CUSTOMER_POSTPONED', 'WRONG_PRODUCT', 'MISSING_STOCK_OR_EQUIPMENT', 'OTHER',
+];
 
 /** Offer states where management recovery is expected to open a new offer. */
 const REOFFERABLE_OFFER_STATES: readonly AssignmentOfferState[] = [
@@ -145,31 +156,41 @@ export function focusScheduleEditor(): void {
 export type AssignmentReasonDraft = {
   code: AssignmentReasonCode | '';
   /**
-   * JOB-012: device-local proposed time, required only for
-   * `SCHEDULE_CONFLICT`. Converted with `localDateTimeToIso` on submit.
+   * RESCUE-002: mandatory typed solution. `RESCHEDULE_SELF` is the only value
+   * that carries a proposed time.
+   */
+  suggestedSolution: AssignmentSuggestedSolution | null;
+  /**
+   * JOB-012 / RESCUE-002: device-local proposed time, required only for
+   * `RESCHEDULE_SELF`. Converted with `localDateTimeToIso` on submit.
    */
   proposedScheduledLocal: string;
 };
 
 export const EMPTY_ASSIGNMENT_REASON: AssignmentReasonDraft = {
   code: '',
+  suggestedSolution: null,
   proposedScheduledLocal: '',
 };
 
 export function AssignmentReasonSection({
   draft,
   inlineError,
+  suggestionError,
   scheduleError,
   onChange,
   initialFocusRef,
 }: {
   draft: AssignmentReasonDraft;
   inlineError: string | null;
+  /** RESCUE-002: inline error of the mandatory suggested-solution group. */
+  suggestionError: string | null;
   /** JOB-012: inline error of the proposed-time field, if any. */
   scheduleError: string | null;
   onChange: (patch: Partial<AssignmentReasonDraft>) => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
 }) {
+  const proposedTimeVisible = draft.suggestedSolution === 'RESCHEDULE_SELF';
   return (
     <fieldset className="assignment-reason-section" aria-describedby={inlineError ? 'assignment-reason-error' : undefined}>
       <legend className="sr-only">Atama yanıt nedeni</legend>
@@ -185,15 +206,48 @@ export function AssignmentReasonSection({
           onChange={(event) => onChange({ code: event.target.value as AssignmentReasonCode | '' })}
         >
           <option value="">Neden seçin</option>
-          {ASSIGNMENT_REASON_CODES.map((code) => (
+          {ASSIGNMENT_REASON_DISPLAY_ORDER.map((code) => (
             <option key={code} value={code}>{assignmentReasonLabels[code]}</option>
           ))}
         </select>
         <p className="form-help">
-          Açıklamayı aşağıdaki alana yazın. Neden ve açıklama yöneticiye iletilir ve iş geçmişinde saklanır.
+          Neden, çözüm önerisi ve açıklama yöneticiye iletilir ve iş geçmişinde saklanır.
         </p>
       </div>
-      {draft.code === 'SCHEDULE_CONFLICT' && (
+      <fieldset
+        className="assignment-suggestion-section"
+        aria-describedby={[
+          'assignment-suggested-solution-help',
+          suggestionError ? 'assignment-suggested-solution-error' : null,
+        ].filter(Boolean).join(' ')}
+      >
+        <legend>Çözüm öneriniz</legend>
+        <p className="form-help" id="assignment-suggested-solution-help">
+          Yönetici bu öneriyi dikkate alır; iş üzerinde tek başına değişiklik yapmaz.
+        </p>
+        <div className="assignment-suggestion-choices">
+          {ASSIGNMENT_SUGGESTED_SOLUTIONS.map((code) => (
+            <label className="assignment-suggestion-choice" key={code}>
+              <input
+                type="radio"
+                name="assignment-suggested-solution"
+                value={code}
+                checked={draft.suggestedSolution === code}
+                required
+                aria-invalid={suggestionError ? true : false}
+                onChange={() => onChange({ suggestedSolution: code })}
+              />
+              <span>{assignmentSuggestedSolutionLabel(code)}</span>
+            </label>
+          ))}
+        </div>
+        {suggestionError && (
+          <p id="assignment-suggested-solution-error" className="field-error" role="alert">
+            {suggestionError}
+          </p>
+        )}
+      </fieldset>
+      {proposedTimeVisible && (
         <div className="field-group" data-assignment-proposal-field="true">
           <WheelDateTimeField
             mode="datetime"
@@ -436,6 +490,14 @@ export function AssignmentOfferSection({
               </div>
             )}
           </dl>
+          {offer.suggestedSolution != null && (
+            <p
+              className="assignment-offer-suggested-solution"
+              data-assignment-offer-suggested-solution={offer.suggestedSolution}
+            >
+              Personelin önerisi: <strong>{assignmentSuggestedSolutionLabel(offer.suggestedSolution)}</strong>
+            </p>
+          )}
           <p className="assignment-offer-recovery-actions-label"><strong>Ne yapabilirsiniz</strong></p>
           <div className="review-buttons">
             {proposalPrimary && (

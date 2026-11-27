@@ -48,7 +48,7 @@ import {
   pastStartAcknowledgementPayload,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
-  type ApproveDeliveryInput, type ApproveFollowUpInput, type AssignmentReasonCode, type CustomerScheduleEvaluation,
+  type ApproveDeliveryInput, type ApproveFollowUpInput, type AssignmentReasonCode, type AssignmentSuggestedSolution, type CustomerScheduleEvaluation,
   type DeliveryItem, type FollowUpProposalInput,
   type FollowUpCancelContinuity,
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
@@ -1501,7 +1501,12 @@ async function executeLifecycleCommand(
     followUp?: ApproveFollowUpInput;
     /** SALE-002 §5.1: the optional delivery an approval that completes a sale opens. */
     delivery?: ApproveDeliveryInput;
-    assignmentReason?: { code: AssignmentReasonCode; text: string; proposedScheduledAt?: string };
+    assignmentReason?: {
+      code: AssignmentReasonCode;
+      text: string;
+      suggestedSolution: AssignmentSuggestedSolution;
+      proposedScheduledAt?: string;
+    };
     correctionDueAt?: string;
     /** SALE-002 §4.5: present only for a coordinated pair command. */
     expectedSaleVersion?: number;
@@ -1517,6 +1522,9 @@ async function executeLifecycleCommand(
         ...lifecycleInput,
         reasonCode: input.assignmentReason?.code ?? 'OTHER',
         reasonText: input.assignmentReason?.text ?? reason,
+        ...(input.assignmentReason
+          ? { suggestedSolution: input.assignmentReason.suggestedSolution }
+          : {}),
         ...(input.assignmentReason?.proposedScheduledAt !== undefined
           ? { proposedScheduledAt: input.assignmentReason.proposedScheduledAt }
           : {}),
@@ -1526,6 +1534,9 @@ async function executeLifecycleCommand(
         ...lifecycleInput,
         reasonCode: input.assignmentReason?.code ?? 'OTHER',
         reasonText: input.assignmentReason?.text ?? reason,
+        ...(input.assignmentReason
+          ? { suggestedSolution: input.assignmentReason.suggestedSolution }
+          : {}),
         ...(input.assignmentReason?.proposedScheduledAt !== undefined
           ? { proposedScheduledAt: input.assignmentReason.proposedScheduledAt }
           : {}),
@@ -1642,7 +1653,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [assignmentReason, setAssignmentReason] = useState<{
     draft: AssignmentReasonDraft;
     inlineError: string | null;
-    /** JOB-012: inline error of the proposed-time field (SCHEDULE_CONFLICT). */
+    /** RESCUE-002: inline error of the mandatory suggested-solution group. */
+    suggestionError: string | null;
+    /** JOB-012: inline error of the proposed-time field (RESCHEDULE_SELF). */
     scheduleError: string | null;
   } | null>(null);
   /**
@@ -1697,7 +1710,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       followUp?: ApproveFollowUpInput;
       delivery?: ApproveDeliveryInput;
       followUpContinuity?: FollowUpCancelContinuity;
-      assignmentReason?: { code: AssignmentReasonCode; text: string; proposedScheduledAt?: string };
+      assignmentReason?: {
+        code: AssignmentReasonCode;
+        text: string;
+        suggestedSolution: AssignmentSuggestedSolution;
+        proposedScheduledAt?: string;
+      };
       correctionDueAt?: string;
     };
     reason: string;
@@ -2278,7 +2296,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       followUp?: ApproveFollowUpInput;
       delivery?: ApproveDeliveryInput;
       followUpContinuity?: FollowUpCancelContinuity;
-      assignmentReason?: { code: AssignmentReasonCode; text: string; proposedScheduledAt?: string };
+      assignmentReason?: {
+        code: AssignmentReasonCode;
+        text: string;
+        suggestedSolution: AssignmentSuggestedSolution;
+        proposedScheduledAt?: string;
+      };
       correctionDueAt?: string;
     },
   ) {
@@ -2299,7 +2322,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         followUp?: ApproveFollowUpInput;
         delivery?: ApproveDeliveryInput;
         followUpContinuity?: FollowUpCancelContinuity;
-        assignmentReason?: { code: AssignmentReasonCode; text: string; proposedScheduledAt?: string };
+        assignmentReason?: {
+          code: AssignmentReasonCode;
+          text: string;
+          suggestedSolution: AssignmentSuggestedSolution;
+          proposedScheduledAt?: string;
+        };
         correctionDueAt?: string;
         expectedSaleVersion?: number;
       } = input;
@@ -2556,6 +2584,21 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         if (caught instanceof ApiError
           && (dialog?.kind === 'decline' || dialog?.kind === 'release')
           && assignmentReason) {
+          // RESCUE-002: the suggestion is answered inside the still-open dialog.
+          const suggestionMessage = caught.code === 'VALIDATION_ERROR'
+            ? apiFieldError(caught, 'suggestedSolution', '')
+            : '';
+          if (suggestionMessage) {
+            if (isDefinitiveMutationError(caught)) {
+              // The corrected suggestion is a new intent with a fresh action id.
+              lifecycleAttempt.current = null;
+              setUncertain(false);
+            }
+            setAssignmentReason((current) => current
+              ? { ...current, suggestionError: suggestionMessage }
+              : current);
+            return;
+          }
           // JOB-012: the proposed time is answered inside the still-open dialog,
           // not in the page feedback behind the modal.
           const scheduleMessage = caught.code === 'CALENDAR_CONFLICT'
@@ -3121,7 +3164,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!transition) return;
       dialogTriggerRef.current = trigger;
       dialogFocusRestoreEnabledRef.current = true;
-      setAssignmentReason({ draft: EMPTY_ASSIGNMENT_REASON, inlineError: null, scheduleError: null });
+      setAssignmentReason({
+        draft: EMPTY_ASSIGNMENT_REASON,
+        inlineError: null,
+        suggestionError: null,
+        scheduleError: null,
+      });
       setDialog({
         kind: commandName === 'DECLINE_ASSIGNMENT' ? 'decline' : 'release',
         presentation: transition,
@@ -3424,8 +3472,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setAssignmentReason({ ...assignmentReason, inlineError: message });
         return message;
       }
-      // JOB-012: a SCHEDULE_CONFLICT answer must carry a future proposed time.
-      if (assignmentReason.draft.code === 'SCHEDULE_CONFLICT') {
+      // RESCUE-002: the typed suggested solution is mandatory on the new-client
+      // path; the server rejects a decline/release without it.
+      if (assignmentReason.draft.suggestedSolution === null) {
+        const message = 'Çözüm önerisi zorunludur.';
+        setAssignmentReason({ ...assignmentReason, suggestionError: message });
+        return message;
+      }
+      // JOB-012 / RESCUE-002: only "kendim yapabilirim" carries a future
+      // proposed time. The reason code no longer decides this.
+      if (assignmentReason.draft.suggestedSolution === 'RESCHEDULE_SELF') {
         const localValue = assignmentReason.draft.proposedScheduledLocal.trim();
         let proposedScheduledAt = '';
         if (localValue) {
@@ -3436,7 +3492,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           }
         }
         if (!proposedScheduledAt) {
-          const message = 'Plan çakışması için önerdiğiniz zamanı seçin.';
+          const message = 'Önerilen zaman zorunludur.';
           setAssignmentReason({ ...assignmentReason, scheduleError: message });
           return message;
         }
@@ -3521,8 +3577,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         });
         return;
       }
-      // The prelude already validated the value; only SCHEDULE_CONFLICT sends it.
-      const proposedScheduledAt = code === 'SCHEDULE_CONFLICT'
+      // The prelude already validated the value; only RESCHEDULE_SELF sends a time.
+      const suggestedSolution = assignmentReason.draft.suggestedSolution;
+      if (suggestedSolution === null) return;
+      const proposedScheduledAt = suggestedSolution === 'RESCHEDULE_SELF'
         ? localDateTimeToIso(assignmentReason.draft.proposedScheduledLocal.trim())
         : undefined;
       void execute(
@@ -3532,6 +3590,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           assignmentReason: {
             code: code as AssignmentReasonCode,
             text,
+            suggestedSolution,
             ...(proposedScheduledAt !== undefined ? { proposedScheduledAt } : {}),
           },
         },
@@ -3899,15 +3958,24 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           ? {
               draft: assignmentReason.draft,
               inlineError: assignmentReason.inlineError,
+              suggestionError: assignmentReason.suggestionError,
               scheduleError: assignmentReason.scheduleError,
               onChange: (patch) => setAssignmentReason((current) => {
                 if (!current) return current;
-                // JOB-012: the proposal belongs to SCHEDULE_CONFLICT only;
-                // switching away clears the value and its error.
-                const nextDraft = patch.code !== undefined && patch.code !== 'SCHEDULE_CONFLICT'
+                // RESCUE-002: the proposed time belongs to RESCHEDULE_SELF only;
+                // switching to another suggestion clears the value and its error.
+                const clearsProposal = patch.suggestedSolution !== undefined
+                  && patch.suggestedSolution !== 'RESCHEDULE_SELF';
+                const nextDraft = clearsProposal
                   ? { ...current.draft, ...patch, proposedScheduledLocal: '' }
                   : { ...current.draft, ...patch };
-                return { ...current, draft: nextDraft, inlineError: null, scheduleError: null };
+                return {
+                  ...current,
+                  draft: nextDraft,
+                  inlineError: null,
+                  suggestionError: null,
+                  scheduleError: null,
+                };
               }),
             }
           : undefined)

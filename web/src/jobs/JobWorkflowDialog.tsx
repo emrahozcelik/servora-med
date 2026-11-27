@@ -73,6 +73,8 @@ export function JobWorkflowDialog(props: {
   assignmentReason?: {
     draft: AssignmentReasonDraft;
     inlineError: string | null;
+    /** RESCUE-002: inline error of the mandatory suggested-solution group. */
+    suggestionError: string | null;
     /** JOB-012: inline error of the proposed-time field. */
     scheduleError: string | null;
     onChange: (patch: Partial<AssignmentReasonDraft>) => void;
@@ -174,6 +176,7 @@ export function JobWorkflowDialog(props: {
             <AssignmentReasonSection
               draft={assignmentReason.draft}
               inlineError={assignmentReason.inlineError}
+              suggestionError={assignmentReason.suggestionError}
               scheduleError={assignmentReason.scheduleError}
               onChange={assignmentReason.onChange}
               initialFocusRef={followUpInitialFocusRef}

@@ -31,6 +31,7 @@ const assignmentOffer = {
   closedAt: null,
   closeReason: null,
   closeText: null,
+  suggestedSolution: null,
   proposedScheduledAt: null,
   proposedScheduledEndsAt: null,
   proposalAcceptedAt: null,
@@ -144,6 +145,27 @@ describe('job detail assignment offer DTO', () => {
     };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: closed }))));
     await expect(getJobCard('job-1')).resolves.toMatchObject({ assignmentOffer: closed });
+  });
+
+  it('parses the RESCUE-002 suggested solution and rejects an unknown one', async () => {
+    const suggested = {
+      ...assignmentOffer,
+      state: 'DECLINED',
+      urgentReason: null,
+      closedAt: '2026-11-21T11:20:00.000Z',
+      closeReason: 'OUT_OF_TOWN',
+      closeText: null,
+      suggestedSolution: 'REASSIGN',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({ assignmentOffer: suggested }))));
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      assignmentOffer: { closeReason: 'OUT_OF_TOWN', suggestedSolution: 'REASSIGN' },
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(jobCard({
+      assignmentOffer: { ...suggested, suggestedSolution: 'CALL_MANAGER' },
+    }))));
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE', status: 0 });
   });
 
   it('parses the JOB-012 proposed interval and its acceptance mark', async () => {
@@ -294,6 +316,26 @@ describe('assignment decision activity details', () => {
     await expect(listActivity('job-1')).resolves.toMatchObject({
       items: [{ details: { proposedScheduledAt: '2026-11-23T09:00:00.000Z' } }],
     });
+  });
+
+  it('parses the RESCUE-002 suggestion inside the decision', async () => {
+    const decision = {
+      kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED',
+      reasonCode: 'OUT_OF_TOWN', reasonText: null,
+      suggestedSolution: 'REASSIGN', proposedScheduledAt: null,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity(decision)], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({
+      items: [{ details: { suggestedSolution: 'REASSIGN' } }],
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [activity({ ...decision, suggestedSolution: 'CALL_MANAGER' })],
+      total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
   it('accepts a missing reason and a missing text as null', async () => {

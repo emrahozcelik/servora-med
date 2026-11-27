@@ -134,8 +134,15 @@ export type AssignmentOfferUrgentReason = (typeof ASSIGNMENT_OFFER_URGENT_REASON
 /** Staff reasons for declining or releasing an assigned job. */
 export const ASSIGNMENT_REASON_CODES = [
   'SCHEDULE_CONFLICT', 'ON_LEAVE', 'TOO_FAR', 'MISSING_STOCK_OR_EQUIPMENT', 'OTHER',
+  // RESCUE-002: additive codes for the typed suggestion path.
+  'OUT_OF_TOWN', 'CUSTOMER_POSTPONED', 'WRONG_PRODUCT',
 ] as const;
 export type AssignmentReasonCode = (typeof ASSIGNMENT_REASON_CODES)[number];
+/** RESCUE-002: the typed solution a Staff member proposes with a decline/release. */
+export const ASSIGNMENT_SUGGESTED_SOLUTIONS = [
+  'RESCHEDULE_SELF', 'REASSIGN', 'CORRECT_DETAILS', 'CANCEL_REQUEST', 'MANAGEMENT_DECIDES',
+] as const;
+export type AssignmentSuggestedSolution = (typeof ASSIGNMENT_SUGGESTED_SOLUTIONS)[number];
 /** Every recorded offer close reason: Staff answers plus management closers. */
 export const ASSIGNMENT_OFFER_CLOSE_REASONS = [
   ...ASSIGNMENT_REASON_CODES,
@@ -365,9 +372,13 @@ export type AssignmentOffer = {
   /** The Staff member's own answer text, when one was written. */
   closeText: string | null;
   /**
+   * RESCUE-002: the typed solution the Staff member proposed. Legacy rows
+   * (closed before the suggestion existed) carry null.
+   */
+  suggestedSolution: AssignmentSuggestedSolution | null;
+  /**
    * JOB-012: the time the answering Staff member proposed instead of the
-   * offered one. Only a DECLINED / RELEASED offer closed with
-   * `SCHEDULE_CONFLICT` carries one.
+   * offered one. Carried only when `suggestedSolution` is `RESCHEDULE_SELF`.
    */
   proposedScheduledAt: string | null;
   /** JOB-012: the server-derived end of the proposed interval. */
@@ -533,6 +544,8 @@ export type JobCardActivityDetails =
       decision: 'DECLINED' | 'RELEASED';
       reasonCode: AssignmentReasonCode | null;
       reasonText: string | null;
+      /** RESCUE-002: the typed solution, under the same reader scope as the reason. */
+      suggestedSolution: AssignmentSuggestedSolution | null;
       /** JOB-012: the proposed time, under the same reader scope as the reason. */
       proposedScheduledAt: string | null;
     }
@@ -905,7 +918,7 @@ function parseAssignmentOffer(value: unknown): AssignmentOffer | null {
   if (value === undefined || value === null) return null;
   const v = exactObject(value, 'assignmentOffer', [
     'id', 'state', 'openedAt', 'acceptanceDueAt', 'urgentReason', 'assignee',
-    'closedAt', 'closeReason', 'closeText', 'proposedScheduledAt',
+    'closedAt', 'closeReason', 'closeText', 'suggestedSolution', 'proposedScheduledAt',
     'proposedScheduledEndsAt', 'proposalAcceptedAt',
   ]);
   return {
@@ -922,6 +935,14 @@ function parseAssignmentOffer(value: unknown): AssignmentOffer | null {
       ? null
       : oneOf(v.closeReason, 'assignmentOffer.closeReason', ASSIGNMENT_OFFER_CLOSE_REASONS),
     closeText: nullableString(v.closeText, 'assignmentOffer.closeText'),
+    // RESCUE-002: additive field; an older backend shape stays readable as null.
+    suggestedSolution: v.suggestedSolution === undefined || v.suggestedSolution === null
+      ? null
+      : oneOf(
+          v.suggestedSolution,
+          'assignmentOffer.suggestedSolution',
+          ASSIGNMENT_SUGGESTED_SOLUTIONS,
+        ),
     proposedScheduledAt: nullableCanonicalInstant(
       v.proposedScheduledAt,
       'assignmentOffer.proposedScheduledAt',
@@ -1329,7 +1350,8 @@ function parseDetails(value: unknown): JobCardActivityDetails {
   if (kind === 'NOTE') return { kind, noteId: string(v.noteId, 'noteId') };
   if (kind === 'ASSIGNMENT_DECISION') {
     const detail = exactObject(v, 'details', [
-      'kind', 'decision', 'reasonCode', 'reasonText', 'proposedScheduledAt',
+      'kind', 'decision', 'reasonCode', 'reasonText', 'suggestedSolution',
+      'proposedScheduledAt',
     ]);
     return {
       kind,
@@ -1338,6 +1360,11 @@ function parseDetails(value: unknown): JobCardActivityDetails {
         ? null
         : oneOf(detail.reasonCode, 'reasonCode', ASSIGNMENT_REASON_CODES),
       reasonText: nullableString(detail.reasonText, 'reasonText'),
+      // RESCUE-002: additive field; an older backend shape stays readable as null.
+      suggestedSolution: detail.suggestedSolution === undefined
+        || detail.suggestedSolution === null
+        ? null
+        : oneOf(detail.suggestedSolution, 'suggestedSolution', ASSIGNMENT_SUGGESTED_SOLUTIONS),
       proposedScheduledAt: nullableCanonicalInstant(
         detail.proposedScheduledAt,
         'proposedScheduledAt',
@@ -1998,8 +2025,14 @@ export type AssignmentReasonInput = {
   reasonCode: AssignmentReasonCode;
   reasonText: string;
   /**
-   * JOB-012: required for `SCHEDULE_CONFLICT`, absent for every other reason.
-   * Staff only propose here; management confirms separately.
+   * RESCUE-002: the typed solution. The web always sends a code; null/absent
+   * is the server's legacy path for clients released before the suggestion.
+   */
+  suggestedSolution?: AssignmentSuggestedSolution | null;
+  /**
+   * JOB-012 / RESCUE-002: required when `suggestedSolution` is
+   * `RESCHEDULE_SELF`, forbidden for every other suggestion. Staff only
+   * propose here; management confirms separately.
    */
   proposedScheduledAt?: string | null;
 };

@@ -3949,6 +3949,48 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .assignment-offer-recovery .review-buttons {
   justify-content: flex-start;
 }
+/* RESCUE-002: the mandatory suggested-solution radio group in the Staff
+   decline/release form. 44px rows keep it usable at 390px. */
+.assignment-reason-section .assignment-suggestion-section {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1.35rem;
+  padding: 1rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+.assignment-reason-section .assignment-suggestion-section legend {
+  font-size: 0.9rem;
+  font-weight: 680;
+}
+.assignment-reason-section .assignment-suggestion-section .form-help {
+  margin: 0;
+}
+.assignment-suggestion-choices {
+  display: grid;
+  gap: 0.15rem;
+}
+.assignment-suggestion-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+.assignment-suggestion-choice input {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  margin: 0;
+  flex: none;
+}
+.assignment-suggestion-choice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.assignment-offer-suggested-solution {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 /* JOB-010 management guidance: the real commands come first; the record-only
    closures sit in their own separated, confirmed group below them. */
 .change-request-guidance {
