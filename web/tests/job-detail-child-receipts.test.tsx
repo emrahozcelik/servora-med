@@ -5,6 +5,9 @@
  * against the four read outcomes: fresh, failed canonical read, access loss and
  * a rejected mutation that must stay local and only refresh.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -227,6 +230,13 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: 
   element.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** Format a Date the way a `datetime-local` input reports its value. */
+function localInputValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 type ReadFailure = 403 | 500;
 
 type Harness = {
@@ -243,11 +253,14 @@ function makeHarness(options: {
   success: () => Response;
   failure: () => Response;
   succeed: boolean;
+  /**
+   * The first canonical read after the mutation attempt fails. It applies to a
+   * committed mutation and to a rejected one, because a rejected decision still
+   * performs a canonical read that can fail.
+   */
   readFailure?: ReadFailure;
   /** The first canonical read after a rejected decision (new truth). */
   failureRead?: () => JobCard;
-  /** The first canonical read after a rejected decision fails (sale recheck). */
-  failFirstReadAfterAttempt?: ReadFailure;
   sale?: { before: SaleDetails; after: () => SaleDetails };
 }): Harness {
   let committed = false;
@@ -285,14 +298,12 @@ function makeHarness(options: {
     }
     if (detailUrlMatches(url, options.before.id)) {
       detailGets += 1;
-      if (committed && options.readFailure !== undefined && !failureServed) {
+      // A committed decision reads the new truth; a rejected one still reads the
+      // canonical card. Either first read can fail, so the knob is not gated on
+      // a successful mutation (a rejected decision must be able to test a 500).
+      if (attempted && options.readFailure !== undefined && !failureServed) {
         failureServed = true;
         return json({ error: 'Sunucu hatası.' }, options.readFailure);
-      }
-      if (attempted && !committed && options.failFirstReadAfterAttempt !== undefined
-        && !failureReadServed) {
-        failureReadServed = true;
-        return json({ error: 'Sunucu hatası.' }, options.failFirstReadAfterAttempt);
       }
       if (attempted && !committed && options.failureRead !== undefined && !failureReadServed) {
         failureReadServed = true;
@@ -306,6 +317,50 @@ function makeHarness(options: {
     fetch, detailGets: () => detailGets, mutationCalls: () => mutationCalls,
     activityGets: () => activityGets,
   };
+}
+
+/**
+ * A sold-time correction always answers `400 SALE_TIME_INVALID` (a definitive
+ * rejection that writes nothing, so the canonical version does not move) and
+ * serves the same unchanged sale details. The explicit reload is the only read
+ * that can fail, which is what the two regression cases below vary.
+ */
+function saleTimeHarness(options: { readFailure?: ReadFailure } = {}) {
+  const before = saleJob();
+  const patchBodies: Array<Record<string, unknown>> = [];
+  let detailGets = 0;
+  let readFailureServed = false;
+  const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = withoutSaleCapability(String(input));
+    const method = (init?.method ?? 'GET').toUpperCase();
+    const path = url.split('?')[0] ?? url;
+    if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+    if (url.includes('/delivery-items')) return json({ items: [] });
+    if (url.includes('/notes?')) return json(emptyPage);
+    if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+    if (url.includes('/submission-lateness')) return json({ open: null });
+    if (url.includes('/overdue-incidents')) return json(emptyPage);
+    if (url.includes('/follow-ups')) return json(emptyPage);
+    if (url.includes('/api/staff?')) return json([]);
+    if (url.includes('/api/customers/') && url.includes('/contacts')) return json(emptyPage);
+    if (method === 'PATCH' && path.endsWith(`/api/job-cards/${before.id}/sale-details`)) {
+      patchBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return json({ error: 'Satış zamanı geçersiz.', code: 'SALE_TIME_INVALID' }, 400);
+    }
+    if (method === 'GET' && path.endsWith(`/api/job-cards/${before.id}/sale-details`)) {
+      return json(saleDetailsBefore);
+    }
+    if (detailUrlMatches(url, before.id)) {
+      detailGets += 1;
+      if (patchBodies.length > 0 && options.readFailure !== undefined && !readFailureServed) {
+        readFailureServed = true;
+        return json({ error: 'Sunucu hatası.' }, options.readFailure);
+      }
+      return json(before);
+    }
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  });
+  return { before, fetch, patchBodies, detailGets: () => detailGets };
 }
 
 async function click(host: ParentNode, name: string) {
@@ -1061,7 +1116,7 @@ describe('JobDetail child decision receipts', () => {
       success: () => json({ jobCardId: 'job-1', version: 5 }),
       failure: () => json({ error: 'Kayıt başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT' }, 409),
       succeed: false,
-      failFirstReadAfterAttempt: 500,
+      readFailure: 500,
       sale: { before: saleDetailsBefore, after: () => saleDetailsAfter },
     });
     await renderScreen(before, harness.fetch);
@@ -1082,5 +1137,198 @@ describe('JobDetail child decision receipts', () => {
     expect(host.querySelector<HTMLInputElement>('input[aria-label="İmplant Seti satış adedi"]')?.value)
       .toBe('15');
     expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
+  });
+
+  /**
+   * UI-FEEDBACK/B regression: a definitive `400 SALE_TIME_INVALID` rejected the
+   * write, so the canonical version does not move. The explicit reload is still
+   * a real reconciled read; only that read (not the version) may release the
+   * lock, and it must keep the sold-time draft the manager typed.
+   */
+  async function startSaleTimeCorrection(before: JobCard, fetch: ReturnType<typeof vi.fn>) {
+    await renderScreen(before, fetch);
+    const soldInput = () => host.querySelector<HTMLInputElement>(
+      '.sale-correction input[type="datetime-local"]',
+    );
+    if (soldInput() === null) throw new Error('Sale sold-time field is missing');
+    const original = soldInput()!.value;
+    const typed = new Date(original);
+    typed.setMinutes(typed.getMinutes() + 30);
+    const draft = localInputValue(typed);
+    expect(draft).not.toBe(original);
+    await act(async () => { setNativeValue(soldInput()!, draft); });
+    await click(host, 'Satış bilgilerini kaydet');
+    await settle();
+    return { soldInput, draft };
+  }
+
+  it('unlocks the sale correction after a reconciled reload at the same version', async () => {
+    const harness = saleTimeHarness();
+    const { soldInput, draft } = await startSaleTimeCorrection(harness.before, harness.fetch);
+
+    // The server rejected the change without writing, so the form is locked and
+    // offers the canonical reload.
+    expect(harness.patchBodies).toHaveLength(1);
+    expect(harness.patchBodies[0]?.soldAt).toBe(new Date(draft).toISOString());
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(true);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).not.toBeNull();
+
+    await click(host, 'Güncel kaydı yükle ve düzeltmeye devam et');
+    await settle();
+
+    // A 200 at the same version is reconciled truth: unlock, keep the draft.
+    expect(harness.detailGets()).toBe(2);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(false);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).toBeNull();
+    expect(soldInput()?.value).toBe(draft);
+    expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
+  });
+
+  it('keeps the sale correction locked with its draft when the reload read fails', async () => {
+    const harness = saleTimeHarness({ readFailure: 500 });
+    const { soldInput, draft } = await startSaleTimeCorrection(harness.before, harness.fetch);
+
+    await click(host, 'Güncel kaydı yükle ve düzeltmeye devam et');
+    await settle();
+
+    // A failed read is not canonical truth: the lock and the draft stay.
+    expect(harness.detailGets()).toBe(2);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(true);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).not.toBeNull();
+    expect(soldInput()?.value).toBe(draft);
+    expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
+  });
+
+  /**
+   * UI-FEEDBACK/B regression: two managers grant early start at once. The second
+   * one loses the version race, and the refreshed record already carries the
+   * winner's authorization. Both facts belong on screen, with no page receipt.
+   */
+  it('shows the winning authorization and the losing manager rejection together', async () => {
+    const before = earlyStartJob();
+    const harness = makeHarness({
+      before, after: () => before, mutationPath: '/api/job-cards/job-1/early-start-authorization',
+      success: () => json({
+        jobCardId: 'job-1', authorizationId: 'auth-1', grantedAt: '2026-11-24T10:00:00.000Z',
+      }),
+      failure: () => json({
+        error: 'İş başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT',
+      }, 409),
+      succeed: false,
+      failureRead: () => ({
+        ...earlyStartJob(),
+        version: 5,
+        earlyStartAuthorization: {
+          grantedAt: '2026-11-24T10:05:00.000Z',
+          grantedBy: { id: 'manager-2', name: 'Zeynep Yönetici' },
+        },
+      }),
+    });
+    await renderScreen(before, harness.fetch);
+    await click(host, 'Erken başlamaya izin ver');
+    await click(host, 'Erken başlama iznini kaydet');
+    await settle();
+
+    const section = host.querySelector('[data-early-start-authorization="authorized"]');
+    expect(section).not.toBeNull();
+    // The winner's authorization is shown...
+    expect(section?.querySelector('[role="status"]')?.textContent).toContain('Erken başlama izni:');
+    expect(section?.querySelector('[role="status"]')?.textContent).toContain('Zeynep Yönetici');
+    // ...next to this manager's own rejection explanation.
+    expect(section?.querySelector('[role="alert"]')?.textContent)
+      .toContain('İş başka bir işlemle güncellendi.');
+    expect(receiptRegions('Erken başlama izni kaydedildi.')).toHaveLength(0);
+    expect(host.querySelector('[data-job-detail-section="feedback"]')).toBeNull();
+    expect(harness.mutationCalls()).toBe(1);
+    expect(harness.detailGets()).toBe(2);
+  });
+
+  /**
+   * UI-FEEDBACK/B regression: a realtime read that started before a child
+   * decision must not decide the screen even when it ends in 403. The decision
+   * already committed and a newer 200 read replaced it; the late access loss is
+   * stale and cannot tear the newer record (or its receipt) down.
+   */
+  it('an older realtime read that loses access cannot end the newer committed screen', async () => {
+    const before = offerJob({
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    });
+    const after = { ...before, version: 4, assignmentOffer: null };
+    const source = new FakeRealtimeEventSource();
+    let holdNextRead = false;
+    let releaseHeld!: (response: Response) => void;
+    let committed = false;
+    let detailGets = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/delivery-items')) return json({ items: [] });
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'POST' && (url.split('?')[0] ?? url).endsWith(
+        '/api/job-cards/job-1/assignment-offers/reoffer',
+      )) {
+        committed = true;
+        return json({
+          jobCardId: 'job-1', offerId: 'offer-2',
+          acceptanceDueAt: '2026-12-01T12:00:00.000Z', urgentReason: 'START_PASSED',
+        }, 201);
+      }
+      if (detailUrlMatches(url, before.id)) {
+        detailGets += 1;
+        if (!committed && holdNextRead) {
+          holdNextRead = false;
+          return new Promise<Response>((resolve) => { releaseHeld = resolve; });
+        }
+        return json(committed ? after : before);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    await renderScreen(before, fetch, source);
+
+    holdNextRead = true;
+    await act(async () => {
+      source.emitJobUpdate('job-1', '1');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await click(host, 'Aynı zamanla yeniden teklif et');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    // The pre-decision realtime read finishes last without access.
+    await act(async () => {
+      releaseHeld(json({ error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN' }, 403));
+    });
+    await settle();
+    await settle();
+
+    // The newer record and its single receipt survive; no access-lost screen.
+    expect(detailGets).toBeGreaterThanOrEqual(3);
+    expect(host.querySelector('[data-assignment-offer]')).toBeNull();
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).toBeNull();
+    expect(host.textContent).not.toContain('artık erişilemiyor');
+    expect(host.textContent).not.toContain('Bu işe erişim yetkiniz yok.');
+    expect(receiptRegions('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.')).toHaveLength(1);
+  });
+
+  /**
+   * UI-FEEDBACK/B: the page receipt keeps its rem size through styles.css. An
+   * inline style would bypass the design tokens and the documented stylesheet.
+   */
+  it('keeps the page receipt rem size in styles.css instead of an inline style', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const jobDetail = readFileSync(resolve(process.cwd(), 'src/JobDetail.tsx'), 'utf8');
+    const selector = '.job-detail > .detail-feedback[data-job-detail-section="feedback"]';
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rule = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(styles);
+    expect(rule).not.toBeNull();
+    expect(rule?.[1]).toMatch(/font-size:\s*1rem\s*;/);
+    expect(jobDetail).not.toMatch(/fontSize\s*:/);
   });
 });
