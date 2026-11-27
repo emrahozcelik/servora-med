@@ -120,8 +120,9 @@ const declinePresentation = {
   successMessage: 'Görev reddedildi.',
 };
 
-function StaffForm({ draft, suggestionError, scheduleError }: {
+function StaffForm({ draft, codeError = null, suggestionError, scheduleError }: {
   draft: AssignmentReasonDraft;
+  codeError?: string | null;
   suggestionError: string | null;
   scheduleError: string | null;
 }) {
@@ -134,7 +135,7 @@ function StaffForm({ draft, suggestionError, scheduleError }: {
       onConfirm={() => {}}
       assignmentReason={{
         draft: current,
-        inlineError: null,
+        inlineError: codeError,
         suggestionError,
         scheduleError,
         onChange: (patch) => setCurrent((value) => {
@@ -244,6 +245,33 @@ function root() {
         }}
         suggestionError="Çözüm önerisi zorunludur."
         scheduleError={null}
+      />
+    );
+  }
+  if (fixtureCase === 'staff-code-error') {
+    return (
+      <StaffForm
+        draft={{
+          code: '',
+          suggestedSolution: 'REASSIGN',
+          proposedScheduledLocal: '',
+        }}
+        codeError="Görevi reddetme nedenini seçin."
+        suggestionError={null}
+        scheduleError={null}
+      />
+    );
+  }
+  if (fixtureCase === 'staff-time-error') {
+    return (
+      <StaffForm
+        draft={{
+          code: 'ON_LEAVE' as AssignmentReasonCode,
+          suggestedSolution: 'RESCHEDULE_SELF',
+          proposedScheduledLocal: '',
+        }}
+        suggestionError={null}
+        scheduleError="Önerilen zaman zorunludur."
       />
     );
   }

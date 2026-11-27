@@ -131,12 +131,13 @@ export function ReasonDialog({
     target.focus();
   }, [initialFocusReady, initialFocusRef, open]);
 
-  // RESCUE-002: a server/feature field error appears after the submit; move
-  // focus to the textarea so the associated message is announced.
+  // RESCUE-002: a server/feature field error appears after the submit. Drive
+  // the focus from the settled response (`pending` false) so a repeated
+  // identical error still refocuses the textarea once it is enabled again.
   useEffect(() => {
-    if (!open || !externalError) return;
-    requestAnimationFrame(() => reasonRef.current?.focus());
-  }, [open, externalError]);
+    if (!open || pending || !externalError) return;
+    reasonRef.current?.focus();
+  }, [open, pending, externalError]);
 
   useEffect(() => {
     if (!open || !pending) return;
@@ -167,9 +168,6 @@ export function ReasonDialog({
       setError('');
       return;
     }
-    // Keep focus on the textarea while its already-visible error is retried,
-    // including a repeated server error whose text did not change.
-    if (shownError) requestAnimationFrame(() => reasonRef.current?.focus());
     if (required) {
       const normalized = reason.trim();
       if (!normalized) {

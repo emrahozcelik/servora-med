@@ -41,6 +41,8 @@ const CASES = [
   { screen: 'staff-decline-empty', case: 'staff-empty', page: 'staff' },
   { screen: 'staff-decline-reschedule', case: 'staff-reschedule', page: 'staff' },
   { screen: 'staff-decline-error', case: 'staff-error', page: 'staff' },
+  { screen: 'staff-decline-code-error', case: 'staff-code-error', page: 'staff' },
+  { screen: 'staff-decline-time-error', case: 'staff-time-error', page: 'staff' },
   { screen: 'manager-panel', case: 'manager', page: 'manager' },
   { screen: 'manager-cancelled', case: 'manager-cancelled', page: 'manager-cancelled' },
 ];
@@ -100,6 +102,11 @@ async function inspect(page, captureCase) {
       suggestionLabels: labels,
       timeFieldVisible: document.querySelector('#assignment-proposed-at') !== null,
       suggestionError: document.querySelector('#assignment-suggested-solution-error')?.textContent ?? null,
+      suggestionGroupInvalid: document.querySelector('.assignment-suggestion-choices')?.getAttribute('data-invalid') ?? null,
+      reasonInvalid: document.querySelector('#assignment-reason-code')?.getAttribute('aria-invalid') ?? null,
+      reasonError: document.querySelector('#assignment-reason-error')?.textContent ?? null,
+      timeInvalid: document.querySelector('#assignment-proposed-at')?.getAttribute('aria-invalid') ?? null,
+      timeError: document.querySelector('#assignment-proposed-at-error')?.textContent ?? null,
       managerSuggestionText: Array.from(document.querySelectorAll('[data-assignment-offer-suggested-solution]'))
         .map((node) => node.textContent?.trim() ?? ''),
       proposalConfirmButtons: Array.from(document.querySelectorAll('[data-assignment-offer-action="accept-proposal"]'))
@@ -183,13 +190,35 @@ try {
               'Çözüm önerisi zorunludur.',
               `${captureCase.screen}-${width}: validation error`,
             );
+            assert.equal(
+              metrics.suggestionGroupInvalid,
+              'true',
+              `${captureCase.screen}-${width}: radio group invalid channel`,
+            );
+          }
+          if (captureCase.case === 'staff-code-error') {
+            assert.equal(metrics.reasonInvalid, 'true', `${captureCase.screen}-${width}: select invalid`);
+            assert.equal(
+              metrics.reasonError,
+              'Görevi reddetme nedenini seçin.',
+              `${captureCase.screen}-${width}: select error text`,
+            );
+          }
+          if (captureCase.case === 'staff-time-error') {
+            assert.equal(metrics.timeFieldVisible, true, `${captureCase.screen}-${width}: time field visible`);
+            assert.equal(metrics.timeInvalid, 'true', `${captureCase.screen}-${width}: time trigger invalid`);
+            assert.equal(
+              metrics.timeError,
+              'Önerilen zaman zorunludur.',
+              `${captureCase.screen}-${width}: time error text`,
+            );
           }
         } else {
           if (captureCase.case === 'manager-cancelled') {
             assert.equal(metrics.recoveryCount, 0, `${captureCase.screen}-${width}: no recovery box`);
             assert.deepEqual(
               metrics.managerSuggestionText,
-              ['Personelin önerisi: Başka bir zamanda kendim yapabilirim'],
+              ['Başka bir zamanda kendim yapabilirim'],
               `${captureCase.screen}-${width}: recorded suggestion stays readable`,
             );
             assert.deepEqual(
@@ -200,11 +229,11 @@ try {
           } else {
             assert.equal(metrics.recoveryCount, 2, `${captureCase.screen}-${width}: two manager cards`);
             assert.ok(
-              metrics.managerSuggestionText.includes('Personelin önerisi: Başka bir personele verilsin'),
+              metrics.managerSuggestionText.includes('Başka bir personele verilsin'),
               `${captureCase.screen}-${width}: reassign suggestion`,
             );
             assert.ok(
-              metrics.managerSuggestionText.includes('Personelin önerisi: Başka bir zamanda kendim yapabilirim'),
+              metrics.managerSuggestionText.includes('Başka bir zamanda kendim yapabilirim'),
               `${captureCase.screen}-${width}: reschedule suggestion`,
             );
             assert.ok(

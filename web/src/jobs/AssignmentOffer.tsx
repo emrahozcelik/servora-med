@@ -222,39 +222,47 @@ export function AssignmentReasonSection({
           <p id="assignment-reason-error" className="field-error" role="alert">{inlineError}</p>
         )}
       </div>
-      <fieldset
-        className="assignment-suggestion-section"
-        aria-describedby={[
-          'assignment-suggested-solution-help',
-          suggestionError ? 'assignment-suggested-solution-error' : null,
-        ].filter(Boolean).join(' ')}
+      <div
+        className="assignment-suggestion-block"
+        data-invalid={suggestionError ? 'true' : undefined}
       >
-        <legend>Çözüm öneriniz</legend>
-        <p className="form-help" id="assignment-suggested-solution-help">
-          Yönetici bu öneriyi dikkate alır; iş üzerinde tek başına değişiklik yapmaz.
-        </p>
-        <div className="assignment-suggestion-choices">
-          {ASSIGNMENT_SUGGESTED_SOLUTIONS.map((code) => (
-            <label className="assignment-suggestion-choice" key={code}>
-              <input
-                type="radio"
-                name="assignment-suggested-solution"
-                value={code}
-                checked={draft.suggestedSolution === code}
-                required
-                aria-invalid={suggestionError ? true : false}
-                onChange={() => onChange({ suggestedSolution: code })}
-              />
-              <span>{assignmentSuggestedSolutionLabel(code)}</span>
-            </label>
-          ))}
-        </div>
-        {suggestionError && (
-          <p id="assignment-suggested-solution-error" className="field-error" role="alert">
-            {suggestionError}
+        <fieldset
+          className="assignment-suggestion-section"
+          aria-describedby={[
+            'assignment-suggested-solution-help',
+            suggestionError ? 'assignment-suggested-solution-error' : null,
+          ].filter(Boolean).join(' ')}
+        >
+          <legend>Çözüm öneriniz</legend>
+          <p className="form-help" id="assignment-suggested-solution-help">
+            Yönetici bu öneriyi dikkate alır; iş üzerinde tek başına değişiklik yapmaz.
           </p>
-        )}
-      </fieldset>
+          <div
+            className="assignment-suggestion-choices"
+            data-invalid={suggestionError ? 'true' : undefined}
+          >
+            {ASSIGNMENT_SUGGESTED_SOLUTIONS.map((code) => (
+              <label className="assignment-suggestion-choice" key={code}>
+                <input
+                  type="radio"
+                  name="assignment-suggested-solution"
+                  value={code}
+                  checked={draft.suggestedSolution === code}
+                  required
+                  aria-invalid={suggestionError ? true : false}
+                  onChange={() => onChange({ suggestedSolution: code })}
+                />
+                <span>{assignmentSuggestedSolutionLabel(code)}</span>
+              </label>
+            ))}
+          </div>
+          {suggestionError && (
+            <p id="assignment-suggested-solution-error" className="field-error" role="alert">
+              {suggestionError}
+            </p>
+          )}
+        </fieldset>
+      </div>
       {proposedTimeVisible && (
         <div className="field-group" data-assignment-proposal-field="true">
           <WheelDateTimeField
@@ -392,15 +400,15 @@ export function AssignmentOfferSection({
       {pending && !ackOpen ? 'Kaydediliyor…' : 'Aynı zamanla yeniden teklif et'}
     </button>
   ) : null;
-  // RESCUE-002: the recorded suggestion travels with the offer, including a
-  // cancelled job where the recovery box does not render.
-  const suggestedSolutionLine = management && offer.suggestedSolution != null ? (
-    <p
-      className="assignment-offer-suggested-solution"
-      data-assignment-offer-suggested-solution={offer.suggestedSolution}
-    >
-      Personelin önerisi: <strong>{assignmentSuggestedSolutionLabel(offer.suggestedSolution)}</strong>
-    </p>
+  // RESCUE-002: the recorded suggestion is a fact row next to the proposed
+  // time, including a cancelled job where the recovery box does not render.
+  const suggestedSolutionRow = management && offer.suggestedSolution != null ? (
+    <div>
+      <dt>Personelin önerisi</dt>
+      <dd data-assignment-offer-suggested-solution={offer.suggestedSolution}>
+        {assignmentSuggestedSolutionLabel(offer.suggestedSolution)}
+      </dd>
+    </div>
   ) : null;
 
   async function confirmProposal(target: AssignmentOffer) {
@@ -492,6 +500,7 @@ export function AssignmentOfferSection({
                 <dd>“{offer.closeText.trim()}”</dd>
               </div>
             )}
+            {suggestedSolutionRow}
             {pendingProposal && proposedAt !== null && proposalIntervalText !== null && (
               <div>
                 <dt>Personelin önerdiği zaman</dt>
@@ -507,7 +516,6 @@ export function AssignmentOfferSection({
               </div>
             )}
           </dl>
-          {suggestedSolutionLine}
           <p className="assignment-offer-recovery-actions-label"><strong>Ne yapabilirsiniz</strong></p>
           <div className="review-buttons">
             {proposalPrimary && (
@@ -569,8 +577,8 @@ export function AssignmentOfferSection({
               <dt>Personel</dt>
               <dd>{offer.assignee.name}</dd>
             </div>
+            {suggestedSolutionRow}
           </dl>
-          {suggestedSolutionLine}
         </>
       )}
       {urgentReasonLabel !== null && (
