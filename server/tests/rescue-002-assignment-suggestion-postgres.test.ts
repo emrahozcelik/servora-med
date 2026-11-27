@@ -1110,27 +1110,49 @@ describe.skipIf(!databaseUrl)('RESCUE-002 — assignment suggested solution', ()
       const before = await runMigrations({ migrationsDirectory: legacyDirectory, store });
       expect(before.appliedVersions.at(-1)).toBe('075_installation_module_registry_widening');
 
-      // A hand-edited database: the constraint still mentions SCHEDULE_CONFLICT
-      // and the column, but lost the DECLINED/RELEASED state clause the 073
-      // shape promises.
+      // A hand-edited database: every token the old text filters looked for is
+      // still present, but the inner state clause uses OR instead of the 073
+      // definition's AND. Only an exact definition comparison catches this.
       await pool.query('ALTER TABLE job_card_assignment_offers DROP CONSTRAINT job_card_assignment_offers_proposal_state_check');
       await pool.query(`ALTER TABLE job_card_assignment_offers
         ADD CONSTRAINT job_card_assignment_offers_proposal_state_check
-        CHECK (proposed_scheduled_at IS NULL OR close_reason = 'SCHEDULE_CONFLICT')`);
+        CHECK (
+          proposed_scheduled_at IS NULL
+          OR (
+            state IN ('DECLINED', 'RELEASED')
+            OR close_reason = 'SCHEDULE_CONFLICT'
+          )
+        )`);
 
       const failure = await rejectionOf(() => runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       }));
-      expect(failure.message).toContain('must be the expected 073 shape');
+      expect(failure.message).toContain('must match the exact 073 definition');
 
-      // The failed migration rolled back: the head is still 075 and 076 was
-      // never recorded.
+      // The failed migration rolled back: the head is still 075, 076 was never
+      // recorded, and the drifted constraint/column set is untouched.
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version ASC',
       );
       expect(applied.rows.at(-1)?.version).toBe('075_installation_module_registry_widening');
       expect(applied.rows.some((row) => row.version === MIGRATION_076)).toBe(false);
+      const column = await pool.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'job_card_assignment_offers'
+              AND column_name = 'suggested_solution'
+         ) AS exists`,
+      );
+      expect(column.rows[0]?.exists).toBe(false);
+      const drifted = await pool.query<{ definition: string }>(
+        `SELECT pg_get_constraintdef(oid) AS definition
+           FROM pg_constraint
+          WHERE conrelid = 'job_card_assignment_offers'::regclass
+            AND conname = 'job_card_assignment_offers_proposal_state_check'`,
+      );
+      expect(drifted.rows[0]?.definition).toContain('OR ((close_reason)::text = \'SCHEDULE_CONFLICT\'::text)');
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

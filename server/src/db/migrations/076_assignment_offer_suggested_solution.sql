@@ -35,36 +35,33 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'job_card_assignment_offers.suggested_solution already exists';
   END IF;
+  -- The three constraints this migration drops and replaces are pinned to the
+  -- exact text PostgreSQL 17 prints for the 073/065 definitions. Any drift —
+  -- including an AND/OR change that still mentions every token — fails before
+  -- the table is altered.
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'job_card_assignment_offers'::regclass
        AND conname = 'job_card_assignment_offers_proposal_state_check'
-       AND pg_get_constraintdef(oid) LIKE '%proposed_scheduled_at IS NULL%'
-       AND pg_get_constraintdef(oid) LIKE '%state%'
-       AND pg_get_constraintdef(oid) LIKE '%DECLINED%'
-       AND pg_get_constraintdef(oid) LIKE '%RELEASED%'
-       AND pg_get_constraintdef(oid) LIKE '%close_reason%SCHEDULE_CONFLICT%'
-       AND pg_get_constraintdef(oid) NOT LIKE '%suggested_solution%'
+       AND pg_get_constraintdef(oid) = $def_proposal_state$CHECK (((proposed_scheduled_at IS NULL) OR (((state)::text = ANY ((ARRAY['DECLINED'::character varying, 'RELEASED'::character varying])::text[])) AND ((close_reason)::text = 'SCHEDULE_CONFLICT'::text))))$def_proposal_state$
   ) THEN
-    RAISE EXCEPTION 'job_card_assignment_offers_proposal_state_check must be the expected 073 shape before RESCUE-002';
+    RAISE EXCEPTION 'job_card_assignment_offers_proposal_state_check must match the exact 073 definition before RESCUE-002';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'job_card_assignment_offers'::regclass
        AND conname = 'job_card_assignment_offers_close_reason_check'
-       AND pg_get_constraintdef(oid) LIKE '%MISSING_STOCK_OR_EQUIPMENT%'
-       AND pg_get_constraintdef(oid) NOT LIKE '%OUT_OF_TOWN%'
+       AND pg_get_constraintdef(oid) = $def_close_reason$CHECK (((close_reason IS NULL) OR ((close_reason)::text = ANY ((ARRAY['SCHEDULE_CONFLICT'::character varying, 'ON_LEAVE'::character varying, 'TOO_FAR'::character varying, 'MISSING_STOCK_OR_EQUIPMENT'::character varying, 'OTHER'::character varying, 'REASSIGNED'::character varying, 'RESCHEDULED'::character varying, 'CANCELLED'::character varying, 'INVALIDATED'::character varying, 'OFFBOARDING_TRANSFER'::character varying, 'PLANNED_WINDOW_PASSED'::character varying])::text[]))))$def_close_reason$
   ) THEN
-    RAISE EXCEPTION 'job_card_assignment_offers_close_reason_check must be the expected 065 shape before RESCUE-002';
+    RAISE EXCEPTION 'job_card_assignment_offers_close_reason_check must match the exact 065 definition before RESCUE-002';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'job_card_assignment_offers'::regclass
        AND conname = 'job_card_assignment_offers_closure_check'
-       AND pg_get_constraintdef(oid) LIKE '%SCHEDULE_CONFLICT%'
-       AND pg_get_constraintdef(oid) NOT LIKE '%CUSTOMER_POSTPONED%'
+       AND pg_get_constraintdef(oid) = $def_closure$CHECK (((((state)::text = 'OPEN'::text) AND (closed_at IS NULL) AND (closed_by IS NULL) AND (close_reason IS NULL) AND (close_text IS NULL)) OR (((state)::text = ANY ((ARRAY['ACCEPTED'::character varying, 'DECLINED'::character varying, 'RELEASED'::character varying, 'EXPIRED'::character varying, 'WITHDRAWN'::character varying])::text[])) AND (closed_at IS NOT NULL) AND ((closed_by IS NULL) = ((state)::text = 'EXPIRED'::text)) AND ((((state)::text = ANY ((ARRAY['DECLINED'::character varying, 'RELEASED'::character varying])::text[])) AND ((close_reason)::text = ANY ((ARRAY['SCHEDULE_CONFLICT'::character varying, 'ON_LEAVE'::character varying, 'TOO_FAR'::character varying, 'MISSING_STOCK_OR_EQUIPMENT'::character varying, 'OTHER'::character varying])::text[])) AND (close_text IS NOT NULL)) OR (((state)::text = 'WITHDRAWN'::text) AND ((close_reason)::text = ANY ((ARRAY['REASSIGNED'::character varying, 'RESCHEDULED'::character varying, 'CANCELLED'::character varying, 'INVALIDATED'::character varying, 'OFFBOARDING_TRANSFER'::character varying, 'PLANNED_WINDOW_PASSED'::character varying])::text[])) AND (close_text IS NULL)) OR (((state)::text = ANY ((ARRAY['ACCEPTED'::character varying, 'EXPIRED'::character varying])::text[])) AND (close_reason IS NULL) AND (close_text IS NULL))))))$def_closure$
   ) THEN
-    RAISE EXCEPTION 'job_card_assignment_offers_closure_check must be the expected 065 shape before RESCUE-002';
+    RAISE EXCEPTION 'job_card_assignment_offers_closure_check must match the exact 065 definition before RESCUE-002';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
