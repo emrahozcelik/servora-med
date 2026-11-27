@@ -373,7 +373,14 @@ export function JobFilters({ user, filters, onApply, onClear, onChange, onViewCh
               <JobStatusOptions />
             </select>
           </div>
-          <button className="secondary-button job-search-submit" type="submit">Ara</button>
+          <button
+            className="secondary-button job-search-submit"
+            type="submit"
+            aria-label="Ara"
+            title="Ara"
+          >
+            <SignalGlyph name="search" size={18} />
+          </button>
         </div>
         <div className="job-filter-disclosure-row">
           <details className="job-filter-disclosure">

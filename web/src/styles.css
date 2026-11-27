@@ -1207,10 +1207,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .job-search-controls .job-filter-search { min-width: 0; }
 .job-search-controls .job-filter-search input { width: 100%; min-width: 0; }
-/* Compact list toolbars are icon-only: search submit and the filter-sheet
-   trigger stay 44x44 targets and carry their Turkish label in the accessible
-   name (owner decision 2026-11-25). Desktop keeps the text buttons. */
+/* Search submit (desktop + compact) and compact filter-sheet triggers are
+   icon-only 44x44 square targets carrying their Turkish label in the
+   accessible name. */
 .job-filter-compact-bar .job-search-submit,
+.job-filter-primary .job-search-submit,
 .job-filter-compact-bar .filter-sheet-trigger,
 .customer-filter-compact-bar .filter-sheet-trigger {
   position: relative;
@@ -1218,6 +1219,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   min-width: var(--control-height);
   height: var(--control-height);
   padding: 0;
+}
+.job-filter-primary .job-search-submit {
+  justify-self: start;
 }
 .filter-sheet-trigger-count {
   position: absolute;
@@ -1881,12 +1885,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .report-filters-wide--customer > button {
     grid-row: auto;
   }
-  .job-search-submit,
   .report-filters button {
     width: 100%;
   }
 }
-.job-search-submit { min-width: 5rem; }
 .job-filter-disclosure-row {
   display: flex;
   flex-wrap: wrap;
@@ -4511,7 +4513,6 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .staff-analysis-metrics > div:nth-child(even) { border-right: 0; }
   .staff-analysis-metrics > div:nth-last-child(-n + 2) { border-bottom: 0; }
   .staff-period-metrics > div:last-child { grid-column: 1 / -1; border-right: 0; }
-  .job-search-submit,
   .report-filters button {
     width: 100%;
   }
@@ -4574,7 +4575,6 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .scope-note { display: none; }
   .job-filter-primary { grid-template-columns: 1fr; }
   .job-filter-secondary { grid-template-columns: minmax(0, 1fr); }
-  .job-search-submit { width: 100%; }
   .structured-job-row { grid-template-columns: 1fr; gap: 1rem; padding-block: 1.1rem; }
   .job-row-facts { grid-template-columns: 1fr; gap: 0.75rem; }
   .job-row-commands { align-items: stretch; flex-direction: column; }
