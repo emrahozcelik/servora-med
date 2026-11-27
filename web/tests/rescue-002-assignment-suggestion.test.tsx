@@ -568,15 +568,24 @@ describe('RESCUE-002 staff decline suggestion', () => {
     expect(document.activeElement).toBe(dialog()!.querySelector('textarea'));
 
     // The second attempt returns the same message, delayed so the textarea is
-    // disabled while the request is pending. Focus must return once it settles.
+    // disabled while the request is pending. Focus starts on the submit button,
+    // which the pending state also disables, so a refocus attempted while the
+    // request is in flight cannot land on the textarea. Only a refocus driven by
+    // the settled response moves focus back.
     let resolveSecond!: (value: Response) => void;
     fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => {
       resolveSecond = resolve;
     }));
-    await act(async () => buttonByText(dialog()!, 'Görevi reddet')!.click());
+    const secondSubmit = buttonByText(dialog()!, 'Görevi reddet') as HTMLButtonElement;
+    await act(async () => secondSubmit.focus());
+    expect(document.activeElement).toBe(secondSubmit);
+    await act(async () => secondSubmit.click());
     await settle();
+    await nextFrame();
+
     const pendingTextarea = dialog()?.querySelector('textarea') as HTMLTextAreaElement;
     expect(pendingTextarea.disabled).toBe(true);
+    expect(document.activeElement).not.toBe(pendingTextarea);
 
     await act(async () => {
       resolveSecond(rejection());
