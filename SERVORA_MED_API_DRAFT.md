@@ -1400,8 +1400,13 @@ replacement, offboarding transfer) record the offer without an acknowledgement a
 ```
 
 Assigned STAFF only, `NEW` with an `OPEN` offer before the deadline. `reasonCode` is one of
-`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`;
-`reasonText` is mandatory. The status stays `NEW` (`version` +1), the offer closes
+`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`, and
+(JOB-013, only with a suggestion) `OUT_OF_TOWN`, `CUSTOMER_POSTPONED`, `WRONG_PRODUCT`;
+`reasonText` is mandatory. `suggestedSolution` (JOB-013) is one of `RESCHEDULE_SELF`,
+`REASSIGN`, `CORRECT_DETAILS`, `CANCEL_REQUEST`, `MANAGEMENT_DECIDES`; with it,
+`proposedScheduledAt` is required for `RESCHEDULE_SELF` and forbidden otherwise, whatever
+the reason. Without it the JOB-012 rules below apply unchanged. Full contract:
+docs/features/assignment-time-proposal.md § JOB-013. The status stays `NEW` (`version` +1), the offer closes
 `DECLINED`, the `JOB_ASSIGNMENT_DECLINED` activity commits with the reason, and every active
 MANAGER/ADMIN receives `job.assignment_declined`. A missing/stale offer returns
 `409 ASSIGNMENT_OFFER_NOT_OPEN`.
@@ -1525,10 +1530,11 @@ sent only Monday–Saturday 08:00–21:00 organization time; outside that window
 The job detail exposes the latest offer as
 `assignmentOffer: { id, state, acceptanceDueAt, openedAt, urgentReason, assignee: { id, name },
 closedAt, closeReason, closeText, proposedScheduledAt, proposedScheduledEndsAt,
-proposalAcceptedAt } | null` (management and assignee). `closedAt` is the
+proposalAcceptedAt, suggestedSolution } | null` (management and assignee). `closedAt` is the
 persisted close instant (`null` while `OPEN`). `closeReason` is the persisted close reason
 code — a decline/release code (`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`,
-`MISSING_STOCK_OR_EQUIPMENT`, `OTHER`) for `DECLINED`/`RELEASED`, a withdraw code
+`MISSING_STOCK_OR_EQUIPMENT`, `OTHER`, and since JOB-013 `OUT_OF_TOWN`, `CUSTOMER_POSTPONED`,
+`WRONG_PRODUCT`) for `DECLINED`/`RELEASED`, a withdraw code
 (`REASSIGNED`, `RESCHEDULED`, `CANCELLED`, `INVALIDATED`, `OFFBOARDING_TRANSFER`,
 `PLANNED_WINDOW_PASSED`) for `WITHDRAWN`, and `null` for `ACCEPTED` and for an `EXPIRED`
 close without a reason; `closeText` is the Staff member's own text. An `OPEN` offer past
@@ -1562,11 +1568,15 @@ notifications, because the acting manager is already handling the recovery.
 
 The `JOB_ASSIGNMENT_DECLINED` and `JOB_ASSIGNMENT_RELEASED` activity rows project
 `details: { kind: 'ASSIGNMENT_DECISION', decision: 'DECLINED' | 'RELEASED', reasonCode,
-reasonText, proposedScheduledAt }`. `reasonCode` is read from metadata and must be one of
-`SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`, `MISSING_STOCK_OR_EQUIPMENT`, `OTHER`;
+reasonText, proposedScheduledAt, suggestedSolution }` (`suggestedSolution`, JOB-013, is
+reader-scoped like `reasonCode` and `null` when none was given). `reasonCode` is read from
+metadata and must be one of `SCHEDULE_CONFLICT`, `ON_LEAVE`, `TOO_FAR`,
+`MISSING_STOCK_OR_EQUIPMENT`, `OTHER`, `OUT_OF_TOWN`, `CUSTOMER_POSTPONED`, `WRONG_PRODUCT`;
 `reasonText` is the trimmed non-empty text. An unknown or missing code, and a blank
 text, project as `null`; both answers write `reasonCode` / `reasonText` into the same
-metadata as `offerId`, and a `SCHEDULE_CONFLICT` answer also writes `proposedScheduledAt`
+metadata as `offerId`, an answer with a suggestion writes `suggestedSolution`, and an answer
+with a proposal (`SCHEDULE_CONFLICT` without a suggestion, or `RESCHEDULE_SELF`) also writes
+`proposedScheduledAt`
 (JOB-012) there as a canonical instant (a missing or unparseable value projects as `null`).
 The reason and the proposal are reader-scoped: MANAGER/ADMIN and the Staff member
 who answered see `reasonCode` / `reasonText` / `proposedScheduledAt`; any other Staff reader of

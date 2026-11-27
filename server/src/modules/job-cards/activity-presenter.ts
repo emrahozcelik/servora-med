@@ -3,12 +3,14 @@ import type { UserRole } from '../auth/types.js';
 import {
   DELIVERY_PURPOSES,
   JOB_ASSIGNMENT_OFFER_DECLINE_REASON_CODES,
+  JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS,
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   JOB_CARD_STATUSES,
   MEETING_DETAIL_FIELDS,
   type DeliveryPurpose,
   type JobAssignmentOfferDeclineReasonCode,
+  type JobAssignmentOfferSuggestedSolution,
   type JobCardActivityDetails,
   type JobCardActivityDto,
   type JobCardActivityStatus,
@@ -309,12 +311,14 @@ function assignmentDecisionDetails(
       decision,
       reasonCode: null,
       reasonText: null,
+      suggestedSolution: null,
       proposedScheduledAt: null,
     };
   }
   const record = jsonRecord(metadata);
   const code = record?.reasonCode;
   const text = record?.reasonText;
+  const suggested = record?.suggestedSolution;
   // JOB-012: the proposal is a canonical instant or nothing; an unknown value
   // degrades to null instead of a raw client string.
   const proposed = record?.proposedScheduledAt;
@@ -327,6 +331,10 @@ function assignmentDecisionDetails(
       ? code as JobAssignmentOfferDeclineReasonCode
       : null,
     reasonText: typeof text === 'string' && text.trim() !== '' ? text.trim() : null,
+    suggestedSolution: JOB_ASSIGNMENT_OFFER_SUGGESTED_SOLUTIONS
+      .includes(suggested as JobAssignmentOfferSuggestedSolution)
+      ? suggested as JobAssignmentOfferSuggestedSolution
+      : null,
     proposedScheduledAt: Number.isNaN(proposedMs) ? null : new Date(proposedMs).toISOString(),
   };
 }

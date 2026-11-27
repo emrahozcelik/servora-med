@@ -50,7 +50,7 @@ const MIGRATIONS = [
   '040_demo_lifecycle_simplification.sql',
   '041_user_lifecycle_reconciliation.sql',
   '042_unsuccessful_visit_reason.sql',
-  '043_job_card_schedule_and_assignment_history.sql', '047_job_card_overdue_incidents.sql', '048_overdue_episode_activation_legacy_first.sql', '053_overdue_submission_reminders.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql', '073_assignment_offer_time_proposal.sql',
+  '043_job_card_schedule_and_assignment_history.sql', '047_job_card_overdue_incidents.sql', '048_overdue_episode_activation_legacy_first.sql', '053_overdue_submission_reminders.sql', '062_follow_up_cycle_end_reason.sql', '063_job_card_early_start_authorizations.sql', '064_job_card_change_requests.sql', '065_job_card_assignment_offers.sql', '066_overdue_correction_deadline_and_extension.sql', '073_assignment_offer_time_proposal.sql', '076_assignment_offer_suggested_solution.sql',
 ] as const;
 
 type Fixture = {

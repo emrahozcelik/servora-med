@@ -122,8 +122,13 @@ describe('date/time field adoption', () => {
     resizeTo(390);
     const onChange = vi.fn();
     await render(<AssignmentReasonSection
-      draft={{ ...EMPTY_ASSIGNMENT_REASON, code: 'SCHEDULE_CONFLICT' }}
+      draft={{
+        ...EMPTY_ASSIGNMENT_REASON,
+        code: 'SCHEDULE_CONFLICT',
+        suggestedSolution: 'RESCHEDULE_SELF',
+      }}
       inlineError={null}
+      suggestionError={null}
       scheduleError={null}
       onChange={onChange}
     />);
