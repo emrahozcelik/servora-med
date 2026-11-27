@@ -1321,6 +1321,201 @@ describe('JobDetail child decision receipts', () => {
   });
 
   /**
+   * UI-FEEDBACK/B regression (deferred access loss after a committed child
+   * decision): a rejected early-start grant holds its page reload. A successful
+   * re-offer then commits, its own post-commit read fails with 500, and the
+   * held read finally answers 403. `settleChildCommit` / the deferred-drain
+   * timer must issue exactly one recheck GET and settle the access answer.
+   */
+  type ChildAccessOrder = 'held-first' | 'held-last';
+
+  function deferredChildDecisionAccessHarness(order: ChildAccessOrder, recheck: () => Response) {
+    const before = offerJob({
+      scheduledAt: '2030-06-10T09:00:00.000Z',
+      scheduledEndsAt: '2030-06-10T09:30:00.000Z',
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    });
+    let detailGets = 0;
+    let grantPosts = 0;
+    let reofferPosts = 0;
+    let releaseReload: ((response: Response) => void) | null = null;
+    let releasePostCommit: ((response: Response) => void) | null = null;
+    let releaseRecheck: ((response: Response) => void) | null = null;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = url.split('?')[0] ?? url;
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/delivery-items')) return json({ items: [] });
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'POST' && path.endsWith('/api/job-cards/job-1/early-start-authorization')) {
+        grantPosts += 1;
+        return json({
+          error: 'Bu iş için geçerli bir erken başlama izni zaten var.',
+          code: 'EARLY_START_ALREADY_AUTHORIZED',
+        }, 409);
+      }
+      if (method === 'POST' && path.endsWith('/api/job-cards/job-1/assignment-offers/reoffer')) {
+        reofferPosts += 1;
+        return json({
+          jobCardId: 'job-1', offerId: 'offer-2',
+          acceptanceDueAt: '2030-06-09T12:00:00.000Z', urgentReason: 'START_PASSED',
+        }, 201);
+      }
+      if (method === 'GET' && detailUrlMatches(url, before.id)) {
+        detailGets += 1;
+        if (detailGets === 1) return json(before);
+        if (detailGets === 2) {
+          // The rejected grant's serialized reload.
+          return new Promise<Response>((resolve) => { releaseReload = resolve; });
+        }
+        if (detailGets === 3) {
+          // The re-offer's post-commit read. In the "held-first" order it is
+          // held so the older 403 can land before it; otherwise it fails 500.
+          if (order === 'held-first') {
+            return new Promise<Response>((resolve) => { releasePostCommit = resolve; });
+          }
+          return json({ error: 'Sunucu hatası.' }, 500);
+        }
+        if (detailGets === 4) {
+          return new Promise<Response>((resolve) => { releaseRecheck = resolve; });
+        }
+        return json(before);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    return {
+      before, fetch,
+      detailGets: () => detailGets,
+      grantPosts: () => grantPosts,
+      reofferPosts: () => reofferPosts,
+      reloadHeld: () => releaseReload !== null,
+      postCommitHeld: () => releasePostCommit !== null,
+      recheckHeld: () => releaseRecheck !== null,
+      releaseReload: (response: Response) => {
+        if (releaseReload === null) throw new Error('Deferred reload is not held');
+        releaseReload(response);
+      },
+      releasePostCommit: (response: Response) => {
+        if (releasePostCommit === null) throw new Error('Post-commit read is not held');
+        releasePostCommit(response);
+      },
+      releaseRecheck: (response: Response) => {
+        if (releaseRecheck === null) throw new Error('Access recheck is not held');
+        releaseRecheck(response);
+      },
+    };
+  }
+
+  async function startChildDecisionAccessCase(
+    order: ChildAccessOrder,
+    recheck: () => Response,
+  ) {
+    const harness = deferredChildDecisionAccessHarness(order, recheck);
+    await renderScreen(harness.before, harness.fetch);
+
+    await click(host, 'Erken başlamaya izin ver');
+    await click(host, 'Erken başlama iznini kaydet');
+    await settle();
+    expect(harness.grantPosts()).toBe(1);
+    expect(harness.reloadHeld()).toBe(true);
+    expect(harness.detailGets()).toBe(2);
+
+    await click(host, 'Aynı zamanla yeniden teklif et');
+    await settle();
+    expect(harness.reofferPosts()).toBe(1);
+
+    if (order === 'held-last') {
+      // The post-commit read 500 already owns the committed notice.
+      expect(harness.postCommitHeld()).toBe(false);
+      expect(host.querySelector('[data-job-detail-committed-refresh="true"]')?.textContent)
+        .toContain('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
+      await act(async () => {
+        harness.releaseReload(json({
+          error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+        }, 403));
+      });
+      await settle();
+    } else {
+      // The post-commit read is still open when the older 403 lands.
+      expect(harness.postCommitHeld()).toBe(true);
+      await act(async () => {
+        harness.releaseReload(json({
+          error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+        }, 403));
+      });
+      await settle();
+      expect(harness.recheckHeld()).toBe(true);
+      await act(async () => {
+        harness.releasePostCommit(json({ error: 'Sunucu hatası.' }, 500));
+      });
+      await settle();
+    }
+
+    expect(harness.recheckHeld()).toBe(true);
+    await act(async () => { harness.releaseRecheck(recheck()); });
+    await settle();
+    expect(harness.detailGets()).toBe(4);
+    return harness;
+  }
+
+  it('settles a deferred child access loss held before the post-commit read and becomes terminal on 403', async () => {
+    await startChildDecisionAccessCase('held-first', () => json({
+      error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+    }, 403));
+
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).toBeNull();
+    expect(host.querySelector('main[data-job-detail="true"]')).toBeNull();
+  });
+
+  it('settles a deferred child access loss held before the post-commit read and stays ready on 200', async () => {
+    await startChildDecisionAccessCase('held-first', () => json(offerJob({
+      scheduledAt: '2030-06-10T09:00:00.000Z',
+      scheduledEndsAt: '2030-06-10T09:30:00.000Z',
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    })));
+
+    expect(host.querySelector('main[data-job-detail="true"]')).not.toBeNull();
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).toBeNull();
+    expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent)
+      .toContain('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
+  });
+
+  it('settles a deferred child access loss held after the post-commit read and becomes terminal on 403', async () => {
+    await startChildDecisionAccessCase('held-last', () => json({
+      error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+    }, 403));
+
+    expect(host.textContent).toContain('İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.');
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).toBeNull();
+    expect(host.querySelector('main[data-job-detail="true"]')).toBeNull();
+  });
+
+  it('settles a deferred child access loss held after the post-commit read and stays ready on 200', async () => {
+    await startChildDecisionAccessCase('held-last', () => json(offerJob({
+      scheduledAt: '2030-06-10T09:00:00.000Z',
+      scheduledEndsAt: '2030-06-10T09:30:00.000Z',
+      assignmentOffer: openOffer({
+        closeReason: 'ON_LEAVE', proposedScheduledAt: null, proposedScheduledEndsAt: null,
+      }),
+    })));
+
+    expect(host.querySelector('main[data-job-detail="true"]')).not.toBeNull();
+    expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).toBeNull();
+    expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent)
+      .toContain('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
+  });
+
+  /**
    * UI-FEEDBACK/B regression (deferred access loss): an early-start grant is
    * rejected, so its page-owned reload is in flight. A record edit then starts
    * and defers that read's 403 behind the mutation epoch. When the edit ends
@@ -1463,6 +1658,45 @@ describe('JobDetail child decision receipts', () => {
     expect(harness.patchCalls()).toBe(1);
   });
 
+  it('rechecks a deferred early-start access loss when the edit ended before the old read returned', async () => {
+    const harness = deferredEarlyStartAccessHarness(() => json({
+      error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+    }, 403));
+    await renderScreen(harness.before, harness.fetch);
+    await click(host, 'Erken başlamaya izin ver');
+    await click(host, 'Erken başlama iznini kaydet');
+    await settle();
+    expect(harness.reloadHeld()).toBe(true);
+
+    // The record edit starts and ends with a definitive 400 while the old
+    // reload is still held. Nobody owns the mutation when the 403 arrives.
+    await click(host, 'Sorumlu personeli değiştir');
+    await settle();
+    await click(host, 'Değişiklikleri kaydet');
+    expect(harness.patchHeld()).toBe(true);
+    await act(async () => {
+      harness.releasePatch(json({
+        error: 'Geçersiz atama.', code: 'VALIDATION_ERROR',
+      }, 400));
+    });
+    await settle();
+    expect(harness.detailGets()).toBe(2);
+
+    // The late 403 must still trigger the immediate serialized recheck.
+    await act(async () => {
+      harness.releaseReload(json({
+        error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+      }, 403));
+    });
+    await settle();
+
+    expect(harness.detailGets()).toBe(3);
+    expect(harness.patchCalls()).toBe(1);
+    expect(host.textContent).toContain('İş yüklenemedi');
+    expect(host.textContent).toContain('Bu işe erişim yetkiniz yok.');
+    expect(host.querySelector('main[data-job-detail="true"]')).toBeNull();
+  });
+
   /**
    * UI-FEEDBACK/B regression (reconciled sale unlock): the first reload round
    * may already carry a newer version while a realtime invalidation forces a
@@ -1558,6 +1792,134 @@ describe('JobDetail child decision receipts', () => {
     expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(false);
     expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).toBeNull();
     expect(soldInput()?.value).toBe(draft);
+    expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
+  });
+
+  /**
+   * UI-FEEDBACK/B regression (sale background reads): a definitive conflict
+   * leaves the form locked. Background realtime reads, even one that applies a
+   * newer canonical version, must never unlock it; only the explicit reload
+   * with a reconciled read unlocks, and then applies the base canonical reset.
+   */
+  function saleQuantityConflictHarness(options: { backgroundReads: boolean }) {
+    const before = saleJob();
+    const source = new FakeRealtimeEventSource();
+    let detailGets = 0;
+    let canonicalVersion = 4;
+    let patchCalls = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = url.split('?')[0] ?? url;
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (url.includes('/api/customers/') && url.includes('/contacts')) return json(emptyPage);
+      if (method === 'PATCH' && path.endsWith('/api/job-cards/job-1/sale-items/line-1')) {
+        patchCalls += 1;
+        return json({
+          error: 'Kayıt başka bir işlemle güncellendi.', code: 'VERSION_CONFLICT',
+        }, 409);
+      }
+      if (method === 'GET' && path.endsWith('/api/job-cards/job-1/sale-details')) {
+        return json({
+          ...saleDetailsBefore,
+          jobCardVersion: canonicalVersion,
+          items: [{ ...saleDetailsBefore.items[0]!, quantity: '5' }],
+        });
+      }
+      if (method === 'GET' && detailUrlMatches(url, before.id)) {
+        detailGets += 1;
+        if (detailGets === 1) return json(before);
+        if (options.backgroundReads && detailGets === 2) {
+          // First background realtime read: newer canonical version.
+          canonicalVersion = 5;
+          return json({ ...before, version: 5 });
+        }
+        if (options.backgroundReads && detailGets === 3) {
+          // Second background read fails; no reconcile.
+          return json({ error: 'Sunucu hatası.' }, 500);
+        }
+        // Explicit reload. Without background reads it stays at the same
+        // version: only the base handler reset can replace the draft.
+        if (!options.backgroundReads) return json(before);
+        canonicalVersion = 5;
+        return json({ ...before, version: 5 });
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    return {
+      before, fetch, source,
+      detailGets: () => detailGets,
+      patchCalls: () => patchCalls,
+    };
+  }
+
+  async function startQuantityConflict(
+    harness: ReturnType<typeof saleQuantityConflictHarness>,
+  ) {
+    await renderScreen(harness.before, harness.fetch, harness.source);
+    const quantityInput = () => host.querySelector<HTMLInputElement>(
+      'input[aria-label="İmplant Seti satış adedi"]',
+    );
+    await act(async () => { setNativeValue(quantityInput()!, '17'); });
+    await click(host, 'Adedi kaydet');
+    await settle();
+    expect(harness.patchCalls()).toBe(1);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(true);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).not.toBeNull();
+    return { quantityInput };
+  }
+
+  it('keeps the sale correction locked through two background realtime reads and unlocks only on the explicit reconciled reload', async () => {
+    const harness = saleQuantityConflictHarness({ backgroundReads: true });
+    const { quantityInput } = await startQuantityConflict(harness);
+
+    // First background read applies a newer version 200; the form stays locked.
+    await act(async () => {
+      harness.source.emitJobUpdate('job-1', '1');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await settle();
+    expect(harness.detailGets()).toBe(2);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(true);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).not.toBeNull();
+
+    // Second background read fails 500; still locked.
+    await act(async () => {
+      harness.source.emitJobUpdate('job-1', '2');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await settle();
+    expect(harness.detailGets()).toBe(3);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(true);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).not.toBeNull();
+
+    // The explicit reload is reconciled: unlock and apply the base reset.
+    await click(host, 'Güncel kaydı yükle ve düzeltmeye devam et');
+    await settle();
+    expect(harness.detailGets()).toBe(4);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(false);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).toBeNull();
+    expect(quantityInput()?.value).toBe('5');
+    expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
+  });
+
+  it('resets the conflicted quantity to server truth after a successful explicit reload', async () => {
+    const harness = saleQuantityConflictHarness({ backgroundReads: false });
+    const { quantityInput } = await startQuantityConflict(harness);
+
+    await click(host, 'Güncel kaydı yükle ve düzeltmeye devam et');
+    await settle();
+
+    expect(harness.detailGets()).toBe(2);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(false);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).toBeNull();
+    // Base behaviour: canonical server truth replaces the conflicted draft.
+    expect(quantityInput()?.value).toBe('5');
     expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
   });
 
