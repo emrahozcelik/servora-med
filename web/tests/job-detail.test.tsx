@@ -1129,6 +1129,72 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('En güncel bilgileri yükle');
   });
 
+  it('UI-FEEDBACK/A: an older realtime 403 during an in-flight command does not suppress its receipt', async () => {
+    const source = new FakeRealtimeEventSource();
+    let resolveAccept: (value: Response) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [] }),
+    };
+    let releaseRealtime: (value: Response) => void = () => {};
+    const realtimeGate = new Promise<Response>((resolve) => { releaseRealtime = resolve; });
+    let acceptPosts = 0;
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
+        acceptPosts += 1;
+        return acceptGate;
+      }
+      if (detailUrlMatches(url, 'job-1')) {
+        jobCardRequests += 1;
+        if (jobCardRequests === 1) return Response.json(job);
+        // The realtime read started before the command answered fails with 403…
+        if (jobCardRequests === 2) return realtimeGate;
+        // …but the reconcile after the committed command succeeds.
+        return Response.json(accepted);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(job, source, fetch);
+
+    // The realtime read starts before the command and is still in flight…
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(jobCardRequests).toBe(2);
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    // …and answers 403 while the command is pending.
+    await act(async () => {
+      releaseRealtime(Response.json({ error: 'Bu işe erişiminiz yok.', code: 'FORBIDDEN' }, { status: 403 }));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      resolveAccept(Response.json(accepted));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(acceptPosts).toBe(1);
+    expect(host.textContent).toContain('İş kabul edildi.');
+    expect(host.textContent).not.toContain('İşin güncel kaydına artık erişilemiyor.');
+  });
+
   it('clears stale state after a mutation conflict with a deferred invalidation', async () => {
     const source = new FakeRealtimeEventSource();
     const acceptBodies: Array<Record<string, unknown>> = [];

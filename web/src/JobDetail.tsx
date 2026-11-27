@@ -89,6 +89,7 @@ import { apiFieldError } from './jobs/api-field-error';
 import type { RevisionCorrectionDraft } from './jobs/RevisionCorrectionDueField';
 import { hasValidPlannedIntervalForStart, plannedIntervalShape } from './jobs/job-schedule-integrity';
 import { ResultState } from './ui/antd/ResultState';
+import { SignalGlyph } from './ui/signal-icons';
 import { WheelDateTimeField } from './ui/WheelDateTimeField';
 import { formatWheelDisplay } from './ui/wheel-datetime';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
@@ -172,9 +173,10 @@ import {
   StaffFollowUpProposalNotice,
   SystemSelectedFollowUpNotice,
 } from './jobs/FollowUpContinuity';
-import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
+import { isAmbiguousMutationError, isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 
 type StaffCommand = 'start' | 'submit';
+type CommittedStaleNoticeState = { kind: 'committed' | 'unknown'; message: string };
 type CommandDependencies = {
   start: typeof startJobCard;
   submit: typeof submitJobCardForApproval;
@@ -510,6 +512,7 @@ function JobScheduleEditForm({
   user,
   deadlineExtensionError = null,
   scheduleShiftSignal,
+  scheduleCommittedSignal = 0,
   onRequestChange,
   onSave,
 }: {
@@ -520,6 +523,8 @@ function JobScheduleEditForm({
   /** OVR-5 §5.4: server field error after 400 DEADLINE_EXTENSION_REASON_REQUIRED. */
   deadlineExtensionError?: string | null;
   scheduleShiftSignal?: number;
+  /** UI-FEEDBACK/A: increments when a schedule save committed but its re-read failed. */
+  scheduleCommittedSignal?: number;
   onRequestChange?: () => void;
   onSave?: (
     scheduledAt: string | null,
@@ -576,6 +581,19 @@ function JobScheduleEditForm({
     setReasonVisible(true);
     setReasonError(deadlineExtensionError);
   }, [deadlineExtensionError]);
+
+  // UI-FEEDBACK/A: a schedule save that committed but could not re-read
+  // supersedes this form's previous inline failure (for example the past-start
+  // acknowledgement request). Only a schedule commit clears this form's errors;
+  // other forms' commits leave them untouched.
+  const lastScheduleCommittedSignalRef = useRef(scheduleCommittedSignal);
+  useEffect(() => {
+    if (scheduleCommittedSignal === lastScheduleCommittedSignalRef.current) return;
+    lastScheduleCommittedSignalRef.current = scheduleCommittedSignal;
+    setFieldError('');
+    setSubmitError('');
+    setReasonError('');
+  }, [scheduleCommittedSignal]);
 
   useEffect(() => {
     if (scheduleShiftSignal === undefined || scheduleShiftSignal <= 0) {
@@ -926,11 +944,54 @@ function JobScheduleEditForm({
   );
 }
 
+/**
+ * UI-FEEDBACK/A (07-manager-action-feedback §2 "Committed, refresh failed"):
+ * the server already accepted the mutation, but the follow-up canonical read
+ * failed. The record on screen may be stale, so this notice never reports a
+ * mutation failure and its only action reuses the serialized realtime reload.
+ */
+export function CommittedStaleNotice({ message, kind = 'committed', reloadPending, onReload, feedbackRef }: {
+  message: string;
+  /** "unknown": the mutation outcome itself is unverified, not only the read. */
+  kind?: 'committed' | 'unknown';
+  reloadPending: boolean;
+  onReload: () => void;
+  feedbackRef?: Ref<HTMLDivElement>;
+}) {
+  return (
+    <div
+      ref={feedbackRef}
+      className="detail-feedback detail-feedback-stale"
+      role="status"
+      tabIndex={-1}
+      data-job-detail-section="feedback"
+      data-job-detail-committed-refresh="true"
+    >
+      <p className="detail-feedback-stale-heading">
+        <SignalGlyph name="exclamation" className="detail-feedback-stale-icon" size={16} />
+        <span>
+          {kind === 'unknown'
+            ? message
+            : `${message ? `${message} ` : ''}Güncel kayıt henüz yüklenemedi.`}
+        </span>
+      </p>
+      <p className="detail-feedback-stale-help">
+        {kind === 'unknown'
+          ? 'Kaydın son durumunu görmek ve sonucu kontrol etmek için yenileyin.'
+          : 'Gösterilen bilgiler eski olabilir; son durumu görmek için yenileyin.'}
+      </p>
+      <button className="secondary-button" type="button" disabled={reloadPending} onClick={onReload}>
+        {reloadPending ? 'Yükleniyor…' : 'Güncel durumu yenile'}
+      </button>
+    </div>
+  );
+}
+
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
-  onSaveAllDeliveredAtNow, scheduleShiftSignal, onRequestChange,
-  meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
+  onSaveAllDeliveredAtNow, scheduleShiftSignal, scheduleCommittedSignal, onRequestChange,
+  meetingDetails = null, records, realtimeStaleNotice, committedStaleNotice, notes, timeline, children,
   pendingLabel, pendingCommand, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
@@ -958,10 +1019,13 @@ export function JobDetailPanel({
   onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
   onSaveAllDeliveredAtNow?: () => Promise<void> | void;
   scheduleShiftSignal?: number;
+  scheduleCommittedSignal?: number;
   onRequestChange?: () => void;
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
   realtimeStaleNotice?: ReactNode;
+  /** UI-FEEDBACK/A: committed mutation whose canonical re-read failed. */
+  committedStaleNotice?: ReactNode;
   notes?: ReactNode;
   timeline?: ReactNode;
   children?: ReactNode;
@@ -997,6 +1061,8 @@ export function JobDetailPanel({
     meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
     pairManagedCommand,
   });
+  /** UI-FEEDBACK/A: the committed notice is the single visible/announced result. */
+  const committedStale = committedStaleNotice !== undefined && committedStaleNotice !== null;
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
   const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
     && job.workflowContext.allowedActions.includes('EDIT_DELIVERY_ACTUAL_TIME')
@@ -1190,7 +1256,11 @@ export function JobDetailPanel({
   ) : null;
 
   return (
-    <main className="job-detail" data-job-detail="true">
+    <main
+      className="job-detail"
+      data-job-detail="true"
+      data-job-detail-committed-stale={committedStale ? 'true' : undefined}
+    >
       {/* DOM/keyboard (owner decision 2026-11-25): heading → lifecycle strip →
           feedback → lateness signal → change request/assignment offer → facts →
           schedule → early start → type content → management review → actions →
@@ -1208,7 +1278,7 @@ export function JobDetailPanel({
       {lifecycleSection}
       {message && (
         <div
-          ref={feedbackRef}
+          ref={committedStaleNotice ? undefined : feedbackRef}
           className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
           role={messageIsError ? 'alert' : 'status'}
           tabIndex={-1}
@@ -1217,9 +1287,10 @@ export function JobDetailPanel({
           {message}
         </div>
       )}
+      {committedStaleNotice}
       {pairGuidance && (
         <div
-          ref={message ? undefined : feedbackRef}
+          ref={message || committedStaleNotice ? undefined : feedbackRef}
           tabIndex={-1}
           data-job-detail-section="feedback"
           data-job-detail-pair-guidance="true"
@@ -1277,6 +1348,7 @@ export function JobDetailPanel({
               user={user}
               deadlineExtensionError={deadlineExtensionError}
               scheduleShiftSignal={scheduleShiftSignal}
+              scheduleCommittedSignal={scheduleCommittedSignal}
               onRequestChange={onRequestChange}
               onSave={onSaveSchedule}
             />
@@ -1605,8 +1677,14 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [submitPendingPhase, setSubmitPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
   const [changeRequestSignal, setChangeRequestSignal] = useState(0);
   const [scheduleShiftSignal, setScheduleShiftSignal] = useState(0);
+  const [scheduleCommittedSignal, setScheduleCommittedSignal] = useState(0);
+  /** UI-FEEDBACK/A: the page notice shows the last meeting save's receipt. */
+  const meetingReceiptOnPageRef = useRef(false);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
+  /** UI-FEEDBACK/A: a committed mutation whose canonical re-read failed. */
+  const [committedStale, setCommittedStale] = useState<CommittedStaleNoticeState | null>(null);
+  const committedStaleRef = useRef<CommittedStaleNoticeState | null>(null);
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [timelineKey, setTimelineKey] = useState(0);
@@ -1659,6 +1737,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [pastStartAckPending, setPastStartAckPending] = useState(false);
   const [pastStartAckError, setPastStartAckError] = useState('');
   const pastStartAckOpenerRef = useRef<HTMLElement | null>(null);
+  /**
+   * UI-FEEDBACK/A: the drawer's focus target. It normally returns to the
+   * opener, but a committed-but-stale save must land on the page notice
+   * instead of the old save control that is still on screen.
+   */
+  const pastStartAckReturnFocusRef = useRef<HTMLElement | null>(null);
   const lastSavePatchErrorRef = useRef('');
   const [followUp, setFollowUp] = useState<{
     draft: FollowUpDraft | null;
@@ -1690,6 +1774,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const dialogFocusRestoreEnabledRef = useRef(true);
   const mutationInFlight = useRef(false);
+  /** UI-FEEDBACK/A: a post-commit drain is reconciling a known receipt. */
+  const committedReceiptPendingRef = useRef(false);
+  /** A terminal 403/404 ended the screen; no continuation may re-settle it. */
+  const accessLostRef = useRef(false);
   const lifecycleAttempt = useRef<{
     command: LifecycleCommand;
     input: StartJobCardInput & {
@@ -1832,6 +1920,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       && jobId === operationJobId;
   }
 
+  /**
+   * The notice is read by async continuations (not only by render), so the ref
+   * mirrors the state synchronously; `markReconciledThrough` uses it to turn a
+   * temporary committed notice into its ordinary success receipt.
+   */
+  function updateCommittedStale(next: CommittedStaleNoticeState | null) {
+    committedStaleRef.current = next;
+    setCommittedStale(next);
+  }
+
   function hasPendingRealtimeInvalidation() {
     return realtimeInvalidationGeneration.current > reconciledRealtimeGeneration.current;
   }
@@ -1842,6 +1940,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
     if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
       setRealtimeStale(false);
+      // A notice raised while a drain was incomplete is temporary: the next
+      // real reconcile turns the stored receipt back into its normal success
+      // message. An "unknown" outcome is not a success and is only cleared.
+      const settledNotice = committedStaleRef.current;
+      if (settledNotice?.kind === 'committed') {
+        setMessage(settledNotice.message);
+        setMessageIsError(false);
+      }
+      updateCommittedStale(null);
       setSaleOriginPending(false);
     }
   }
@@ -1854,6 +1961,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const owner = { sessionToken, operationToken: ++mutationOperationToken.current };
     mutationOwner.current = owner;
     mutationInFlight.current = true;
+    // A previous access loss belongs to its own operation; a later realtime
+    // read may have restored access, so every new mutation starts clean.
+    accessLostRef.current = false;
     return owner;
   }
 
@@ -1879,6 +1989,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     mutationEpoch.current = 0;
     mutationOwner.current = null;
     mutationInFlight.current = false;
+    committedReceiptPendingRef.current = false;
+    accessLostRef.current = false;
     lifecycleAttempt.current = null;
     withdrawEditAttempt.current = null;
     setUncertain(false);
@@ -1889,6 +2001,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     dialogTriggerRef.current = null;
     dialogFocusRestoreEnabledRef.current = true;
     setRealtimeStale(false);
+    updateCommittedStale(null);
     setSaleOriginPending(false);
     setRealtimeReloadPending(false);
     setEditing(false);
@@ -1938,6 +2051,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     if (feedbackFocusRequest > 0) feedbackRef.current?.focus();
   }, [feedbackFocusRequest]);
 
+  // UI-FEEDBACK/A: a past-start acknowledgement retry that commits but fails
+  // its canonical re-read must return drawer focus to the stale notice, not to
+  // the old save control. Refs attach before layout effects, and the drawer
+  // reads this ref when it restores focus after unmount.
+  useLayoutEffect(() => {
+    if (pastStartAck !== null || !committedStale) return;
+    if (feedbackRef.current) pastStartAckReturnFocusRef.current = feedbackRef.current;
+  }, [committedStale, pastStartAck]);
+
   function resetFollowUpState() {
     followUpLoadTokenRef.current += 1;
     setFollowUp(null);
@@ -1969,6 +2091,78 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setLifecycleNoteKey((value) => value + 1);
     markReconciledThrough(generationAtStart);
     return true;
+  }
+
+  /**
+   * UI-FEEDBACK/A: keep the committed receipt separate from its canonical
+   * re-read. `refreshTruth` stays the single serialized reconciliation path;
+   * this wrapper only classifies its outcome. A 403/404 after a committed
+   * mutation means access to the current record was lost: the screen becomes
+   * the terminal error state, never a mutation failure and never the stale
+   * record. Any other read failure is not a mutation failure: the notice offers
+   * the existing serialized reload instead of starting a second read pipeline
+   * or retrying the mutation.
+   */
+  async function refreshAfterCommit(
+    successMessage: string,
+  ): Promise<'fresh' | 'stale' | 'inactive' | 'access-lost'> {
+    const operationJobId = jobId;
+    const operationSession = sessionLifetime.current.token;
+    accessLostRef.current = false;
+    try {
+      return (await refreshTruth()) ? 'fresh' : 'inactive';
+    } catch (caught) {
+      if (!isOperationCurrent(operationSession, operationJobId)) return 'inactive';
+      if (caught instanceof ApiError && (caught.status === 403 || caught.status === 404)) {
+        accessLostRef.current = true;
+        setState({
+          kind: 'error',
+          message: 'İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.',
+          retryable: false,
+        });
+        updateCommittedStale(null);
+        setMessage('');
+        setMessageIsError(false);
+        return 'access-lost';
+      }
+      updateCommittedStale({ kind: 'committed', message: successMessage });
+      setMessage('');
+      return 'stale';
+    }
+  }
+
+  /**
+   * UI-FEEDBACK/A P2-a: a successful canonical read does not by itself settle
+   * queued realtime invalidations. `requestRealtimeDrain` reports whether this
+   * continuation is still current, not whether its chain reconciled; a failed
+   * chain leaves the invalidation pending and sets the realtime-stale state. The
+   * committed receipt must not disappear in that case, so this wrapper moves it
+   * to the committed-stale notice. The drain itself is unchanged.
+   */
+  async function drainAfterCommit(
+    successMessage: string,
+  ): Promise<'settled' | 'stale' | 'inactive' | 'access-lost'> {
+    // A 403/404 while this known receipt is being reconciled is reported with
+    // the committed wording, never as a generic read failure.
+    committedReceiptPendingRef.current = true;
+    accessLostRef.current = false;
+    // Only invalidations known when this drain started decide the outcome; one
+    // arriving after a successful drain is ordinary realtime work, not a failed
+    // reconcile of this receipt.
+    const generationAtStart = realtimeInvalidationGeneration.current;
+    try {
+      const settled = await requestRealtimeDrain();
+      if (accessLostRef.current) return 'access-lost';
+      if (!settled) return 'inactive';
+      if (reconciledRealtimeGeneration.current < generationAtStart) {
+        updateCommittedStale({ kind: 'committed', message: successMessage });
+        setMessage('');
+        return 'stale';
+      }
+      return 'settled';
+    } finally {
+      committedReceiptPendingRef.current = false;
+    }
   }
 
   async function reconcileInvalidationAttempt(
@@ -2155,9 +2349,19 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       return false;
     } catch (error) {
       if (isOperationCurrent(sessionToken, operationJobId)) {
-        if (state.kind === 'ready' && error instanceof ApiError && error.status === 404) {
-          setState({ kind: 'error', message: error.message, retryable: false });
+        if (state.kind === 'ready' && error instanceof ApiError
+          && (error.status === 403 || error.status === 404)) {
+          accessLostRef.current = true;
+          setState({
+            kind: 'error',
+            message: committedReceiptPendingRef.current
+              || committedStaleRef.current?.kind === 'committed'
+              ? 'İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.'
+              : error.message,
+            retryable: false,
+          });
           setRealtimeStale(false);
+          updateCommittedStale(null);
         } else setRealtimeStale(true);
       }
       // A failed read cannot settle queued invalidations. Stop this drain;
@@ -2270,6 +2474,23 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   function salePairId(): string | null {
     return pairState.kind === 'ready' ? pairState.sale.id : null;
   }
+  /**
+   * UI-FEEDBACK/A: a committed lifecycle command whose canonical read was
+   * answered with 403/404 is finished. The record is inaccessible, so the
+   * frozen attempt, its captures and any open dialog must not survive to be
+   * replayed by a later realtime read.
+   */
+  function settleAccessLostLifecycleAttempt(command: LifecycleCommand) {
+    lifecycleAttempt.current = null;
+    setUncertain(false);
+    if (command === 'START') startCapture.current = null;
+    if (command === 'SUBMIT_FOR_APPROVAL') submitCapture.current = null;
+    setDialog(null);
+    resetFollowUpState();
+    setCancelContinuity(null);
+    setAssignmentReason(null);
+    setRevisionCorrection(null);
+  }
   async function execute(
     command: LifecycleCommand,
     reason = '',
@@ -2289,6 +2510,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setPendingCommand(command); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
+    updateCommittedStale(null);
     setPairGuidance(null);
     const retained = lifecycleAttempt.current;
     const input = retained?.input ?? { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
@@ -2361,9 +2583,65 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!attempt) return;
       const updated = await executeLifecycleCommand(operationJobId, attempt.command, attempt.input, attempt.reason);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      // The receipt text is known before the re-read, so a committed-but-stale
+      // notice can name exactly what the server accepted (UI-FEEDBACK/A).
+      const transition = findTransition(presentation, command);
+      const continuity = attempt.input.followUpContinuity;
+      let receiptMessage = transition
+        ? transition.successMessage
+          + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null)
+          + (updated.deliveryJobCardId ? ' Teslim işi oluşturuldu.' : '')
+        : '';
+      if (command === 'CANCEL' && continuity?.decision === 'RESCHEDULE') {
+        receiptMessage = `İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
+          dateStyle: 'medium', timeStyle: 'short',
+        }).format(new Date(continuity.scheduledAt))} için planlandı.`;
+      } else if (command === 'CANCEL' && continuity?.decision === 'END_CYCLE') {
+        receiptMessage = 'İş iptal edildi ve takip döngüsü sonlandırıldı.';
+      }
+      // #347: location is advisory at both checkpoints. Precedence is
+      // deterministic: the lifecycle already succeeded, an unavailable local
+      // snapshot yields enablement guidance, a captured SUBMIT keeps the
+      // Slice-2 DIFFERENT distance advisory, everything else stays ordinary.
+      // The advisory remains additional information; the stale heading keeps
+      // the receipt sentence so a committed submit is never reported as only a
+      // location warning.
+      let advisoryMessage = '';
+      const localCapture = attempt.input.locationCapture;
+      if (command === 'START' && localCapture?.outcome === 'unavailable') {
+        advisoryMessage = startLocationUnavailableAdvisory({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        });
+      } else if (command === 'SUBMIT_FOR_APPROVAL' && localCapture?.outcome === 'unavailable') {
+        advisoryMessage = submitLocationUnavailableGuidance({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        });
+      } else if (command === 'SUBMIT_FOR_APPROVAL'
+        && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
+        advisoryMessage = submitComparisonWarning(updated.submitLocationComparison.distanceMeters);
+      }
+      const committedMessage = advisoryMessage
+        ? `${receiptMessage} ${advisoryMessage}`.trim()
+        : receiptMessage;
+      let read: 'fresh' | 'stale' | 'inactive' | 'access-lost' = 'fresh';
       if (retained || (state.detail.kind === 'SALES_MEETING' && command === 'START')) {
-        if (!(await refreshTruth())) return;
-        if (!(await requestRealtimeDrain())) return;
+        read = await refreshAfterCommit(committedMessage);
+        if (read === 'access-lost') {
+          settleAccessLostLifecycleAttempt(command);
+          return;
+        }
+        if (read === 'inactive') return;
+        if (read === 'fresh') {
+          const drain = await drainAfterCommit(committedMessage);
+          if (drain === 'access-lost') {
+            settleAccessLostLifecycleAttempt(command);
+            return;
+          }
+          if (drain === 'inactive') return;
+          if (drain === 'stale') read = 'stale';
+        }
       } else {
         setState({
           kind: 'ready',
@@ -2378,7 +2656,23 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             : { ...state.detail, job: updated } as LoadedJobDetail,
         });
         if (hasPendingRealtimeInvalidation()) {
-          if (!(await requestRealtimeDrain())) return;
+          // The response already proved the commit; only a 403/404 during this
+          // drain needs the committed wording and the attempt cleanup.
+          committedReceiptPendingRef.current = true;
+          // Only an access loss seen by this drain counts; an older realtime
+          // read that failed while the command was in flight does not.
+          accessLostRef.current = false;
+          let settled: boolean;
+          try {
+            settled = await requestRealtimeDrain();
+          } finally {
+            committedReceiptPendingRef.current = false;
+          }
+          if (accessLostRef.current) {
+            settleAccessLostLifecycleAttempt(command);
+            return;
+          }
+          if (!settled) return;
         }
       }
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
@@ -2390,47 +2684,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       setLifecycleNoteKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) {
+        // A committed-but-stale receipt owns focus; the old trigger must not
+        // steal it back after the dialog unmounts.
+        if (read === 'stale') dialogFocusRestoreEnabledRef.current = false;
         setDialog(null);
         resetFollowUpState();
         setCancelContinuity(null);
         setAssignmentReason(null);
         setRevisionCorrection(null);
       }
-      const transition = findTransition(presentation, command);
-      if (transition) {
-        setMessage(
-          transition.successMessage
-          + pairSuccessSuffix(command, updated.linkedSaleJobCardId ?? null)
-          + (updated.deliveryJobCardId ? ' Teslim işi oluşturuldu.' : ''),
-        );
-      }
-      const continuity = attempt.input.followUpContinuity;
-      if (command === 'CANCEL' && continuity?.decision === 'RESCHEDULE') {
-        setMessage(`İş iptal edildi. Yeni takip ziyareti ${new Intl.DateTimeFormat('tr-TR', {
-          dateStyle: 'medium', timeStyle: 'short',
-        }).format(new Date(continuity.scheduledAt))} için planlandı.`);
-      } else if (command === 'CANCEL' && continuity?.decision === 'END_CYCLE') {
-        setMessage('İş iptal edildi ve takip döngüsü sonlandırıldı.');
-      }
-      // #347: location is advisory at both checkpoints. Precedence is
-      // deterministic: the lifecycle already succeeded, an unavailable local
-      // snapshot yields enablement guidance, a captured SUBMIT keeps the
-      // Slice-2 DIFFERENT distance advisory, everything else stays ordinary.
-      const localCapture = attempt.input.locationCapture;
-      if (command === 'START' && localCapture?.outcome === 'unavailable') {
-        setMessage(startLocationUnavailableAdvisory({
-          reason: localCapture.reason,
-          device: classifyDevice(readDeviceSignals()),
-        }));
-      } else if (command === 'SUBMIT_FOR_APPROVAL' && localCapture?.outcome === 'unavailable') {
-        setMessage(submitLocationUnavailableGuidance({
-          reason: localCapture.reason,
-          device: classifyDevice(readDeviceSignals()),
-        }));
-      } else if (command === 'SUBMIT_FOR_APPROVAL'
-        && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
-        setMessage(submitComparisonWarning(updated.submitLocationComparison.distanceMeters));
-      }
+      if (read === 'fresh') setMessage(advisoryMessage || receiptMessage);
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
@@ -2601,12 +2864,24 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
+    updateCommittedStale(null);
+    meetingReceiptOnPageRef.current = false;
     try {
       const meetingDetails = await patchMeetingDetails(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return meetingDetails;
-      if (!(await refreshTruth())) return meetingDetails;
-      if (!(await requestRealtimeDrain())) return meetingDetails;
+      let read = await refreshAfterCommit('Görüşme sonucu kaydedildi.');
+      if (read === 'access-lost') return meetingDetails;
+      if (read === 'inactive') return meetingDetails;
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit('Görüşme sonucu kaydedildi.');
+        if (drain === 'access-lost') return meetingDetails;
+        if (drain === 'inactive') return meetingDetails;
+        if (drain === 'stale') read = 'stale';
+      }
+      // The page notice now owns this receipt; the section skips its own note.
+      meetingReceiptOnPageRef.current = read === 'stale';
       setTimelineKey((value) => value + 1);
+      if (read === 'stale') setFeedbackFocusRequest((value) => value + 1);
       onChanged();
       return meetingDetails;
     } catch (caught) {
@@ -2623,7 +2898,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     } finally { endMutationOperation(owner); }
   }
   function openRecordEditDialog(action: RecordEditPresentation['action'], trigger: HTMLElement) {
-    if (state.kind !== 'ready'
+    if (state.kind !== 'ready' || committedStale !== null
       || !['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'].includes(state.detail.kind)) return;
     if (action === 'EDIT_JOB_FIELDS') {
       setDeadlineExtensionError(null);
@@ -2732,6 +3007,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     pastStartAckOpenerRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+    pastStartAckReturnFocusRef.current = pastStartAckOpenerRef.current;
     setPastStartAckError('');
     setPastStartAck(request);
   }
@@ -2754,16 +3030,38 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     mutationEpoch.current += 1;
     lastSavePatchErrorRef.current = '';
     setPending(true); setMessage(''); setMessageIsError(false);
+    updateCommittedStale(null);
     setDeadlineExtensionError(null);
     try {
       const patched = await patchJobCard(operationJobId, acknowledgement
         ? { ...input, ...pastStartAcknowledgementPayload(acknowledgement) }
         : input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return false;
-      if (!(await refreshTruth())) return false;
+      let read = await refreshAfterCommit(successMessage);
+      if (read === 'access-lost') {
+        // A committed but inaccessible record must not keep its old drafts or
+        // the acknowledgement retry that could re-send a mutation later.
+        setEditing(false);
+        setPastStartAck(null);
+        setPastStartAckError('');
+        return false;
+      }
+      if (read === 'inactive') return false;
       setEditing(false); setTimelineKey((value) => value + 1);
-      if (!(await requestRealtimeDrain())) return false;
-      setMessage(successMessage); onChanged();
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit(successMessage);
+        if (drain === 'access-lost') {
+          setEditing(false);
+          setPastStartAck(null);
+          setPastStartAckError('');
+          return false;
+        }
+        if (drain === 'inactive') return false;
+        if (drain === 'stale') read = 'stale';
+      }
+      if (read === 'fresh') setMessage(successMessage);
+      else setFeedbackFocusRequest((value) => value + 1);
+      onChanged();
       if (
         patched.assignmentTransitionId
         && input.assignedTo !== undefined
@@ -2871,6 +3169,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    updateCommittedStale(null);
     setDeadlineExtensionError(null);
     try {
       await patchJobCard(operationJobId, {
@@ -2890,10 +3189,26 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         ...pastStartAcknowledgementPayload(acknowledgement),
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      if (!(await refreshTruth())) return;
-      if (!(await requestRealtimeDrain())) return;
+      let read = await refreshAfterCommit('Planlanan zaman güncellendi.');
+      if (read === 'access-lost') {
+        setPastStartAck(null);
+        setPastStartAckError('');
+        return;
+      }
+      if (read === 'inactive') return;
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit('Planlanan zaman güncellendi.');
+        if (drain === 'access-lost') {
+          setPastStartAck(null);
+          setPastStartAckError('');
+          return;
+        }
+        if (drain === 'inactive') return;
+        if (drain === 'stale') read = 'stale';
+      }
       setTimelineKey((value) => value + 1);
-      setMessage('Planlanan zaman güncellendi.');
+      if (read === 'fresh') setMessage('Planlanan zaman güncellendi.');
+      else setScheduleCommittedSignal((value) => value + 1);
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
@@ -2966,16 +3281,25 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    updateCommittedStale(null);
     try {
       await patchDeliveryItem(operationJobId, itemId, {
         expectedVersion: state.detail.job.version,
         deliveredAt,
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      if (!(await refreshTruth())) return;
-      if (!(await requestRealtimeDrain())) return;
+      let read = await refreshAfterCommit('Gerçekleşen teslim zamanı kaydedildi.');
+      if (read === 'access-lost') return;
+      if (read === 'inactive') return;
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit('Gerçekleşen teslim zamanı kaydedildi.');
+        if (drain === 'access-lost') return;
+        if (drain === 'inactive') return;
+        if (drain === 'stale') read = 'stale';
+      }
       setTimelineKey((value) => value + 1);
-      setMessage('Gerçekleşen teslim zamanı kaydedildi.');
+      if (read === 'fresh') setMessage('Gerçekleşen teslim zamanı kaydedildi.');
+      else setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
@@ -3019,8 +3343,10 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     const deliveredAt = localDateTimeToIso(defaultDeliveredAtLocalValue());
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
+    updateCommittedStale(null);
     let expectedVersion = state.detail.job.version;
     let savedCount = 0;
+    const receipt = `${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`;
     try {
       for (const entry of entries) {
         const updated = await patchDeliveryItem(operationJobId, entry.id, {
@@ -3031,10 +3357,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         expectedVersion = updated.jobCardVersion;
         savedCount += 1;
       }
-      if (!(await refreshTruth())) return;
-      if (!(await requestRealtimeDrain())) return;
+      const read = await refreshAfterCommit(receipt);
+      if (read === 'access-lost') return;
+      if (read === 'inactive') return;
       setTimelineKey((value) => value + 1);
-      setMessage(`${entries.length} kalem için gerçekleşen teslim zamanı kaydedildi.`);
+      if (read === 'fresh') {
+        const drain = await drainAfterCommit(receipt);
+        if (drain === 'access-lost') return;
+        if (drain === 'inactive') return;
+        if (drain !== 'stale') setMessage(receipt);
+      }
       onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
@@ -3055,18 +3387,31 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         : caught instanceof ApiError
           ? caught.message
           : 'Gerçekleşen teslim zamanı kaydedilemedi.';
-      setMessage(
-        savedCount > 0
-          ? `${savedCount}/${entries.length} kalem kaydedildi; sonraki adımda hata oluştu: ${errorText}`
-          : errorText,
-      );
+      // An ambiguous per-item outcome may already be committed on the server:
+      // never report it as a failure, never retry it automatically, and keep the
+      // stale record locked until a successful reload resolves the unknown.
+      if (isAmbiguousMutationError(caught)) {
+        updateCommittedStale({
+          kind: 'unknown',
+          message: savedCount > 0
+            ? `${savedCount}/${entries.length} kalem kaydedildi; sonraki kalemin sonucu doğrulanamadı.`
+            : 'Gerçekleşen teslim zamanının sonucu doğrulanamadı.',
+        });
+        setMessage('');
+        setMessageIsError(false);
+        setFeedbackFocusRequest((value) => value + 1);
+        return;
+      }
+      setMessage(savedCount > 0
+        ? `${savedCount}/${entries.length} kalem kaydedildi; sonraki adımda hata oluştu: ${errorText}`
+        : errorText);
       setMessageIsError(true);
     } finally {
       endMutationOperation(owner);
     }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
-    if (state.kind !== 'ready' || saleCorrectionLockedRef.current) return;
+    if (state.kind !== 'ready' || saleCorrectionLockedRef.current || committedStale !== null) return;
     const presentation = presentationFor(state.detail);
     if (commandName === 'APPROVE') {
       const transition = findTransition(presentation, 'APPROVE');
@@ -3589,7 +3934,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const invalidationMutationLocked = invalidationMutation.kind === 'submitting'
     || invalidationMutation.kind === 'reconciling'
     || invalidationMutation.kind === 'retry-ready';
-  const invalidationLocked = pending || uncertain || invalidationMutationLocked || saleCorrectionLocked;
+  const invalidationLocked = pending || uncertain || invalidationMutationLocked
+    || saleCorrectionLocked || committedStale !== null;
   // JOB-010 recovery: the assignment guidance reuses the one record-edit
   // reassignment flow the decision panel already offers.
   const assignmentRecordEdit = presentationFor(detail).recordEditAction;
@@ -3603,7 +3949,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     />}
     {detail.kind === 'SALE' && detail.job.customerId && (actions.includes('EDIT_JOB_FIELDS') || saleCorrectionLocked)
       && <SaleCorrectionSection details={detail.saleDetails} customerId={detail.job.customerId}
-        disabled={pending || uncertain || invalidationMutationLocked || !actions.includes('EDIT_JOB_FIELDS')}
+        disabled={pending || uncertain || invalidationMutationLocked || committedStale !== null
+          || !actions.includes('EDIT_JOB_FIELDS')}
         onLockChange={(locked) => { saleCorrectionLockedRef.current = locked; setSaleCorrectionLocked(locked); }}
         onChanged={async () => {
           try { if (!(await refreshTruth())) throw new Error('Güncel kayıt yüklenemedi.'); onChanged(); }
@@ -3647,6 +3994,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
             mutationPending={invalidationLocked}
             submissionError={meetingSubmissionError}
             onSave={saveMeeting}
+            receiptShownByPage={() => meetingReceiptOnPageRef.current}
           />
           : null}
     <CustomerCompletenessAction job={detail.job} user={user} disabled={invalidationLocked} />
@@ -3672,11 +4020,18 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     message={message}
     messageIsError={messageIsError}
     feedbackRef={feedbackRef}
-    realtimeStaleNotice={realtimeStale ? <div className="detail-feedback detail-feedback-error" role="status">
+    realtimeStaleNotice={realtimeStale && !committedStale ? <div className="detail-feedback detail-feedback-error" role="status">
       <p>Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.</p>
       <button className="secondary-button" type="button" disabled={pending || realtimeReloadPending}
         onClick={() => void reloadStaleTruth()}>{realtimeReloadPending ? 'Yükleniyor…' : 'En güncel bilgileri yükle'}</button>
     </div> : undefined}
+    committedStaleNotice={committedStale ? <CommittedStaleNotice
+      message={committedStale.message}
+      kind={committedStale.kind}
+      reloadPending={pending || realtimeReloadPending}
+      onReload={() => { void reloadStaleTruth(); }}
+      feedbackRef={feedbackRef}
+    /> : undefined}
     continuity={detail.kind !== 'SALE' && isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
     submissionLateness={
       detail.job.status === 'IN_PROGRESS' || detail.job.status === 'REVISION_REQUESTED' || isManagementUser(user)
@@ -3694,6 +4049,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       <EarlyStartAuthorizationSection
         job={detail.job}
         user={user}
+        disabled={committedStale !== null}
         onGranted={() => {
           setTimelineKey((value) => value + 1);
           void refreshTruth();
@@ -3742,13 +4098,14 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }}
     onSaveSchedule={saveSchedule}
     scheduleShiftSignal={scheduleShiftSignal}
+    scheduleCommittedSignal={scheduleCommittedSignal}
     onRequestChange={() => setChangeRequestSignal((value) => value + 1)}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     onSaveAllDeliveredAtNow={detail.kind === 'PRODUCT_DELIVERY' ? saveAllDeliveredAtNow : undefined}
     deadlineExtensionError={deadlineExtensionError}
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
-    mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked}
+    mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked || committedStale !== null}
     pairGuidance={pairGuidance ? <SalePairGuidanceNotice guidance={pairGuidance} /> : undefined}
     pairManagedCommand={detail.kind === 'SALE' && !saleOriginPending
       && detail.saleDetails.sourceVisit.kind === 'SALE_FROM_VISIT'
@@ -3788,6 +4145,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       <JobInvalidationAction
         job={detail.job}
         mutationState={invalidationMutation}
+        disabled={committedStale !== null}
         onSubmit={(attempt) => { void submitInvalidation(attempt); }}
         onRecheck={() => { void recheckInvalidation(); }}
         onRetry={() => {
@@ -3928,7 +4286,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       pending={pastStartAckPending}
       error={pastStartAckError}
       onShiftToFuture={pastStartAck?.onShiftToFuture}
-      returnFocusRef={pastStartAckOpenerRef}
+      returnFocusRef={pastStartAckReturnFocusRef}
       onDismiss={() => {
         if (!pastStartAckPending) {
           setPastStartAck(null);

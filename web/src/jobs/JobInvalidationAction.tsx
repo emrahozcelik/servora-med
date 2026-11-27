@@ -38,6 +38,7 @@ export function JobInvalidationAction({
   onRecheck,
   onRetry,
   onReset,
+  disabled = false,
   createActionId = () => crypto.randomUUID(),
 }: {
   job: JobInvalidationJob;
@@ -46,6 +47,8 @@ export function JobInvalidationAction({
   onRecheck: () => void;
   onRetry: () => void;
   onReset?: () => void;
+  /** UI-FEEDBACK/A: a committed-stale record locks its invalidation surface. */
+  disabled?: boolean;
   createActionId?: () => string;
 }): ReactNode {
   const [open, setOpen] = useState(false);
@@ -56,7 +59,7 @@ export function JobInvalidationAction({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmAttemptRef = useRef(false);
 
-  const locked = mutationState.kind === 'submitting'
+  const locked = disabled || mutationState.kind === 'submitting'
     || mutationState.kind === 'reconciling'
     || mutationState.kind === 'retry-ready';
   const pending = mutationState.kind === 'submitting';
@@ -278,6 +281,7 @@ export function JobInvalidationAction({
           confirmLabel="Geçersiz olarak işaretle"
           destructive
           pending={pending}
+          confirmDisabled={disabled}
           pendingLabel="Kayıt geçersiz kılınıyor…"
           returnFocusRef={triggerRef}
           onCancel={() => setConfirmationOpen(false)}
