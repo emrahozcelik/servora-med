@@ -1145,8 +1145,12 @@ describe('JobDetail child decision receipts', () => {
    * a real reconciled read; only that read (not the version) may release the
    * lock, and it must keep the sold-time draft the manager typed.
    */
-  async function startSaleTimeCorrection(before: JobCard, fetch: ReturnType<typeof vi.fn>) {
-    await renderScreen(before, fetch);
+  async function startSaleTimeCorrection(
+    before: JobCard,
+    fetch: ReturnType<typeof vi.fn>,
+    source?: FakeRealtimeEventSource,
+  ) {
+    await renderScreen(before, fetch, source);
     const soldInput = () => host.querySelector<HTMLInputElement>(
       '.sale-correction input[type="datetime-local"]',
     );
@@ -1314,6 +1318,247 @@ describe('JobDetail child decision receipts', () => {
     expect(host.textContent).not.toContain('artık erişilemiyor');
     expect(host.textContent).not.toContain('Bu işe erişim yetkiniz yok.');
     expect(receiptRegions('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.')).toHaveLength(1);
+  });
+
+  /**
+   * UI-FEEDBACK/B regression (deferred access loss): an early-start grant is
+   * rejected, so its page-owned reload is in flight. A record edit then starts
+   * and defers that read's 403 behind the mutation epoch. When the edit ends
+   * (a definitive 400, no canonical read), the deferred access answer must be
+   * rechecked through the serialized drain.
+   */
+  function deferredEarlyStartAccessHarness(recheck: () => Response) {
+    const before = earlyStartJob();
+    const staffProfiles = [{
+      id: 'profile-staff-1',
+      user: {
+        id: 'staff-1', organizationId: 'org-1', name: 'Ayşe Personel', email: 'a@x',
+        role: 'STAFF', mustChangePassword: false, isActive: true, version: 1,
+        lastLoginAt: null, createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      title: null, phone: null, region: null, managerUserId: null, managerName: null,
+      version: 1,
+      counters: {
+        open: 0, waitingApproval: 0, revisionRequested: 0,
+        completedThisMonth: 0, overdue: 0,
+      },
+    }];
+    let detailGets = 0;
+    let grantPosts = 0;
+    let patchCalls = 0;
+    let releaseReload: ((response: Response) => void) | null = null;
+    let releasePatch: ((response: Response) => void) | null = null;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = url.split('?')[0] ?? url;
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/delivery-items')) return json({ items: [] });
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (url.includes('/api/staff?')) return json(staffProfiles);
+      if (method === 'POST' && path.endsWith('/api/job-cards/job-1/early-start-authorization')) {
+        grantPosts += 1;
+        return json({
+          error: 'Bu iş için geçerli bir erken başlama izni zaten var.',
+          code: 'EARLY_START_ALREADY_AUTHORIZED',
+        }, 409);
+      }
+      if (method === 'PATCH' && path.endsWith('/api/job-cards/job-1')) {
+        patchCalls += 1;
+        return new Promise<Response>((resolve) => { releasePatch = resolve; });
+      }
+      if (method === 'GET' && detailUrlMatches(url, before.id)) {
+        detailGets += 1;
+        if (grantPosts > 0 && detailGets === 2) {
+          // The rejected grant's serialized reload: held until the edit starts.
+          return new Promise<Response>((resolve) => { releaseReload = resolve; });
+        }
+        if (grantPosts > 0 && detailGets >= 3) return recheck();
+        return json(before);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    return {
+      before, fetch,
+      detailGets: () => detailGets,
+      grantPosts: () => grantPosts,
+      patchCalls: () => patchCalls,
+      reloadHeld: () => releaseReload !== null,
+      patchHeld: () => releasePatch !== null,
+      releaseReload: (response: Response) => {
+        if (releaseReload === null) throw new Error('Deferred reload is not held');
+        releaseReload(response);
+      },
+      releasePatch: (response: Response) => {
+        if (releasePatch === null) throw new Error('Record edit is not held');
+        releasePatch(response);
+      },
+    };
+  }
+
+  async function startDeferredAccessCase(recheck: () => Response) {
+    const harness = deferredEarlyStartAccessHarness(recheck);
+    await renderScreen(harness.before, harness.fetch);
+    await click(host, 'Erken başlamaya izin ver');
+    await click(host, 'Erken başlama iznini kaydet');
+    await settle();
+    expect(harness.grantPosts()).toBe(1);
+    expect(harness.reloadHeld()).toBe(true);
+    expect(harness.detailGets()).toBe(2);
+
+    // A record edit starts while the grant reload is still held.
+    await click(host, 'Sorumlu personeli değiştir');
+    await settle();
+    const select = host.querySelector<HTMLSelectElement>('#delivery-edit-assignee');
+    expect(select).not.toBeNull();
+    expect(select?.disabled).toBe(false);
+    await click(host, 'Değişiklikleri kaydet');
+    expect(harness.patchHeld()).toBe(true);
+    expect(harness.patchCalls()).toBe(1);
+
+    // The held read answers 403 but is deferred by the edit's newer epoch.
+    await act(async () => {
+      harness.releaseReload(json({
+        error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+      }, 403));
+    });
+    await settle();
+    expect(harness.detailGets()).toBe(2);
+    expect(host.textContent).not.toContain('İş yüklenemedi');
+
+    // The definitive 400 ends the edit without a canonical read; the deferred
+    // access answer is rechecked now.
+    await act(async () => {
+      harness.releasePatch(json({
+        error: 'Geçersiz atama.', code: 'VALIDATION_ERROR',
+      }, 400));
+    });
+    await settle();
+    expect(harness.detailGets()).toBe(3);
+    expect(harness.patchCalls()).toBe(1);
+    return harness;
+  }
+
+  it('rechecks deferred early-start access loss after the record edit and becomes terminal on 403', async () => {
+    await startDeferredAccessCase(() => json({
+      error: 'Bu işe erişim yetkiniz yok.', code: 'FORBIDDEN',
+    }, 403));
+
+    expect(host.textContent).toContain('İş yüklenemedi');
+    expect(host.textContent).toContain('Bu işe erişim yetkiniz yok.');
+    expect(host.querySelector('main[data-job-detail="true"]')).toBeNull();
+  });
+
+  it('rechecks deferred early-start access loss after the record edit and stays ready on 200', async () => {
+    const harness = await startDeferredAccessCase(() => json(earlyStartJob()));
+
+    expect(host.querySelector('main[data-job-detail="true"]')).not.toBeNull();
+    expect(host.textContent).not.toContain('İş yüklenemedi');
+    expect(host.textContent).toContain('Geçersiz atama.');
+    expect(harness.patchCalls()).toBe(1);
+  });
+
+  /**
+   * UI-FEEDBACK/B regression (reconciled sale unlock): the first reload round
+   * may already carry a newer version while a realtime invalidation forces a
+   * second round. Only the fully reconciled chain may unlock; an intermediate
+   * newer version followed by a failed read must keep the lock and the draft.
+   */
+  function saleIntermediateReloadHarness(secondRead: 200 | 500) {
+    const before = saleJob();
+    const source = new FakeRealtimeEventSource();
+    let detailGets = 0;
+    let canonicalVersion = 4;
+    let releaseFirstReload: ((response: Response) => void) | null = null;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = url.split('?')[0] ?? url;
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/notes?')) return json(emptyPage);
+      if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.includes('/overdue-incidents')) return json(emptyPage);
+      if (url.includes('/follow-ups')) return json(emptyPage);
+      if (url.includes('/api/customers/') && url.includes('/contacts')) return json(emptyPage);
+      if (method === 'PATCH' && path.endsWith('/api/job-cards/job-1/sale-details')) {
+        return json({ error: 'Satış zamanı geçersiz.', code: 'SALE_TIME_INVALID' }, 400);
+      }
+      if (method === 'GET' && path.endsWith('/api/job-cards/job-1/sale-details')) {
+        return json({ ...saleDetailsBefore, jobCardVersion: canonicalVersion });
+      }
+      if (method === 'GET' && detailUrlMatches(url, before.id)) {
+        detailGets += 1;
+        if (detailGets === 1) return json(before);
+        if (detailGets === 2) {
+          return new Promise<Response>((resolve) => { releaseFirstReload = resolve; });
+        }
+        if (secondRead === 500) return json({ error: 'Sunucu hatası.' }, 500);
+        return json({ ...before, version: canonicalVersion });
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    return {
+      before, fetch, source,
+      detailGets: () => detailGets,
+      firstReloadHeld: () => releaseFirstReload !== null,
+      releaseFirstReload: (response: Response) => {
+        if (releaseFirstReload === null) throw new Error('First reload is not held');
+        releaseFirstReload(response);
+      },
+      advanceCanonicalVersion: () => { canonicalVersion = 5; },
+    };
+  }
+
+  it('keeps the sale correction locked and drafted when an intermediate newer round is followed by a failed read', async () => {
+    const harness = saleIntermediateReloadHarness(500);
+    const { soldInput, draft } = await startSaleTimeCorrection(harness.before, harness.fetch, harness.source);
+    await click(host, 'Güncel kaydı yükle ve düzeltmeye devam et');
+    expect(harness.firstReloadHeld()).toBe(true);
+
+    await act(async () => {
+      harness.source.emitJobUpdate('job-1', '1');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      harness.advanceCanonicalVersion();
+      harness.releaseFirstReload(json({ ...harness.before, version: 5 }));
+    });
+    await settle();
+
+    expect(harness.detailGets()).toBe(3);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(true);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).not.toBeNull();
+    expect(soldInput()?.value).toBe(draft);
+    expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
+  });
+
+  it('unlocks the sale correction with its draft when both reload rounds reconcile', async () => {
+    const harness = saleIntermediateReloadHarness(200);
+    const { soldInput, draft } = await startSaleTimeCorrection(harness.before, harness.fetch, harness.source);
+    await click(host, 'Güncel kaydı yükle ve düzeltmeye devam et');
+    expect(harness.firstReloadHeld()).toBe(true);
+
+    await act(async () => {
+      harness.source.emitJobUpdate('job-1', '1');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      harness.advanceCanonicalVersion();
+      harness.releaseFirstReload(json({ ...harness.before, version: 5 }));
+    });
+    await settle();
+
+    expect(harness.detailGets()).toBe(3);
+    expect(host.querySelector<HTMLFieldSetElement>('.sale-correction fieldset')?.disabled).toBe(false);
+    expect(buttonByText(host, 'Güncel kaydı yükle ve düzeltmeye devam et')).toBeNull();
+    expect(soldInput()?.value).toBe(draft);
+    expect(receiptRegions('Satış kaydı güncellendi.')).toHaveLength(0);
   });
 
   /**
