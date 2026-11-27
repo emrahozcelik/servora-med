@@ -600,7 +600,7 @@ async function runR1() {
   const migration = await migrateDatabase(primaryUrl, 'primary');
   assertGroup(
     'MIGRATED-TO-HEAD',
-    migration.head === '075_installation_module_registry_widening',
+    migration.head === '076_assignment_offer_suggested_solution',
     `applied=${migration.count}, head=${migration.head}`,
   );
 
@@ -851,7 +851,7 @@ async function runR4() {
   const migration = await migrateDatabase(sourceUrl, 'pre-takeover-source');
   assertGroup(
     'PRE-TAKEOVER-SOURCE-MIGRATED-TO-HEAD',
-    migration.head === '075_installation_module_registry_widening',
+    migration.head === '076_assignment_offer_suggested_solution',
     `applied=${migration.count}, head=${migration.head}`,
   );
 
