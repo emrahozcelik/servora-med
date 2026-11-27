@@ -250,7 +250,7 @@ export function AssignmentOfferSection({
   /** Clears the previous page receipt when a new decision starts. */
   onActionStart?: () => void;
   /** Serialized canonical reload after a failed or conflicting decision. */
-  onRefresh?: () => Promise<void>;
+  onRefresh?: () => Promise<unknown>;
   /**
    * Opens the existing record-edit reassignment form. Purpose-bound so this
    * guidance never grows a second assignee form of its own.

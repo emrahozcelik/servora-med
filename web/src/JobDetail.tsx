@@ -1282,10 +1282,6 @@ export function JobDetailPanel({
           role={messageIsError ? 'alert' : 'status'}
           tabIndex={-1}
           data-job-detail-section="feedback"
-          // The owned Ant App resets its subtree to a fixed px base; an explicit
-          // rem size keeps the page receipt readable under 200% text enlargement
-          // (UI-001 / DESIGN.md 482–484).
-          style={{ fontSize: '1rem' }}
         >
           {message}
         </div>
@@ -1902,6 +1898,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const reloadTokenCounter = useRef(0);
   const realtimeInvalidationGeneration = useRef(0);
   const reconciledRealtimeGeneration = useRef(0);
+  /** Counts fully reconciled canonical reads, so a caller can tell success. */
+  const reconciledReadCount = useRef(0);
   const mutationEpoch = useRef(0);
   const mutationOwner = useRef<{ sessionToken: number; operationToken: number } | null>(null);
   const mutationOperationToken = useRef(0);
@@ -1933,6 +1931,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       reconciledRealtimeGeneration.current = generationSnapshot;
     }
     if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
+      reconciledReadCount.current += 1;
       setRealtimeStale(false);
       // A notice raised while a drain was incomplete is temporary: the next
       // real reconcile turns the stored receipt back into its normal success
@@ -2321,10 +2320,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }
   async function runRealtimeDrainChain(sessionToken: number): Promise<boolean> {
     const operationJobId = jobId;
+    let roundEpochAtStart = mutationEpoch.current;
     try {
       for (let round = 0; round < MAX_REALTIME_DRAIN_ROUNDS; round += 1) {
         const generationAtStart = realtimeInvalidationGeneration.current;
         const epochAtStart = mutationEpoch.current;
+        roundEpochAtStart = epochAtStart;
         const detail = await loadJobDetail(operationJobId);
         if (!isOperationCurrent(sessionToken, operationJobId)) return true;
         if (mutationEpoch.current !== epochAtStart) {
@@ -2342,6 +2343,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       }
       return false;
     } catch (error) {
+      // Same guard as the success branch: a read that started before a later
+      // mutation must not decide the screen, not even with a 403/404.
+      if (isOperationCurrent(sessionToken, operationJobId)
+        && mutationEpoch.current !== roundEpochAtStart) {
+        realtimeDrainRequested.current = true;
+        return true;
+      }
       if (isOperationCurrent(sessionToken, operationJobId)) {
         if (state.kind === 'ready' && error instanceof ApiError
           && (error.status === 403 || error.status === 404)) {
@@ -2479,9 +2487,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
    * read, so the activity timeline must refetch even when realtime is offline
    * and nothing else bumps `timelineKey`.
    */
-  async function reloadCommittedTruth() {
+  /** Serialized reload for children; resolves true only after a reconciled read. */
+  async function reloadCommittedTruth(): Promise<boolean> {
+    const before = reconciledReadCount.current;
     await reloadStaleTruth();
     setTimelineKey((value) => value + 1);
+    return reconciledReadCount.current > before;
   }
   useRealtimeInvalidation([`job-detail:${jobId}`,
     ...(state.kind === 'ready' && state.detail.kind === 'SALE' ? ['sale-origin-context:' + user.id] : []),

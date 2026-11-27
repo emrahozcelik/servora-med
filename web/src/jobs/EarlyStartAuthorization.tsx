@@ -64,7 +64,7 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitt
   /** Clears the previous page receipt when a new decision starts. */
   onActionStart?: () => void;
   /** Serialized canonical reload after a rejected grant; never a receipt. */
-  onRefresh?: () => Promise<void>;
+  onRefresh?: () => Promise<unknown>;
   /** UI-FEEDBACK/A: a committed-stale record must not start this grant. */
   disabled?: boolean;
   /** Fixed clock for deterministic tests; production uses the current time. */
@@ -200,10 +200,15 @@ export function EarlyStartAuthorizationSection({ job, user, onGranted, onCommitt
           </div>
         )
       ) : (
-        <p role="status">
-          Erken başlama izni: {authorization.grantedBy.name ?? 'Yönetici'},{' '}
-          <time dateTime={authorization.grantedAt}>{formatInstant(authorization.grantedAt)}</time>
-        </p>
+        <>
+          <p role="status">
+            Erken başlama izni: {authorization.grantedBy.name ?? 'Yönetici'},{' '}
+            <time dateTime={authorization.grantedAt}>{formatInstant(authorization.grantedAt)}</time>
+          </p>
+          {/* A concurrent grant by another manager: keep this manager's own
+              rejection visible next to the authorization that won. */}
+          {error && <p role="alert">{error}</p>}
+        </>
       )}
     </section>
   );

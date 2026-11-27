@@ -308,7 +308,7 @@ export function ManagementChangeRequestPanel({
   /** Clears the previous page receipt when a new decision starts. */
   onActionStart?: () => void;
   /** Serialized canonical reload after a failed or conflicting decision. */
-  onRefresh?: () => Promise<void>;
+  onRefresh?: () => Promise<unknown>;
   /**
    * Opens the existing record-edit reassignment form. Purpose-bound so this
    * guidance never grows a second assignee form of its own.
@@ -759,7 +759,7 @@ export function ChangeRequestSection({
   /** Clears the previous page receipt when a new decision starts. */
   onActionStart?: () => void;
   /** Serialized canonical reload after a failed management decision. */
-  onRefresh?: () => Promise<void>;
+  onRefresh?: () => Promise<unknown>;
   /** False when this viewer has no planned-time editor on the page. */
   canSetNewTime?: boolean;
   /** Opens the existing reassignment form (management guidance only). */

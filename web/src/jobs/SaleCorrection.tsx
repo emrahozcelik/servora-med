@@ -20,7 +20,7 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   /** Clears the previous page receipt when a new correction starts. */
   onActionStart?: () => void;
   /** Serialized canonical reload after a definitive conflict. */
-  onRefresh?: () => Promise<void>;
+  onRefresh?: () => Promise<boolean | void>;
 }) {
   const id = useId();
   const [soldLocal, setSoldLocal] = useState(() => isoInstantToLocalDateTime(details.soldAt));
@@ -172,10 +172,16 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
       reloadTargetVersion.current = latest.current.jobCardVersion;
       try {
         if (onRefresh !== undefined) {
-          // reloadStaleTruth resolves even when its read fails, so the version
-          // effect above owns release: only a strictly newer canonical version
-          // unlocks the correction and can never silently wipe the draft.
-          await onRefresh();
+          // reloadStaleTruth resolves even when its read fails. A newer version
+          // releases through the version effect above; a reconciled read at the
+          // same version (e.g. a definitive 400 that wrote nothing) releases
+          // here. Either way the typed draft is kept; a failed read keeps the lock.
+          const reconciled = await onRefresh();
+          if (reconciled === true && lifetime.current.active && reloadTargetVersion.current !== null) {
+            reloadTargetVersion.current = null;
+            release();
+            synchronize(latest.current);
+          }
         } else {
           await onChanged?.();
           if (lifetime.current.active) { release(); synchronize(latest.current); setQuantities({}); setAddition(null); }
