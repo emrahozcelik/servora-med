@@ -10,7 +10,29 @@ import {BACKUP_TRIGGER_CLASSES,BACKUP_ATTEMPT_RESULTS,BACKUP_FAILURE_CLASSES,OBS
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const fail=()=>{throw new Error('BACKUP_OBSERVATION_UNTRUSTED');};
 const flushDirectory=path=>{const fd=openSync(path,constants.O_RDONLY|constants.O_DIRECTORY);try{fsyncSync(fd);}finally{closeSync(fd);}};
-function sample(readTime) {try{return validateCurrentTimeEvidence(readTime());}catch{return null;}}
+// Bounded backoff for a TRUSTED_TIME_UNKNOWN sample. Observed 2026-11-24: under
+// deploy load (release extract, service restart, pg_dump) the socket-activated
+// chrony collector exceeds its fixed 2000 ms budget on every call for about two
+// minutes, then succeeds again once the host is idle. An immediate retry would hit
+// the same load, so the waits grow (200 s in all, six attempts) to sample after it
+// settles. Every attempt is a fresh, fully validated sample: nothing is cached,
+// synthesized or relaxed, and a sample still unknown after the last attempt
+// records no proof.
+export const TRUSTED_TIME_RETRY_DELAYS_MS=Object.freeze([5000,15000,30000,60000,90000]);
+const sleepSync=ms=>{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,ms);};
+const RETRY_DEFAULTS=Object.freeze({retryDelaysMs:TRUSTED_TIME_RETRY_DELAYS_MS,sleep:sleepSync,
+  warn:line=>process.stderr.write(line)});
+function sample(readTime,label,{retryDelaysMs,sleep,warn}) {
+  for(let attempt=0;;attempt++) {
+    try{return validateCurrentTimeEvidence(readTime());}catch{}
+    if(attempt>=retryDelaysMs.length) {
+      // Allowlisted tokens only: no path, host or evidence content reaches the journal.
+      warn(`backup-observation: TRUSTED_TIME_UNKNOWN sample=${label} attempts=${attempt+1}; freshness proof not recorded\n`);
+      return null;
+    }
+    sleep(retryDelaysMs[attempt]);
+  }
+}
 function readState(path) {
   let fd;
   try {
@@ -48,8 +70,9 @@ function verifiedArtifact(artifactPath,sidecarPath) {
   } finally {for(const fd of fds)closeSync(fd);}
 }
 
-/** Internal test seam supplies samples; the executable always uses the fixed TT-A sampler. */
-export function publishObservation(input,readTime=sampleTrustedTime) {
+/** Internal test seams supply samples and retry timing; the executable always uses the fixed TT-A sampler and defaults. */
+export function publishObservation(input,readTime=sampleTrustedTime,retry={}) {
+  const retryOptions={...RETRY_DEFAULTS,...retry};
   const {statePath,trigger,startedAt,outcome,failureClass=null}=input;
   if(!BACKUP_TRIGGER_CLASSES.includes(trigger)||!BACKUP_ATTEMPT_RESULTS.includes(outcome)
     ||parseObservationInstant(startedAt)===null||typeof statePath!=='string'||!statePath.startsWith('/')
@@ -79,7 +102,7 @@ export function publishObservation(input,readTime=sampleTrustedTime) {
     return;
   }
   if(outcome==='success'&&(!matching||raw.latestAttemptResult!=='running'||!raw.latestAttemptId))fail();
-  const time=outcome==='running'?sample(readTime):null;
+  const time=outcome==='running'?sample(readTime,'before',retryOptions):null;
   Object.assign(state,{latestAttemptTrigger:trigger,latestAttemptStartedAt:startedAt,latestAttemptResult:outcome,
     latestAttemptId:outcome==='running'?randomUUID():matching?raw.latestAttemptId:null,
     latestAttemptTime:outcome==='running'?time:matching?raw.latestAttemptTime:null,
@@ -87,7 +110,8 @@ export function publishObservation(input,readTime=sampleTrustedTime) {
     latestAttemptFailureClass:failureClass});
   if(outcome==='success') {
     const digest=verifiedArtifact(input.artifactPath,input.sidecarPath);
-    const after=sample(readTime),before=state.latestAttemptTime;
+    // Without a before sample no proof can be minted, so the after sample is taken once (for the label only).
+    const before=state.latestAttemptTime,after=sample(readTime,'after',before?retryOptions:{...retryOptions,retryDelaysMs:[]});
     const completedAt=after?eventLabel(after):new Date().toISOString().slice(0,19)+'Z';
     state.latestAttemptCompletedAt=completedAt;state.latestVerifiedAt=completedAt;state.latestVerifiedTrigger=trigger;
     state.latestVerifiedProof=before&&after&&elapsedTime(before,after).status==='KNOWN'
