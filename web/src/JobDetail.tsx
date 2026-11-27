@@ -1976,14 +1976,19 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       setPendingCommand(null);
       setStartPendingPhase(null);
       setSubmitPendingPhase(null);
-      if (accessRecheckPending.current) {
-        // The deferred access answer was never superseded by a newer canonical
-        // read: recheck it through the existing serialized drain.
-        accessRecheckPending.current = false;
-        realtimeReloadRequested.current = true;
-        void requestRealtimeDrain();
-      }
+      runPendingAccessRecheck();
     }
+  }
+
+  /**
+   * A deferred 403/404 that no newer reconciled read superseded is rechecked
+   * once through the existing serialized drain (never a mutation).
+   */
+  function runPendingAccessRecheck() {
+    if (!accessRecheckPending.current) return;
+    accessRecheckPending.current = false;
+    realtimeReloadRequested.current = true;
+    void requestRealtimeDrain();
   }
 
   useEffect(() => {
@@ -2364,6 +2369,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         realtimeDrainRequested.current = true;
         if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
           accessRecheckPending.current = true;
+          // If the newer operation already ended, nobody else will recheck:
+          // do it after this chain settles.
+          if (mutationOwner.current === null) setTimeout(runPendingAccessRecheck, 0);
         }
         return true;
       }
@@ -2465,6 +2473,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     // A fresh receipt or a committed-stale notice must own focus; the child
     // section (and its local status line) may be gone by then.
     setFeedbackFocusRequest((value) => value + 1);
+    // A child decision has no mutation owner; settle any deferred access check
+    // its own read did not supersede (e.g. that read failed transiently).
+    runPendingAccessRecheck();
   }
 
   async function reloadStaleTruth() {

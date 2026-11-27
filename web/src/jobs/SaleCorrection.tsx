@@ -33,9 +33,6 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   const [message, setMessage] = useState('');
   const attempt = useRef<SaleCorrection | null>(null);
   const sending = useRef(false);
-  // Version displayed when the manager asked for canonical truth after a
-  // definitive conflict. The lock stays until a strictly newer version arrives.
-  const reloadTargetVersion = useRef<number | null>(null);
   const latest = useRef(details); latest.current = details;
   // Last server values reflected in the untouched form fields. A field that
   // still matches its base is not a user edit and may follow newer versions;
@@ -56,35 +53,12 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     return () => { owner.active = false; lockCallback.current(false); }; }, []);
   useEffect(() => { if (message) messageRef.current?.focus(); }, [message]);
   useEffect(() => {
-    const target = reloadTargetVersion.current;
-    if (target !== null) {
-      // With a page-owned serialized reload, only its reconciled result may
-      // unlock: a first newer round can still be followed by a failed read.
-      if (onRefresh !== undefined) return;
-      if (details.jobCardVersion > target) {
-        reloadTargetVersion.current = null;
-        release();
-        synchronize(details);
-        // Keep the typed quantity/addition: canonical truth must never discard
-        // the draft the manager was trying to correct.
-        return;
-      }
-      // The read resolved without a newer version: keep the lock and the draft.
-      return;
-    }
     if (attempt.current || sending.current) return;
     synchronize(details);
-    if (needsRefresh) {
-      // Another successful read (for example a realtime refresh) arrived while
-      // the correction waited for canonical truth: release without data loss.
-      release();
-      return;
-    }
     setQuantities({}); setAddition(null);
   // Parent version is authoritative; fresh DTO object identities are not edits.
   }, [details.jobCardVersion]);
   function release() {
-    reloadTargetVersion.current = null;
     attempt.current = null; setUnresolved(false); setNeedsRefresh(false); lockCallback.current(false);
   }
   async function send(value: SaleCorrection) {
@@ -172,18 +146,15 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     {needsRefresh && <button type="button" className="secondary-button" disabled={pending} onClick={async () => {
       if (sending.current) return;
       sending.current = true; setPending(true);
-      reloadTargetVersion.current = latest.current.jobCardVersion;
       try {
         if (onRefresh !== undefined) {
-          // reloadStaleTruth resolves even when its read fails. A newer version
-          // releases through the version effect above; a reconciled read at the
-          // same version (e.g. a definitive 400 that wrote nothing) releases
-          // here. Either way the typed draft is kept; a failed read keeps the lock.
+          // The page reload resolves even when its read fails. Only a reconciled
+          // read unlocks, with the same canonical reset as before this slice
+          // (server truth replaces the conflicted draft); a failed read keeps the
+          // lock and the typed draft so nothing is lost or re-sent.
           const reconciled = await onRefresh();
-          if (reconciled === true && lifetime.current.active && reloadTargetVersion.current !== null) {
-            reloadTargetVersion.current = null;
-            release();
-            synchronize(latest.current);
+          if (reconciled === true && lifetime.current.active) {
+            release(); synchronize(latest.current); setQuantities({}); setAddition(null);
           }
         } else {
           await onChanged?.();
