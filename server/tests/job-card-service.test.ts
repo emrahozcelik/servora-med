@@ -242,6 +242,11 @@ class MemoryJobCardRepository implements JobCardRepository {
         return [];
       },
       appendWebPushDeliveries: async () => [],
+      // This legacy fixture never creates an assignment offer. The
+      // RESCUE-004/A reacquire guard therefore reads the latest offer as
+      // absent and performs no occupancy check, exactly like a real legacy
+      // job that was never offered.
+      getLatestAssignmentOffer: async () => null,
       getAssignee: async () => ({
         id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
       }),
