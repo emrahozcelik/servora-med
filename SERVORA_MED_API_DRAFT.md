@@ -1514,8 +1514,9 @@ Calendar writes. Re-offer, reassign/reschedule, proposal acceptance and any othe
 that makes a released job occupy again take the users-first lock and re-check the interval with
 this job excluded. With the assignment window off, a legacy `ACCEPT_ASSIGNMENT` / `START` of a
 job whose newest offer is `DECLINED`/`RELEASED` performs the same lock and check, so a flag
-toggle cannot blindly reclaim the slot. That legacy branch, like the release predicate, applies
-only to a positive persisted interval; a START_ONLY row keeps its old ACCEPT/START behavior.
+toggle cannot blindly reclaim the slot. That legacy branch, like the release predicate and the
+re-offer pre-write check, applies only to a positive persisted interval; a START_ONLY row has no
+interval to acquire and keeps its old ACCEPT/START behavior.
 
 Every producer that opens an answerable offer through `openAssignmentOffer` writes it at
 `opened_at = max(requestTime, latest_opened_at + 1 ms)` and computes the opening policy

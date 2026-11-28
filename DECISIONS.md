@@ -3962,8 +3962,9 @@ turning a module off must not weaken a core workflow rule.
    assignment-window flag is optional, a legacy (window-off) `ACCEPT_ASSIGNMENT`
    or `START` of a job whose newest offer is `DECLINED`/`RELEASED` performs the
    same lock and check, so toggling the flag cannot blindly reclaim a slot.
-   Like the release predicate, that legacy branch applies only to a positive
-   persisted interval; a START_ONLY row keeps its old behavior.
+   Like the release predicate, that legacy branch and the re-offer occupancy
+   check apply only to a positive persisted interval; a START_ONLY row has no
+   interval to acquire and keeps its old behavior.
 6. **No new flag or migration.** The latest-offer history already carries the
    fact; there is no backfill. Realtime refresh reuses the existing
    `job.updated` event and its `calendar` resource key; no new notification

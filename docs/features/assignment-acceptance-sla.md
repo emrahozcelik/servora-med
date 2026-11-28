@@ -969,9 +969,10 @@ offers still occupy.
 - With the assignment window off, a legacy `ACCEPT_ASSIGNMENT` / `START` of a
   job whose newest offer is `DECLINED`/`RELEASED` performs the same users-first
   lock and check, so toggling the flag cannot blindly reclaim a released slot.
-  That branch, like the release predicate, applies only to a positive persisted
-  interval; a START_ONLY row keeps its old lifecycle (including the existing
-  START interval requirement).
+  That branch, like the release predicate and the re-offer pre-write check,
+  applies only to a positive persisted interval; a START_ONLY row has no
+  interval to acquire and keeps its old lifecycle (including the existing START
+  interval requirement).
 - Re-offer keeps `ASSIGNMENT_OFFER_ALREADY_OPEN` precedence for a live on-time
   `OPEN` offer before the occupancy check. Every producer that opens an
   answerable offer through `openAssignmentOffer` records
