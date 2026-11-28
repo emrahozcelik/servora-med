@@ -553,7 +553,8 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
   async getWorkerState() {
     const result = await this.pool.query<BackupWorkerStateRow>(
       `SELECT worker_heartbeat_at, scheduler_last_tick_at,
-              last_scheduled_slot_key, last_scheduled_local_date,
+              last_scheduled_slot_key,
+              to_char(last_scheduled_local_date, 'YYYY-MM-DD') AS last_scheduled_local_date,
               last_scheduled_for, last_scheduled_run_id
          FROM backup_worker_state
         WHERE singleton
@@ -983,7 +984,8 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       await client.query('BEGIN');
       const state = await client.query<BackupWorkerStateRow>(
         `SELECT worker_heartbeat_at, scheduler_last_tick_at,
-                last_scheduled_slot_key, last_scheduled_local_date,
+                last_scheduled_slot_key,
+                to_char(last_scheduled_local_date, 'YYYY-MM-DD') AS last_scheduled_local_date,
                 last_scheduled_for, last_scheduled_run_id
            FROM backup_worker_state
           WHERE singleton
@@ -993,9 +995,10 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       if (!current) throw new Error('backup worker state singleton is unavailable');
       if (
         current.last_scheduled_slot_key === input.slotKey
-        // A policy timezone change must not create a second run for the same
-        // local calendar day. The scheduler is at-most-once per local day.
-        || current.last_scheduled_local_date === input.localDate
+        // Both values are canonical YYYY-MM-DD strings. Clock rollback or a
+        // timezone change must not replay an older or already consumed day.
+        || (current.last_scheduled_local_date !== null
+          && current.last_scheduled_local_date >= input.localDate)
       ) {
         await client.query(
           `UPDATE backup_worker_state SET scheduler_last_tick_at = CURRENT_TIMESTAMP WHERE singleton`,

@@ -197,7 +197,9 @@ separate authorized gate):
   lease heartbeats, bounded three-attempt same-phase retry, DST-aware IANA
   scheduling, current-local-day catch-up, and durable slot dedupe are
   implemented in `modules/backup/worker.ts`, `scheduler.ts`, `retry.ts`, and
-  `pipeline.ts`.
+  `pipeline.ts`. The last consumed local date is a high-water mark. After a
+  clock rollback or a schedule timezone change, the worker waits until the
+  due local date advances beyond that mark before enqueuing again.
 - The pipeline composes BR2 → BR3 → BR4. Only remote verification followed by
   cleanup may call `completeRun()` and produce `SUCCESS`; cleanup failure is a
   verified `SUCCESS` with `warning_code = CLEANUP_FAILED`. Terminal workspace
