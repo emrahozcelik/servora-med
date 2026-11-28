@@ -165,6 +165,7 @@ async function openCase(browser, url, sample) {
           closedAt: null, closeReason: null, closeText: null, suggestedSolution: null,
         },
       };
+      if (sample.transferLostResponse) return route.abort('connectionreset');
       return send(transferred);
     }
     unexpected.push(method + ' ' + path);
@@ -325,6 +326,29 @@ async function captureTransferFlow(browser, url) {
   return { wheelTargets, wheelKeyboardEscape: true, invalid: true, conflict: true, pending: true, outcome, patch: mutations[1] };
 }
 
+async function captureUncertainTransfer(browser, url) {
+  const test = await openCase(browser, url, { ...samples[1], transferLostResponse: true });
+  const { page, context, mutations, released } = test;
+  const form = await openTransfer(page);
+  await form.getByRole('combobox', { name: 'Yeni sorumlu personel' }).selectOption(successor.id);
+  await form.getByRole('button', { name: /17:00–18:00/ }).click();
+  await form.getByRole('button', { name: 'Devret ve planla', exact: true }).click();
+  released();
+  const notice = page.locator('[data-job-detail-committed-refresh]');
+  await notice.getByText('Personel ve plan değişikliğinin sonucu doğrulanamadı.').waitFor();
+  const closeRequest = page.getByRole('button', { name: 'Öneriyi reddet', exact: true });
+  assert.equal(await closeRequest.isDisabled(), true);
+  assert.equal(await form.count(), 0);
+  await capture(page, 'transfer-outcome-unknown');
+  await notice.getByRole('button', { name: 'Güncel durumu yenile' }).click();
+  await notice.waitFor({ state: 'hidden' });
+  assert.equal(await closeRequest.isEnabled(), true);
+  assert.equal(mutations.length, 1);
+  assert.deepEqual(test.errors, []);
+  assert.deepEqual(test.unexpected, []);
+  await context.close();
+}
+
 const vite = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
 let browser;
 try {
@@ -414,6 +438,8 @@ try {
     await context.close();
   } else {
     report.interactions.transfer = await captureTransferFlow(browser, url);
+    await captureUncertainTransfer(browser, url);
+    report.interactions.transfer.uncertainOutcomeReload = true;
     const test = await openCase(browser, url, samples[1]);
     const { page, context, mutations, released } = test;
     const scope = page.locator('details.job-recovery');

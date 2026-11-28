@@ -3226,15 +3226,25 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     input: PatchJobCardInput,
     onConfirmed: (patched: JobCard) => string,
   ) {
-    const owner = state.kind === 'ready' ? startMutationOperation() : null;
+    const owner = state.kind === 'ready' && committedStaleRef.current === null ? startMutationOperation() : null;
     if (!owner || state.kind !== 'ready') throw new ApiError(409, 'JOB_MUTATION_IN_PROGRESS', 'İş için başka bir işlem sürüyor.');
     const previous = state.detail.job;
     mutationEpoch.current += 1;
     clearChildReceipt();
     setPending(true);
     try {
-      const patched = await patchJobCard(jobId, input);
-      if (!isOperationCurrent(owner.sessionToken, jobId)) return;
+      const patched = await patchJobCard(jobId, input).catch((caught: unknown) => {
+        if (!isAmbiguousMutationError(caught)) throw caught;
+        if (isOperationCurrent(owner.sessionToken, jobId)) {
+          updateCommittedStale({
+            kind: 'unknown',
+            message: 'Personel ve plan değişikliğinin sonucu doğrulanamadı.',
+          });
+          setFeedbackFocusRequest((value) => value + 1);
+        }
+        return null;
+      });
+      if (!patched || !isOperationCurrent(owner.sessionToken, jobId)) return;
       const receipt = onConfirmed(patched);
       await settleChildCommit(receipt);
       if (!isOperationCurrent(owner.sessionToken, jobId) || accessLostRef.current) return;
@@ -4323,7 +4333,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       <EarlyStartAuthorizationSection
         job={detail.job}
         user={user}
-        disabled={committedStale !== null}
+        disabled={invalidationLocked}
         onCommitted={settleChildCommit}
         onActionStart={clearChildReceipt}
         onRefresh={() => reloadCommittedTruth()}

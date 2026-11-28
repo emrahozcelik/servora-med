@@ -463,26 +463,6 @@ describe('RESCUE-003 assignment transfer and reschedule', () => {
     expect(patchCalls(fetchMock)).toHaveLength(0);
   });
 
-  it('requires a read after an uncertain transport outcome and never retries the write', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).startsWith('/api/staff?')) return json([currentStaff, nextStaff]);
-      throw new TypeError('Connection lost');
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const { onCommitted, onRefresh } = await renderSection(jobCard());
-    const form = await openTransfer();
-    await chooseStaff(form, nextStaff.user.id);
-    await chooseLocalTime(form, NEW_START_LOCAL);
-    await submit(form);
-    expect(form.querySelector('[data-assignment-transfer-error="submit"]')?.textContent)
-      .toContain('İşlemin sonucu doğrulanamadı.');
-    expect(buttonByText(form, 'Devret ve planla')).toBeNull();
-    await act(async () => buttonByText(form, 'En güncel bilgileri yükle')!.click());
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-    expect(onCommitted).not.toHaveBeenCalled();
-    expect(patchCalls(fetchMock)).toHaveLength(1);
-  });
-
   it('closes the form for the past-start acknowledgement and replays both fields with the acknowledgement', async () => {
     let patchAttempt = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -646,19 +626,29 @@ describe('RESCUE-003 on the real JobDetail page', () => {
     });
   }
 
-  it.each([true, false])('shows the page-owned receipt when the server opens an offer: %s', async (opensOffer) => {
+  it.each(['offer', 'no offer', 'lost response'] as const)('settles the page-owned result for %s', async (outcome) => {
+    const opensOffer = outcome === 'offer';
+    const losesResponse = outcome === 'lost response';
     const before = opensOffer ? jobCard() : jobCard({
       status: 'ACCEPTED',
+      scheduledAt: '2099-11-21T10:00:00.000Z',
+      scheduledEndsAt: '2099-11-21T11:00:00.000Z',
       changeRequest,
       assignmentOffer: null,
       workflowContext: workflow(['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'RESOLVE_CHANGE_REQUEST']),
     });
     let after: JobCard | null = null;
+    let loseResponse!: (error: Error) => void;
+    let messagingReads = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = withoutSaleCapability(String(input));
       const method = (init?.method ?? 'GET').toUpperCase();
       const path = url.split('?')[0] ?? url;
       if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (path === '/api/messaging/conversations/job/job-1') {
+        messagingReads += 1;
+        return json({}, 404);
+      }
       if (url.includes('/delivery-items')) return json(emptyPage);
       if (url.includes('/notes?')) return json(emptyPage);
       if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
@@ -675,6 +665,7 @@ describe('RESCUE-003 on the real JobDetail page', () => {
           after.changeRequest = changeRequest;
           after.workflowContext = before.workflowContext;
         }
+        if (losesResponse) return new Promise<Response>((_resolve, reject) => { loseResponse = reject; });
         return json(after);
       }
       if (path === '/api/job-cards/job-1') return json(after ?? before);
@@ -684,7 +675,13 @@ describe('RESCUE-003 on the real JobDetail page', () => {
 
     await act(async () => {
       root.render(
-        <JobDetailScreen jobId={before.id} user={manager} onBack={() => {}} onChanged={() => {}} />,
+        <JobDetailScreen
+          jobId={before.id}
+          user={losesResponse ? { ...manager, capabilities: { ...manager.capabilities, messaging: true } } : manager}
+          onBack={() => {}}
+          onChanged={() => {}}
+          onOpenMessaging={() => {}}
+        />,
       );
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -713,6 +710,29 @@ describe('RESCUE-003 on the real JobDetail page', () => {
       assignedTo: nextStaff.user.id,
       scheduledAt: NEW_START,
     });
+    if (losesResponse) {
+      const earlyStart = () => container.querySelector<HTMLButtonElement>('[data-early-start-authorization-reveal]');
+      expect(earlyStart()?.disabled).toBe(true);
+      const initialMessagingReads = messagingReads;
+      expect(initialMessagingReads).toBeGreaterThan(0);
+      await act(async () => loseResponse(new TypeError('Connection lost after commit')));
+      await settle();
+
+      const notice = container.querySelector('[data-job-detail-committed-refresh]');
+      expect(notice?.textContent).toContain('Personel ve plan değişikliğinin sonucu doğrulanamadı.');
+      expect(container.querySelector('[data-assignment-transfer-form]')).toBeNull();
+      expect(container.querySelector<HTMLButtonElement>('[data-change-request-resolve="REJECTED"]')?.disabled).toBe(true);
+      expect(earlyStart()?.disabled).toBe(true);
+      expect(messagingReads).toBe(initialMessagingReads);
+
+      await act(async () => buttonByText(notice!, 'Güncel durumu yenile')!.click());
+      await settle();
+      expect(container.querySelector('[data-job-detail-committed-refresh]')).toBeNull();
+      expect(container.querySelector<HTMLButtonElement>('[data-change-request-resolve="REJECTED"]')?.disabled).toBe(false);
+      expect(messagingReads).toBeGreaterThan(initialMessagingReads);
+      expect(patchCalls(fetchMock)).toHaveLength(1);
+      return;
+    }
     const receipt = container.querySelector<HTMLElement>('[data-job-detail-section="feedback"]');
     expect(receipt?.textContent).toContain('Personel ve plan güncellendi.');
     expect(receipt?.textContent?.includes('Personelin yanıtı bekleniyor.')).toBe(opensOffer);

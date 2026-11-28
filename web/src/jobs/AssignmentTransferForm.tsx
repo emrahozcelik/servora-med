@@ -36,7 +36,6 @@ const TRANSFER_LABEL = 'Personeli ve zamanı birlikte değiştir';
 const TRANSFER_ERROR = 'Personel ve plan değişikliği kaydedilemedi.';
 const REASON_REQUIRED = 'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.';
 const STALE = 'İş başka bir işlemle güncellendi. Devam etmek için güncel bilgileri inceleyip formu yeniden açın.';
-const UNCERTAIN = 'İşlemin sonucu doğrulanamadı. Yeniden karar vermeden önce güncel bilgileri yükleyin.';
 
 export type CommitAssignmentTransfer = (
   input: PatchJobCardInput, onConfirmed: (patched: JobCard) => string,
@@ -195,6 +194,7 @@ export function AssignmentTransferAction({
         }
         return receipt;
       });
+      setPanel('closed');
     } catch (caught) {
       if (isPastStartAcknowledgementRequired(caught) && nextAcknowledgement === undefined) {
         setPanel('acknowledgement');
@@ -205,10 +205,6 @@ export function AssignmentTransferAction({
       } else if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
         setRefreshRequired(true);
         setSubmitError(STALE);
-        setPanel('transfer');
-      } else if (!(caught instanceof ApiError) || caught.status === 0 || caught.status >= 500) {
-        setRefreshRequired(true);
-        setSubmitError(UNCERTAIN);
         setPanel('transfer');
       } else {
         setSubmitError(assignmentWindowErrorMessage(caught, TRANSFER_ERROR));

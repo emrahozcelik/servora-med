@@ -82,11 +82,11 @@ export function JobConversationAction({
       // existing canonical thread back, a non-participant is denied safely.
       setResolution({ kind: canCreate ? 'start' : 'none' });
     }
-  }, [job.id, canCreate, refreshKey]);
+  }, [job.id, job.assignedTo, canCreate, refreshKey]);
 
   useEffect(() => {
     setResolution({ kind: 'resolving' });
-  }, [job.id]);
+  }, [job.id, job.assignedTo]);
 
   useEffect(() => {
     void resolve();
