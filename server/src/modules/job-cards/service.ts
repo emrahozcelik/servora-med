@@ -5664,7 +5664,14 @@ export class JobCardService {
         await this.lockUsersInOrder(tx, actor.organizationId, [snapshot.assignedTo]);
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        if (job.version !== input.expectedVersion) {
+        // The User row locked above is the snapshot assignee. A reassignment
+        // that committed while this request waited on that lock (or on the
+        // JobCard row) moves the offer target to a Staff member whose User lock
+        // this transaction does not hold, so every occupancy/offer write below
+        // would run outside the SCH-001 users-first contract. Fail closed like
+        // grantEarlyStartAuthorization: only the observed assignee may be
+        // re-offered to.
+        if (job.version !== input.expectedVersion || job.assignedTo !== snapshot.assignedTo) {
           throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         }
         if (job.status !== 'NEW'
