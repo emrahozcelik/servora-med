@@ -109,15 +109,35 @@ async function measure(page) {
     const count = [...(smokeRoot?.querySelectorAll('.servora-calendar-count') ?? [])]
       .find((candidate) => candidate.textContent?.trim() === '12');
     const countContent = count?.closest('[class*="picker-calendar-date-content"]');
-    const countDateValue = count?.closest('[class*="picker-calendar-date"]')
-      ?.querySelector('[class*="picker-calendar-date-value"]');
+    const countCell = count?.closest('.servora-calendar-item');
+    const countDateValue = countCell?.querySelector('[class*="picker-calendar-date-value"]');
     const countRect = count?.getBoundingClientRect();
-    const countDateValueRect = countDateValue?.getBoundingClientRect();
-    const countDateOverlap = Boolean(countRect && countDateValueRect
-      && countRect.left < countDateValueRect.right - 1
-      && countRect.right > countDateValueRect.left + 1
-      && countRect.top < countDateValueRect.bottom - 1
-      && countRect.bottom > countDateValueRect.top + 1);
+    const countCellRect = countCell?.getBoundingClientRect();
+    let countDateTextRect = countDateValue?.getBoundingClientRect();
+    if (countDateValue?.firstChild) {
+      const range = document.createRange();
+      range.selectNodeContents(countDateValue.firstChild);
+      countDateTextRect = range.getBoundingClientRect();
+    }
+    const countDateOverlap = Boolean(countRect && countDateTextRect
+      && countRect.left < countDateTextRect.right - 0.5
+      && countRect.right > countDateTextRect.left + 0.5
+      && countRect.top < countDateTextRect.bottom - 0.5
+      && countRect.bottom > countDateTextRect.top + 0.5);
+    const countWithinOwnCell = Boolean(countRect && countCellRect
+      && countRect.left >= countCellRect.left - 0.5
+      && countRect.right <= countCellRect.right + 0.5
+      && countRect.top >= countCellRect.top - 0.5
+      && countRect.bottom <= countCellRect.bottom + 0.5);
+    const countTouchesAdjacentCell = Boolean(countRect && cells
+      .filter((cell) => cell !== countCell)
+      .some((cell) => {
+        const r = cell.getBoundingClientRect();
+        return countRect.left < r.right - 0.25
+          && countRect.right > r.left + 0.25
+          && countRect.top < r.bottom - 0.25
+          && countRect.bottom > r.top + 0.25;
+      }));
     const selectedCell = smokeRoot?.querySelector('[class*="picker-cell-selected"]');
     const todayCell = smokeRoot?.querySelector('[class*="picker-calendar-date-today"]');
     const headerButtons = [...(smokeRoot?.querySelectorAll('.servora-calendar-header button') ?? [])];
@@ -225,6 +245,8 @@ async function measure(page) {
       countText: count?.textContent?.trim() ?? null,
       countInsideNativeContent: Boolean(countContent),
       countDateOverlap,
+      countWithinOwnCell,
+      countTouchesAdjacentCell,
       headerButtons: headerButtons.length,
       headerButtonsInFrame,
       headerButtonMinSize,
@@ -281,6 +303,8 @@ function contractFailures(measurement, viewport) {
       failures.push('two-digit count decoration missing or misplaced');
     }
     if (measurement.countDateOverlap) failures.push('event count overlaps native date value');
+    if (!measurement.countWithinOwnCell) failures.push('event count exceeds own calendar cell');
+    if (measurement.countTouchesAdjacentCell) failures.push('event count touches adjacent calendar cell');
     if (measurement.desktopSummaries !== 0) failures.push('desktop event summaries leaked into compact mode');
     if (measurement.compactNativeDates < 28 || measurement.nativeDateValues < 28) {
       failures.push('native compact date content missing');
@@ -298,7 +322,9 @@ function contractFailures(measurement, viewport) {
       failures.push(`day number stretched into a ${measurement.maxDateButtonHeight}px pill`);
     }
     for (const chip of measurement.eventChips) {
-      if (chip.minHeight !== '0px') failures.push(`event chip keeps a min-height floor (${chip.minHeight})`);
+      if (chip.minHeight !== '44px' || chip.chipHeight < 44) {
+        failures.push(`event chip below owner-approved 44px floor (minHeight=${chip.minHeight}, height=${chip.chipHeight}px)`);
+      }
       if (chip.chipHeight > 50) failures.push(`event chip grew into a ${chip.chipHeight}px block`);
       if (chip.labelFontPixels < 12) failures.push(`event label type below 12px (${chip.labelFontPixels}px)`);
       if (!['İş', 'Plan'].includes(chip.kind)) failures.push('event source cue missing from the chip');
@@ -372,6 +398,9 @@ async function runViewport(browser, baseUrl, viewport, failures) {
       const zoomed = await measure(page);
       console.log(JSON.stringify({ viewport: `${viewport.name}-200pct`, ...zoomed }));
       if (zoomed.overflowX) failures.push(`${viewport.name}-200pct: horizontal overflow`);
+      if (zoomed.countDateOverlap) failures.push(`${viewport.name}-200pct: event count overlaps native date value`);
+      if (!zoomed.countWithinOwnCell) failures.push(`${viewport.name}-200pct: event count exceeds own calendar cell`);
+      if (zoomed.countTouchesAdjacentCell) failures.push(`${viewport.name}-200pct: event count touches adjacent calendar cell`);
       if (!zoomed.personnelFilterUsable || !zoomed.agendaReachable) {
         failures.push(`${viewport.name}-200pct: filter or agenda reflow failure`);
       }

@@ -956,23 +956,18 @@ export class PostgresStaffOffboardingService {
     replacementUserId: string,
     event: StaffOffboardingPlan['calendar'][number],
   ) {
-    const conflict = await client.query(
-      `SELECT 1
-          FROM calendar_events e
-         WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
-           AND e.id <> $3 AND e.starts_at < $5 AND $4 < e.ends_at
-        UNION ALL
-        SELECT 1
-          FROM job_cards j
-         WHERE j.organization_id = $1 AND j.assigned_to = $2
-           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
-           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-           AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-           AND j.scheduled_at < $5 AND $4 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
-        LIMIT 1`,
-      [organizationId, replacementUserId, event.id, event.startsAt, event.endsAt],
-    );
-    if (conflict.rows.length > 0) {
+    // Explicit manual-event transfer preserves manual-to-manual conflict checks
+    // even when the optional Calendar UI is off; on-site job occupancy comes
+    // from the shared SCH-001 reader.
+    const conflicts = await findStaffOccupancyConflicts(client, {
+      organizationId,
+      assignedUserId: replacementUserId,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      excludeCalendarEventId: event.id,
+      includeCalendarEvents: true,
+    }, 1);
+    if (conflicts.length > 0) {
       throw new AppError('CALENDAR_CONFLICT', 409, 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.');
     }
   }

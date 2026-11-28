@@ -4967,6 +4967,10 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .desktop-shell-new-job .new-job-menu-trigger {
     gap: 0.45rem;
   }
+  .desktop-shell-new-job .desktop-shell-page-create {
+    min-height: var(--control-height);
+    font-size: 1rem;
+  }
   /* The desktop topbar shows the page's own create action (page-create-action.tsx),
      so the page header does not repeat it: one primary create per viewport. */
   .page-create-action {
@@ -5522,6 +5526,11 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 .calendar-workspace {
   display: grid;
   gap: 1rem;
+  font-size: 1rem;
+}
+
+.calendar-workspace .page-create-action {
+  font-size: 1rem;
 }
 
 .calendar-toolbar {
@@ -5702,16 +5711,18 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 }
 
 /* Month-cell chip: two text lines (time + visible source cue, then a two-line
-   clamped title) and no box chrome inside the cell. The global button
-   min-height must not turn these into 44px pills (visual review, C1 follow-up). */
+   clamped title), no box chrome, and the owner-approved --control-height
+   target floor without stretching the day-number button (.servora-calendar-date). */
 .servora-calendar-event-summary {
   background: none;
   border: 0;
   border-radius: 0.3rem;
   cursor: pointer;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   width: 100%;
-  min-height: 0;
+  min-height: var(--control-height);
   font: inherit;
   font-size: 0.75rem;
   line-height: 1.2;
@@ -5729,6 +5740,29 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 .servora-calendar-event-summary--manual {
   background: var(--canvas);
   color: var(--muted);
+}
+
+.servora-calendar-event-summary--released {
+  background: var(--warning-soft);
+  color: var(--warning);
+  box-shadow: inset 0 0 0 1px var(--border-warning);
+}
+
+.servora-calendar-event-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 700;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.servora-calendar-event-status-icon {
+  flex: 0 0 auto;
+  width: 0.95em;
+  height: 0.95em;
 }
 
 .servora-calendar-event-meta {
@@ -5781,10 +5815,26 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   padding: 0 0.25rem;
 }
 
+.servora-calendar-count--attention {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-radius: 0.3rem;
+  box-shadow: inset 0 0 0 1px var(--border-warning);
+}
+
 @media (max-width: 40rem) {
+  .servora-calendar--compact {
+    container-type: inline-size;
+    container-name: servora-compact-calendar;
+  }
+
   /* Keep the native compact row rhythm stable; the count is decoration, not cell content. */
   .servora-calendar--compact .servora-calendar-item {
     position: relative;
+  }
+
+  .servora-calendar--compact .servora-calendar-item [class*="picker-cell-inner"][class*="picker-calendar-date"] {
+    max-width: 100%;
   }
 
   .servora-calendar--compact .servora-calendar-count {
@@ -5804,6 +5854,52 @@ a + .follow-up-badge { margin-left: 0.5rem; }
     /* 1.3rem count badge + its 0.2rem inset keeps clear of the date value. */
     padding-inline: 0.2rem 1.5rem;
     text-align: start;
+  }
+
+  /* When rem scaling (e.g. 200% text) or narrow cells make side-by-side
+     date+badge exceed the cell width, stack the count badge below the date
+     inside its own cell so it stays clear of adjacent dates and rows. */
+  @container servora-compact-calendar (max-width: 16rem) {
+    .servora-calendar--compact .servora-calendar-item [class*="picker-cell-inner"][class*="picker-calendar-date"] {
+      align-items: center;
+      display: inline-flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      height: auto;
+      justify-content: flex-start;
+      min-height: var(--control-height);
+      padding: 0.12rem 0.05rem;
+      width: 100%;
+    }
+
+    .servora-calendar--compact .servora-calendar-item [class*="picker-calendar-date-value"],
+    .servora-calendar--compact .servora-calendar-item:has(.servora-calendar-count)
+      [class*="picker-calendar-date-value"] {
+      height: auto;
+      line-height: 1.35;
+      padding-inline: 0.05rem;
+      text-align: center;
+    }
+
+    .servora-calendar--compact .servora-calendar-item [class*="picker-calendar-date-content"] {
+      display: flex;
+      height: auto;
+      justify-content: center;
+      line-height: 1.1;
+      width: 100%;
+    }
+
+    .servora-calendar--compact .servora-calendar-count {
+      bottom: auto;
+      height: auto;
+      line-height: 1.1;
+      max-width: 100%;
+      min-height: 1.05rem;
+      min-width: min(1.1rem, 100%);
+      padding: 0.05rem 0.2rem;
+      position: static;
+      right: auto;
+    }
   }
 }
 
@@ -5984,11 +6080,103 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   color: var(--muted);
 }
 
+.calendar-event-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.calendar-event-badges .calendar-follow-up-badge {
+  margin: 0;
+}
+
+.calendar-released-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-chip);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.calendar-released-badge-icon {
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+}
+
+.servora-operational-card.calendar-event-card--released:not(.servora-operational-card--selected) {
+  border-color: var(--border-warning);
+}
+
+.calendar-event-card .calendar-event-released-note {
+  margin-top: 0.45rem;
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.calendar-form-released-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--warning);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .calendar-event-actions,
 .calendar-form-times {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.calendar-event-actions > button {
+  font-size: 1rem;
+}
+
+/* Beat Ant Card's injected action-anchor rule (.servora-ant-card
+   .servora-ant-card-actions > li > span a:not(.servora-ant-card-btn),
+   specificity 0-3-3 / 0-4-3 on :hover) using owned classes only (0-4-1 / 0-5-1)
+   so job links keep Servora accent contrast, content width, and focus styling
+   without !important. */
+.servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-height: var(--control-height);
+  padding: 0.55rem 0.95rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-button);
+  color: var(--accent-hover);
+  background: var(--paper);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a:hover {
+  border-color: var(--border-accent);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: 3px;
 }
 
 /* ── Form (inside drawer) ── */
@@ -6308,6 +6496,8 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .calendar-toolbar > *,
   .calendar-toolbar label,
   .calendar-event-actions > *,
+  .servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > *,
+  .servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a,
   .calendar-form-times > * {
     width: 100%;
   }

@@ -46,6 +46,7 @@ import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
 import { ResultState } from '../ui/antd/ResultState';
 import { ServoraCalendar } from '../ui/antd/ServoraCalendar';
 import type { ServoraCalendarEventSummary } from '../ui/antd/ServoraCalendar';
+import { SignalGlyph } from '../ui/signal-icons';
 import { useCompact } from '../ui/useResponsive';
 import { useRegisterPageCreateAction } from '../shell/page-create-action';
 
@@ -104,6 +105,9 @@ function toSummary(event: CalendarEvent): ServoraCalendarEventSummary {
     title: event.title,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
+    ...(event.source === 'JOB' && event.staffReservationReleased === true
+      ? { staffReservationReleased: true }
+      : {}),
   };
 }
 
@@ -440,6 +444,14 @@ export function EventForm({
 
   return (
     <form className="calendar-form" onSubmit={submit}>
+      {event?.source === 'JOB' && event.staffReservationReleased === true && (
+        <p className="calendar-form-released-notice" data-reservation-released="true">
+          <SignalGlyph name="exclamation" className="calendar-released-badge-icon" size={15} />
+          <span>
+            Bu iş için personel ataması reddedildi veya geri bırakıldı; personel kapasitesi serbesttir, plan müdahale bekliyor.
+          </span>
+        </p>
+      )}
       <fieldset disabled={pending || ambiguous}>
       {user.role !== 'STAFF' && (
         <label className="field-group"><span className="field-label">Personel</span>
@@ -600,6 +612,7 @@ export function EventItem({
   }
 
   const sourceLabel = event.source === 'JOB' ? 'İŞ' : 'Kişisel plan';
+  const isReleased = event.source === 'JOB' && event.staffReservationReleased === true;
   const followUpContext = event.source === 'JOB' ? event.followUpContext : null;
   const timeText = formatAgendaDateTime(event.startsAt)
     + (event.endsAt
@@ -646,15 +659,28 @@ export function EventItem({
         <OperationalCard
           tone={selected ? 'selected' : 'default'}
           actions={actionBar}
-          className="calendar-event-card"
+          className={`calendar-event-card${isReleased ? ' calendar-event-card--released' : ''}`}
         >
-          <span className={`calendar-source calendar-source--${event.source.toLowerCase()}`}>
-            {sourceLabel}
-          </span>
-          {followUpContext && <span className="calendar-follow-up-badge">Takip</span>}
+          <div className="calendar-event-badges">
+            <span className={`calendar-source calendar-source--${event.source.toLowerCase()}`}>
+              {sourceLabel}
+            </span>
+            {followUpContext && <span className="calendar-follow-up-badge">Takip</span>}
+            {isReleased && (
+              <span className="calendar-released-badge" data-reservation-released="true">
+                <SignalGlyph name="exclamation" className="calendar-released-badge-icon" size={14} />
+                <span>Müdahale gerekiyor</span>
+              </span>
+            )}
+          </div>
           <h3>{event.title}</h3>
           <p className="calendar-event-time">{timeText}</p>
           <p>{event.assignedUser.name}</p>
+          {isReleased && (
+            <p className="calendar-event-released-note">
+              Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.
+            </p>
+          )}
           {followUpContext && (
             <dl className="calendar-follow-up-context">
               {followUpContext.sourcePlannedAt && <div><dt>Planlanan tarih</dt><dd>{formatAgendaDateTime(followUpContext.sourcePlannedAt)}</dd></div>}

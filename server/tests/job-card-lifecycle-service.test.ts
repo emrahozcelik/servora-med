@@ -241,6 +241,11 @@ class LifecycleRepository implements JobCardRepository {
       },
       resolveOpenChangeRequest: async () => true,
       assertCalendarAvailability: async () => {},
+      // This legacy fixture never creates an assignment offer. The
+      // RESCUE-004/A reacquire guard therefore reads the latest offer as
+      // absent and performs no occupancy check, exactly like a real legacy
+      // job that was never offered.
+      getLatestAssignmentOffer: async () => null,
       synchronizeCalendarReminder: async (input) => { this.calendarSyncs.push(input); },
       getAssignee: async () => {
         this.submissionReads.push('assignee');
@@ -559,6 +564,13 @@ function twoJobRepository() {
     throw new AppError(kind, kind === 'JOB_CARD_NOT_FOUND' ? 404 : 409, kind);
   };
   const buildTx = () => ({
+        // RESCUE-004/A: the users-first lock set for a legacy ACCEPT/START is
+        // chosen from an unlocked snapshot; the finalize transaction re-checks
+        // it under the JobCard lock before touching the row.
+        getJob: async (organizationId: string, id: string) => {
+          const job = jobs.get(id);
+          return job?.organizationId === organizationId ? { ...job } : null;
+        },
         getJobForUpdate: async (organizationId: string, id: string) => {
           const job = jobs.get(id);
           return job?.organizationId === organizationId ? { ...job } : null;
@@ -592,6 +604,12 @@ function twoJobRepository() {
         getAssignee: async () => ({
           id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
         }),
+        getAssigneeForUpdate: async () => ({
+          id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
+        }),
+        // No assignment offers exist in this fixture; a schedule-less legacy
+        // job can never own a released interval, so the guard reads null.
+        getLatestAssignmentOffer: async () => null,
         getSubmissionCustomer: async () => ({
           id: 'customer-1', organizationId: 'org-1', status: 'active' as const,
         }),

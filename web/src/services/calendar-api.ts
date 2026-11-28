@@ -38,6 +38,7 @@ export type JobCalendarEvent = CalendarCommon & {
   customer: CalendarAssignee | null;
   relatedJobPath: string;
   followUpContext: CalendarFollowUpContext | null;
+  staffReservationReleased?: boolean;
 };
 export type ManualCalendarEvent = CalendarCommon & {
   source: 'MANUAL';
@@ -111,6 +112,9 @@ export function parseCalendarEvent(value: unknown): CalendarEvent {
       customer,
       relatedJobPath: string(entry.relatedJobPath, 'relatedJobPath'),
       followUpContext: parseFollowUpContext(entry.followUpContext),
+      staffReservationReleased: entry.staffReservationReleased === undefined
+        ? false
+        : boolean(entry.staffReservationReleased, 'staffReservationReleased'),
     };
   }
   if (source === 'MANUAL') {

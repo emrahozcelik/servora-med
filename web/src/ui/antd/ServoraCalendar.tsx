@@ -5,6 +5,7 @@ import 'dayjs/locale/tr';
 import { useCallback, useMemo, type ReactNode } from 'react';
 
 import { intersectedLocalDates } from '../../calendar/calendar-date';
+import { SignalGlyph } from '../signal-icons';
 
 dayjs.locale('tr');
 
@@ -14,6 +15,7 @@ export type ServoraCalendarEventSummary = {
   title: string;
   startsAt: string;
   endsAt: string | null;
+  staffReservationReleased?: boolean;
 };
 
 export type ServoraCalendarProps = {
@@ -109,30 +111,40 @@ export function ServoraCalendar({
           </button>
           {dayEvents.length > 0 && (
             <div className="servora-calendar-events">
-              {dayEvents.slice(0, maxVisibleEventsPerDay).map((event) => (
-                <button
-                  key={event.id}
-                  type="button"
-                  data-event-id={event.id}
-                  className={`servora-calendar-event-summary servora-calendar-event-summary--${event.source.toLowerCase()}`}
-                  aria-label={`${new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} · ${event.source === 'JOB' ? 'İş' : 'Kişisel plan'} · ${event.title}`}
-                  onClick={() => {
-                    onDateSelect(fromDayjs(current));
-                    onEventSelect?.(event.id);
-                  }}
-                >
-                  <span className="servora-calendar-event-meta">
-                    <span className="servora-calendar-event-time">
-                      {new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+              {dayEvents.slice(0, maxVisibleEventsPerDay).map((event) => {
+                const isReleased = event.source === 'JOB' && event.staffReservationReleased === true;
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    data-event-id={event.id}
+                    data-reservation-released={isReleased ? 'true' : undefined}
+                    className={`servora-calendar-event-summary servora-calendar-event-summary--${event.source.toLowerCase()}${isReleased ? ' servora-calendar-event-summary--released' : ''}`}
+                    aria-label={`${new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} · ${event.source === 'JOB' ? 'İş' : 'Kişisel plan'}${isReleased ? ' · Müdahale gerekiyor' : ''} · ${event.title}`}
+                    onClick={() => {
+                      onDateSelect(fromDayjs(current));
+                      onEventSelect?.(event.id);
+                    }}
+                  >
+                    <span className="servora-calendar-event-meta">
+                      <span className="servora-calendar-event-time">
+                        {new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {/* Visible type cue: colour is never the only channel (DESIGN.md two-channel rule). */}
+                      <span className="servora-calendar-event-kind" aria-hidden="true">
+                        {event.source === 'JOB' ? 'İş' : 'Plan'}
+                      </span>
                     </span>
-                    {/* Visible type cue: colour is never the only channel (DESIGN.md two-channel rule). */}
-                    <span className="servora-calendar-event-kind" aria-hidden="true">
-                      {event.source === 'JOB' ? 'İş' : 'Plan'}
-                    </span>
-                  </span>
-                  <span className="servora-calendar-event-label" aria-hidden="true">{event.title}</span>
-                </button>
-              ))}
+                    {isReleased && (
+                      <span className="servora-calendar-event-status" aria-hidden="true">
+                        <SignalGlyph name="exclamation" className="servora-calendar-event-status-icon" size={12} />
+                        <span>Müdahale</span>
+                      </span>
+                    )}
+                    <span className="servora-calendar-event-label" aria-hidden="true">{event.title}</span>
+                  </button>
+                );
+              })}
               {dayEvents.length > maxVisibleEventsPerDay && (
                 <span className="servora-calendar-overflow" aria-label={`${dayEvents.length - maxVisibleEventsPerDay} plan daha`}>
                   +{dayEvents.length - maxVisibleEventsPerDay} plan
@@ -153,8 +165,19 @@ export function ServoraCalendar({
       const dayEvents = eventsByDate.get(current.format('YYYY-MM-DD')) ?? [];
       if (dayEvents.length === 0) return null;
 
+      const releasedCount = dayEvents.filter(
+        (event) => event.source === 'JOB' && event.staffReservationReleased === true,
+      ).length;
+      const hasReleased = releasedCount > 0;
+
       return (
-        <span className="servora-calendar-count" aria-label={`${dayEvents.length} plan`}>
+        <span
+          className={`servora-calendar-count${hasReleased ? ' servora-calendar-count--attention' : ''}`}
+          data-has-released={hasReleased ? 'true' : undefined}
+          aria-label={hasReleased
+            ? `${dayEvents.length} plan, ${releasedCount} müdahale gerekiyor`
+            : `${dayEvents.length} plan`}
+        >
           {dayEvents.length}
         </span>
       );

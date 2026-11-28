@@ -1,0 +1,2692 @@
+{
+  "slice": "RESCUE-004/A",
+  "source": "6a35a06f4f4281a8c96728a044c7bcfc1744ffbd",
+  "fixedClock": "2026-11-26T09:00:00.000Z",
+  "timezone": "Europe/Istanbul",
+  "locale": "tr-TR",
+  "mockedServices": [
+    "All /api/* endpoints via Playwright route interception",
+    "EventSource disabled (realtime offline)",
+    "Service worker blocked"
+  ],
+  "screenshots": [
+    "calendar-320.png",
+    "calendar-390.png",
+    "calendar-768.png",
+    "calendar-1440.png",
+    "calendar-200pct-390.png",
+    "calendar-400pct-reflow-320.png",
+    "calendar-reduced-motion-390.png",
+    "calendar-detail-drawer-390.png",
+    "calendar-wheel-open-390.png",
+    "calendar-form-error-390.png",
+    "calendar-form-pending-390.png",
+    "calendar-form-success-390.png",
+    "calendar-form-reopened-390.png",
+    "calendar-selected-1440.png",
+    "calendar-detail-drawer-1440.png",
+    "calendar-form-error-1440.png",
+    "calendar-form-pending-1440.png",
+    "calendar-form-success-1440.png",
+    "calendar-form-reopened-1440.png",
+    "calendar-module-off-1440.png"
+  ],
+  "viewports": [
+    {
+      "mode": "320",
+      "viewport": [
+        320,
+        800
+      ],
+      "dpr": 1,
+      "rootFontPx": 16,
+      "pageCreateFontPx": 16,
+      "calendarActionButtonFontPx": 16,
+      "calendarActionLinkFontPx": 16,
+      "agendaHeadingFontPx": 16,
+      "reducedMotionMatches": false,
+      "computedTransitionDuration": "0s",
+      "documentScrollWidth": 320,
+      "documentClientWidth": 320,
+      "overflowX": false,
+      "targets": [
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Önceki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Bugüne dön",
+          "width": 59.63,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Sonraki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": "#calendar-personnel-filter",
+          "label": "Tüm yetkili personelAyşe PersonelDeniz Personel",
+          "width": 184.63,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 262,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 262,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 262,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 262,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 262,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 262,
+          "height": 44
+        },
+        {
+          "selector": ".page-create-action",
+          "label": "Kişisel plan ekle",
+          "width": 147.34,
+          "height": 47.75
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Genel Bakış",
+          "width": 61.75,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "İşler",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Takvim",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Yeni iş",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Menü",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-top-bar button",
+          "label": "Bildirimler",
+          "width": 44,
+          "height": 44
+        }
+      ],
+      "minTargetPx": 44,
+      "dayGridConstraints": {
+        "note": "Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.",
+        "dateButtonsCount": 0,
+        "dateButtonMinHeightPx": null,
+        "dateButtonSample": [],
+        "compactNativeDateCellsCount": 84,
+        "compactNativeDateCellMinHeightPx": 33,
+        "compactNativeDateCellSample": [
+          {
+            "label": "26",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "27",
+            "width": 33,
+            "height": 33
+          }
+        ],
+        "renderedChipDimensions": []
+      },
+      "cards": [
+        {
+          "title": "Anadolu Dental ürün teslimi",
+          "releasedClass": true,
+          "hasBadge": true,
+          "badgeText": "Müdahale gerekiyor",
+          "hasBadgeIcon": true,
+          "hasReleasedNote": true,
+          "noteText": "Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.",
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Ege Dental cihaz sunumu",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Marmara Dental eski sunucu planı",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        }
+      ],
+      "jobLinks": [
+        {
+          "label": "İşi aç",
+          "href": "/jobs/11111111-1111-4111-8111-111111111111",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 262,
+          "height": 44,
+          "actionBarWidth": 262
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/22222222-2222-4222-8222-222222222222",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 262,
+          "height": 44,
+          "actionBarWidth": 262
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/77777777-7777-4777-8777-777777777777",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 262,
+          "height": 44,
+          "actionBarWidth": 262
+        }
+      ],
+      "desktopChips": [],
+      "compactBadges": [
+        {
+          "text": "3",
+          "attention": true,
+          "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+          "badgeRect": {
+            "left": 156.36,
+            "right": 177.16,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 139.42,
+            "right": 180.56,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 41.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 142.81,
+            "right": 156.34,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        },
+        {
+          "text": "1",
+          "attention": false,
+          "ariaLabel": "1 plan",
+          "badgeRect": {
+            "left": 197.5,
+            "right": 218.3,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 180.56,
+            "right": 221.7,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 41.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 183.95,
+            "right": 197.48,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        }
+      ],
+      "compactAttention": {
+        "text": "3",
+        "attention": true,
+        "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+        "badgeRect": {
+          "left": 156.36,
+          "right": 177.16,
+          "top": 595.7,
+          "bottom": 616.5,
+          "width": 20.8,
+          "height": 20.8
+        },
+        "ownCellRect": {
+          "left": 139.42,
+          "right": 180.56,
+          "top": 580.19,
+          "bottom": 626.19,
+          "width": 41.14,
+          "height": 46
+        },
+        "ownDateTextRect": {
+          "left": 142.81,
+          "right": 156.34,
+          "top": 593.69,
+          "bottom": 612.69,
+          "width": 13.53,
+          "height": 19
+        },
+        "withinOwnCell": true,
+        "overlapWithDate": false,
+        "touchesAdjacentCell": false,
+        "touchesAdjacentDateText": false,
+        "allWithinOwnCell": true,
+        "allClearOfOwnDate": true,
+        "allClearOfAdjacent": true
+      },
+      "subMinimumText": []
+    },
+    {
+      "mode": "390",
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "rootFontPx": 16,
+      "pageCreateFontPx": 16,
+      "calendarActionButtonFontPx": 16,
+      "calendarActionLinkFontPx": 16,
+      "agendaHeadingFontPx": 16,
+      "reducedMotionMatches": false,
+      "computedTransitionDuration": "0s",
+      "documentScrollWidth": 390,
+      "documentClientWidth": 390,
+      "overflowX": false,
+      "targets": [
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Önceki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Bugüne dön",
+          "width": 59.63,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Sonraki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": "#calendar-personnel-filter",
+          "label": "Tüm yetkili personelAyşe PersonelDeniz Personel",
+          "width": 254.63,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 332,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 332,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 332,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 332,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 332,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 332,
+          "height": 44
+        },
+        {
+          "selector": ".page-create-action",
+          "label": "Kişisel plan ekle",
+          "width": 147.34,
+          "height": 47.75
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Genel Bakış",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "İşler",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Takvim",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Yeni iş",
+          "width": 73.86,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Menü",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-top-bar button",
+          "label": "Bildirimler",
+          "width": 44,
+          "height": 44
+        }
+      ],
+      "minTargetPx": 44,
+      "dayGridConstraints": {
+        "note": "Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.",
+        "dateButtonsCount": 0,
+        "dateButtonMinHeightPx": null,
+        "dateButtonSample": [],
+        "compactNativeDateCellsCount": 84,
+        "compactNativeDateCellMinHeightPx": 33,
+        "compactNativeDateCellSample": [
+          {
+            "label": "26",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "27",
+            "width": 33,
+            "height": 33
+          }
+        ],
+        "renderedChipDimensions": []
+      },
+      "cards": [
+        {
+          "title": "Anadolu Dental ürün teslimi",
+          "releasedClass": true,
+          "hasBadge": true,
+          "badgeText": "Müdahale gerekiyor",
+          "hasBadgeIcon": true,
+          "hasReleasedNote": true,
+          "noteText": "Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.",
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Ege Dental cihaz sunumu",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Marmara Dental eski sunucu planı",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        }
+      ],
+      "jobLinks": [
+        {
+          "label": "İşi aç",
+          "href": "/jobs/11111111-1111-4111-8111-111111111111",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 332,
+          "height": 44,
+          "actionBarWidth": 332
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/22222222-2222-4222-8222-222222222222",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 332,
+          "height": 44,
+          "actionBarWidth": 332
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/77777777-7777-4777-8777-777777777777",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 332,
+          "height": 44,
+          "actionBarWidth": 332
+        }
+      ],
+      "desktopChips": [],
+      "compactBadges": [
+        {
+          "text": "3",
+          "attention": true,
+          "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+          "badgeRect": {
+            "left": 191.36,
+            "right": 212.16,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 169.42,
+            "right": 220.56,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 51.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 177.81,
+            "right": 191.34,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        },
+        {
+          "text": "1",
+          "attention": false,
+          "ariaLabel": "1 plan",
+          "badgeRect": {
+            "left": 242.5,
+            "right": 263.3,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 220.56,
+            "right": 271.7,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 51.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 228.95,
+            "right": 242.48,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        }
+      ],
+      "compactAttention": {
+        "text": "3",
+        "attention": true,
+        "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+        "badgeRect": {
+          "left": 191.36,
+          "right": 212.16,
+          "top": 595.7,
+          "bottom": 616.5,
+          "width": 20.8,
+          "height": 20.8
+        },
+        "ownCellRect": {
+          "left": 169.42,
+          "right": 220.56,
+          "top": 580.19,
+          "bottom": 626.19,
+          "width": 51.14,
+          "height": 46
+        },
+        "ownDateTextRect": {
+          "left": 177.81,
+          "right": 191.34,
+          "top": 593.69,
+          "bottom": 612.69,
+          "width": 13.53,
+          "height": 19
+        },
+        "withinOwnCell": true,
+        "overlapWithDate": false,
+        "touchesAdjacentCell": false,
+        "touchesAdjacentDateText": false,
+        "allWithinOwnCell": true,
+        "allClearOfOwnDate": true,
+        "allClearOfAdjacent": true
+      },
+      "subMinimumText": []
+    },
+    {
+      "mode": "768",
+      "viewport": [
+        768,
+        1024
+      ],
+      "dpr": 1,
+      "rootFontPx": 16,
+      "pageCreateFontPx": 16,
+      "calendarActionButtonFontPx": 16,
+      "calendarActionLinkFontPx": 16,
+      "agendaHeadingFontPx": 16,
+      "reducedMotionMatches": false,
+      "computedTransitionDuration": "0s",
+      "documentScrollWidth": 768,
+      "documentClientWidth": 768,
+      "overflowX": false,
+      "targets": [
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Önceki ay",
+          "width": 85.66,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Bugüne dön",
+          "width": 75.63,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Sonraki ay",
+          "width": 90.61,
+          "height": 44
+        },
+        {
+          "selector": "#calendar-personnel-filter",
+          "label": "Tüm yetkili personelAyşe PersonelDeniz Personel",
+          "width": 185.19,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 67.83,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 67.83,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 67.83,
+          "height": 47.75
+        },
+        {
+          "selector": ".page-create-action",
+          "label": "Kişisel plan ekle",
+          "width": 147.34,
+          "height": 47.75
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Genel Bakış",
+          "width": 149.44,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "İşler",
+          "width": 149.45,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Takvim",
+          "width": 149.45,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Yeni iş",
+          "width": 149.45,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Menü",
+          "width": 149.44,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-top-bar button",
+          "label": "Bildirimler",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "12:30 · İş · Müdahale gerekiyor · Anadolu Dental ürün teslimi",
+          "width": 93.95,
+          "height": 60.75
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "14:30 · İş · Ege Dental cihaz sunumu",
+          "width": 93.95,
+          "height": 46.36
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "09:00 · İş · Marmara Dental eski sunucu planı",
+          "width": 93.95,
+          "height": 46.36
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "11:00 · Kişisel plan · Klinik stok sayımı",
+          "width": 93.95,
+          "height": 44
+        }
+      ],
+      "minTargetPx": 44,
+      "dayGridConstraints": {
+        "note": "Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.",
+        "dateButtonsCount": 42,
+        "dateButtonMinHeightPx": 16.56,
+        "dateButtonSample": [
+          {
+            "label": "26",
+            "width": 22.78,
+            "height": 16.56,
+            "minHeightCss": "0px"
+          },
+          {
+            "label": "27",
+            "width": 22.78,
+            "height": 16.56,
+            "minHeightCss": "0px"
+          },
+          {
+            "label": "28",
+            "width": 22.78,
+            "height": 16.56,
+            "minHeightCss": "0px"
+          }
+        ],
+        "compactNativeDateCellsCount": 0,
+        "compactNativeDateCellMinHeightPx": null,
+        "compactNativeDateCellSample": [],
+        "renderedChipDimensions": [
+          {
+            "eventId": "11111111-1111-4111-8111-111111111111",
+            "width": 93.95,
+            "height": 60.75,
+            "minHeightCss": "44px"
+          },
+          {
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "width": 93.95,
+            "height": 46.36,
+            "minHeightCss": "44px"
+          },
+          {
+            "eventId": "77777777-7777-4777-8777-777777777777",
+            "width": 93.95,
+            "height": 46.36,
+            "minHeightCss": "44px"
+          },
+          {
+            "eventId": "88888888-8888-4888-8888-888888888888",
+            "width": 93.95,
+            "height": 44,
+            "minHeightCss": "44px"
+          }
+        ]
+      },
+      "cards": [
+        {
+          "title": "Anadolu Dental ürün teslimi",
+          "releasedClass": true,
+          "hasBadge": true,
+          "badgeText": "Müdahale gerekiyor",
+          "hasBadgeIcon": true,
+          "hasReleasedNote": true,
+          "noteText": "Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.",
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Ege Dental cihaz sunumu",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Marmara Dental eski sunucu planı",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        }
+      ],
+      "jobLinks": [
+        {
+          "label": "İşi aç",
+          "href": "/jobs/11111111-1111-4111-8111-111111111111",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 67.83,
+          "height": 47.75,
+          "actionBarWidth": 710
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/22222222-2222-4222-8222-222222222222",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 67.83,
+          "height": 47.75,
+          "actionBarWidth": 710
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/77777777-7777-4777-8777-777777777777",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 67.83,
+          "height": 47.75,
+          "actionBarWidth": 710
+        }
+      ],
+      "desktopChips": [
+        {
+          "eventId": "11111111-1111-4111-8111-111111111111",
+          "released": true,
+          "releasedClass": true,
+          "statusText": "Müdahale",
+          "hasStatusIcon": true,
+          "ariaLabel": "12:30 · İş · Müdahale gerekiyor · Anadolu Dental ürün teslimi"
+        },
+        {
+          "eventId": "22222222-2222-4222-8222-222222222222",
+          "released": false,
+          "releasedClass": false,
+          "statusText": null,
+          "hasStatusIcon": false,
+          "ariaLabel": "14:30 · İş · Ege Dental cihaz sunumu"
+        },
+        {
+          "eventId": "77777777-7777-4777-8777-777777777777",
+          "released": false,
+          "releasedClass": false,
+          "statusText": null,
+          "hasStatusIcon": false,
+          "ariaLabel": "09:00 · İş · Marmara Dental eski sunucu planı"
+        },
+        {
+          "eventId": "88888888-8888-4888-8888-888888888888",
+          "released": false,
+          "releasedClass": false,
+          "statusText": null,
+          "hasStatusIcon": false,
+          "ariaLabel": "11:00 · Kişisel plan · Klinik stok sayımı"
+        }
+      ],
+      "compactBadges": [],
+      "compactAttention": null,
+      "subMinimumText": []
+    },
+    {
+      "mode": "1440",
+      "viewport": [
+        1440,
+        900
+      ],
+      "dpr": 1,
+      "rootFontPx": 16,
+      "pageCreateFontPx": null,
+      "calendarActionButtonFontPx": 16,
+      "calendarActionLinkFontPx": 16,
+      "agendaHeadingFontPx": 16,
+      "reducedMotionMatches": false,
+      "computedTransitionDuration": "0s",
+      "documentScrollWidth": 1440,
+      "documentClientWidth": 1440,
+      "overflowX": false,
+      "targets": [
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Önceki ay",
+          "width": 85.66,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Bugüne dön",
+          "width": 75.63,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Sonraki ay",
+          "width": 90.61,
+          "height": 44
+        },
+        {
+          "selector": "#calendar-personnel-filter",
+          "label": "Tüm yetkili personelAyşe PersonelDeniz Personel",
+          "width": 185.19,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 67.83,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 67.83,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 67.83,
+          "height": 47.75
+        },
+        {
+          "selector": ".desktop-shell-topbar button",
+          "label": "Ara… (müşteri, iş, sayfa)⌘K",
+          "width": 336,
+          "height": 44
+        },
+        {
+          "selector": ".desktop-shell-topbar button",
+          "label": "Yeni plan",
+          "width": 128,
+          "height": 44
+        },
+        {
+          "selector": ".desktop-shell-topbar button",
+          "label": "Bildirimler",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": ".desktop-shell-topbar button",
+          "label": "MYMurat Yönetici",
+          "width": 173.67,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "12:30 · İş · Müdahale gerekiyor · Anadolu Dental ürün teslimi",
+          "width": 91.66,
+          "height": 60.75
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "14:30 · İş · Ege Dental cihaz sunumu",
+          "width": 91.66,
+          "height": 46.36
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "09:00 · İş · Marmara Dental eski sunucu planı",
+          "width": 91.66,
+          "height": 46.36
+        },
+        {
+          "selector": ".servora-calendar-event-summary",
+          "label": "11:00 · Kişisel plan · Klinik stok sayımı",
+          "width": 91.66,
+          "height": 46.36
+        }
+      ],
+      "minTargetPx": 44,
+      "dayGridConstraints": {
+        "note": "Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.",
+        "dateButtonsCount": 42,
+        "dateButtonMinHeightPx": 16.56,
+        "dateButtonSample": [
+          {
+            "label": "26",
+            "width": 22.78,
+            "height": 16.56,
+            "minHeightCss": "0px"
+          },
+          {
+            "label": "27",
+            "width": 22.78,
+            "height": 16.56,
+            "minHeightCss": "0px"
+          },
+          {
+            "label": "28",
+            "width": 22.78,
+            "height": 16.56,
+            "minHeightCss": "0px"
+          }
+        ],
+        "compactNativeDateCellsCount": 0,
+        "compactNativeDateCellMinHeightPx": null,
+        "compactNativeDateCellSample": [],
+        "renderedChipDimensions": [
+          {
+            "eventId": "11111111-1111-4111-8111-111111111111",
+            "width": 91.66,
+            "height": 60.75,
+            "minHeightCss": "44px"
+          },
+          {
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "width": 91.66,
+            "height": 46.36,
+            "minHeightCss": "44px"
+          },
+          {
+            "eventId": "77777777-7777-4777-8777-777777777777",
+            "width": 91.66,
+            "height": 46.36,
+            "minHeightCss": "44px"
+          },
+          {
+            "eventId": "88888888-8888-4888-8888-888888888888",
+            "width": 91.66,
+            "height": 46.36,
+            "minHeightCss": "44px"
+          }
+        ]
+      },
+      "cards": [
+        {
+          "title": "Anadolu Dental ürün teslimi",
+          "releasedClass": true,
+          "hasBadge": true,
+          "badgeText": "Müdahale gerekiyor",
+          "hasBadgeIcon": true,
+          "hasReleasedNote": true,
+          "noteText": "Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.",
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Ege Dental cihaz sunumu",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Marmara Dental eski sunucu planı",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        }
+      ],
+      "jobLinks": [
+        {
+          "label": "İşi aç",
+          "href": "/jobs/11111111-1111-4111-8111-111111111111",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 67.83,
+          "height": 47.75,
+          "actionBarWidth": 326
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/22222222-2222-4222-8222-222222222222",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 67.83,
+          "height": 47.75,
+          "actionBarWidth": 326
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/77777777-7777-4777-8777-777777777777",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 67.83,
+          "height": 47.75,
+          "actionBarWidth": 326
+        }
+      ],
+      "desktopChips": [
+        {
+          "eventId": "11111111-1111-4111-8111-111111111111",
+          "released": true,
+          "releasedClass": true,
+          "statusText": "Müdahale",
+          "hasStatusIcon": true,
+          "ariaLabel": "12:30 · İş · Müdahale gerekiyor · Anadolu Dental ürün teslimi"
+        },
+        {
+          "eventId": "22222222-2222-4222-8222-222222222222",
+          "released": false,
+          "releasedClass": false,
+          "statusText": null,
+          "hasStatusIcon": false,
+          "ariaLabel": "14:30 · İş · Ege Dental cihaz sunumu"
+        },
+        {
+          "eventId": "77777777-7777-4777-8777-777777777777",
+          "released": false,
+          "releasedClass": false,
+          "statusText": null,
+          "hasStatusIcon": false,
+          "ariaLabel": "09:00 · İş · Marmara Dental eski sunucu planı"
+        },
+        {
+          "eventId": "88888888-8888-4888-8888-888888888888",
+          "released": false,
+          "releasedClass": false,
+          "statusText": null,
+          "hasStatusIcon": false,
+          "ariaLabel": "11:00 · Kişisel plan · Klinik stok sayımı"
+        }
+      ],
+      "compactBadges": [],
+      "compactAttention": null,
+      "subMinimumText": []
+    },
+    {
+      "mode": "200pct",
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "rootFontPx": 32,
+      "pageCreateFontPx": 32,
+      "calendarActionButtonFontPx": 32,
+      "calendarActionLinkFontPx": 32,
+      "agendaHeadingFontPx": 32,
+      "reducedMotionMatches": false,
+      "computedTransitionDuration": "0s",
+      "documentScrollWidth": 390,
+      "documentClientWidth": 390,
+      "overflowX": false,
+      "targets": [
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Önceki ay",
+          "width": 44.52,
+          "height": 44.52
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Bugüne dön",
+          "width": 59.63,
+          "height": 44.52
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Sonraki ay",
+          "width": 44.52,
+          "height": 44.52
+        },
+        {
+          "selector": "#calendar-personnel-filter",
+          "label": "Tüm yetkili personelAyşe PersonelDeniz Personel",
+          "width": 121.25,
+          "height": 88
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 276,
+          "height": 93.5
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 276,
+          "height": 93.5
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 276,
+          "height": 93.5
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 276,
+          "height": 88
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 276,
+          "height": 88
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 276,
+          "height": 88
+        },
+        {
+          "selector": ".page-create-action",
+          "label": "Kişisel plan ekle",
+          "width": 292.69,
+          "height": 93.5
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Genel Bakış",
+          "width": 69.69,
+          "height": 127.73
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "İşler",
+          "width": 69.69,
+          "height": 127.73
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Takvim",
+          "width": 69.69,
+          "height": 127.73
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Yeni iş",
+          "width": 69.69,
+          "height": 127.73
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Menü",
+          "width": 69.69,
+          "height": 127.73
+        },
+        {
+          "selector": ".mobile-top-bar button",
+          "label": "Bildirimler",
+          "width": 44,
+          "height": 88
+        }
+      ],
+      "minTargetPx": 44,
+      "dayGridConstraints": {
+        "note": "Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.",
+        "dateButtonsCount": 0,
+        "dateButtonMinHeightPx": null,
+        "dateButtonSample": [],
+        "compactNativeDateCellsCount": 86,
+        "compactNativeDateCellMinHeightPx": 33.59,
+        "compactNativeDateCellSample": [
+          {
+            "label": "26",
+            "width": 46.56,
+            "height": 88
+          },
+          {
+            "label": "",
+            "width": 30.23,
+            "height": 36.72
+          },
+          {
+            "label": "27",
+            "width": 46.56,
+            "height": 88
+          }
+        ],
+        "renderedChipDimensions": []
+      },
+      "cards": [
+        {
+          "title": "Anadolu Dental ürün teslimi",
+          "releasedClass": true,
+          "hasBadge": true,
+          "badgeText": "Müdahale gerekiyor",
+          "hasBadgeIcon": true,
+          "hasReleasedNote": true,
+          "noteText": "Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.",
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Ege Dental cihaz sunumu",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Marmara Dental eski sunucu planı",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        }
+      ],
+      "jobLinks": [
+        {
+          "label": "İşi aç",
+          "href": "/jobs/11111111-1111-4111-8111-111111111111",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 276,
+          "height": 88,
+          "actionBarWidth": 276
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/22222222-2222-4222-8222-222222222222",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 276,
+          "height": 88,
+          "actionBarWidth": 276
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/77777777-7777-4777-8777-777777777777",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 276,
+          "height": 88,
+          "actionBarWidth": 276
+        }
+      ],
+      "desktopChips": [],
+      "compactBadges": [
+        {
+          "text": "3",
+          "attention": true,
+          "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+          "badgeRect": {
+            "left": 177.38,
+            "right": 212.56,
+            "top": 1214.58,
+            "bottom": 1248.17,
+            "width": 35.19,
+            "height": 33.59
+          },
+          "ownCellRect": {
+            "left": 171.69,
+            "right": 218.25,
+            "top": 1162.73,
+            "bottom": 1263.73,
+            "width": 46.56,
+            "height": 101
+          },
+          "ownDateTextRect": {
+            "left": 181.44,
+            "right": 208.48,
+            "top": 1171.06,
+            "bottom": 1210.06,
+            "width": 27.05,
+            "height": 39
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        },
+        {
+          "text": "1",
+          "attention": false,
+          "ariaLabel": "1 plan",
+          "badgeRect": {
+            "left": 223.94,
+            "right": 259.13,
+            "top": 1214.58,
+            "bottom": 1248.17,
+            "width": 35.19,
+            "height": 33.59
+          },
+          "ownCellRect": {
+            "left": 218.25,
+            "right": 264.81,
+            "top": 1162.73,
+            "bottom": 1263.73,
+            "width": 46.56,
+            "height": 101
+          },
+          "ownDateTextRect": {
+            "left": 228,
+            "right": 255.05,
+            "top": 1171.06,
+            "bottom": 1210.06,
+            "width": 27.05,
+            "height": 39
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        }
+      ],
+      "compactAttention": {
+        "text": "3",
+        "attention": true,
+        "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+        "badgeRect": {
+          "left": 177.38,
+          "right": 212.56,
+          "top": 1214.58,
+          "bottom": 1248.17,
+          "width": 35.19,
+          "height": 33.59
+        },
+        "ownCellRect": {
+          "left": 171.69,
+          "right": 218.25,
+          "top": 1162.73,
+          "bottom": 1263.73,
+          "width": 46.56,
+          "height": 101
+        },
+        "ownDateTextRect": {
+          "left": 181.44,
+          "right": 208.48,
+          "top": 1171.06,
+          "bottom": 1210.06,
+          "width": 27.05,
+          "height": 39
+        },
+        "withinOwnCell": true,
+        "overlapWithDate": false,
+        "touchesAdjacentCell": false,
+        "touchesAdjacentDateText": false,
+        "allWithinOwnCell": true,
+        "allClearOfOwnDate": true,
+        "allClearOfAdjacent": true
+      },
+      "subMinimumText": []
+    },
+    {
+      "mode": "400pct-reflow",
+      "viewport": [
+        320,
+        225
+      ],
+      "dpr": 4,
+      "rootFontPx": 16,
+      "pageCreateFontPx": 16,
+      "calendarActionButtonFontPx": 16,
+      "calendarActionLinkFontPx": 16,
+      "agendaHeadingFontPx": 16,
+      "reducedMotionMatches": false,
+      "computedTransitionDuration": "0s",
+      "documentScrollWidth": 320,
+      "documentClientWidth": 320,
+      "overflowX": false,
+      "targets": [
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Önceki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Bugüne dön",
+          "width": 59.63,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Sonraki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": "#calendar-personnel-filter",
+          "label": "Tüm yetkili personelAyşe PersonelDeniz Personel",
+          "width": 184.63,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 262,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 262,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 262,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 262,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 262,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 262,
+          "height": 44
+        },
+        {
+          "selector": ".page-create-action",
+          "label": "Kişisel plan ekle",
+          "width": 147.34,
+          "height": 47.75
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Genel Bakış",
+          "width": 61.75,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "İşler",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Takvim",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Yeni iş",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Menü",
+          "width": 61.77,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-top-bar button",
+          "label": "Bildirimler",
+          "width": 44,
+          "height": 44
+        }
+      ],
+      "minTargetPx": 44,
+      "dayGridConstraints": {
+        "note": "Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.",
+        "dateButtonsCount": 0,
+        "dateButtonMinHeightPx": null,
+        "dateButtonSample": [],
+        "compactNativeDateCellsCount": 84,
+        "compactNativeDateCellMinHeightPx": 33,
+        "compactNativeDateCellSample": [
+          {
+            "label": "26",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "27",
+            "width": 33,
+            "height": 33
+          }
+        ],
+        "renderedChipDimensions": []
+      },
+      "cards": [
+        {
+          "title": "Anadolu Dental ürün teslimi",
+          "releasedClass": true,
+          "hasBadge": true,
+          "badgeText": "Müdahale gerekiyor",
+          "hasBadgeIcon": true,
+          "hasReleasedNote": true,
+          "noteText": "Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.",
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Ege Dental cihaz sunumu",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Marmara Dental eski sunucu planı",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        }
+      ],
+      "jobLinks": [
+        {
+          "label": "İşi aç",
+          "href": "/jobs/11111111-1111-4111-8111-111111111111",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 262,
+          "height": 44,
+          "actionBarWidth": 262
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/22222222-2222-4222-8222-222222222222",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 262,
+          "height": 44,
+          "actionBarWidth": 262
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/77777777-7777-4777-8777-777777777777",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 262,
+          "height": 44,
+          "actionBarWidth": 262
+        }
+      ],
+      "desktopChips": [],
+      "compactBadges": [
+        {
+          "text": "3",
+          "attention": true,
+          "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+          "badgeRect": {
+            "left": 156.36,
+            "right": 177.16,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 139.42,
+            "right": 180.56,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 41.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 142.81,
+            "right": 156.34,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        },
+        {
+          "text": "1",
+          "attention": false,
+          "ariaLabel": "1 plan",
+          "badgeRect": {
+            "left": 197.5,
+            "right": 218.3,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 180.56,
+            "right": 221.7,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 41.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 183.95,
+            "right": 197.48,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        }
+      ],
+      "compactAttention": {
+        "text": "3",
+        "attention": true,
+        "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+        "badgeRect": {
+          "left": 156.36,
+          "right": 177.16,
+          "top": 595.7,
+          "bottom": 616.5,
+          "width": 20.8,
+          "height": 20.8
+        },
+        "ownCellRect": {
+          "left": 139.42,
+          "right": 180.56,
+          "top": 580.19,
+          "bottom": 626.19,
+          "width": 41.14,
+          "height": 46
+        },
+        "ownDateTextRect": {
+          "left": 142.81,
+          "right": 156.34,
+          "top": 593.69,
+          "bottom": 612.69,
+          "width": 13.53,
+          "height": 19
+        },
+        "withinOwnCell": true,
+        "overlapWithDate": false,
+        "touchesAdjacentCell": false,
+        "touchesAdjacentDateText": false,
+        "allWithinOwnCell": true,
+        "allClearOfOwnDate": true,
+        "allClearOfAdjacent": true
+      },
+      "subMinimumText": []
+    },
+    {
+      "mode": "reduced-motion",
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "rootFontPx": 16,
+      "pageCreateFontPx": 16,
+      "calendarActionButtonFontPx": 16,
+      "calendarActionLinkFontPx": 16,
+      "agendaHeadingFontPx": 16,
+      "reducedMotionMatches": true,
+      "computedTransitionDuration": "0s",
+      "documentScrollWidth": 390,
+      "documentClientWidth": 390,
+      "overflowX": false,
+      "targets": [
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Önceki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Bugüne dön",
+          "width": 59.63,
+          "height": 44
+        },
+        {
+          "selector": ".servora-calendar-header button",
+          "label": "Sonraki ay",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "selector": "#calendar-personnel-filter",
+          "label": "Tüm yetkili personelAyşe PersonelDeniz Personel",
+          "width": 254.63,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 332,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 332,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions button",
+          "label": "Düzenle",
+          "width": 332,
+          "height": 47.75
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 332,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 332,
+          "height": 44
+        },
+        {
+          "selector": ".calendar-event-actions a",
+          "label": "İşi aç",
+          "width": 332,
+          "height": 44
+        },
+        {
+          "selector": ".page-create-action",
+          "label": "Kişisel plan ekle",
+          "width": 147.34,
+          "height": 47.75
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Genel Bakış",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "İşler",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav a",
+          "label": "Takvim",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Yeni iş",
+          "width": 73.86,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-bottom-nav button",
+          "label": "Menü",
+          "width": 73.84,
+          "height": 49.52
+        },
+        {
+          "selector": ".mobile-top-bar button",
+          "label": "Bildirimler",
+          "width": 44,
+          "height": 44
+        }
+      ],
+      "minTargetPx": 44,
+      "dayGridConstraints": {
+        "note": "Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.",
+        "dateButtonsCount": 0,
+        "dateButtonMinHeightPx": null,
+        "dateButtonSample": [],
+        "compactNativeDateCellsCount": 84,
+        "compactNativeDateCellMinHeightPx": 33,
+        "compactNativeDateCellSample": [
+          {
+            "label": "26",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "",
+            "width": 33,
+            "height": 33
+          },
+          {
+            "label": "27",
+            "width": 33,
+            "height": 33
+          }
+        ],
+        "renderedChipDimensions": []
+      },
+      "cards": [
+        {
+          "title": "Anadolu Dental ürün teslimi",
+          "releasedClass": true,
+          "hasBadge": true,
+          "badgeText": "Müdahale gerekiyor",
+          "hasBadgeIcon": true,
+          "hasReleasedNote": true,
+          "noteText": "Atanan personel görevi reddetti veya geri bıraktı; personel kapasitesi serbesttir, randevu planı müdahale bekliyor.",
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Ege Dental cihaz sunumu",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        },
+        {
+          "title": "Marmara Dental eski sunucu planı",
+          "releasedClass": false,
+          "hasBadge": false,
+          "badgeText": null,
+          "hasBadgeIcon": false,
+          "hasReleasedNote": false,
+          "noteText": null,
+          "hasOpenLink": true,
+          "hasEditButton": true
+        }
+      ],
+      "jobLinks": [
+        {
+          "label": "İşi aç",
+          "href": "/jobs/11111111-1111-4111-8111-111111111111",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 332,
+          "height": 44,
+          "actionBarWidth": 332
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/22222222-2222-4222-8222-222222222222",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 332,
+          "height": 44,
+          "actionBarWidth": 332
+        },
+        {
+          "label": "İşi aç",
+          "href": "/jobs/77777777-7777-4777-8777-777777777777",
+          "display": "flex",
+          "fgCss": "oklch(0.34 0.13 242)",
+          "bgCss": "oklch(0.99 0.002 245)",
+          "fgRgb": [
+            0,
+            59,
+            116
+          ],
+          "bgRgb": [
+            251,
+            252,
+            253
+          ],
+          "contrastRatio": 10.89,
+          "width": 332,
+          "height": 44,
+          "actionBarWidth": 332
+        }
+      ],
+      "desktopChips": [],
+      "compactBadges": [
+        {
+          "text": "3",
+          "attention": true,
+          "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+          "badgeRect": {
+            "left": 191.36,
+            "right": 212.16,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 169.42,
+            "right": 220.56,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 51.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 177.81,
+            "right": 191.34,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        },
+        {
+          "text": "1",
+          "attention": false,
+          "ariaLabel": "1 plan",
+          "badgeRect": {
+            "left": 242.5,
+            "right": 263.3,
+            "top": 595.7,
+            "bottom": 616.5,
+            "width": 20.8,
+            "height": 20.8
+          },
+          "ownCellRect": {
+            "left": 220.56,
+            "right": 271.7,
+            "top": 580.19,
+            "bottom": 626.19,
+            "width": 51.14,
+            "height": 46
+          },
+          "ownDateTextRect": {
+            "left": 228.95,
+            "right": 242.48,
+            "top": 593.69,
+            "bottom": 612.69,
+            "width": 13.53,
+            "height": 19
+          },
+          "withinOwnCell": true,
+          "overlapWithDate": false,
+          "touchesAdjacentCell": false,
+          "touchesAdjacentDateText": false
+        }
+      ],
+      "compactAttention": {
+        "text": "3",
+        "attention": true,
+        "ariaLabel": "3 plan, 1 müdahale gerekiyor",
+        "badgeRect": {
+          "left": 191.36,
+          "right": 212.16,
+          "top": 595.7,
+          "bottom": 616.5,
+          "width": 20.8,
+          "height": 20.8
+        },
+        "ownCellRect": {
+          "left": 169.42,
+          "right": 220.56,
+          "top": 580.19,
+          "bottom": 626.19,
+          "width": 51.14,
+          "height": 46
+        },
+        "ownDateTextRect": {
+          "left": 177.81,
+          "right": 191.34,
+          "top": 593.69,
+          "bottom": 612.69,
+          "width": 13.53,
+          "height": 19
+        },
+        "withinOwnCell": true,
+        "overlapWithDate": false,
+        "touchesAdjacentCell": false,
+        "touchesAdjacentDateText": false,
+        "allWithinOwnCell": true,
+        "allClearOfOwnDate": true,
+        "allClearOfAdjacent": true
+      },
+      "subMinimumText": []
+    }
+  ],
+  "interactions": {
+    "width_390": {
+      "chipSelection": {
+        "status": "skipped",
+        "reason": "Compact calendar (< 640px) routes agenda by day cell without inline month-cell event chips; inline chip selection (?event=) is verified at 1440px and in calendar-page.test.tsx."
+      },
+      "compactDayRoutingOk": true,
+      "drawerOpenedAndNoticeVisible": true,
+      "minDrawerTargetPx": 44,
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "Ayşe PersonelDeniz Personel",
+          "width": 356,
+          "height": 44
+        },
+        {
+          "label": "Başlangıç (zorunlu): Per 26 Kas · 12:30",
+          "width": 356,
+          "height": 49.03
+        },
+        {
+          "label": "26 Kasım Perşembe 17:00–18:00",
+          "width": 68,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 356,
+          "height": 47.75
+        },
+        {
+          "label": "Kaydet",
+          "width": 356,
+          "height": 47.75
+        }
+      ],
+      "wheel": {
+        "status": "passed",
+        "escapeRestoredFocus": true,
+        "tamamUpdatedValueAndRestoredFocus": true,
+        "updatedTriggerLabel": "Per 26 Kas · 13:30",
+        "minWheelTargetPx": 44,
+        "wheelTargets": [
+          {
+            "label": "Gün",
+            "width": 179,
+            "height": 220
+          },
+          {
+            "label": "Bugün",
+            "width": 179,
+            "height": 44
+          },
+          {
+            "label": "Saat",
+            "width": 89.5,
+            "height": 220
+          },
+          {
+            "label": "12",
+            "width": 89.5,
+            "height": 44
+          },
+          {
+            "label": "Dakika",
+            "width": 89.5,
+            "height": 220
+          },
+          {
+            "label": "30",
+            "width": 89.5,
+            "height": 44
+          },
+          {
+            "label": "Vazgeç",
+            "width": 173.8,
+            "height": 47.75
+          },
+          {
+            "label": "Tamam",
+            "width": 173.81,
+            "height": 47.75
+          }
+        ]
+      },
+      "conflictErrorShownAndDraftPreserved": true,
+      "pendingDisabledAndLoadingVerified": true,
+      "windowOnSameAssigneeReacquired": true,
+      "staffReservationReleasedFlippedFalse": true,
+      "warningClearedAfterSave": true,
+      "freshOpenOfferOnJobDetail": true,
+      "successPersistedAndReopenedVerified": true,
+      "settledJobLink": {
+        "label": "İşi aç",
+        "href": "/jobs/11111111-1111-4111-8111-111111111111",
+        "display": "flex",
+        "fgCss": "oklch(0.34 0.13 242)",
+        "bgCss": "oklch(0.99 0.002 245)",
+        "fgRgb": [
+          0,
+          59,
+          116
+        ],
+        "bgRgb": [
+          251,
+          252,
+          253
+        ],
+        "contrastRatio": 10.89,
+        "width": 332,
+        "height": 44,
+        "actionBarWidth": 332
+      },
+      "settledJobLinkKeyboardFocus": {
+        "isFocused": true,
+        "matchesFocusVisible": true,
+        "outlineStyle": "solid",
+        "outlineWidthPx": 3
+      },
+      "patchNotBlockedByClient": true,
+      "roundTripNavigationOk": true
+    },
+    "width_1440": {
+      "chipSelection": {
+        "status": "passed",
+        "preservesReleasedBadge": true
+      },
+      "compactDayRoutingOk": null,
+      "drawerOpenedAndNoticeVisible": true,
+      "minDrawerTargetPx": 44,
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "Ayşe PersonelDeniz Personel",
+          "width": 446,
+          "height": 44
+        },
+        {
+          "label": "calendar-event-starts-at",
+          "width": 446,
+          "height": 51.03
+        },
+        {
+          "label": "26 Kasım Perşembe 17:00–18:00",
+          "width": 68,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "label": "Kaydet",
+          "width": 112,
+          "height": 47.75
+        }
+      ],
+      "wheel": {
+        "status": "skipped",
+        "reason": "Desktop (>= 1024px) renders native datetime-local input."
+      },
+      "conflictErrorShownAndDraftPreserved": true,
+      "pendingDisabledAndLoadingVerified": true,
+      "windowOnSameAssigneeReacquired": true,
+      "staffReservationReleasedFlippedFalse": true,
+      "warningClearedAfterSave": true,
+      "freshOpenOfferOnJobDetail": true,
+      "successPersistedAndReopenedVerified": true,
+      "settledJobLink": {
+        "label": "İşi aç",
+        "href": "/jobs/11111111-1111-4111-8111-111111111111",
+        "display": "flex",
+        "fgCss": "oklch(0.34 0.13 242)",
+        "bgCss": "oklch(0.99 0.002 245)",
+        "fgRgb": [
+          0,
+          59,
+          116
+        ],
+        "bgRgb": [
+          251,
+          252,
+          253
+        ],
+        "contrastRatio": 10.89,
+        "width": 67.83,
+        "height": 47.75,
+        "actionBarWidth": 326
+      },
+      "settledJobLinkKeyboardFocus": {
+        "isFocused": true,
+        "matchesFocusVisible": true,
+        "outlineStyle": "solid",
+        "outlineWidthPx": 3
+      },
+      "patchNotBlockedByClient": true,
+      "roundTripNavigationOk": true
+    }
+  },
+  "windowOffScenario": {
+    "status": "passed",
+    "assignmentWindowEnabled": false,
+    "savedTime": "17:00 – 18:00",
+    "staffReservationReleasedPreservedTrue": true
+  },
+  "moduleOff": {
+    "redirectedTo": "/jobs",
+    "calendarNavCount": 0,
+    "calledCalendarApi": false
+  },
+  "issues": [],
+  "browser": "140.0.7339.186",
+  "completed": true
+}

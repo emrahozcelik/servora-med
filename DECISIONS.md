@@ -2927,6 +2927,63 @@ host transition and the first one-action deployment need separate owner go-ahead
 
 Owning runbook: [docs/operations/production-deployment.md](docs/operations/production-deployment.md).
 
+### Addendum (SCH-001 §7) — no-migration automatic rollback after candidate ingress
+
+- **Date:** 2026-11-28
+- **Status:** clarification of existing accepted rules (OPS-DEPLOY-002 and
+  SCH-001 §7) for the RESCUE-004/A release class. Documentation only: it adds
+  no deploy-code path, no live-host capability, no automatic data action, and no
+  production authority, and it makes no claim about which release production
+  currently runs.
+
+OPS-DEPLOY-002's normal route switches and restarts the candidate, checks host
+health, and only then runs the runner's public browser smoke. A smoke failure
+with zero applied migrations automatically switches the previous release back.
+That automatic switch is not SCH-001 §7's rollback path: it happens after
+candidate ingress can persist released-offer / occupancy state, while SCH-001 §7
+requires effective write quiescence, an overlap inventory, and explicit
+reconciliation before an older binary serves writers. The older binary counts a
+`DECLINED`/`RELEASED` newest offer as occupying again, so stored overlaps
+(`released+held` and `released+released`) become conflicts.
+
+**Applicability.** Any candidate release containing the SCH-001 addendum's
+released-reservation predicate (`JOB_STAFF_RESERVATION_RELEASED_SQL`,
+RESCUE-004/A). Releases without it keep OPS-DEPLOY-002 exactly as written. This
+correction is pre-merge: no deployment, rollback, or data change is authorized
+or performed by this record, and the gate is decided manually before dispatch.
+
+**Pre-dispatch gate.**
+
+- **Verified write fence:** acceptable on the normal route only when an
+  independently verified write fence (blocked authenticated/public/API ingress
+  plus drained in-flight write paths and relevant workers) covers candidate
+  activation, smoke, and any old-service restart without breaking the selected
+  route. `max(...)` timestamp snapshots are supporting negative-evidence signals
+  only, never sole proof.
+- **Attempt-bound R4 fallback:** if writers cannot be safely fenced on the
+  normal route, use a separately authorized attempt-bound R4 route
+  (`ops/deploy-production.sh --attempt-id ...`), whose browser-smoke failure
+  stops at `MANUAL_REQUIRED_ATTEMPT_FENCED` instead of reverting, and keep a
+  forward-fix candidate ready. Any later manual rollback remains gated by
+  SCH-001 §7.
+- **Production HOLD:** if neither a safe verified write fence nor a separately
+  authorized attempt-bound R4 path exists, the candidate stays on production
+  **HOLD** and is not dispatched.
+
+**Rollback and reconciliation sequence.** Under the write fence, run the
+read-only `REPEATABLE READ` inventory **before** rollback (never passing
+credential-bearing PostgreSQL URLs in `psql` process `argv`), approve and
+execute each reconciliation via normal application commands using authorized
+operator-only access, repeat the inventory until zero overlaps remain, maintain
+the fence across return to the older binary, and optionally run a post-check
+before lifting the fence. Never auto-edit job cards, offers, assignments,
+customers, or calendar rows, and never change deploy code to bypass this gate.
+
+Exact audit method, SQL, and evidence template:
+[docs/operations/rescue-004a-rollback-reconciliation.md](docs/operations/rescue-004a-rollback-reconciliation.md)
+and
+[docs/operations/sql/rescue-004a-rollback-inventory.sql](docs/operations/sql/rescue-004a-rollback-inventory.sql).
+
 ## U3-A — Offboarded Staff cannot be reactivated
 
 Status: accepted by the owner on 2026-11-17 ("Ayrılan personel yeniden
@@ -3289,6 +3346,19 @@ management decision list.
 > Addendum (RESCUE-003/B): `ACKNOWLEDGED_ONLY` neutral change-request closure,
 > atomic `PATCH` `CORRECTED` closure, and the unified Job Detail recovery drawer
 > are specified in [JOB-014](#job-014--neutral-change-request-acknowledgement-atomic-correction-closure-and-unified-manager-recovery-surface-rescue-003b).
+>
+> Addendum (RESCUE-004/A, 2026-11-28, owner-approved "DECLINED + RELEASED
+> ONLY"): a recorded `DECLINED` or `RELEASED` answer releases the Staff
+> reservation of the job's planned interval, without cancelling the job or
+> erasing its customer plan. Occupancy, its single SQL predicate, the Calendar
+> projection and the rollback/reconciliation rule are owned by
+> [SCH-001](#sch-001--staff-occupancy-is-a-core-rule-the-calendar-module-contributes)
+> ("Addendum (RESCUE-004/A)"). JOB-010 §5's deadline, answers, history and
+> notifications are unchanged; only the occupancy consequence is amended.
+> Re-offer keeps `ASSIGNMENT_OFFER_ALREADY_OPEN` precedence for a live, on-time
+> `OPEN` offer before the occupancy check, and the new-offer `opened_at`
+> monotonic bump (with the deadline computed from that effective instant) is
+> owned by the SCH-001 addendum item 8.
 
 ## OVR-5 — Revision correction deadline and authorized deadline extension
 
@@ -3897,6 +3967,101 @@ turning a module off must not weaken a core workflow rule.
 - Research and owner answers:
   [docs/backlog/2026-11-25-core-modules-architecture-research.md](docs/backlog/2026-11-25-core-modules-architecture-research.md)
   §2 V10/V10+, §5a and §5b.
+
+### Addendum (RESCUE-004/A) — a recorded refusal releases the Staff reservation
+
+- **Date:** 2026-11-28
+- **Status:** Accepted by the owner ("DECLINED + RELEASED ONLY"). Clarifies
+  SCH-001 §1–§3, JOB-010 §5 and JOB-012 item 5; it does not change the offer
+  state machine, JobCard statuses, change-request rules, OVR-7 attribution or
+  notifications.
+
+#### Decision
+
+1. **Released means free.** A planned on-site job (`SALES_MEETING`,
+   `PRODUCT_DELIVERY`) in `NEW` does not occupy its assignee's time when the
+   **newest** assignment offer for that job belongs to the job's current
+   assignee and its state is `DECLINED` or `RELEASED`. The newest offer is
+   selected by canonical order (`opened_at DESC, id DESC`) **before** any
+   assignee/state filter. Older rows never color or release newer work. Only a
+   **positive persisted interval** can be released (`scheduled_at IS NOT NULL`,
+   `scheduled_ends_at IS NOT NULL`, `scheduled_ends_at > scheduled_at`): a
+   legacy START_ONLY row is projected in the Calendar with a start and no end
+   but never held a Staff interval, so it is never reported as released and
+   keeps its pre-existing lifecycle (including the START interval validation).
+2. **Everything else keeps SCH-001.** `OPEN`, `ACCEPTED`, `EXPIRED`,
+   `WITHDRAWN`, no offer, only a change request, another assignee's newest
+   offer, and every other status (`ACCEPTED`, `IN_PROGRESS`,
+   `WAITING_APPROVAL`, `REVISION_REQUESTED`) still occupy exactly as before.
+   Urgent `OPEN` offers still occupy.
+3. **One definition.** `server/src/modules/job-cards/occupancy.ts` owns the
+   reusable predicate; the shared reader uses it for conflict checks and busy
+   intervals, and the Calendar job projection reuses the same SQL for the
+   additive `staffReservationReleased` boolean. Every actual occupancy
+   consumer (create, product delivery, follow-up, sale-approval delivery,
+   management patch, JOB-012 proposal approval, available slots,
+   follow-up auto-scheduler, Staff offboarding transfer and manual Calendar
+   writes) continues through the shared reader.
+4. **The job is not deleted or moved.** Decline/release keeps the job, status
+   `NEW`, assignee, customer plan, history, assignment/OVR-7 evidence and
+   notifications. The Calendar keeps projecting the authorized event at its
+   original interval and marks it `staffReservationReleased: true`; the
+   optional Calendar module being off does not change the core rule.
+5. **Re-acquiring a slot is checked.** `REOFFER`, reassignment/reschedule,
+   JOB-012 proposal acceptance and every other allowed path that can make a
+   released job occupy again acquire the existing users-first lock and check
+   the interval with the same reader, excluding the job. A conflict is the
+   existing `409 CALENDAR_CONFLICT` envelope and writes nothing. A live,
+   on-time `OPEN` offer keeps the established `409 ASSIGNMENT_OFFER_ALREADY_OPEN`
+   precedence, even when stale/historical overlapping rows exist; otherwise the
+   occupancy check runs under that lock **before** an overdue-offer close or
+   any offer write, so a conflict rolls back the close too. Because the
+   assignment-window flag is optional, a legacy (window-off) `ACCEPT_ASSIGNMENT`
+   or `START` of a job whose newest offer is `DECLINED`/`RELEASED` performs the
+   same lock and check, so toggling the flag cannot blindly reclaim a slot.
+   Like the release predicate, that legacy branch and the re-offer occupancy
+   check apply only to a positive persisted interval; a START_ONLY row has no
+   interval to acquire and keeps its old behavior.
+6. **No new flag or migration.** The latest-offer history already carries the
+   fact; there is no backfill. Realtime refresh reuses the existing
+   `job.updated` event and its `calendar` resource key; no new notification
+   kind is introduced.
+7. **Rollback is operational, not automatic.** An older binary would count the
+   released rows again. Before reverting, pause writers that could create
+   conflicting reservations, enumerate the overlapping active Staff intervals
+   and reconcile them explicitly (for example reassign, reschedule or cancel
+   through normal authorized commands). Never auto-edit customer appointments,
+   the job, its assignee or history. Turning the optional Calendar or the
+   assignment window off does not erase the recorded refusal or restore
+   ownership of the released slot.
+8. **Monotonic offer order.** Every producer that opens an answerable offer
+   through `openAssignmentOffer` (create, sale approval, follow-up, reassign,
+   reschedule, re-offer) records the new offer at
+   `max(requestTime, canonical latest opened_at + 1 ms)` and computes the
+   opening policy (deadline, urgency, past-start acknowledgement) from that
+   effective instant. This is at most a 1 ms logical bump and affects only
+   a request clock that ties or regresses behind the latest persisted offer; it
+   guarantees a successful re-acquisition inserts an `OPEN` offer that canonical
+   `opened_at DESC, id DESC` reads see as newest instead of the `DECLINED` /
+   `RELEASED` answer it replaces. Existing rows are never updated; the
+   alternative would be a retriable atomic conflict on a truly regressed
+   clock, which is not needed for this bounded guarantee. `acceptance_due_at`,
+   urgency and the response therefore agree with the stored `opened_at`, and
+   SLA behavior is otherwise unchanged. A START_ONLY row still has no interval
+   to acquire.
+
+#### Consequences
+
+- R03 in the RESCUE-001 audit is reclassified from "keeps occupying" to the
+  accepted RESCUE-004/A behavior; its PostgreSQL expectation is updated in the
+  same change.
+- Read-only Calendar consumers must treat an absent
+  `staffReservationReleased` as `false` (legacy payloads).
+- Extended verification: exact latest-offer matrix (supersession, different
+  assignee, active use, module toggles), shared-reader bookings/slots,
+  released-slot reuse, re-offer success/conflict rollback and concurrency,
+  JOB-012 proposal and offboarding transfer coverage, and the Calendar
+  projection/authorization.
 
 ## MOD-002 — Installation operator and runtime module state (Overview pilot)
 

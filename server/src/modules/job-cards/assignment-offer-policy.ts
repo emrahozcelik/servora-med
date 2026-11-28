@@ -100,6 +100,31 @@ export function isAcceptanceOnTime(requestTime: Date, acceptanceDueAt: Date): bo
   return requestTime.valueOf() < acceptanceDueAt.valueOf();
 }
 
+/**
+ * RESCUE-004/A ordering guard: the instant a newly inserted offer must record
+ * so canonical latest (`opened_at DESC, id DESC`) cannot rank a prior answer
+ * above it. Equal request timestamps (a fixed clock, or two writers in the
+ * same millisecond) or a request clock behind the last writer would otherwise
+ * let the fresh offer lose to the older row on the random UUID tie-break, and
+ * the release predicate would keep reading the old DECLINED/RELEASED answer
+ * after a slot was successfully re-acquired.
+ *
+ * The effect is bounded to at most 1 ms beyond the canonical latest offer:
+ * `max(requestTime, latestOpenedAt + 1 ms)`. The opening policy (deadline,
+ * urgency, past-start acknowledgement) is computed from this effective
+ * instant, so `acceptance_due_at` and the offer's own `opened_at` agree. No
+ * existing row is updated.
+ */
+export function nextAssignmentOfferOpenedAt(
+  requestTime: Date,
+  latestOpenedAt: Date | null,
+): Date {
+  if (latestOpenedAt === null || requestTime.valueOf() > latestOpenedAt.valueOf()) {
+    return requestTime;
+  }
+  return new Date(latestOpenedAt.valueOf() + 1);
+}
+
 /** A direct producer needs an explicit acknowledgement once the start passed. */
 export function requiresPastStartAcknowledgement(
   urgentReason: JobAssignmentOfferUrgentReason | null,
