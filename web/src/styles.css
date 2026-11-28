@@ -3431,6 +3431,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-color: var(--border-error);
   background: var(--error-soft);
 }
+/* UI-FEEDBACK/B: the owned Ant App resets its subtree to a fixed px base; the
+   JobDetail page receipt keeps a rem size so 200% text enlarges it
+   (UI-001, DESIGN.md accessibility). */
+.job-detail > .detail-feedback[data-job-detail-section="feedback"] {
+  font-size: 1rem;
+}
 /* UI-FEEDBACK/A: a mutation the server already accepted, whose canonical
    re-read failed. Warning tone (icon + text, never color alone) with the
    action that reuses the serialized realtime reload. Inner sizes stay in rem

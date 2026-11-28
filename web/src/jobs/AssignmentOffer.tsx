@@ -304,12 +304,22 @@ export function AssignmentReasonSection({
  * clock except to hide a confirm control for an already-passed proposal.
  */
 export function AssignmentOfferSection({
-  job, user, disabled = false, onChanged, onReassign, canSetNewTime = true,
+  job, user, disabled = false, onChanged, onCommitted, onActionStart, onRefresh, onReassign, canSetNewTime = true,
 }: {
   job: JobCard;
   user: CurrentUser;
   disabled?: boolean;
   onChanged?: () => void;
+  /**
+   * UI-FEEDBACK/B: the page owns the committed receipt so it survives this
+   * section unmounting. When provided, this section never renders its own
+   * success status line.
+   */
+  onCommitted?: (receipt: string) => Promise<void>;
+  /** Clears the previous page receipt when a new decision starts. */
+  onActionStart?: () => void;
+  /** Serialized canonical reload after a failed or conflicting decision. */
+  onRefresh?: () => Promise<unknown>;
   /**
    * Opens the existing record-edit reassignment form. Purpose-bound so this
    * guidance never grows a second assignee form of its own.
@@ -334,9 +344,16 @@ export function AssignmentOfferSection({
   const [proposalDoneOfferIds, setProposalDoneOfferIds] = useState<readonly string[]>([]);
   const reofferTriggerRef = useRef<HTMLButtonElement>(null);
   const proposalTriggerRef = useRef<HTMLButtonElement>(null);
+  // A conflict refresh replaces the job version; the rejection copy is still
+  // the answer to the decision the manager just made, so it must survive it.
+  const preserveErrorOnVersionChange = useRef(false);
+  const lastJobId = useRef(job.id);
 
   useEffect(() => {
-    setError('');
+    const sameJob = lastJobId.current === job.id;
+    lastJobId.current = job.id;
+    if (!sameJob || !preserveErrorOnVersionChange.current) setError('');
+    preserveErrorOnVersionChange.current = false;
     setDone(false);
     setAckOpen(false);
     setAckError('');
@@ -411,8 +428,20 @@ export function AssignmentOfferSection({
     </div>
   ) : null;
 
+  async function refreshAfterFailure(allowChangedFallback = true) {
+    if (onRefresh !== undefined) {
+      preserveErrorOnVersionChange.current = true;
+      await onRefresh();
+      return;
+    }
+    // Legacy callers keep their pre-receipt behaviour: proposal rejection
+    // refreshed through onChanged, a plain re-offer rejection only warned.
+    if (allowChangedFallback) onChanged?.();
+  }
+
   async function confirmProposal(target: AssignmentOffer) {
     if (target.proposedScheduledAt === null) return;
+    onActionStart?.();
     setProposalPending(true);
     setProposalError('');
     try {
@@ -423,18 +452,23 @@ export function AssignmentOfferSection({
       });
       setProposalDoneOfferIds([target.id, receipt.offerId]);
       setProposalConfirmOpen(false);
-      onChanged?.();
+      if (onCommitted !== undefined) {
+        await onCommitted(`Önerilen zaman onaylandı; iş ${target.assignee.name} için kabul edildi.`);
+      } else {
+        onChanged?.();
+      }
     } catch (caught) {
       setProposalConfirmOpen(false);
       setProposalError(proposalAcceptErrorMessage(caught));
       // The rejected proposal means the offer or the calendar moved: refresh.
-      onChanged?.();
+      await refreshAfterFailure();
     } finally {
       setProposalPending(false);
     }
   }
 
   async function sendReoffer(acknowledgement?: PastStartAcknowledgement): Promise<boolean> {
+    onActionStart?.();
     setPending(true);
     setError('');
     if (acknowledgement !== undefined) setAckError('');
@@ -447,7 +481,11 @@ export function AssignmentOfferSection({
       setDone(true);
       setAckOpen(false);
       setAckError('');
-      onChanged?.();
+      if (onCommitted !== undefined) {
+        await onCommitted('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
+      } else {
+        onChanged?.();
+      }
       return true;
     } catch (caught) {
       if (acknowledgement === undefined && isPastStartAcknowledgementRequired(caught)) {
@@ -460,6 +498,12 @@ export function AssignmentOfferSection({
         setAckError(message);
       } else {
         setError(message);
+        // A plain re-offer rejection means the offer/job moved on; reconcile
+        // without claiming a success receipt. Only a page-owned refresh is
+        // used: legacy `onChanged` callers keep their local-warning behaviour.
+        // The acknowledgement retry keeps its drawer and inline error so the
+        // manager can correct the input.
+        await refreshAfterFailure(false);
       }
       return false;
     } finally {
@@ -587,7 +631,7 @@ export function AssignmentOfferSection({
           {' '}— müşteri zamanı risk altında.
         </p>
       )}
-      {done && (
+      {done && onCommitted === undefined && (
         <p role="status" data-assignment-offer-reoffered="true">
           Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.
         </p>
@@ -598,7 +642,7 @@ export function AssignmentOfferSection({
           <strong>Önerilen zaman geçti</strong> — personelden yeni bir zaman isteyin.
         </p>
       )}
-      {proposalDoneOfferIds.includes(offer.id) && (
+      {proposalDoneOfferIds.includes(offer.id) && onCommitted === undefined && (
         <p role="status" data-assignment-offer-proposal-accepted="true">
           Önerilen zaman onaylandı; iş {offer.assignee.name} için kabul edildi.
         </p>

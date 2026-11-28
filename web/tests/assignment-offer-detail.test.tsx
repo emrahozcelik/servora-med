@@ -618,6 +618,23 @@ describe('assignment offer detail surface', () => {
     expect(host.querySelector('[data-past-start-acknowledgement="true"]')).toBeNull();
   });
 
+  it('keeps the legacy onChanged callback out of a plain re-offer rejection', async () => {
+    const onChanged = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      error: 'Aralık çok kısa.', code: 'ASSIGNMENT_WINDOW_TOO_SHORT',
+    }, 409)));
+    await renderSection(jobCard({ assignmentOffer: { ...offer, state: 'DECLINED' } }), manager, onChanged);
+
+    await act(async () => buttonByText(host, 'Aynı zamanla yeniden teklif et')!.click());
+    await settle();
+
+    // The base behaviour for this rejection is the local warning only; only a
+    // page-owned onRefresh may reconcile it.
+    expect(host.querySelector('[data-assignment-offer] .field-error')?.textContent)
+      .toContain('Planlanan zaman aralığı atama için çok kısa.');
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
   it('keeps the acknowledgement drawer open with inline error when re-offer retry fails', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({

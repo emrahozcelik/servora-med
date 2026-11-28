@@ -9,9 +9,18 @@ import { loadSaleProducts, saleCount } from './sale-form';
 import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 
 /** One parent-versioned correction at a time, with an exact in-memory retry intent. */
-export function SaleCorrectionSection({ details, customerId, disabled, onLockChange, onChanged }: {
+export function SaleCorrectionSection({ details, customerId, disabled, onLockChange, onChanged, onCommitted, onActionStart, onRefresh }: {
   details: SaleDetails; customerId: string; disabled: boolean;
-  onLockChange: (locked: boolean) => void; onChanged: () => Promise<unknown>;
+  onLockChange: (locked: boolean) => void; onChanged?: () => Promise<unknown>;
+  /**
+   * UI-FEEDBACK/B: the page owns the committed receipt; it survives this
+   * section and never reports a failed canonical read as a failed correction.
+   */
+  onCommitted?: (receipt: string) => Promise<void>;
+  /** Clears the previous page receipt when a new correction starts. */
+  onActionStart?: () => void;
+  /** Serialized canonical reload after a definitive conflict. */
+  onRefresh?: () => Promise<boolean | void>;
 }) {
   const id = useId();
   const [soldLocal, setSoldLocal] = useState(() => isoInstantToLocalDateTime(details.soldAt));
@@ -54,14 +63,18 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   }
   async function send(value: SaleCorrection) {
     if (sending.current) return;
+    onActionStart?.();
     sending.current = true; setPending(true); setMessage(''); lockCallback.current(true);
     const owner = lifetime.current;
     try {
       await correctSale(details.jobCardId, value);
       if (!owner.active) return;
-      await onChanged();
+      const receipt = 'Satış kaydı güncellendi.';
+      if (onCommitted !== undefined) await onCommitted(receipt);
+      else await onChanged?.();
       if (!owner.active) return;
-      release(); synchronize(latest.current); setQuantities({}); setAddition(null); setMessage('Satış kaydı güncellendi.');
+      release(); synchronize(latest.current); setQuantities({}); setAddition(null);
+      if (onCommitted === undefined) setMessage(receipt);
     } catch (caught) {
       if (!owner.active) return;
       if (isDefinitiveMutationError(caught)) {
@@ -133,7 +146,21 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     {needsRefresh && <button type="button" className="secondary-button" disabled={pending} onClick={async () => {
       if (sending.current) return;
       sending.current = true; setPending(true);
-      try { await onChanged(); if (lifetime.current.active) { release(); synchronize(latest.current); setQuantities({}); setAddition(null); } }
+      try {
+        if (onRefresh !== undefined) {
+          // The page reload resolves even when its read fails. Only a reconciled
+          // read unlocks, with the same canonical reset as before this slice
+          // (server truth replaces the conflicted draft); a failed read keeps the
+          // lock and the typed draft so nothing is lost or re-sent.
+          const reconciled = await onRefresh();
+          if (reconciled === true && lifetime.current.active) {
+            release(); synchronize(latest.current); setQuantities({}); setAddition(null);
+          }
+        } else {
+          await onChanged?.();
+          if (lifetime.current.active) { release(); synchronize(latest.current); setQuantities({}); setAddition(null); }
+        }
+      }
       catch { if (lifetime.current.active) setMessage('Güncel kayıt yüklenemedi. Tekrar deneyin.'); }
       finally { if (lifetime.current.active) { sending.current = false; setPending(false); } }
     }}>Güncel kaydı yükle ve düzeltmeye devam et</button>}

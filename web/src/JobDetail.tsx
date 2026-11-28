@@ -1928,6 +1928,14 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const reloadTokenCounter = useRef(0);
   const realtimeInvalidationGeneration = useRef(0);
   const reconciledRealtimeGeneration = useRef(0);
+  /** Counts fully reconciled canonical reads, so a caller can tell success. */
+  const reconciledReadCount = useRef(0);
+  /**
+   * A 403/404 deferred because a newer mutation started; access must be
+   * rechecked once that mutation ends unless a newer canonical read already
+   * proved it.
+   */
+  const accessRecheckPending = useRef(false);
   const mutationEpoch = useRef(0);
   const mutationOwner = useRef<{ sessionToken: number; operationToken: number } | null>(null);
   const mutationOperationToken = useRef(0);
@@ -1959,6 +1967,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       reconciledRealtimeGeneration.current = generationSnapshot;
     }
     if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
+      reconciledReadCount.current += 1;
+      accessRecheckPending.current = false;
       setRealtimeStale(false);
       // A notice raised while a drain was incomplete is temporary: the next
       // real reconcile turns the stored receipt back into its normal success
@@ -1996,7 +2006,19 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       setPendingCommand(null);
       setStartPendingPhase(null);
       setSubmitPendingPhase(null);
+      runPendingAccessRecheck();
     }
+  }
+
+  /**
+   * A deferred 403/404 that no newer reconciled read superseded is rechecked
+   * once through the existing serialized drain (never a mutation).
+   */
+  function runPendingAccessRecheck() {
+    if (!accessRecheckPending.current) return;
+    accessRecheckPending.current = false;
+    realtimeReloadRequested.current = true;
+    void requestRealtimeDrain();
   }
 
   useEffect(() => {
@@ -2128,13 +2150,15 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   ): Promise<'fresh' | 'stale' | 'inactive' | 'access-lost'> {
     const operationJobId = jobId;
     const operationSession = sessionLifetime.current.token;
-    accessLostRef.current = false;
     try {
       return (await refreshTruth()) ? 'fresh' : 'inactive';
     } catch (caught) {
       if (!isOperationCurrent(operationSession, operationJobId)) return 'inactive';
       if (caught instanceof ApiError && (caught.status === 403 || caught.status === 404)) {
         accessLostRef.current = true;
+        // Terminal: an older read still in flight must not reopen the record.
+        mutationEpoch.current += 1;
+        accessRecheckPending.current = false;
         setState({
           kind: 'error',
           message: 'İşlem kaydedildi. İşin güncel kaydına artık erişilemiyor.',
@@ -2165,7 +2189,6 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     // A 403/404 while this known receipt is being reconciled is reported with
     // the committed wording, never as a generic read failure.
     committedReceiptPendingRef.current = true;
-    accessLostRef.current = false;
     // Only invalidations known when this drain started decide the outcome; one
     // arriving after a successful drain is ordinary realtime work, not a failed
     // reconcile of this receipt.
@@ -2347,10 +2370,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }
   async function runRealtimeDrainChain(sessionToken: number): Promise<boolean> {
     const operationJobId = jobId;
+    let roundEpochAtStart = mutationEpoch.current;
     try {
       for (let round = 0; round < MAX_REALTIME_DRAIN_ROUNDS; round += 1) {
         const generationAtStart = realtimeInvalidationGeneration.current;
         const epochAtStart = mutationEpoch.current;
+        roundEpochAtStart = epochAtStart;
         const detail = await loadJobDetail(operationJobId);
         if (!isOperationCurrent(sessionToken, operationJobId)) return true;
         if (mutationEpoch.current !== epochAtStart) {
@@ -2368,10 +2393,28 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       }
       return false;
     } catch (error) {
+      // Same guard as the success branch: a read that started before a later
+      // mutation must not decide the screen, not even with a 403/404.
+      if (isOperationCurrent(sessionToken, operationJobId)
+        && mutationEpoch.current !== roundEpochAtStart) {
+        realtimeDrainRequested.current = true;
+        // Completion order does not prove which read is newer, so a deferred
+        // 403/404 is always rechecked once; an extra read is the safe cost.
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+          accessRecheckPending.current = true;
+          // If the newer operation already ended, nobody else will recheck:
+          // do it after this chain settles.
+          if (mutationOwner.current === null) setTimeout(runPendingAccessRecheck, 0);
+        }
+        return true;
+      }
       if (isOperationCurrent(sessionToken, operationJobId)) {
         if (state.kind === 'ready' && error instanceof ApiError
           && (error.status === 403 || error.status === 404)) {
           accessLostRef.current = true;
+          // Terminal: an older read still in flight must not reopen the record.
+          mutationEpoch.current += 1;
+          accessRecheckPending.current = false;
           setState({
             kind: 'error',
             message: committedReceiptPendingRef.current
@@ -2426,6 +2469,55 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       realtimeDrainRequested.current = false;
     }
   }
+  /**
+   * UI-FEEDBACK/B: a new manager decision retires the previous page receipt
+   * before its own request starts. A repeated success with identical wording
+   * must be a new live-region update, not a silent text mutation.
+   */
+  function clearChildReceipt() {
+    setMessage('');
+    setMessageIsError(false);
+  }
+
+  /**
+   * UI-FEEDBACK/B: a manager decision made inside a child section owns the same
+   * committed-receipt boundary as an in-page command. The receipt is announced
+   * once by the page so it survives the child section unmounting; a failed or
+   * inaccessible canonical read keeps the existing committed-stale / terminal
+   * access-lost states instead of surfacing a false mutation failure. The
+   * helper never throws for a read failure, so a committed child mutation is
+   * never re-sent by a caller that caught one.
+   */
+  async function settleChildCommit(receipt: string) {
+    // A child decision is a mutation too: invalidate reads that started before
+    // the server accepted it, exactly like the in-page handlers do before their
+    // request. An older realtime/refresh read must never overwrite the receipt
+    // with pre-decision truth when it completes last.
+    mutationEpoch.current += 1;
+    // Like startMutationOperation: an earlier access loss belongs to its own
+    // operation; this decision starts clean. Within the operation the flag is
+    // only set by a terminal answer and is never cleared by its own reads.
+    accessLostRef.current = false;
+    let read = await refreshAfterCommit(receipt);
+    if (read === 'access-lost' || read === 'inactive') return;
+    if (read === 'fresh') {
+      const drain = await drainAfterCommit(receipt);
+      if (drain === 'access-lost' || drain === 'inactive') return;
+      if (drain === 'stale') read = 'stale';
+    }
+    if (read === 'fresh') {
+      setMessage(receipt);
+      setMessageIsError(false);
+      setTimelineKey((value) => value + 1);
+    }
+    // A fresh receipt or a committed-stale notice must own focus; the child
+    // section (and its local status line) may be gone by then.
+    setFeedbackFocusRequest((value) => value + 1);
+    // A child decision has no mutation owner; settle any deferred access check
+    // its own read did not supersede (e.g. that read failed transiently).
+    runPendingAccessRecheck();
+  }
+
   async function reloadStaleTruth() {
     const operationJobId = jobId;
     const sessionToken = sessionLifetime.current.token;
@@ -2457,6 +2549,18 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setRealtimeReloadPending(false);
       }
     }
+  }
+  /**
+   * UI-FEEDBACK/B: the committed-stale safety reload is also a fresh canonical
+   * read, so the activity timeline must refetch even when realtime is offline
+   * and nothing else bumps `timelineKey`.
+   */
+  /** Serialized reload for children; resolves true only after a reconciled read. */
+  async function reloadCommittedTruth(): Promise<boolean> {
+    const before = reconciledReadCount.current;
+    await reloadStaleTruth();
+    setTimelineKey((value) => value + 1);
+    return reconciledReadCount.current > before;
   }
   useRealtimeInvalidation([`job-detail:${jobId}`,
     ...(state.kind === 'ready' && state.detail.kind === 'SALE' ? ['sale-origin-context:' + user.id] : []),
@@ -4067,13 +4171,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         disabled={pending || uncertain || invalidationMutationLocked || committedStale !== null
           || !actions.includes('EDIT_JOB_FIELDS')}
         onLockChange={(locked) => { saleCorrectionLockedRef.current = locked; setSaleCorrectionLocked(locked); }}
-        onChanged={async () => {
-          try { if (!(await refreshTruth())) throw new Error('Güncel kayıt yüklenemedi.'); onChanged(); }
-          catch (caught) {
-            if (caught instanceof ApiError && caught.status === 404) setState({ kind: 'error', message: caught.message, retryable: false });
-            throw caught;
-          }
-        }} />}
+        onCommitted={settleChildCommit}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()} />}
     {detail.kind === 'SALE' && <LinkedDeliveryPanel
       linkedDelivery={detail.job.linkedDelivery !== undefined
         ? detail.job.linkedDelivery
@@ -4144,7 +4244,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       message={committedStale.message}
       kind={committedStale.kind}
       reloadPending={pending || realtimeReloadPending}
-      onReload={() => { void reloadStaleTruth(); }}
+      onReload={() => { void reloadCommittedTruth(); }}
       feedbackRef={feedbackRef}
     /> : undefined}
     continuity={detail.kind !== 'SALE' && isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
@@ -4165,10 +4265,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         disabled={committedStale !== null}
-        onGranted={() => {
-          setTimelineKey((value) => value + 1);
-          void refreshTruth();
-        }}
+        onCommitted={settleChildCommit}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()}
       />
     }
     changeRequest={
@@ -4182,6 +4281,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
           : undefined}
         onCancel={(trigger) => { command('CANCEL', trigger); }}
+        onCommitted={settleChildCommit}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()}
         onChanged={() => {
           setTimelineKey((value) => value + 1);
           void refreshTruth();
@@ -4193,10 +4295,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         job={detail.job}
         user={user}
         disabled={invalidationLocked}
-        onChanged={() => {
-          setTimelineKey((value) => value + 1);
-          void refreshTruth();
-        }}
+        onCommitted={settleChildCommit}
+        onActionStart={clearChildReceipt}
+        onRefresh={() => reloadCommittedTruth()}
         canSetNewTime={Boolean(presentationFor(detail).scheduleEdit)}
         onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
