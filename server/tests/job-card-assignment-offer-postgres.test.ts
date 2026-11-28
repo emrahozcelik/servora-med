@@ -1357,10 +1357,10 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
 
         const moving = {
           expectedVersion: job.version, assignedTo: replacement,
-          scheduledAt: time(360), scheduledEndsAt: time(420),
+          scheduledAt: time(360),
         };
         await expect(service.patch(manager, job.id, {
-          ...moving, scheduledAt: time(240), scheduledEndsAt: time(300),
+          ...moving, scheduledAt: time(240),
         })).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
         await expect(readJob(pool, job.id)).resolves.toMatchObject({
           version: job.version, assigned_to: original,

@@ -172,12 +172,16 @@ function WheelSheet({
 
   useEffect(() => {
     const panel = panelRef.current;
-    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (openerRef.current === null && document.activeElement instanceof HTMLElement) {
+      openerRef.current = document.activeElement;
+    }
     const releaseScrollLock = lockBodyScroll();
     panel?.querySelector<HTMLElement>('[role="spinbutton"]')?.focus();
     return () => {
       releaseScrollLock();
-      restoreFocus(returnFocusRef, openerRef.current);
+      // Strict Mode can replay setup while this sheet is still mounted.
+      // Return to the trigger only when the sheet has actually closed.
+      if (!panel?.isConnected) restoreFocus(returnFocusRef, openerRef.current);
     };
   }, [returnFocusRef]);
 

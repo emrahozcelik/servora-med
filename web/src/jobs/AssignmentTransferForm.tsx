@@ -109,11 +109,8 @@ export function AssignmentTransferAction({
   }, [formOpen, staffLoad]);
 
   useEffect(() => {
-    if (!formOpen) return;
-    if (errors.staff) staffRef.current?.focus({ preventScroll: true });
-    else if (errors.time) timeRef.current?.focus({ preventScroll: true });
-    else if (submitError || stale) errorRef.current?.focus();
-  }, [errors, formOpen, stale, submitError]);
+    if (formOpen && (submitError || stale)) errorRef.current?.focus();
+  }, [formOpen, stale, submitError]);
 
   const slotSearch = useAvailableSlotSearch({
     type: intervalType ?? 'SALES_MEETING',
@@ -233,7 +230,10 @@ export function AssignmentTransferAction({
     else if (scheduledLocal === currentStart) next.time = 'Planlanan zamanı değiştirin.';
     setErrors(next);
     setSubmitError('');
-    if (next.staff || next.time) return;
+    if (next.staff || next.time) {
+      (next.staff ? staffRef.current : timeRef.current)?.focus();
+      return;
+    }
     if (reasonRequired && !reason) setPanel('reason');
     else void save();
   }

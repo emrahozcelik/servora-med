@@ -321,7 +321,7 @@ async function captureTransferFlow(browser, url) {
   assert.deepEqual(test.errors, []);
   assert.deepEqual(test.unexpected, []);
   await context.close();
-  return { wheelTargets, invalid: true, conflict: true, pending: true, outcome, patch: mutations[1] };
+  return { wheelTargets, wheelKeyboardEscape: true, invalid: true, conflict: true, pending: true, outcome, patch: mutations[1] };
 }
 
 const vite = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
@@ -388,6 +388,16 @@ try {
         requireMetric(target.width >= 44 && target.height >= 44, sample.name + ': transfer target below 44 CSS px: ' + target.label);
       }
       await capture(page, sample.name + '-transfer');
+      if (sample.textScale || sample.dpr) {
+        const submit = form.getByRole('button', { name: 'Devret ve planla', exact: true });
+        await submit.scrollIntoViewIfNeeded();
+        sampleReport.transferPrimaryReachable = await submit.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return element.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
+        });
+        requireMetric(sampleReport.transferPrimaryReachable, sample.name + ': transfer primary action is obscured after scrolling');
+        await capture(page, sample.name + '-transfer-actions');
+      }
       await form.getByRole('button', { name: 'Vazgeç' }).click();
     }
     requireMetric(test.errors.length === 0, sample.name + ': ' + test.errors.join(', '));
