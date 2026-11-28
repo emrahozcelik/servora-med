@@ -111,7 +111,9 @@ async function openCase(browser, url, sample) {
     if (method === 'GET' && path === '/api/notifications/unread-count') return send({ unreadCount: 0 });
     if (method === 'GET' && path === '/api/web-push/status') return send({ enabled: false, subscribed: false, vapidPublicKey: null });
     if (method === 'POST' && path === '/api/notifications/read-by-entity') return send({ markedCount: 0 });
-    if (method === 'POST' && path === '/api/job-cards/available-slots') return send({ slots: [] });
+    if (method === 'POST' && path === '/api/job-cards/available-slots') {
+      return send({ slots: [{ startsAt: '2026-11-27T14:00:00.000Z', endsAt: '2026-11-27T15:00:00.000Z' }] });
+    }
     if (method === 'GET' && path === '/api/staff') return send([{ ...staff, role: 'STAFF', isActive: true }]);
     if (method === 'GET' && path === jobPath + '/submission-lateness') return send({ open: null });
     if (method === 'GET' && ['/delivery-items', '/notes', '/activity', '/follow-ups', '/overdue-incidents']
@@ -193,13 +195,18 @@ async function captureWheel(page) {
   });
   assert.equal(preset.canScroll && preset.visibleEnd, true);
   assert.match(preset.fade, /linear-gradient/);
+  const slots = page.locator('.available-slots-notice');
+  const slot = slots.getByRole('button', { name: /17:00–18:00/ });
+  await slot.scrollIntoViewIfNeeded();
+  const slotTargets = await overlayTargets(slots);
+  await capture(page, 'available-slots');
   await page.locator('.wheel-field-trigger:visible').first().click();
   const wheel = page.locator('[data-servora-wheel-sheet]');
   await wheel.waitFor();
   const targets = await overlayTargets(wheel);
   await capture(page, 'wheel-picker');
   await page.getByRole('button', { name: 'Tamam', exact: true }).click();
-  return { targets, preset };
+  return { targets, preset, slotTargets };
 }
 
 const vite = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
@@ -247,6 +254,7 @@ try {
     const { page, context } = await openCase(browser, url, samples[1]);
     const wheel = await captureWheel(page);
     report.interactions.preset = wheel.preset;
+    report.interactions.slotTargets = wheel.slotTargets;
     await context.close();
   } else {
     const test = await openCase(browser, url, samples[1]);
@@ -262,6 +270,7 @@ try {
     const wheel = await captureWheel(page);
     report.interactions.wheelTargets = wheel.targets;
     report.interactions.preset = wheel.preset;
+    report.interactions.slotTargets = wheel.slotTargets;
     await scope.getByRole('button', { name: 'Yerine yeni iş açtım', exact: true }).click();
     const linkedForm = page.locator('.change-request-form:visible');
     await linkedForm.locator('#change-request-linked-job').waitFor();
@@ -309,7 +318,8 @@ try {
     requireMetric(outcome.confirmed, 'committed recovery outcome has no confirmed color treatment');
     await capture(page, 'form-success');
     for (const target of [
-      ...report.interactions.wheelTargets, ...report.interactions.linkedFormTargets, ...report.interactions.formTargets,
+      ...report.interactions.wheelTargets, ...report.interactions.slotTargets,
+      ...report.interactions.linkedFormTargets, ...report.interactions.formTargets,
     ]) {
       requireMetric(target.width >= 44 && target.height >= 44, 'overlay target below 44 CSS px: ' + target.label);
     }
