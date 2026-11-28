@@ -1543,6 +1543,39 @@ export class JobCardService {
     return offer;
   }
 
+  /**
+   * RESCUE-004/A: with the assignment window off, a legacy ACCEPT/START must
+   * not silently reclaim a planned slot this Staff member already released.
+   * When the newest offer for the current assignee is `DECLINED`/`RELEASED`,
+   * the same user-first lock and occupancy reader every scheduling write uses
+   * must prove the interval is still free (this job excluded); a conflict
+   * writes nothing. Jobs without such an answer keep the release 2a rules.
+   */
+  private async assertLegacyReleasedReclaimAvailable(
+    tx: JobCardTransaction,
+    organizationId: string,
+    job: JobCard,
+  ) {
+    if (this.assignmentWindowEnabled()) return;
+    if (job.status !== 'NEW' && job.status !== 'ACCEPTED') return;
+    if (!isAssignmentOfferJobType(job.type) || job.scheduledAt === null) return;
+    const latest = await tx.getLatestAssignmentOffer(organizationId, job.id);
+    if (latest === null
+      || latest.assigneeUserId !== job.assignedTo
+      || (latest.state !== 'DECLINED' && latest.state !== 'RELEASED')) {
+      return;
+    }
+    await tx.assertCalendarAvailability({
+      organizationId,
+      jobCardId: job.id,
+      assignedUserId: job.assignedTo,
+      startsAt: job.scheduledAt,
+      endsAt: job.scheduledEndsAt
+        ?? canonicalScheduledEnd(job.type, job.scheduledAt),
+      includeCalendarEvents: this.calendar.enabled,
+    });
+  }
+
   /** The offer summary `allowedCommands` reads, or null outside the window. */
   private assignmentOfferSummary(
     offer: {
@@ -5621,6 +5654,20 @@ export class JobCardService {
             'Yalnız yeni durumdaki planlı ürün teslimi veya satış görüşmesi için teklif yenilenebilir.',
           );
         }
+        // RESCUE-004/A: a re-offer makes the reservation active again (the
+        // newest offer stops being DECLINED/RELEASED). Under the same
+        // user-first lock every scheduling writer takes, prove the original
+        // interval is still free without counting this job; a conflict writes
+        // nothing, including the overdue-offer close below.
+        await tx.assertCalendarAvailability({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assignedUserId: job.assignedTo,
+          startsAt: job.scheduledAt,
+          endsAt: job.scheduledEndsAt
+            ?? canonicalScheduledEnd(job.type, job.scheduledAt),
+          includeCalendarEvents: this.calendar.enabled,
+        });
         const realtimeEvents: RealtimeEventRecord[] = [];
         const latest = await tx.getLatestAssignmentOffer(actor.organizationId, jobCardId);
         if (latest !== null && latest.state === 'OPEN') {
@@ -7426,6 +7473,15 @@ export class JobCardService {
         if (definition.command === 'START') {
           assertPlannedIntervalForStart(job);
         }
+        // RESCUE-004/A: an assignment-window flag toggle must never make a
+        // released reservation silently occupied again.
+        if (!this.assignmentWindowEnabled()
+          && (definition.command === 'ACCEPT_ASSIGNMENT'
+            || definition.command === 'START')) {
+          await this.assertLegacyReleasedReclaimAvailable(
+            tx, actor.organizationId, job,
+          );
+        }
         if (definition.command === 'CANCEL') {
           assertFollowUpCancelContinuity(job, definition.cancelContinuity ?? null, requestTime);
         }
@@ -7954,6 +8010,12 @@ export class JobCardService {
           const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
             || definition.command === 'APPROVE';
           const mayReschedule = definition.cancelContinuity?.decision === 'RESCHEDULE';
+          // RESCUE-004/A: a legacy (window-off) ACCEPT/START can make a
+          // released job occupy its original interval again, so the assignee
+          // joins the users-first lock set exactly like a reschedule.
+          const mayReclaimReleasedSlot = !this.assignmentWindowEnabled()
+            && (definition.command === 'ACCEPT_ASSIGNMENT'
+              || definition.command === 'START');
           // The transition note's author snapshot is a users-row lock taken
           // further down, under the JobCard lock. Its id is known here, so it
           // joins the same sorted users-first lock set as the scheduling ids.
@@ -7962,13 +8024,13 @@ export class JobCardService {
           const userIds: Array<string | null | undefined> = [
             ...(mayWriteTransitionNote ? [actor.id] : []),
           ];
-          if (mayReschedule || mayScheduleFollowUp) {
+          if (mayReschedule || mayScheduleFollowUp || mayReclaimReleasedSlot) {
             // One unlocked snapshot decides which users to lock; the finalize
             // transaction re-checks it under the JobCard lock.
             const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
             if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
             lockedJobSnapshot = jobSnapshot;
-            if (mayReschedule) {
+            if (mayReschedule || mayReclaimReleasedSlot) {
               userIds.push(jobSnapshot.assignedTo);
             }
             if (mayScheduleFollowUp) {

@@ -932,7 +932,47 @@ overdue `OPEN` offer is closed `EXPIRED` (closed_by NULL) in the same
 transaction, with its activity but no expiry notification (the acting manager
 is handling it). Opens a new offer (`REOFFER`) to the current assignee with the
 rules above; version +1; idempotent with request hash; assignee locked before
-the job. Response 201 `{ jobCardId, offerId, acceptanceDueAt, urgentReason }`.
+the job. Before anything is written, it re-checks the current assignee's planned
+interval with the shared occupancy reader, this job excluded: a conflict is
+`409 CALENDAR_CONFLICT` and rolls back the overdue close too. Response 201
+`{ jobCardId, offerId, acceptanceDueAt, urgentReason }`.
+
+### Released Staff reservation (RESCUE-004/A)
+
+A planned on-site job in `NEW` stops occupying its assignee's time when the
+job's **newest** assignment offer (`opened_at DESC, id DESC`, selected before
+any assignee/state filter) belongs to the current assignee and is `DECLINED` or
+`RELEASED`. This is the only release. `OPEN`, `ACCEPTED`, `EXPIRED`,
+`WITHDRAWN`, no offer, a different assignee's answer, an older answer and every
+other status keep the SCH-001 occupancy exactly; urgent `OPEN` offers still
+occupy.
+
+- The job, its `NEW` status, assignee, customer plan, history,
+  assignment/OVR-7 evidence and notifications remain unchanged. Decline and
+  release never cancel, delete or reassign.
+- The optional Calendar module keeps projecting the authorized job event at its
+  original interval and adds `staffReservationReleased: boolean` (server
+  computed; an absent field means `false` in legacy payloads). The Calendar
+  being off changes nothing about the core rule.
+- Re-offer, reassignment/reschedule, JOB-012 proposal acceptance and every
+  other allowed path that can make a released job occupy again take the
+  existing users-first lock and re-check the interval with the shared reader,
+  excluding the job. A conflict is the existing `409 CALENDAR_CONFLICT`
+  envelope and writes nothing.
+- With the assignment window off, a legacy `ACCEPT_ASSIGNMENT` / `START` of a
+  job whose newest offer is `DECLINED`/`RELEASED` performs the same users-first
+  lock and check, so toggling the flag cannot blindly reclaim a released slot.
+- Realtime refresh reuses the existing `job.updated` event and its `calendar`
+  resource key; no notification kind is added. No flag or migration is added.
+  `server/src/modules/job-cards/occupancy.ts` owns the single predicate, used
+  by the shared reader and the Calendar projection.
+
+Rollback note: an older binary counts the released rows as occupied again.
+Before reverting, pause writers that could create conflicting reservations,
+enumerate the overlapping active Staff intervals and reconcile them explicitly
+through authorized commands; never auto-edit customer appointments, the job,
+its assignee or history. Turning the optional Calendar or assignment window
+off does not erase the recorded refusal or restore ownership of the slot.
 
 ### Expiry worker
 
@@ -1032,6 +1072,7 @@ assigned at 12:00 unless stated.
 | A20 | Request open on a late job | No further OVR-4 Staff reminder; incident kept; request→decision time reported as management wait | 2a |
 | A21 | Management cancels on a Staff request | Staff performance metrics unchanged by it | 2a |
 | A18 | Offboarding transfers an `IN_PROGRESS` job | No offer opened; job not in the management list | 2b |
+| A22 | Declined or released job; another customer booking needs the same Staff interval | The booking succeeds (Calendar on/off). The job, its `NEW` status and its customer plan stay. Re-offer without a new conflict acquires the slot again; with one it returns `409 CALENDAR_CONFLICT` and writes nothing. Calendar projects the job at the original interval with `staffReservationReleased: true`. | 2b |
 
 ## Consequences
 

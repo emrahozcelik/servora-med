@@ -3289,6 +3289,15 @@ management decision list.
 > Addendum (RESCUE-003/B): `ACKNOWLEDGED_ONLY` neutral change-request closure,
 > atomic `PATCH` `CORRECTED` closure, and the unified Job Detail recovery drawer
 > are specified in [JOB-014](#job-014--neutral-change-request-acknowledgement-atomic-correction-closure-and-unified-manager-recovery-surface-rescue-003b).
+>
+> Addendum (RESCUE-004/A, 2026-11-28, owner-approved "DECLINED + RELEASED
+> ONLY"): a recorded `DECLINED` or `RELEASED` answer releases the Staff
+> reservation of the job's planned interval, without cancelling the job or
+> erasing its customer plan. Occupancy, its single SQL predicate, the Calendar
+> projection and the rollback/reconciliation rule are owned by
+> [SCH-001](#sch-001--staff-occupancy-is-a-core-rule-the-calendar-module-contributes)
+> ("Addendum (RESCUE-004/A)"). JOB-010 §5's deadline, answers, history and
+> notifications are unchanged; only the occupancy consequence is amended.
 
 ## OVR-5 — Revision correction deadline and authorized deadline extension
 
@@ -3897,6 +3906,74 @@ turning a module off must not weaken a core workflow rule.
 - Research and owner answers:
   [docs/backlog/2026-11-25-core-modules-architecture-research.md](docs/backlog/2026-11-25-core-modules-architecture-research.md)
   §2 V10/V10+, §5a and §5b.
+
+### Addendum (RESCUE-004/A) — a recorded refusal releases the Staff reservation
+
+- **Date:** 2026-11-28
+- **Status:** Accepted by the owner ("DECLINED + RELEASED ONLY"). Clarifies
+  SCH-001 §1–§3, JOB-010 §5 and JOB-012 item 5; it does not change the offer
+  state machine, JobCard statuses, change-request rules, OVR-7 attribution or
+  notifications.
+
+#### Decision
+
+1. **Released means free.** A planned on-site job (`SALES_MEETING`,
+   `PRODUCT_DELIVERY`) in `NEW` does not occupy its assignee's time when the
+   **newest** assignment offer for that job belongs to the job's current
+   assignee and its state is `DECLINED` or `RELEASED`. The newest offer is
+   selected by canonical order (`opened_at DESC, id DESC`) **before** any
+   assignee/state filter. Older rows never color or release newer work.
+2. **Everything else keeps SCH-001.** `OPEN`, `ACCEPTED`, `EXPIRED`,
+   `WITHDRAWN`, no offer, only a change request, another assignee's newest
+   offer, and every other status (`ACCEPTED`, `IN_PROGRESS`,
+   `WAITING_APPROVAL`, `REVISION_REQUESTED`) still occupy exactly as before.
+   Urgent `OPEN` offers still occupy.
+3. **One definition.** `server/src/modules/job-cards/occupancy.ts` owns the
+   reusable predicate; the shared reader uses it for conflict checks and busy
+   intervals, and the Calendar job projection reuses the same SQL for the
+   additive `staffReservationReleased` boolean. Every actual occupancy
+   consumer (create, product delivery, follow-up, sale-approval delivery,
+   management patch, JOB-012 proposal approval, available slots,
+   follow-up auto-scheduler, Staff offboarding transfer and manual Calendar
+   writes) continues through the shared reader.
+4. **The job is not deleted or moved.** Decline/release keeps the job, status
+   `NEW`, assignee, customer plan, history, assignment/OVR-7 evidence and
+   notifications. The Calendar keeps projecting the authorized event at its
+   original interval and marks it `staffReservationReleased: true`; the
+   optional Calendar module being off does not change the core rule.
+5. **Re-acquiring a slot is checked.** `REOFFER`, reassignment/reschedule,
+   JOB-012 proposal acceptance and every other allowed path that can make a
+   released job occupy again acquire the existing users-first lock and check
+   the interval with the same reader, excluding the job. A conflict is the
+   existing `409 CALENDAR_CONFLICT` envelope and writes nothing. Because the
+   assignment-window flag is optional, a legacy (window-off) `ACCEPT_ASSIGNMENT`
+   or `START` of a job whose newest offer is `DECLINED`/`RELEASED` performs the
+   same lock and check, so toggling the flag cannot blindly reclaim a slot.
+6. **No new flag or migration.** The latest-offer history already carries the
+   fact; there is no backfill. Realtime refresh reuses the existing
+   `job.updated` event and its `calendar` resource key; no new notification
+   kind is introduced.
+7. **Rollback is operational, not automatic.** An older binary would count the
+   released rows again. Before reverting, pause writers that could create
+   conflicting reservations, enumerate the overlapping active Staff intervals
+   and reconcile them explicitly (for example reassign, reschedule or cancel
+   through normal authorized commands). Never auto-edit customer appointments,
+   the job, its assignee or history. Turning the optional Calendar or the
+   assignment window off does not erase the recorded refusal or restore
+   ownership of the released slot.
+
+#### Consequences
+
+- R03 in the RESCUE-001 audit is reclassified from "keeps occupying" to the
+  accepted RESCUE-004/A behavior; its PostgreSQL expectation is updated in the
+  same change.
+- Read-only Calendar consumers must treat an absent
+  `staffReservationReleased` as `false` (legacy payloads).
+- Extended verification: exact latest-offer matrix (supersession, different
+  assignee, active use, module toggles), shared-reader bookings/slots,
+  released-slot reuse, re-offer success/conflict rollback and concurrency,
+  JOB-012 proposal and offboarding transfer coverage, and the Calendar
+  projection/authorization.
 
 ## MOD-002 — Installation operator and runtime module state (Overview pilot)
 

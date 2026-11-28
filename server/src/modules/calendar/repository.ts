@@ -17,7 +17,10 @@ import {
   manualEventCreateRequestHash,
   manualEventPatchRequestHash,
 } from './request-hash.js';
-import { findStaffOccupancyConflicts } from '../job-cards/occupancy.js';
+import {
+  findStaffOccupancyConflicts,
+  JOB_STAFF_RESERVATION_RELEASED_SQL,
+} from '../job-cards/occupancy.js';
 import { resolveSourceAccess } from '../job-cards/policy.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 
@@ -50,6 +53,7 @@ type CalendarRow = {
   source_staff_completed_at: Date | null;
   source_meeting_at: Date | null;
   source_completed_at: Date | null;
+  staff_reservation_released: boolean;
 };
 
 type ActionIdentityRow = {
@@ -74,7 +78,8 @@ SELECT j.id, 'JOB'::text AS source, j.title, NULL::text AS description,
   src.started_at AS source_started_at,
   src.staff_completed_at AS source_staff_completed_at,
   md.meeting_at AS source_meeting_at,
-  src.manager_approved_at AS source_completed_at
+  src.manager_approved_at AS source_completed_at,
+  ${JOB_STAFF_RESERVATION_RELEASED_SQL} AS staff_reservation_released
 FROM job_cards j
 JOIN organizations o ON o.id = j.organization_id
 JOIN users assignee
@@ -100,7 +105,8 @@ SELECT e.id, 'MANUAL'::text AS source, e.title, e.description,
   NULL::text, NULL::text, NULL::text, NULL::uuid, NULL::text,
   creator.id, creator.name, updater.id, updater.name,
   NULL::uuid, NULL::uuid, NULL::text, NULL::timestamptz, NULL::timestamptz,
-  NULL::timestamptz, NULL::timestamptz, NULL::timestamptz
+  NULL::timestamptz, NULL::timestamptz, NULL::timestamptz,
+  FALSE AS staff_reservation_released
 FROM calendar_events e
 JOIN users assignee
   ON assignee.organization_id = e.organization_id AND assignee.id = e.assigned_user_id
@@ -143,6 +149,9 @@ function event(row: CalendarRow, actor: CalendarActor): CalendarEvent {
         ? { id: row.customer_id, name: row.customer_name! }
         : null,
       relatedJobPath: `/jobs/${row.id}`,
+      // RESCUE-004/A: additive, server-computed. The job stays projected at
+      // its original interval even when Staff may use the slot again.
+      staffReservationReleased: row.staff_reservation_released === true,
       followUpContext: row.source_job_card_id === null || row.source_completed_at === null
         ? null
         : (() => {
@@ -284,7 +293,8 @@ export class PostgresCalendarRepository implements CalendarRepository {
         NULL::text AS job_type, NULL::text AS job_status, NULL::text AS priority,
         NULL::uuid AS customer_id, NULL::text AS customer_name,
         creator.id AS created_by_id, creator.name AS created_by_name,
-        updater.id AS updated_by_id, updater.name AS updated_by_name
+        updater.id AS updated_by_id, updater.name AS updated_by_name,
+        FALSE AS staff_reservation_released
        FROM calendar_events e
        JOIN users assignee ON assignee.organization_id = e.organization_id AND assignee.id = e.assigned_user_id
        JOIN users creator ON creator.organization_id = e.organization_id AND creator.id = e.created_by

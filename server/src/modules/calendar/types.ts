@@ -37,6 +37,13 @@ export type JobCalendarEvent = CalendarEventCommon & Readonly<{
   priority: string;
   customer: CalendarAssignee | null;
   relatedJobPath: string;
+  /**
+   * RESCUE-004/A (SCH-001 addendum): the authoritative Staff reservation is
+   * released while the job, its customer plan and its assignee remain
+   * projected. Server-computed from the newest assignment offer; a legacy
+   * payload without the field means `false`.
+   */
+  staffReservationReleased: boolean;
   followUpContext: CalendarFollowUpContext | null;
 }>;
 

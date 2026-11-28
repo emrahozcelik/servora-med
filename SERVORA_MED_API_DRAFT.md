@@ -1481,7 +1481,9 @@ MANAGER/ADMIN only (`403 FORBIDDEN` before lookup), flag on (else
 `scheduledAt`. A live `OPEN` offer (`requestTime < acceptanceDueAt`) returns
 `409 ASSIGNMENT_OFFER_ALREADY_OPEN`; an overdue one is closed `EXPIRED` (no actor) in the
 same transaction. A new `REOFFER` offer opens to the current assignee and `version` +1.
-Idempotent through the request hash.
+Idempotent through the request hash. Before writing, the current assignee's planned interval is
+re-checked with the shared occupancy reader (this job excluded); a conflict is
+`409 CALENDAR_CONFLICT` and rolls back the overdue close too.
 
 Response `201`:
 
@@ -1489,6 +1491,45 @@ Response `201`:
 { "jobCardId": "uuid", "offerId": "uuid",
   "acceptanceDueAt": "2026-11-20T11:50:00.000Z", "urgentReason": "SHORT_NOTICE" }
 ```
+
+#### Released Staff reservation (SCH-001 addendum, RESCUE-004/A)
+
+A planned `PRODUCT_DELIVERY` / `SALES_MEETING` in `NEW` releases its Staff reservation when the
+job's newest assignment offer (canonical `opened_at DESC, id DESC`, inspected before any
+assignee/state filter) belongs to the job's current assignee and is `DECLINED` or `RELEASED`.
+`OPEN` (including urgent), `ACCEPTED`, `EXPIRED`, `WITHDRAWN`, no offer, a different assignee's
+answer, an older answer and every other status still occupy exactly as SCH-001 says. Decline and
+release never change the job status, assignee, customer plan, history, assignment/OVR-7 evidence
+or notifications. The `409 CALENDAR_CONFLICT` envelope is unchanged.
+
+All occupancy writers route through `server/src/modules/job-cards/occupancy.ts`: create,
+product-delivery create, follow-up create, sale-approval delivery, management patch, JOB-012
+proposal acceptance, available slots, follow-up auto-scheduler, offboarding transfer and manual
+Calendar writes. Re-offer, reassign/reschedule, proposal acceptance and any other allowed path
+that makes a released job occupy again take the users-first lock and re-check the interval with
+this job excluded. With the assignment window off, a legacy `ACCEPT_ASSIGNMENT` / `START` of a
+job whose newest offer is `DECLINED`/`RELEASED` performs the same lock and check, so a flag
+toggle cannot blindly reclaim the slot.
+
+`GET /api/calendar` (and any Calendar job projection) adds exactly one additive job field:
+
+```json
+{ "source": "JOB", "jobCardId": "uuid", "startsAt": "…", "endsAt": "…",
+  "staffReservationReleased": true }
+```
+
+`staffReservationReleased` is server-computed from the same predicate and is `false` for every
+other job. The event stays projected at the original interval, so the job, customer plan and
+assignee are not erased by the freed Staff interval. A legacy payload without the field is
+treated as `false`. Calendar remains optional; the field carries no new permission. Realtime
+refresh reuses the existing `job.updated` event and `calendar` resource key; no notification is
+added. No new flag or migration: the newest offer history already carries the fact.
+
+Rollback: an older binary counts released rows as occupied again. Pause conflicting reservation
+writers, enumerate the overlapping active Staff intervals and reconcile them through authorized
+commands before reverting; never auto-edit customer appointments, the job, assignee or history.
+Turning the optional Calendar or assignment window off does not erase the refusal or restore
+ownership of the slot.
 
 `GET /api/job-cards/assignment-offers/needs-action?limit&offset`
 
