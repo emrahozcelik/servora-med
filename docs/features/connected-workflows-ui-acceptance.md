@@ -35,3 +35,7 @@ validation, a calendar rejection, pending submission and the committed receipt
 through the real AppShell on a standard phone. For comparison,
 run the same script from the baseline checkout's `web/` directory with
 `CONNECTED_VISUAL_BASELINE=1`, a separate evidence directory and the baseline SHA.
+
+## RESCUE-003/B design handoff
+
+Use the [manager recovery form UI specification](../backlog/2026-11-28-rescue-003b/09-manager-recovery-form-ui-spec.md) for the unified decision surface. Its mobile/desktop wireframes, decision matrix and MF-01–14 evidence checklist refine the existing gate; A's accepted behavior stays intact.
