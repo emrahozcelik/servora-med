@@ -298,7 +298,9 @@ function contractFailures(measurement, viewport) {
       failures.push(`day number stretched into a ${measurement.maxDateButtonHeight}px pill`);
     }
     for (const chip of measurement.eventChips) {
-      if (chip.minHeight !== '0px') failures.push(`event chip keeps a min-height floor (${chip.minHeight})`);
+      if (chip.minHeight !== '44px' || chip.chipHeight < 44) {
+        failures.push(`event chip below owner-approved 44px floor (minHeight=${chip.minHeight}, height=${chip.chipHeight}px)`);
+      }
       if (chip.chipHeight > 50) failures.push(`event chip grew into a ${chip.chipHeight}px block`);
       if (chip.labelFontPixels < 12) failures.push(`event label type below 12px (${chip.labelFontPixels}px)`);
       if (!['İş', 'Plan'].includes(chip.kind)) failures.push('event source cue missing from the chip');

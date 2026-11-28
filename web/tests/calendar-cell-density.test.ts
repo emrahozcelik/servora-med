@@ -13,11 +13,12 @@ function block(selector: string): string {
 }
 
 describe('calendar month-cell density (visual review, C1 follow-up)', () => {
-  it('keeps the day number and event chips below the global 44px control floor', () => {
-    // `button { min-height: var(--control-height) }` must not stretch in-cell
-    // controls into pills; the compact mobile calendar uses native cells.
+  it('keeps the day number compact while enforcing the 44px --control-height floor on event chips', () => {
+    // `button { min-height: var(--control-height) }` must not stretch the C1
+    // day-number button into a pill, while month-cell event chips keep the
+    // owner-approved 44px target floor; the compact mobile calendar uses native cells.
     expect(block('.servora-calendar-date')).toMatch(/min-height:\s*0;/);
-    expect(block('.servora-calendar-event-summary')).toMatch(/min-height:\s*0;/);
+    expect(block('.servora-calendar-event-summary')).toMatch(/min-height:\s*var\(--control-height\);/);
   });
 
   it('removes box chrome from chips inside a cell', () => {

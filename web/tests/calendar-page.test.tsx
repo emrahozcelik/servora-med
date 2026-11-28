@@ -1207,6 +1207,73 @@ describe('CalendarPage RESCUE-004/A staffReservationReleased presentation', () =
     expect(jobsApi.patchJobCard).toHaveBeenCalledTimes(1);
   });
 
+  it('clears released intervention notice after a window-on same-assignee schedule save refreshes calendar', async () => {
+    const reacquiredJobEvent = {
+      ...releasedJobEvent,
+      version: 3,
+      startsAt: '2026-07-29T14:00:00.000Z',
+      endsAt: '2026-07-29T15:00:00.000Z',
+      staffReservationReleased: false,
+    };
+    let currentReleasedEvent = releasedJobEvent;
+    calendarApi.listCalendar.mockImplementation(async () => [
+      currentReleasedEvent,
+      reservedJobEvent,
+      manualEvent,
+    ]);
+    jobsApi.patchJobCard.mockImplementationOnce(async () => {
+      currentReleasedEvent = reacquiredJobEvent;
+      return {
+        id: 'job-1',
+        version: 3,
+        assignedTo: 'staff-1',
+        title: releasedJobEvent.title,
+        assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+        assignmentTransitionId: null,
+      };
+    });
+
+    await render(manager, '/calendar?event=job-released-1');
+
+    const releasedCardBefore = Array.from(container.querySelectorAll('.calendar-event-card'))
+      .find((card) => card.textContent?.includes('Anadolu Dental ürün teslimi'))!;
+    expect(releasedCardBefore.className).toContain('calendar-event-card--released');
+    expect(releasedCardBefore.querySelector('.calendar-released-badge')).toBeTruthy();
+
+    const editBtnBefore = Array.from(releasedCardBefore.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Düzenle')!;
+    await act(async () => editBtnBefore.click());
+
+    const drawer = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    expect(drawer.querySelector('.calendar-form-released-notice')).toBeTruthy();
+    const startInput = drawer.querySelector<HTMLInputElement>('#calendar-event-starts-at')!;
+    await act(async () => {
+      setReactValue(startInput, isoInstantToLocalDateTime(reacquiredJobEvent.startsAt));
+    });
+    await act(async () => {
+      drawer.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    expect(jobsApi.patchJobCard).toHaveBeenCalledTimes(1);
+    const updatedCard = Array.from(container.querySelectorAll('.calendar-event-card'))
+      .find((card) => card.textContent?.includes('Anadolu Dental ürün teslimi'))!;
+    expect(updatedCard.className).not.toContain('calendar-event-card--released');
+    expect(updatedCard.querySelector('.calendar-released-badge')).toBeNull();
+    expect(updatedCard.querySelector('.calendar-event-released-note')).toBeNull();
+    const updatedChip = container.querySelector<HTMLButtonElement>('button[data-event-id="job-released-1"]')!;
+    expect(updatedChip.className).not.toContain('servora-calendar-event-summary--released');
+    expect(updatedChip.hasAttribute('data-reservation-released')).toBe(false);
+
+    const editBtnAfter = Array.from(updatedCard.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Düzenle')!;
+    await act(async () => editBtnAfter.click());
+    const reopenedDrawer = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    expect(reopenedDrawer.querySelector('.calendar-form-released-notice')).toBeNull();
+    expect(reopenedDrawer.querySelector<HTMLInputElement>('#calendar-event-starts-at')?.value)
+      .toBe(isoInstantToLocalDateTime(reacquiredJobEvent.startsAt));
+  });
+
   it('renders mobile compact attention cell semantics and agenda intervention details at 390px', async () => {
     resizeTo(390);
     await render();

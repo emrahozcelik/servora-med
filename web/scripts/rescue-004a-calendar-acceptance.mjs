@@ -72,6 +72,7 @@ function createInitialEvents() {
       relatedJobPath: `/jobs/${releasedJobId}`,
       followUpContext: null,
       staffReservationReleased: true,
+      offerState: 'DECLINED',
     },
     {
       id: reservedJobId,
@@ -132,7 +133,43 @@ function createInitialEvents() {
   ];
 }
 
-function makeJobDetail(event) {
+function makeJobDetail(event, { assignmentWindowEnabled = true } = {}) {
+  let assignmentOffer = null;
+  if (assignmentWindowEnabled) {
+    if (event.offerState === 'DECLINED') {
+      assignmentOffer = {
+        id: '99999999-9999-4999-8999-999999999999',
+        state: 'DECLINED',
+        openedAt: '2026-11-25T12:00:00.000Z',
+        acceptanceDueAt: '2026-11-26T08:00:00.000Z',
+        urgentReason: null,
+        assignee: event.assignedUser,
+        closedAt: '2026-11-26T07:30:00.000Z',
+        closeReason: 'OUT_OF_TOWN',
+        closeText: 'Şehir dışındayım.',
+        suggestedSolution: 'REASSIGN',
+        proposedScheduledAt: null,
+        proposedScheduledEndsAt: null,
+        proposalAcceptedAt: null,
+      };
+    } else if (event.offerState === 'OPEN') {
+      assignmentOffer = {
+        id: '99999999-9999-4999-8999-999999999998',
+        state: 'OPEN',
+        openedAt: fixedClock,
+        acceptanceDueAt: '2026-11-27T14:00:00.000Z',
+        urgentReason: null,
+        assignee: event.assignedUser,
+        closedAt: null,
+        closeReason: null,
+        closeText: null,
+        suggestedSolution: null,
+        proposedScheduledAt: null,
+        proposedScheduledEndsAt: null,
+        proposalAcceptedAt: null,
+      };
+    }
+  }
   return {
     id: event.jobCardId,
     organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -157,23 +194,7 @@ function makeJobDetail(event) {
     followUpContext: null,
     hasOpenOverdueIncident: false,
     correctionDueAt: null,
-    assignmentOffer: event.staffReservationReleased
-      ? {
-          id: '99999999-9999-4999-8999-999999999999',
-          state: 'DECLINED',
-          openedAt: '2026-11-25T12:00:00.000Z',
-          acceptanceDueAt: '2026-11-26T08:00:00.000Z',
-          urgentReason: null,
-          assignee: event.assignedUser,
-          closedAt: '2026-11-26T07:30:00.000Z',
-          closeReason: 'OUT_OF_TOWN',
-          closeText: 'Şehir dışındayım.',
-          suggestedSolution: 'REASSIGN',
-          proposedScheduledAt: null,
-          proposedScheduledEndsAt: null,
-          proposalAcceptedAt: null,
-        }
-      : null,
+    assignmentOffer,
     changeRequest: null,
     workflowContext: {
       allowedCommands: ['CANCEL'],
@@ -251,6 +272,7 @@ const report = {
   screenshots: [],
   viewports: [],
   interactions: {},
+  windowOffScenario: {},
   moduleOff: {},
   issues: [],
 };
@@ -279,6 +301,7 @@ async function measureOverlayTargets(container, selector) {
 
 async function setupCalendarPage(browser, url, options = {}) {
   const calendarEnabled = options.calendarEnabled ?? true;
+  const assignmentWindowEnabled = options.assignmentWindowEnabled ?? true;
   const user = makeUser(calendarEnabled);
   const events = createInitialEvents();
   const context = await browser.newContext({
@@ -321,11 +344,13 @@ async function setupCalendarPage(browser, url, options = {}) {
     }
     if (method === 'POST' && pathname === '/api/notifications/read-by-entity') return send({ markedCount: 0 });
 
+    const toCalendarDto = ({ offerState: _offerState, ...event }) => event;
+
     if (method === 'GET' && pathname === '/api/calendar') {
       if (!calendarEnabled) {
         return send({ code: 'MODULE_DISABLED', error: 'Takvim modülü kapalı.' }, 403);
       }
-      return send({ items: events });
+      return send({ items: events.map(toCalendarDto) });
     }
     if (method === 'GET' && pathname === '/api/calendar/assignees') {
       return send({ items: [staff, successor] });
@@ -333,7 +358,7 @@ async function setupCalendarPage(browser, url, options = {}) {
     if (method === 'GET' && pathname.startsWith('/api/calendar/events/')) {
       const id = pathname.split('/').pop();
       const found = events.find((e) => e.id === id);
-      return found ? send(found) : send({ code: 'NOT_FOUND', error: 'Bulunamadı.' }, 404);
+      return found ? send(toCalendarDto(found)) : send({ code: 'NOT_FOUND', error: 'Bulunamadı.' }, 404);
     }
     if (method === 'POST' && pathname === '/api/job-cards/available-slots') {
       return send({
@@ -433,7 +458,9 @@ async function setupCalendarPage(browser, url, options = {}) {
       const id = parts[3];
       if (parts.length === 4) {
         const found = events.find((e) => e.jobCardId === id);
-        return found ? send(makeJobDetail(found)) : send({ code: 'NOT_FOUND', error: 'Bulunamadı.' }, 404);
+        return found
+          ? send(makeJobDetail(found, { assignmentWindowEnabled }))
+          : send({ code: 'NOT_FOUND', error: 'Bulunamadı.' }, 404);
       }
       if (pathname.endsWith('/submission-lateness')) return send({ open: null });
       if (pathname.endsWith('/sale-create-context')) {
@@ -474,15 +501,26 @@ async function setupCalendarPage(browser, url, options = {}) {
       }
       const idx = events.findIndex((e) => e.jobCardId === id);
       if (idx >= 0) {
+        const prev = events[idx];
+        const nextStartsAt = body.scheduledAt ?? prev.startsAt;
+        const nextEndsAt = body.scheduledAt
+          ? new Date(new Date(body.scheduledAt).getTime() + 60 * 60_000).toISOString()
+          : prev.endsAt;
+        const nextAssigneeId = body.assignedTo ?? prev.assignedUser.id;
+        const nextAssignee = [staff, successor].find((person) => person.id === nextAssigneeId) ?? prev.assignedUser;
+        const scheduleChanged = nextStartsAt !== prev.startsAt;
+        const assigneeChanged = nextAssignee.id !== prev.assignedUser.id;
+        const reacquiredOnWindowOn = assignmentWindowEnabled && (scheduleChanged || assigneeChanged);
         events[idx] = {
-          ...events[idx],
-          version: events[idx].version + 1,
-          startsAt: body.scheduledAt ?? events[idx].startsAt,
-          endsAt: body.scheduledAt
-            ? new Date(new Date(body.scheduledAt).getTime() + 60 * 60_000).toISOString()
-            : events[idx].endsAt,
+          ...prev,
+          version: prev.version + 1,
+          assignedUser: nextAssignee,
+          startsAt: nextStartsAt,
+          endsAt: nextEndsAt,
+          offerState: reacquiredOnWindowOn ? 'OPEN' : prev.offerState,
+          staffReservationReleased: reacquiredOnWindowOn ? false : prev.staffReservationReleased,
         };
-        return send(makeJobDetail(events[idx]));
+        return send(makeJobDetail(events[idx], { assignmentWindowEnabled }));
       }
       return send({ code: 'NOT_FOUND', error: 'Bulunamadı.' }, 404);
     }
@@ -533,7 +571,7 @@ async function measureCalendar(page, mode) {
       '.mobile-top-bar button',
       '.mobile-top-bar a',
     ];
-    if (!currentMode.compact && currentMode.width >= 1440) {
+    if (!currentMode.compact) {
       targetSelectors.push('.servora-calendar-event-summary');
     }
     for (const selector of targetSelectors) {
@@ -562,7 +600,17 @@ async function measureCalendar(page, mode) {
         };
       })
       .filter((entry) => entry.width > 0 && entry.height > 0);
-    const desktopChipDimensions = [...document.querySelectorAll('.servora-calendar-event-summary')]
+    const compactNativeDateCells = [...document.querySelectorAll('.servora-calendar--compact [class*="picker-calendar-date"]')]
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          label: el.querySelector('[class*="picker-calendar-date-value"]')?.textContent?.trim() ?? '',
+          width: Math.round(rect.width * 100) / 100,
+          height: Math.round(rect.height * 100) / 100,
+        };
+      })
+      .filter((entry) => entry.width > 0 && entry.height > 0);
+    const renderedChipDimensions = [...document.querySelectorAll('.servora-calendar-event-summary')]
       .map((el) => {
         const rect = el.getBoundingClientRect();
         return {
@@ -574,11 +622,19 @@ async function measureCalendar(page, mode) {
       });
 
     const samplePageCreate = document.querySelector('.page-create-action');
+    const sampleActionButton = document.querySelector('.calendar-event-actions button');
+    const sampleActionLink = document.querySelector('.calendar-event-actions a');
     const sampleHeading = document.querySelector('.calendar-agenda-heading');
     const sampleTransitionEl = document.querySelector('.calendar-help a, .servora-calendar-item');
     const rootFontPx = Math.round(Number.parseFloat(getComputedStyle(document.documentElement).fontSize) * 100) / 100;
     const pageCreateFontPx = samplePageCreate && getComputedStyle(samplePageCreate).display !== 'none'
       ? Math.round(Number.parseFloat(getComputedStyle(samplePageCreate).fontSize) * 100) / 100
+      : null;
+    const calendarActionButtonFontPx = sampleActionButton
+      ? Math.round(Number.parseFloat(getComputedStyle(sampleActionButton).fontSize) * 100) / 100
+      : null;
+    const calendarActionLinkFontPx = sampleActionLink
+      ? Math.round(Number.parseFloat(getComputedStyle(sampleActionLink).fontSize) * 100) / 100
       : null;
     const agendaHeadingFontPx = sampleHeading
       ? Math.round(Number.parseFloat(getComputedStyle(sampleHeading).fontSize) * 100) / 100
@@ -624,6 +680,8 @@ async function measureCalendar(page, mode) {
       dpr: window.devicePixelRatio,
       rootFontPx,
       pageCreateFontPx,
+      calendarActionButtonFontPx,
+      calendarActionLinkFontPx,
       agendaHeadingFontPx,
       reducedMotionMatches,
       computedTransitionDuration,
@@ -633,11 +691,16 @@ async function measureCalendar(page, mode) {
       targets,
       minTargetPx: targets.length ? Math.min(...targets.map((t) => Math.min(t.width, t.height))) : 0,
       dayGridConstraints: {
-        note: 'Pre-existing C1 monthly grid density contract (min-height: 0 on .servora-calendar-date and <=50px month-cell chips, enforced by calendar-responsive-smoke.mjs).',
+        note: 'Untouched C1 day-number buttons (.servora-calendar-date, min-height: 0) and compact mobile native cells are tracked separately from touched --control-height (>=44px) .servora-calendar-event-summary event chips.',
         dateButtonsCount: dayGridDateButtons.length,
         dateButtonMinHeightPx: dayGridDateButtons.length ? Math.min(...dayGridDateButtons.map((d) => d.height)) : null,
         dateButtonSample: dayGridDateButtons.slice(0, 3),
-        desktopChipDimensions,
+        compactNativeDateCellsCount: compactNativeDateCells.length,
+        compactNativeDateCellMinHeightPx: compactNativeDateCells.length
+          ? Math.min(...compactNativeDateCells.map((d) => d.height))
+          : null,
+        compactNativeDateCellSample: compactNativeDateCells.slice(0, 3),
+        renderedChipDimensions,
       },
       cards,
       desktopChips,
@@ -681,7 +744,7 @@ try {
     requireCheck(subMinText.length === 0, `${mode.name}: text below 12px (${JSON.stringify(subMinText)})`);
     for (const target of metrics.targets) {
       requireCheck(
-        target.width >= 43.5 && target.height >= 43.5,
+        target.width >= 44 && target.height >= 44,
         `${mode.name}: target "${target.label}" below 44 CSS px (${target.width}x${target.height})`,
       );
     }
@@ -692,6 +755,18 @@ try {
       requireCheck(
         metrics.rootFontPx >= expectedRootPx - 0.1,
         `200pct: computed root font-size ${metrics.rootFontPx}px below 200% of ${baseline390?.rootFontPx ?? 16}px`,
+      );
+      requireCheck(
+        (metrics.pageCreateFontPx ?? 0) >= (baseline390?.pageCreateFontPx ?? 16) * 2 - 0.1,
+        `200pct: computed .page-create-action font-size ${metrics.pageCreateFontPx}px did not scale from ${baseline390?.pageCreateFontPx ?? 16}px to 200%`,
+      );
+      requireCheck(
+        (metrics.calendarActionButtonFontPx ?? 0) >= (baseline390?.calendarActionButtonFontPx ?? 16) * 2 - 0.1,
+        `200pct: computed .calendar-event-actions button font-size ${metrics.calendarActionButtonFontPx}px did not scale from ${baseline390?.calendarActionButtonFontPx ?? 16}px to 200%`,
+      );
+      requireCheck(
+        (metrics.calendarActionLinkFontPx ?? 0) >= (baseline390?.calendarActionLinkFontPx ?? 16) * 2 - 0.1,
+        `200pct: computed .calendar-event-actions a font-size ${metrics.calendarActionLinkFontPx}px did not scale from ${baseline390?.calendarActionLinkFontPx ?? 16}px to 200%`,
       );
       requireCheck(
         (metrics.agendaHeadingFontPx ?? 0) >= (baseline390?.agendaHeadingFontPx ?? 16) * 2 - 0.1,
@@ -774,7 +849,7 @@ try {
       );
       for (const target of drawerTargets) {
         requireCheck(
-          target.width >= 43.5 && target.height >= 43.5,
+          target.width >= 44 && target.height >= 44,
           `interactive-${width}: drawer target "${target.label}" below 44 CSS px (${target.width}x${target.height})`,
         );
       }
@@ -793,7 +868,7 @@ try {
         );
         for (const target of wheelTargets) {
           requireCheck(
-            target.width >= 43.5 && target.height >= 43.5,
+            target.width >= 44 && target.height >= 44,
             `interactive-390: wheel target "${target.label}" below 44 CSS px (${target.width}x${target.height})`,
           );
         }
@@ -849,25 +924,36 @@ try {
       assert.equal(await drawer.locator('.available-slot-chip').first().isDisabled(), true);
       await captureScreenshot(page, `calendar-form-pending-${width}.png`);
 
-      // Release PATCH -> drawer closes, Calendar refreshes with saved 17:00–18:00 interval
+      // Release PATCH -> window-on same-assignee schedule save opens fresh OPEN offer,
+      // flips staffReservationReleased to false, and clears the Calendar warning.
       releasePatch();
       await drawer.waitFor({ state: 'hidden' });
-      await releasedCard.locator('.calendar-event-time', { hasText: '17:00 – 18:00' }).waitFor();
+      const updatedCard = page.locator('.calendar-event-card', { hasText: 'Anadolu Dental ürün teslimi' });
+      await updatedCard.locator('.calendar-event-time', { hasText: '17:00 – 18:00' }).waitFor();
+      await updatedCard.locator('.calendar-released-badge').waitFor({ state: 'detached' });
+      assert.equal(await updatedCard.evaluate((el) => el.classList.contains('calendar-event-card--released')), false);
+      assert.equal(await updatedCard.locator('.calendar-released-badge').count(), 0);
+      assert.equal(await updatedCard.locator('.calendar-event-released-note').count(), 0);
       if (width === 1440) {
-        await page.locator(`button.servora-calendar-event-summary[data-event-id="${releasedJobId}"] .servora-calendar-event-time`, { hasText: '17:00' }).waitFor();
+        const updatedChip = page.locator(`button.servora-calendar-event-summary[data-event-id="${releasedJobId}"]`);
+        await updatedChip.locator('.servora-calendar-event-time', { hasText: '17:00' }).waitFor();
+        assert.equal(await updatedChip.evaluate((el) => el.classList.contains('servora-calendar-event-summary--released')), false);
+        assert.equal(await updatedChip.getAttribute('data-reservation-released'), null);
+        assert.equal(await updatedChip.locator('.servora-calendar-event-status').count(), 0);
         await captureScreenshot(page, `calendar-form-success-${width}.png`);
       } else {
-        await releasedCard.scrollIntoViewIfNeeded();
+        await updatedCard.scrollIntoViewIfNeeded();
         await captureScreenshot(page, `calendar-form-success-${width}.png`, { fullPage: false });
       }
       assert.equal(patches.length, 2);
       assert.equal(patches[1].id, releasedJobId);
       assert.equal(patches[1].body.scheduledAt, '2026-11-26T14:00:00.000Z');
+      assert.equal(patches[1].body.assignedTo, staff.id);
 
-      // Reopen editing drawer -> confirms saved server time and preserved released notice
-      await releasedCard.getByRole('button', { name: 'Düzenle' }).click();
-      await drawer.locator('.calendar-form-released-notice').waitFor();
+      // Reopen editing drawer -> confirms saved server time and cleared released notice
+      await updatedCard.getByRole('button', { name: 'Düzenle' }).click();
       await drawer.locator('.available-slot-chip').first().waitFor();
+      assert.equal(await drawer.locator('.calendar-form-released-notice').count(), 0);
       if (width === 390) {
         assert.match((await drawer.locator('#calendar-event-starts-at').textContent()) ?? '', /17:00/);
       } else {
@@ -877,9 +963,15 @@ try {
       await drawer.getByRole('button', { name: 'Vazgeç' }).click();
       await drawer.waitFor({ state: 'hidden' });
 
-      // Route navigation: Calendar -> JobDetail -> back to Calendar
-      await releasedCard.getByRole('link', { name: 'İşi aç' }).click();
+      // Route navigation: Calendar -> JobDetail (confirms fresh OPEN offer) -> back to Calendar
+      const jobDetailResponsePromise = page.waitForResponse(
+        (res) => res.url().includes(`/api/job-cards/${releasedJobId}`) && res.request().method() === 'GET' && !res.url().includes('/submission-lateness') && !res.url().includes('/sale-create-context'),
+      );
+      await updatedCard.getByRole('link', { name: 'İşi aç' }).click();
       await page.waitForURL(new RegExp(`/jobs/${releasedJobId}$`));
+      const jobDetailJson = await (await jobDetailResponsePromise).json();
+      assert.equal(jobDetailJson.scheduledAt, '2026-11-26T14:00:00.000Z');
+      assert.equal(jobDetailJson.assignmentOffer?.state, 'OPEN');
       await page.locator('h1', { hasText: 'Anadolu Dental ürün teslimi' }).waitFor();
 
       const backControl = width < 1024
@@ -887,7 +979,8 @@ try {
         : page.getByRole('link', { name: 'Takvime dön' });
       await backControl.click();
       await page.waitForURL(/\/calendar/);
-      await page.locator('.calendar-event-card--released').waitFor();
+      await page.locator('.calendar-event-card', { hasText: 'Anadolu Dental ürün teslimi' }).waitFor();
+      assert.equal(await page.locator('.calendar-event-card', { hasText: 'Anadolu Dental ürün teslimi' }).locator('.calendar-released-badge').count(), 0);
 
       requireCheck(errors.length === 0, `interactive-${width}: page errors (${errors.join(', ')})`);
       requireCheck(unexpectedRequests.length === 0, `interactive-${width}: unexpected requests (${unexpectedRequests.join(', ')})`);
@@ -900,12 +993,58 @@ try {
         wheel: wheelResult,
         conflictErrorShownAndDraftPreserved: true,
         pendingDisabledAndLoadingVerified: true,
+        windowOnSameAssigneeReacquired: true,
+        staffReservationReleasedFlippedFalse: true,
+        warningClearedAfterSave: true,
+        freshOpenOfferOnJobDetail: jobDetailJson.assignmentOffer?.state === 'OPEN',
         successPersistedAndReopenedVerified: true,
         patchNotBlockedByClient: patches.length === 2,
         roundTripNavigationOk: true,
       };
     } finally {
       releasePatch();
+      await context.close();
+    }
+  }
+
+  // 2b. Separately named window-off scenario (DECISIONS.md RESCUE-004/A §7):
+  // assignment-window off does not open a fresh offer on reschedule, so staffReservationReleased stays true.
+  {
+    const session = await setupCalendarPage(browser, url, {
+      width: 1440,
+      height: 900,
+      assignmentWindowEnabled: false,
+    });
+    const { page, context, errors, unexpectedRequests, patches } = session;
+    try {
+      const releasedCard = page.locator('.calendar-event-card--released');
+      await releasedCard.getByRole('button', { name: 'Düzenle' }).click();
+      const drawer = page.locator('[data-servora-form-drawer] [role="dialog"]');
+      await drawer.locator('.calendar-form-released-notice').waitFor();
+      await drawer.locator('#calendar-event-starts-at').fill('2026-11-26T17:00');
+      await drawer.getByRole('button', { name: 'Kaydet' }).click();
+      await drawer.waitFor({ state: 'hidden' });
+
+      const updatedWindowOffCard = page.locator('.calendar-event-card--released');
+      await updatedWindowOffCard.locator('.calendar-event-time', { hasText: '17:00 – 18:00' }).waitFor();
+      await updatedWindowOffCard.locator('.calendar-released-badge').waitFor();
+      assert.equal(patches.length, 1);
+
+      await updatedWindowOffCard.getByRole('button', { name: 'Düzenle' }).click();
+      await drawer.locator('.calendar-form-released-notice').waitFor();
+      assert.equal(await drawer.locator('#calendar-event-starts-at').inputValue(), '2026-11-26T17:00');
+      await drawer.getByRole('button', { name: 'Vazgeç' }).click();
+      await drawer.waitFor({ state: 'hidden' });
+
+      requireCheck(errors.length === 0, `window-off: page errors (${errors.join(', ')})`);
+      requireCheck(unexpectedRequests.length === 0, `window-off: unexpected requests (${unexpectedRequests.join(', ')})`);
+      report.windowOffScenario = {
+        status: 'passed',
+        assignmentWindowEnabled: false,
+        savedTime: '17:00 – 18:00',
+        staffReservationReleasedPreservedTrue: true,
+      };
+    } finally {
       await context.close();
     }
   }
