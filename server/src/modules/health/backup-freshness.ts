@@ -5,8 +5,11 @@ export {BACKUP_TRIGGER_CLASSES,BACKUP_ATTEMPT_RESULTS,BACKUP_FAILURE_CLASSES,BAC
   parseObservationInstant,parseBackupObservationState} from '../../../../ops/scripts/backup-observation.mjs';
 export type {BackupTriggerClass,BackupAttemptResult,BackupFailureClass,BackupObservationAttempt,
   BackupObservationSuccess,BackupObservationState} from '../../../../ops/scripts/backup-observation.mjs';
+import { BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS } from '../backup/freshness-policy.js';
+
+export { BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS };
+
 export type BackupProviderStatus='healthy'|'stale'|'failed'|'unavailable'|'disabled';
-export const BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS=26*60*60*1000;
 
 function freshness(success:BackupObservationSuccess|null,current:TimeEvidence|null):'healthy'|'stale'|'unavailable' {
   try {validateCurrentTimeEvidence(current);}catch{return 'unavailable';}

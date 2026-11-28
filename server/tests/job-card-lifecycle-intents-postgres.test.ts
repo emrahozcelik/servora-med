@@ -42,10 +42,10 @@ async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
 }
 
 describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => {
-  it('catalog head is 076 with 76 migrations', async () => {
+  it('catalog head is 077 with 77 migrations', async () => {
     const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-    expect(catalog.head?.version).toBe('076_assignment_offer_suggested_solution');
-    expect(catalog.count).toBe(76);
+    expect(catalog.head?.version).toBe('077_backup_worker_trusted_time_evidence');
+    expect(catalog.count).toBe(77);
   });
 
   it('applies 001 -> 069 on an empty schema with an empty intent table', async () => {
@@ -53,8 +53,8 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
-      expect(applied.rows.map((row) => row.version).at(-1)).toBe('076_assignment_offer_suggested_solution');
-      expect(applied.rows).toHaveLength(76);
+      expect(applied.rows.map((row) => row.version).at(-1)).toBe('077_backup_worker_trusted_time_evidence');
+      expect(applied.rows).toHaveLength(77);
       const count = await pool.query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM job_card_lifecycle_intents',
       );
@@ -83,7 +83,7 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
           && file !== '053_overdue_submission_reminders.sql'
           && file !== '054_job_action_locations_submit_approval.sql'
           && file !== '055_job_submit_location_comparison.sql'
-          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql' && file !== '062_follow_up_cycle_end_reason.sql' && file !== '063_job_card_early_start_authorizations.sql' && file !== '064_job_card_change_requests.sql' && file !== '065_job_card_assignment_offers.sql' && file !== '066_overdue_correction_deadline_and_extension.sql' && file !== '067_overdue_delivery_identity_per_incident.sql' && file !== '068_weekly_report_workweek.sql' && file !== '069_lateness_alerts_and_quiet_hours.sql' && file !== '070_overdue_incident_invalidation_closure.sql' && file !== '071_sale_standalone_and_delivery_link.sql' && file !== '072_sale_submit_without_start.sql' && file !== '073_assignment_offer_time_proposal.sql' && file !== '074_installation_operator_and_module_state.sql' && file !== '075_installation_module_registry_widening.sql' && file !== '076_assignment_offer_suggested_solution.sql',
+          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql' && file !== '062_follow_up_cycle_end_reason.sql' && file !== '063_job_card_early_start_authorizations.sql' && file !== '064_job_card_change_requests.sql' && file !== '065_job_card_assignment_offers.sql' && file !== '066_overdue_correction_deadline_and_extension.sql' && file !== '067_overdue_delivery_identity_per_incident.sql' && file !== '068_weekly_report_workweek.sql' && file !== '069_lateness_alerts_and_quiet_hours.sql' && file !== '070_overdue_incident_invalidation_closure.sql' && file !== '071_sale_standalone_and_delivery_link.sql' && file !== '072_sale_submit_without_start.sql' && file !== '073_assignment_offer_time_proposal.sql' && file !== '074_installation_operator_and_module_state.sql' && file !== '075_installation_module_registry_widening.sql' && file !== '076_assignment_offer_suggested_solution.sql' && file !== '077_backup_worker_trusted_time_evidence.sql',
         )
         .sort();
       expect(files).toHaveLength(48);
@@ -109,13 +109,13 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
           '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident', '068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start',
           '073_assignment_offer_time_proposal',
           '074_installation_operator_and_module_state',
-          '075_installation_module_registry_widening', '076_assignment_offer_suggested_solution',
+          '075_installation_module_registry_widening', '076_assignment_offer_suggested_solution', '077_backup_worker_trusted_time_evidence',
         ],
       });
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]!.version).toBe('076_assignment_offer_suggested_solution');
+      expect(head.rows[0]!.version).toBe('077_backup_worker_trusted_time_evidence');
     } finally {
       await pool?.end();
       if (subsetDir) await rm(subsetDir, { recursive: true, force: true });

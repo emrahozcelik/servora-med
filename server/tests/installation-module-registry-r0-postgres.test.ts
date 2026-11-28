@@ -60,6 +60,7 @@ const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', impor
 const MIGRATION_074 = '074_installation_operator_and_module_state';
 const MIGRATION_075 = '075_installation_module_registry_widening';
 const MIGRATION_076 = '076_assignment_offer_suggested_solution';
+const MIGRATION_077 = '077_backup_worker_trusted_time_evidence';
 
 const ORIGIN = 'http://127.0.0.1:5173';
 const OPERATOR_COOKIE = 'servora_operator_session';
@@ -421,7 +422,7 @@ describe.skipIf(!databaseUrl)('R0-1 migration 075 widens the registry constraint
     const head = (await pool.query<{ version: string }>(
       `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`,
     )).rows[0]!.version;
-    expect(head).toBe(MIGRATION_076);
+    expect(head).toBe(MIGRATION_077);
 
     const constraints = (await pool.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint
@@ -590,10 +591,10 @@ describe.skipIf(!databaseUrl)('R0-1 migration 075 widens the registry constraint
       const upgrade = await runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY, store, logger: silentLogger,
       });
-      expect(upgrade.appliedVersions).toEqual([MIGRATION_075, MIGRATION_076]);
+      expect(upgrade.appliedVersions).toEqual([MIGRATION_075, MIGRATION_076, MIGRATION_077]);
       expect((await upgradePool.query<{ version: string }>(
         `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`,
-      )).rows[0]!.version).toBe(MIGRATION_076);
+      )).rows[0]!.version).toBe(MIGRATION_077);
 
       // No DML: the existing row and audit event are untouched.
       const overview = (await upgradePool.query(

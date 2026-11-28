@@ -55,7 +55,7 @@ Private operator environment file, e.g. `/etc/servora-med/servora-med-alerting.e
 | `SERVORA_ALERT_HEALTH_URL` | `http://127.0.0.1:3000/api/health` | Application health endpoint (app contract is unchanged). |
 | `SERVORA_ALERT_BACKUP_DIR` | — | Read-only backup directory. Required when enabled. |
 | `SERVORA_ALERT_BACKUP_SOURCE` | `legacy` | `legacy` keeps the dump/sidecar check; `verified-runs` consumes BR5 scheduled health; `host-observation` requires the backend host projection on every run. Host installations must select it explicitly before monitor activation. |
-| `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` | `26` | Max accepted age of the latest valid backup. |
+| `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` | `26` | Max accepted age of the latest valid backup for the legacy local source. |
 | `SERVORA_ALERT_DISK_PATH` | `/` | Filesystem to check (internal only, never leaves the host). |
 | `SERVORA_ALERT_DISK_LABEL` | `disk-target` | Safe payload label for the disk target; validated as a safe label and must not equal the disk path. |
 | `SERVORA_ALERT_DISK_MIN_FREE_PERCENT` | `15` | Minimum free percent (0–100). |
@@ -377,9 +377,11 @@ missing scheduled evidence cannot be promoted by a local file scan or a separate
 UTC calculation. `ageHours` is null for this provider; original age decisions
 belong to `evaluateBackupProviderStatus()`.
 
-The legacy non-host and BR5 branches retain their existing behavior. Their
-continued presence does not establish trusted-time acceptance for BR5. Production
-enablement and webhook provisioning still require separate authorization.
+With `SERVORA_ALERT_BACKUP_SOURCE=verified-runs`, the monitor uses the
+`br5-r2` provider's `status` and `providerStatus`. Display timestamps are
+diagnostic, and the monitor leaves `ageHours` empty for this source. The BR5
+provider blocks positive health pending OT3-C and OT3-D. Production enablement
+and webhook provisioning require separate authorization.
 
 
 ### PR #394: explicit host source and probe failures

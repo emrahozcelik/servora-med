@@ -52,6 +52,7 @@ import { MINUTE_MS, readDbBaseline } from './support/db-clock-baseline.js';
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 const MIGRATION_076 = '076_assignment_offer_suggested_solution';
+const MIGRATION_077 = '077_backup_worker_trusted_time_evidence';
 
 const WINDOW_ON = { enabled: true } as const;
 const WINDOW_OFF = { enabled: false } as const;
@@ -966,7 +967,7 @@ describe.skipIf(!databaseUrl)('RESCUE-002 — assignment suggested solution', ()
       });
 
       const upgrade = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
-      expect(upgrade.appliedVersions).toEqual([MIGRATION_076]);
+      expect(upgrade.appliedVersions).toEqual([MIGRATION_076, MIGRATION_077]);
 
       const rows = (await readOffers(pool, job.id)).filter((row) => row.state === 'DECLINED');
       expect(rows).toHaveLength(2);
@@ -1136,7 +1137,7 @@ describe.skipIf(!databaseUrl)('RESCUE-002 — assignment suggested solution', ()
         'SELECT version FROM schema_migrations ORDER BY version ASC',
       );
       expect(applied.rows.at(-1)?.version).toBe('075_installation_module_registry_widening');
-      expect(applied.rows.some((row) => row.version === MIGRATION_076)).toBe(false);
+      expect(applied.rows.some((row) => row.version === MIGRATION_077)).toBe(false);
       const column = await pool.query<{ exists: boolean }>(
         `SELECT EXISTS (
            SELECT 1 FROM information_schema.columns

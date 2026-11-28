@@ -1,11 +1,11 @@
 /** HTTP-only isolation; the fixed TT-A sampler and its security rules are unchanged. */
 import {spawn,type ChildProcess} from 'node:child_process';
 import {performance} from 'node:perf_hooks';
-import {validateCurrentTimeEvidence,type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
+import {validateCurrentTimeEvidence,type CurrentTimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
 
 export const HEALTH_TIME_SAMPLE_TIMEOUT_MS=3000;
 const MAX_OUTPUT_BYTES=16*1024;
-export type TrustedTimeSampler={sample():Promise<TimeEvidence|null>;close():Promise<void>};
+export type TrustedTimeSampler={sample():Promise<CurrentTimeEvidence|null>;close():Promise<void>};
 const samplerUrl=new URL('../../../../ops/scripts/trusted-time.mjs',import.meta.url).href;
 const program=`import {sampleTrustedTime} from ${JSON.stringify(samplerUrl)};process.stdout.write(JSON.stringify(sampleTrustedTime()));`;
 function spawnFixedSampler():ChildProcess {
@@ -31,8 +31,8 @@ export function createTrustedTimeSampler(
       const started=performance.now();
       let resolveDone!:()=>void;
       const done=new Promise<void>(resolve=>{resolveDone=resolve;});
-      let resolveSample!:(time:TimeEvidence|null)=>void;
-      const result=new Promise<TimeEvidence|null>(resolve=>{resolveSample=resolve;});
+      let resolveSample!:(time:CurrentTimeEvidence|null)=>void;
+      const result=new Promise<CurrentTimeEvidence|null>(resolve=>{resolveSample=resolve;});
       let invalid=false,output=Buffer.alloc(0);
       const kill=()=>{
         invalid=true;resolveSample(null);
@@ -53,7 +53,7 @@ export function createTrustedTimeSampler(
       child.once('error',()=>{invalid=true;resolveSample(null);});
       child.once('close',(code)=>{
         clearTimeout(timer);
-        let time:TimeEvidence|null=null;
+        let time:CurrentTimeEvidence|null=null;
         if(!invalid&&code===0&&performance.now()-started<=timeoutMs) {
           try {time=validateCurrentTimeEvidence(JSON.parse(output.toString('utf8')));}catch { /* Untrusted output denies. */ }
         }
