@@ -715,11 +715,24 @@ export type CreateChangeRequestReceipt = {
   requestedAt: string;
 };
 
-export type PatchChangeRequestResolution = {
-  changeRequestId: string;
-  resolution: 'RESCHEDULED' | 'CORRECTED';
-  note?: string | null;
-};
+/**
+ * OVR-5b §4.11 / RESCUE-003/B: the change-request closure carried by a job
+ * patch. `CORRECTED` is evidence-bound: the patch must persist a supported
+ * field change AND the manager must attest in `note` (trimmed 1–2000 code
+ * points) how the correction addressed the open request. `RESCHEDULED` keeps
+ * its optional note.
+ */
+export type PatchChangeRequestResolution =
+  | {
+    changeRequestId: string;
+    resolution: 'RESCHEDULED';
+    note?: string | null;
+  }
+  | {
+    changeRequestId: string;
+    resolution: 'CORRECTED';
+    note: string;
+  };
 
 export type PatchJobCardInput = {
   expectedVersion: number;

@@ -878,9 +878,24 @@ function patchChangeRequestResolution(
   if (note !== undefined && note !== null && typeof note !== 'string') throw fail();
   const trimmedNote = typeof note === 'string' ? note.trim() : null;
   if (trimmedNote !== null && codePointLength(trimmedNote) > 2_000) throw fail();
+  const resolution = record.resolution as (typeof PATCH_CHANGE_REQUEST_RESOLUTIONS)[number];
+  if (resolution === 'CORRECTED') {
+    // RESCUE-003/B: the note is the management attestation of how the
+    // persisted correction addressed the open request, never optional filler.
+    if (trimmedNote === null || trimmedNote === '') {
+      throw changeRequestResolutionError(
+        'Düzeltme kapanışı için düzeltmenin talebi nasıl karşıladığını açıklayan bir not zorunludur.',
+      );
+    }
+    return {
+      changeRequestId: record.changeRequestId as string,
+      resolution,
+      note: trimmedNote,
+    };
+  }
   return {
     changeRequestId: record.changeRequestId as string,
-    resolution: record.resolution as ChangeRequestResolutionInput['resolution'],
+    resolution,
     note: trimmedNote === null || trimmedNote === '' ? null : trimmedNote,
   };
 }
@@ -4087,18 +4102,23 @@ export class JobCardService {
         || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
       scheduleRevisionChanged = scheduleChanged || dueDateChanged;
       const management = isManagementRole(actor.role);
-      const hasPersistedFieldChange =
-        (fields.title !== undefined && fields.title !== job.title)
-        || (fields.description !== undefined && fields.description !== (job.description ?? null))
-        || (fields.customerId !== undefined && fields.customerId !== (job.customerId ?? null))
-        || (fields.contactId !== undefined && fields.contactId !== (job.contactId ?? null))
-        || assigneeChanged
-        || (fields.priority !== undefined && fields.priority !== job.priority)
-        || scheduleRevisionChanged
-        || (fields.engagementKind !== undefined && fields.engagementKind !== (job.engagementKind ?? null));
-      // OVR-5b §4.11 / RESCUE-003/B: only management may resolve the Staff request,
-      // and RESCHEDULED requires a schedule revision while CORRECTED requires
-      // at least one actual persisted field edit. Nothing is written on failure.
+      // RESCUE-003/B: a PATCH `CORRECTED` closure must be bound to the locked
+      // request's reason code and actual persisted evidence. Only reason
+      // `OTHER` has a supported correction in the recovery form: a real
+      // description change, or a permitted SALES_MEETING customer or
+      // engagement-kind change. Title, priority, schedule, assignee and
+      // contact edits are never sufficient evidence; every other reason stays
+      // open (neutral acknowledgement has its own command).
+      const correctedEvidence =
+        (fields.description !== undefined && fields.description !== (job.description ?? null))
+        || (job.type === 'SALES_MEETING'
+          && ((fields.customerId !== undefined && fields.customerId !== (job.customerId ?? null))
+            || (fields.engagementKind !== undefined
+              && fields.engagementKind !== (job.engagementKind ?? null))));
+      // OVR-5b §4.11 / RESCUE-003/B: only management may resolve the Staff request.
+      // RESCHEDULED requires a schedule revision; CORRECTED requires the OPEN
+      // request's reason plus supporting persisted evidence and a management
+      // attestation note. Nothing is written on failure.
       if (changeRequestResolution !== null) {
         if (!management) {
           throw changeRequestResolutionError(
@@ -4110,10 +4130,30 @@ export class JobCardService {
             'Değişiklik talebi yalnızca zaman planı değişen bir güncellemeyle sonuçlandırılabilir.',
           );
         }
-        if (changeRequestResolution.resolution === 'CORRECTED' && !hasPersistedFieldChange) {
-          throw changeRequestResolutionError(
-            'Değişiklik talebi yalnızca iş bilgilerinde gerçek bir değişiklik yapan güncellemeyle sonuçlandırılabilir.',
+        if (changeRequestResolution.resolution === 'CORRECTED') {
+          const request = await transaction.getChangeRequestForUpdate(
+            actor.organizationId, jobCardId, changeRequestResolution.changeRequestId,
           );
+          if (!request) {
+            throw new AppError('CHANGE_REQUEST_NOT_FOUND', 404, 'Öneri bulunamadı.');
+          }
+          if (request.state !== 'OPEN') {
+            throw new AppError(
+              'CHANGE_REQUEST_NOT_OPEN',
+              409,
+              'Bu öneri zaten sonuçlandırılmış.',
+            );
+          }
+          if (request.reasonCode !== 'OTHER') {
+            throw changeRequestResolutionError(
+              'Bu talep nedeni için iş bilgileri düzeltmesiyle kapatma desteklenmiyor; talebi açık bırakın veya kayda alarak kapatın.',
+            );
+          }
+          if (!correctedEvidence) {
+            throw changeRequestResolutionError(
+              'Düzeltme yalnızca açıklama veya uygun satış görüşmesi müşteri/tür değişikliğiyle kapatılabilir.',
+            );
+          }
         }
       }
       // JOB-010 §4 (Q9, P1-B): for a job in the window in NEW or ACCEPTED,

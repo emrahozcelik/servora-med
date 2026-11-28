@@ -712,12 +712,14 @@ type PatchDeadlineExtensionInput = {
   // ...ordinary editable fields
   /** Required when the change ends at least one open deadline obligation. */
   deadlineExtensionReason?: string
-  /** Resolves the job's OPEN change request atomically with a schedule move or field edit. */
-  changeRequestResolution?: {
-    changeRequestId: string
-    resolution: 'RESCHEDULED' | 'CORRECTED'
-    note?: string | null
-  }
+  /**
+   * Resolves the job's OPEN change request atomically. RESCHEDULED accompanies
+   * a schedule revision; CORRECTED is evidence-bound and requires an
+   * attestation note.
+   */
+  changeRequestResolution?:
+    | { changeRequestId: string; resolution: 'RESCHEDULED'; note?: string | null }
+    | { changeRequestId: string; resolution: 'CORRECTED'; note: string }
 }
 ```
 
@@ -759,20 +761,42 @@ type PatchDeadlineExtensionInput = {
   MANAGER/ADMIN (`STAFF` receives `400 VALIDATION_ERROR` with
   `fieldErrors.changeRequestResolution`). `RESCHEDULED` is accepted only when the same
   patch appends a schedule revision (`scheduledAt`, `scheduledEndsAt`, or `dueDate`
-  change); `CORRECTED` (RESCUE-003/B) is accepted only when the same patch persists at
-  least one actual field change on the JobCard (`title`, `description`, `customerId`,
-  `contactId`, `assignedTo`, `priority`, schedule/`dueDate` revision, or
-  `engagementKind`). A no-op patch or mismatched resolution returns `400 VALIDATION_ERROR`
-  with `fieldErrors.changeRequestResolution` and writes nothing. The named request
-  must be this job's OPEN request: another job's or an unknown id is
+  change). `CORRECTED` (RESCUE-003/B) is evidence-bound to the named request:
+  - The request must be this job's `OPEN` request with `reason_code = 'OTHER'`;
+    another job's or an unknown id is `404 CHANGE_REQUEST_NOT_FOUND`, an already
+    resolved one is `409 CHANGE_REQUEST_NOT_OPEN`.
+  - `note` is required, trimmed, 1–2000 code points and attests how the persisted
+    correction addressed the request.
+  - The same patch must persist at least one supported evidence change: a real
+    `description` change, or a permitted `SALES_MEETING` `customerId` or
+    `engagementKind` change. `title`, `priority`, `contactId`, schedule/`dueDate`,
+    `assignedTo` and other edits are never evidence on their own.
+  - `WRONG_PRODUCT` and every other reason are unsupported for this command:
+    leave the request open or close it with `ACKNOWLEDGED_ONLY`. The legacy
+    `POST` endpoint above stays backward-compatible as a separate fact, but it is
+    not an alternative route around this evidence rule. Unsupported
+    reason/evidence, no-ops, missing/blank or oversized notes return
+    `400 VALIDATION_ERROR` with `fieldErrors.changeRequestResolution` and write
+    nothing.
+
+  The named request must be this job's OPEN request: another job's or an unknown id is
   `404 CHANGE_REQUEST_NOT_FOUND`, an already resolved one is
   `409 CHANGE_REQUEST_NOT_OPEN`, and nothing is written. Only `RESCHEDULED` and
-  `CORRECTED` are accepted here; `note` is optional and at most 2 000 characters. The
-  resolution commits inside the patch transaction (state, resolution, `resolved_by`,
-  `resolved_at` = the patch instant, `JOB_CHANGE_REQUEST_RESOLVED` activity, Staff
-  notification and realtime event), in the users → JobCard → change-request lock order.
-  The server never resolves a request the patch did not name. A replay of the same patch
-  fails with the ordinary `409 VERSION_CONFLICT` and resolves nothing twice.
+  `CORRECTED` are accepted here; the `RESCHEDULED` note is optional and at most 2 000
+  characters. The resolution commits inside the patch transaction (state, resolution,
+  `resolved_by`, `resolved_at` = the patch instant, `JOB_CHANGE_REQUEST_RESOLVED`
+  activity, Staff notification and realtime event), in the users → JobCard →
+  change-request lock order. A failed `CORRECTED` validation runs before the field
+  write, and any later failure still rolls back the field edit, closure, activity and
+  notification together. The server never resolves a request the patch did not name.
+  A replay of the same patch fails with the ordinary `409 VERSION_CONFLICT` and
+  resolves nothing twice.
+
+  This patch command accepts no `linkedJobCardId` or replacement relation. A same
+  tenant/customer job, a generic follow-up or an operator-selected row is not
+  replacement evidence; `LINKED_JOB_CREATED` remains a legacy `POST` decision and
+  historical records stay valid. JOB-009 cancellation replacement and SALE-002/003
+  delivery replacement keep their own contracts.
 
 ### Overdue incident history (OVR-2 / OVR-4 / OVR-5 readers)
 

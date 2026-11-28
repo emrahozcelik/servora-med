@@ -267,3 +267,37 @@ PASS / FAIL / DEFERRED with exact head and evidence links; include R-A05–11
 and applicable UI-F01–12 from #522. Clearly mark any unimplemented action,
 unknown risk data, or policy amendment. No deployment without separate owner
 authorization.
+
+## 8. Server scope notes — PR #543 request changes (2026-11-28)
+
+These notes record the reviewed server/owning-contract scope; they do not
+authorize production activation and do not widen the design above.
+
+- **MF-07: the ordinary `CORRECT` edit stays general; only the opt-in
+  `CORRECTED` closure is evidence-bound.** The `CORRECT — İş bilgilerini düzelt`
+  decision edits the existing authorized fields for every request reason and
+  does not by itself close the request. The separate opt-in `PATCH`
+  `changeRequestResolution` `CORRECTED` closure is accepted only for an `OPEN`
+  request with reason `OTHER`, only with a trimmed 1–2000 character management
+  note attesting how the correction addressed the request, and only when the
+  same patch persists a real `description` change or a permitted `SALES_MEETING`
+  `customerId`/`engagementKind` change. Title/priority/schedule/assignee/contact
+  edits are not evidence. `WRONG_PRODUCT` and every other reason keep the
+  ordinary edit available but have no `CORRECTED` closure: the request stays
+  open or closes through `ACKNOWLEDGED_ONLY`/`REJECTED`, and it must not be
+  presented as a successful `CORRECTED` closure. A rejected closure attempt
+  rolls back the field edit, request closure, activity and notification
+  together.
+- **Relationship/replacement decision is deferred.** The existing contract does
+  not prove an explicit authorized replacement relation for this command. Same
+  tenant/customer, a generic follow-up (`source_job_card_id`) or an
+  operator-selected job is not replacement evidence. The drawer must not render
+  a linked/replacement/relationship decision in this slice; Hydrogen owns its
+  removal from the new UI. Legacy `POST` `LINKED_JOB_CREATED`, historical
+  resolution rows, JOB-009 cancellation replacement and SALE-002/003 delivery
+  replacement remain intact and outside this decision surface.
+- **MF-08 neutral acknowledgement is unchanged.** `ACKNOWLEDGED_ONLY` keeps its
+  mandatory note, zero JobCard mutation, OVR-7 exclusion and OVR-4/6 alert
+  behavior; it is not a replacement for the evidence-bound `CORRECTED` path.
+- No schema or migration change is introduced by these notes; migration `077`
+  remains the additive neutral-acknowledgement migration.

@@ -747,6 +747,139 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
     });
   });
 
+  it('OVR-7: failed PATCH CORRECTED keeps STAFF attribution, neutral closure preserves it, and supported evidence-bound correction regroups', async () => {
+    await withSchema('rescue003b_ovr7_evidence', async (pool) => {
+      const orgId = await insertOrg(pool, 'RESCUE-003B OVR7 Evidence Org');
+      const managerId = await insertUser(pool, { organizationId: orgId, role: 'MANAGER', name: 'Müdür' });
+      const staffId = await insertUser(pool, { organizationId: orgId, role: 'STAFF', name: 'Personel' });
+
+      const scheduledAt = new Date('2026-10-05T06:00:00.000Z');
+      const scheduledEndsAt = new Date('2026-10-05T07:00:00.000Z');
+      const acceptedAt = new Date('2026-10-05T06:30:00.000Z');
+      const requestedAt = new Date('2026-10-05T08:00:00.000Z');
+      const resolvedAt = new Date('2026-10-05T09:00:00.000Z');
+      const reportTime = new Date('2026-10-05T10:00:00.000Z');
+      const customerId = await insertCustomer(pool, orgId, 'OVR-7 Kanıt Klinik');
+
+      const failedJob = await insertJob(pool, {
+        organizationId: orgId, type: 'SALES_MEETING', status: 'ACCEPTED',
+        assignedTo: staffId, createdBy: managerId, customerId,
+        title: 'Kanıtsız düzeltme denemesi',
+        scheduledAt, scheduledEndsAt, acceptedAt, revisionCreatedAt: acceptedAt,
+      });
+      const neutralJob = await insertJob(pool, {
+        organizationId: orgId, type: 'SALES_MEETING', status: 'ACCEPTED',
+        assignedTo: staffId, createdBy: managerId, customerId,
+        title: 'Nötr kapatılan iş',
+        scheduledAt, scheduledEndsAt, acceptedAt, revisionCreatedAt: acceptedAt,
+      });
+      const qualifyingJob = await insertJob(pool, {
+        organizationId: orgId, type: 'SALES_MEETING', status: 'ACCEPTED',
+        assignedTo: staffId, createdBy: managerId, customerId,
+        title: 'Kanıtlı düzeltilen iş',
+        scheduledAt, scheduledEndsAt, acceptedAt, revisionCreatedAt: acceptedAt,
+      });
+
+      const scanner = createOverdueBreachScanner(
+        new PostgresOverdueBreachScannerRepository(new PostgresJobCardRepository(pool)),
+        { batchSize: 50 },
+      );
+      expect((await scanner.runOnce(scheduledEndsAt)).inserted).toBe(3);
+
+      const clock = { now: requestedAt };
+      const { service } = buildJobCardService(pool, clock);
+      const staff = actor(staffId, orgId, 'STAFF');
+      const manager = actor(managerId, orgId, 'MANAGER');
+
+      const failedReq = await service.createChangeRequest(staff, failedJob.id, {
+        clientActionId: randomUUID(),
+        reasonCode: 'OTHER',
+        reasonText: 'İş bilgisi düzeltilmeli.',
+      });
+      const neutralReq = await service.createChangeRequest(staff, neutralJob.id, {
+        clientActionId: randomUUID(),
+        reasonCode: 'CUSTOMER_POSTPONED',
+        reasonText: 'Müşteri erteledi.',
+      });
+      const qualifyingReq = await service.createChangeRequest(staff, qualifyingJob.id, {
+        clientActionId: randomUUID(),
+        reasonCode: 'OTHER',
+        reasonText: 'Açıklama düzeltilmeli.',
+      });
+
+      // A title-only edit is not supporting evidence: the whole patch rolls
+      // back and the open request cannot affect OVR-7 accountability.
+      clock.now = resolvedAt;
+      await expect(service.patch(manager, failedJob.id, {
+        expectedVersion: failedJob.version,
+        title: 'Yalnızca başlık değişti',
+        changeRequestResolution: {
+          changeRequestId: failedReq.changeRequestId,
+          resolution: 'CORRECTED',
+          note: 'Başlık düzeltildi.',
+        },
+      })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        statusCode: 400,
+        details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
+      });
+      expect((await readChangeRequestRow(pool, failedReq.changeRequestId)).state).toBe('OPEN');
+
+      // Neutral acknowledgement closes the request without changing attribution.
+      await service.resolveChangeRequest(manager, neutralJob.id, neutralReq.changeRequestId, {
+        clientActionId: randomUUID(),
+        resolution: 'ACKNOWLEDGED_ONLY',
+        note: 'Talep kayda alındı; iş değişmedi.',
+      });
+
+      // Reason OTHER + real description + note is the supported correction and
+      // qualifies under the existing OVR-7 allowlist.
+      const qualifyingPatched = await service.patch(manager, qualifyingJob.id, {
+        expectedVersion: qualifyingJob.version,
+        description: 'Açıklama talebe göre düzeltildi.',
+        changeRequestResolution: {
+          changeRequestId: qualifyingReq.changeRequestId,
+          resolution: 'CORRECTED',
+          note: 'Açıklama talebe göre düzeltildi.',
+        },
+      });
+      expect(qualifyingPatched.description).toBe('Açıklama talebe göre düzeltildi.');
+
+      const reports = buildReportsService(pool, () => reportTime);
+      const range = { from: '2026-10-01', to: '2026-10-31' };
+      const staffReport = await reports.getStaffReport(
+        safeUser(managerId, orgId, 'MANAGER', 'Müdür'),
+        staffId,
+        { requestedRange: range },
+      );
+
+      expect(staffReport.lateness.staffResponsibility).toMatchObject({
+        delayedJobCount: 2,
+        incidentCount: 2,
+      });
+      expect(staffReport.lateness.operational).toEqual({
+        delayedJobCount: 1,
+        incidentCount: 1,
+        byReason: [{ reasonCode: 'OTHER', incidentCount: 1 }],
+      });
+
+      const incidents = await reports.listStaffLatenessIncidents(
+        safeUser(managerId, orgId, 'MANAGER', 'Müdür'),
+        staffId,
+        { requestedRange: range, limit: 50, offset: 0 },
+      );
+      const failedItem = incidents.items.find((i) => i.job?.id === failedJob.id)!;
+      const neutralItem = incidents.items.find((i) => i.job?.id === neutralJob.id)!;
+      const qualifyingItem = incidents.items.find((i) => i.job?.id === qualifyingJob.id)!;
+      expect(failedItem.operationalReason).toBeNull();
+      expect(neutralItem.operationalReason).toBeNull();
+      expect(qualifyingItem.operationalReason).toMatchObject({
+        reasonCode: 'OTHER',
+        resolution: 'CORRECTED',
+      });
+    });
+  });
+
   it('OVR-4 & OVR-6: ACKNOWLEDGED_ONLY resumes undelivered alerts, preserves delivered suppression, clears changeRequestOpenSince, and respects quiet hours', async () => {
     await withSchema('rescue003b_alerts', async (pool) => {
       const baseline = await readDbBaseline(pool);
@@ -904,12 +1037,13 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
     });
   });
 
-  it('atomic PATCH CORRECTED edits fields + closes request in one transaction, rolls back invalid requests, and rejects no-op & STAFF', async () => {
+  it('atomic PATCH CORRECTED is evidence-bound to reason OTHER with a management note and rolls back unsupported edits', async () => {
     await withSchema('rescue003b_patch_corrected', async (pool) => {
       const baseline = await readDbBaseline(pool);
       const orgId = await insertOrg(pool, 'RESCUE-003B Patch Corrected Org');
       const otherOrgId = await insertOrg(pool, 'Komşu Patch Org');
       const managerId = await insertUser(pool, { organizationId: orgId, role: 'MANAGER', name: 'Müdür' });
+      const adminId = await insertUser(pool, { organizationId: orgId, role: 'ADMIN', name: 'Admin' });
       const staffId = await insertUser(pool, { organizationId: orgId, role: 'STAFF', name: 'Personel' });
       const otherStaffId = await insertUser(pool, { organizationId: orgId, role: 'STAFF', name: 'Diğer Personel' });
       const otherManagerId = await insertUser(pool, { organizationId: otherOrgId, role: 'MANAGER', name: 'Komşu Müdür' });
@@ -922,12 +1056,16 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
       const { service } = buildJobCardService(pool, clock);
       const staff = actor(staffId, orgId, 'STAFF');
       const manager = actor(managerId, orgId, 'MANAGER');
+      const admin = actor(adminId, orgId, 'ADMIN');
 
       const job = await insertJob(pool, {
         organizationId: orgId, type: 'GENERAL_TASK', status: 'IN_PROGRESS',
         assignedTo: staffId, createdBy: managerId,
         title: 'Eski Başlık', customerId: customerA, baseNow: baseline,
       });
+      await pool.query('UPDATE job_cards SET description = $2 WHERE id = $1', [
+        job.id, 'Eski açıklama',
+      ]);
       const foreignJob = await insertJob(pool, {
         organizationId: otherOrgId, type: 'GENERAL_TASK', status: 'IN_PROGRESS',
         assignedTo: otherStaffForeignId, createdBy: otherManagerId,
@@ -941,8 +1079,8 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
 
       const req = await service.createChangeRequest(staff, job.id, {
         clientActionId: randomUUID(),
-        reasonCode: 'WRONG_PRODUCT',
-        reasonText: 'Müşteri ve başlık yanlış girilmiş.',
+        reasonCode: 'OTHER',
+        reasonText: 'İş bilgileri talebe göre düzeltilmeli.',
       });
       const foreignReq = await service.createChangeRequest(
         actor(otherStaffForeignId, otherOrgId, 'STAFF'),
@@ -963,103 +1101,273 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
         },
       );
 
-      // 1) STAFF rejected with 400 VALIDATION_ERROR + fieldErrors.changeRequestResolution
+      const jobBefore = await readJobSnapshot(pool, job.id);
+      const activitiesBefore = await selectActivities(pool, orgId, job.id);
+      const notificationsBefore = await selectNotifications(pool, orgId, job.id);
+      const rejected = { code: 'VALIDATION_ERROR', statusCode: 400 } as const;
+
+      // 1) STAFF is rejected with 400 VALIDATION_ERROR + fieldErrors.changeRequestResolution.
       await expect(service.patch(staff, job.id, {
         expectedVersion: job.version,
-        title: 'Personel Başlığı',
+        description: 'Personel açıklaması',
         changeRequestResolution: {
           changeRequestId: req.changeRequestId,
           resolution: 'CORRECTED',
+          note: 'Personel kapatmaya çalıştı.',
         },
       })).rejects.toMatchObject({
-        code: 'VALIDATION_ERROR',
-        statusCode: 400,
+        ...rejected,
         details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
       });
 
-      // 2) No-op patches rejected with 400 VALIDATION_ERROR + fieldErrors.changeRequestResolution
+      // Cross-organization management cannot see or patch this job.
+      await expect(service.patch(actor(otherManagerId, otherOrgId, 'MANAGER'), job.id, {
+        expectedVersion: job.version,
+        description: 'Komşu kurum düzeltmesi',
+        changeRequestResolution: {
+          changeRequestId: req.changeRequestId,
+          resolution: 'CORRECTED',
+          note: 'Komşu kurum denemesi.',
+        },
+      })).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+
+      // 2) No-op patches never close the request.
       for (const noOpBody of [
         {
           expectedVersion: job.version,
           title: 'Eski Başlık',
-          changeRequestResolution: { changeRequestId: req.changeRequestId, resolution: 'CORRECTED' as const },
+          changeRequestResolution: {
+            changeRequestId: req.changeRequestId, resolution: 'CORRECTED' as const,
+            note: 'Yalnızca aynı başlık.',
+          },
         },
         {
           expectedVersion: job.version,
-          description: '   ',
-          changeRequestResolution: { changeRequestId: req.changeRequestId, resolution: 'CORRECTED' as const },
+          description: 'Eski açıklama',
+          changeRequestResolution: {
+            changeRequestId: req.changeRequestId, resolution: 'CORRECTED' as const,
+            note: 'Yalnızca aynı açıklama.',
+          },
         },
         {
           expectedVersion: job.version,
-          changeRequestResolution: { changeRequestId: req.changeRequestId, resolution: 'CORRECTED' as const },
+          changeRequestResolution: {
+            changeRequestId: req.changeRequestId, resolution: 'CORRECTED' as const,
+            note: 'Alan gönderilmedi.',
+          },
         },
       ]) {
         await expect(service.patch(manager, job.id, noOpBody)).rejects.toMatchObject({
-          code: 'VALIDATION_ERROR',
-          statusCode: 400,
+          ...rejected,
           details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
         });
       }
 
-      // 3) Missing or foreign changeRequestId rolls back the field edit atomically
+      // 3) Missing or foreign changeRequestId rolls back the supported field edit atomically.
       for (const badReqId of [randomUUID(), foreignReq.changeRequestId, siblingReq.changeRequestId]) {
         await expect(service.patch(manager, job.id, {
           expectedVersion: job.version,
-          title: 'Geri Alınacak Başlık',
-          customerId: customerB,
+          description: 'Geri Alınacak Açıklama',
           changeRequestResolution: {
             changeRequestId: badReqId,
             resolution: 'CORRECTED',
+            note: 'Yanlış talep kimliği.',
           },
         })).rejects.toMatchObject({ code: 'CHANGE_REQUEST_NOT_FOUND', statusCode: 404 });
       }
-      expect(await readJobSnapshot(pool, job.id)).toMatchObject({
-        version: job.version,
-        title: 'Eski Başlık',
-        customer_id: customerA,
-      });
-      expect((await readChangeRequestRow(pool, req.changeRequestId)).state).toBe('OPEN');
 
-      // 4) Valid atomic PATCH CORRECTED updates fields and closes change request together
-      clock.now = shift(baseline, 10 * MINUTE_MS);
-      const patched = await service.patch(manager, job.id, {
+      // 4) A supported field alone is not enough: title/priority/schedule/assignee
+      //    or a non-meeting customer edit is rejected for reason OTHER.
+      const unsupportedOnlyEdits = [
+        { title: 'Yalnızca başlık' },
+        { priority: 'high' },
+        { scheduledAt: shift(baseline, HOUR_MS).toISOString() },
+        { assignedTo: otherStaffId },
+        { customerId: customerB },
+        { dueDate: '2027-01-15' },
+      ] as const;
+      for (const edit of unsupportedOnlyEdits) {
+        await expect(service.patch(manager, job.id, {
+          expectedVersion: job.version,
+          ...edit,
+          changeRequestResolution: {
+            changeRequestId: req.changeRequestId,
+            resolution: 'CORRECTED',
+            note: 'Desteklenmeyen alan.',
+          },
+        })).rejects.toMatchObject({
+          ...rejected,
+          details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
+        });
+      }
+
+      // 5) The management attestation note is mandatory and trimmed 1-2000 characters.
+      const missingNoteBody = {
         expectedVersion: job.version,
-        title: 'Düzeltilmiş Başlık',
-        customerId: customerB,
-        priority: 'high',
+        description: 'Notsuz düzeltme',
         changeRequestResolution: {
           changeRequestId: req.changeRequestId,
           resolution: 'CORRECTED',
-          note: 'Müşteri ve başlık düzeltildi.',
+        },
+      } as unknown as Parameters<JobCardService['patch']>[2];
+      await expect(service.patch(manager, job.id, missingNoteBody)).rejects.toMatchObject({
+        ...rejected,
+        details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
+      });
+      for (const badNote of ['   ', 'x'.repeat(2_001)]) {
+        await expect(service.patch(manager, job.id, {
+          expectedVersion: job.version,
+          description: 'Geçersiz notlu düzeltme',
+          changeRequestResolution: {
+            changeRequestId: req.changeRequestId,
+            resolution: 'CORRECTED',
+            note: badNote,
+          },
+        })).rejects.toMatchObject({
+          ...rejected,
+          details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
+        });
+      }
+
+      // No rejected attempt wrote anything: the job, request, activity and
+      // notification state are exactly the pre-decision snapshot.
+      expect(await readJobSnapshot(pool, job.id)).toEqual(jobBefore);
+      expect((await readChangeRequestRow(pool, req.changeRequestId)).state).toBe('OPEN');
+      expect(await selectActivities(pool, orgId, job.id)).toEqual(activitiesBefore);
+      expect(await selectNotifications(pool, orgId, job.id)).toEqual(notificationsBefore);
+
+      // 6) Reason OTHER + a real description change + trimmed note closes atomically.
+      clock.now = shift(baseline, 10 * MINUTE_MS);
+      const patched = await service.patch(manager, job.id, {
+        expectedVersion: job.version,
+        description: '  Düzeltilmiş açıklama  ',
+        changeRequestResolution: {
+          changeRequestId: req.changeRequestId,
+          resolution: 'CORRECTED',
+          note: '  Açıklama talebe göre düzeltildi.  ',
         },
       });
       expect(patched).toMatchObject({
         id: job.id,
         version: job.version + 1,
         status: 'IN_PROGRESS',
-        title: 'Düzeltilmiş Başlık',
-        customerId: customerB,
-        priority: 'high',
+        title: 'Eski Başlık',
+        description: 'Düzeltilmiş açıklama',
       });
       expect(await readChangeRequestRow(pool, req.changeRequestId)).toMatchObject({
         state: 'CLOSED',
         resolution: 'CORRECTED',
         resolved_by: managerId,
         resolved_at: clock.now,
-        resolution_note: 'Müşteri ve başlık düzeltildi.',
+        resolution_note: 'Açıklama talebe göre düzeltildi.',
       });
+      expect((await selectActivities(pool, orgId, job.id))
+        .filter((a) => a.event_type === 'JOB_CHANGE_REQUEST_RESOLVED')).toHaveLength(1);
+      expect((await selectNotifications(pool, orgId, job.id))
+        .filter((n) => n.kind === 'job.change_request_resolved')).toHaveLength(1);
 
-      // 5) Reusing an already-closed request rolls back the new field edit with 409 CHANGE_REQUEST_NOT_OPEN
+      // 7) Reusing the already-closed request rolls back the new field edit.
       await expect(service.patch(manager, job.id, {
         expectedVersion: patched.version,
-        title: 'Tekrar Kapatmaya Çalışılan Başlık',
+        description: 'Tekrar Kapatmaya Çalışılan Açıklama',
         changeRequestResolution: {
           changeRequestId: req.changeRequestId,
           resolution: 'CORRECTED',
+          note: 'Zaten kapalı.',
         },
       })).rejects.toMatchObject({ code: 'CHANGE_REQUEST_NOT_OPEN', statusCode: 409 });
-      expect((await readJobSnapshot(pool, job.id)).title).toBe('Düzeltilmiş Başlık');
+      expect((await readJobSnapshot(pool, job.id)).description).toBe('Düzeltilmiş açıklama');
       expect((await readJobSnapshot(pool, job.id)).version).toBe(patched.version);
+
+      // 8) WRONG_PRODUCT and every other request reason remain unsupported for
+      //    PATCH CORRECTED, even with actual edits and a note.
+      const wrongJob = await insertJob(pool, {
+        organizationId: orgId, type: 'GENERAL_TASK', status: 'IN_PROGRESS',
+        assignedTo: staffId, createdBy: managerId,
+        title: 'Yanlış Ürün İşi', baseNow: baseline,
+      });
+      const wrongReq = await service.createChangeRequest(staff, wrongJob.id, {
+        clientActionId: randomUUID(),
+        reasonCode: 'WRONG_PRODUCT',
+        reasonText: 'Yanlış ürün istendi.',
+      });
+      const wrongBefore = await readJobSnapshot(pool, wrongJob.id);
+      await expect(service.patch(manager, wrongJob.id, {
+        expectedVersion: wrongJob.version,
+        description: 'Yanlış ürüne rağmen düzeltme',
+        changeRequestResolution: {
+          changeRequestId: wrongReq.changeRequestId,
+          resolution: 'CORRECTED',
+          note: 'Ürün düzeltildi.',
+        },
+      })).rejects.toMatchObject({
+        ...rejected,
+        details: { fieldErrors: { changeRequestResolution: expect.any(String) } },
+      });
+      expect(await readJobSnapshot(pool, wrongJob.id)).toEqual(wrongBefore);
+      expect((await readChangeRequestRow(pool, wrongReq.changeRequestId)).state).toBe('OPEN');
+
+      // 9) The narrow supported evidence: a permitted SALES_MEETING customer
+      //    change (MANAGER) and an engagement-kind change (ADMIN).
+      const salesCustomerJob = await insertJob(pool, {
+        organizationId: orgId, type: 'SALES_MEETING', status: 'NEW',
+        assignedTo: staffId, createdBy: managerId, customerId: customerA,
+        title: 'Müşterisi Düzeltilecek Görüşme',
+        scheduledAt: shift(baseline, 2 * HOUR_MS),
+        scheduledEndsAt: shift(baseline, 3 * HOUR_MS),
+        baseNow: baseline,
+      });
+      const salesCustomerReq = await service.createChangeRequest(staff, salesCustomerJob.id, {
+        clientActionId: randomUUID(),
+        reasonCode: 'OTHER',
+        reasonText: 'Müşteri kaydı yanlış.',
+      });
+      clock.now = shift(baseline, 15 * MINUTE_MS);
+      const salesCustomerPatched = await service.patch(manager, salesCustomerJob.id, {
+        expectedVersion: salesCustomerJob.version,
+        customerId: customerB,
+        changeRequestResolution: {
+          changeRequestId: salesCustomerReq.changeRequestId,
+          resolution: 'CORRECTED',
+          note: 'Müşteri kaydı talebe göre düzeltildi.',
+        },
+      });
+      expect(salesCustomerPatched.customerId).toBe(customerB);
+      expect(await readChangeRequestRow(pool, salesCustomerReq.changeRequestId)).toMatchObject({
+        state: 'CLOSED',
+        resolution: 'CORRECTED',
+        resolution_note: 'Müşteri kaydı talebe göre düzeltildi.',
+      });
+
+      const salesEngagementJob = await insertJob(pool, {
+        organizationId: orgId, type: 'SALES_MEETING', status: 'NEW',
+        assignedTo: staffId, createdBy: managerId, customerId: customerA,
+        title: 'Türü Düzeltilecek Görüşme',
+        scheduledAt: shift(baseline, 4 * HOUR_MS),
+        scheduledEndsAt: shift(baseline, 5 * HOUR_MS),
+        baseNow: baseline,
+      });
+      const salesEngagementReq = await service.createChangeRequest(staff, salesEngagementJob.id, {
+        clientActionId: randomUUID(),
+        reasonCode: 'OTHER',
+        reasonText: 'Görüşme türü yanlış.',
+      });
+      clock.now = shift(baseline, 20 * MINUTE_MS);
+      const salesEngagementPatched = await service.patch(admin, salesEngagementJob.id, {
+        expectedVersion: salesEngagementJob.version,
+        engagementKind: 'CUSTOMER_VISIT',
+        changeRequestResolution: {
+          changeRequestId: salesEngagementReq.changeRequestId,
+          resolution: 'CORRECTED',
+          note: 'Görüşme türü talebe göre düzeltildi.',
+        },
+      });
+      expect(salesEngagementPatched.engagementKind).toBe('CUSTOMER_VISIT');
+      expect(await readChangeRequestRow(pool, salesEngagementReq.changeRequestId)).toMatchObject({
+        state: 'CLOSED',
+        resolution: 'CORRECTED',
+        resolved_by: adminId,
+      });
     });
   });
 
@@ -1089,15 +1397,17 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
       });
       const startedReq = await service.createChangeRequest(staffA, startedJob.id, {
         clientActionId: randomUUID(),
-        reasonCode: 'CUSTOMER_POSTPONED',
+        reasonCode: 'OTHER',
         reasonText: 'Başlamış iş talebi.',
       });
       await expect(service.patch(manager, startedJob.id, {
         expectedVersion: startedJob.version,
         assignedTo: staffBId,
+        description: 'Başlamış işte açıklama düzeltmesi.',
         changeRequestResolution: {
           changeRequestId: startedReq.changeRequestId,
           resolution: 'CORRECTED',
+          note: 'Açıklama talebe göre düzeltildi.',
         },
       })).rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE', statusCode: 409 });
 
@@ -1192,6 +1502,7 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
         changeRequestResolution: {
           changeRequestId: saleReq.changeRequestId,
           resolution: 'CORRECTED',
+          note: 'Satış sorumlusu düzeltilecek.',
         },
       })).rejects.toMatchObject({ code: 'SALE_PAIR_ASSIGNEE_CONFLICT', statusCode: 409 });
       expect((await readChangeRequestRow(pool, saleReq.changeRequestId)).state).toBe('OPEN');
@@ -1203,6 +1514,7 @@ describe.skipIf(!databaseUrl)('RESCUE-003/B neutral acknowledgement and atomic C
         changeRequestResolution: {
           changeRequestId: saleReq.changeRequestId,
           resolution: 'CORRECTED',
+          note: 'Satış müşterisi düzeltilecek.',
         },
       })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
       expect((await readChangeRequestRow(pool, saleReq.changeRequestId)).state).toBe('OPEN');

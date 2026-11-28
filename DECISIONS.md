@@ -3776,15 +3776,33 @@ request needed acknowledgement without mutating the JobCard or hiding lateness.
      `APPROVAL_WAIT_ALERT`, `PENDING_ACCEPTANCE_ALERT`) automatic alerts under
      their original due times and organization quiet hours, while preserving
      suppression for already-delivered alert kinds/identities.
-2. **Atomic `PATCH` `CORRECTED` closure.** `PATCH /api/job-cards/:id` accepts
-   `changeRequestResolution: { changeRequestId, resolution: 'CORRECTED', note? }`
-   alongside `'RESCHEDULED'` (OVR-5b §4.11). Only `MANAGER`/`ADMIN` may send it,
-   and `'CORRECTED'` requires the patch to persist at least one actual field
-   change (`title`, `description`, `customerId`, `contactId`, `assignedTo`,
-   `priority`, schedule/`dueDate` revision, or `engagementKind`); no-ops and
-   `STAFF` calls fail with `400 VALIDATION_ERROR` (`fieldErrors.changeRequestResolution`)
-   and roll back without partial writes.
-3. **Unified RESCUE-003/B manager recovery decision surface.** Job Detail
+2. **Evidence-bound atomic `PATCH` `CORRECTED` closure.** `PATCH /api/job-cards/:id`
+   accepts `changeRequestResolution: { changeRequestId, resolution: 'CORRECTED',
+   note }` alongside `'RESCHEDULED'` (OVR-5b §4.11). Only `MANAGER`/`ADMIN` may send
+   it. `'CORRECTED'` requires the named request to be `OPEN` on that job with
+   reason code `OTHER`, a trimmed 1–2000 character `note` that attests how the
+   correction addressed the request, and at least one supported actual persisted
+   field change: a real `description` change, or a permitted `SALES_MEETING`
+   `customerId` or `engagementKind` change. Title, priority, schedule, assignee
+   and contact-only edits are never sufficient evidence. `WRONG_PRODUCT` and
+   every other reason have no supported correction in this command: leave the
+   request open or close it neutrally with `ACKNOWLEDGED_ONLY`. The legacy `POST`
+   endpoint's compatibility is recorded separately in item 5 and is not an
+   alternative route around this evidence rule. An unsupported reason or edit, a
+   no-op, a missing, blank or oversized note and a `STAFF` call fail with
+   `400 VALIDATION_ERROR` (`fieldErrors.changeRequestResolution`) and roll back
+   the field edit, request closure, activity and requester notification
+   together.
+3. **Relationship and replacement boundary.** The `PATCH` correction closure
+   accepts no linked-job or replacement relation. The existing contract does not
+   prove an explicit authorized replacement relation for this command: a same
+   tenant/customer job, a generic follow-up (`source_job_card_id`) or an
+   operator-selected row is not replacement evidence. The RESCUE-003/B decision
+   surface therefore offers no relationship/replacement decision in this slice.
+   `LINKED_JOB_CREATED` remains the legacy `POST` decision and historical
+   records stay valid; JOB-009 cancellation replacement and SALE-002/003
+   delivery replacement keep their own contracts.
+4. **Unified RESCUE-003/B manager recovery decision surface.** Job Detail
    replaces scattered recovery buttons for `MANAGER`/`ADMIN` with one
    `Müdahale gereken durum` region (`ManagerRecoverySection`) and a single
    **Görevi çözüme ulaştır** trigger opening `ManagerRecoveryDrawer`
@@ -3797,7 +3815,7 @@ request needed acknowledgement without mutating the JobCard or hiding lateness.
      and non-stacked `ReasonDialog` / `PastStartAcknowledgementDrawer` overlays.
    - Informational non-green feedback (`detail-feedback-info`) for neutral
      acknowledgement and rejection receipts.
-4. **Backward compatibility and scope boundaries.**
+5. **Backward compatibility and scope boundaries.**
    `POST /api/job-cards/:id/change-requests/:requestId/resolve` remains
    backward-compatible for `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED`,
    `REJECTED`, and `ACKNOWLEDGED_ONLY`. Rich candidate ranking/occupancy

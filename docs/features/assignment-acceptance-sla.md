@@ -688,6 +688,21 @@ CTAs. Clicking **Görevi çözüme ulaştır** opens the unified
   acknowledgement and rejection receipts, and `En güncel bilgileri yükle`
   recovery on version/request conflicts while preserving the manager's draft.
 
+The ordinary `CORRECT` (`İş bilgilerini düzelt`) edit option is an authorized
+field edit and stays available for every request reason; it does not by itself
+close the request. The drawer additionally offers an opt-in `CORRECTED` closure
+only for an open request whose reason is `OTHER`, when the selected edit
+persists a supported evidence field (`description`, or a permitted
+`SALES_MEETING` `customerId`/`engagementKind` change), and the manager supplies
+the trimmed 1–2000 character management attestation note. For `WRONG_PRODUCT`
+and every other reason the drawer keeps the ordinary edit option but sends no
+`CORRECTED` closure: it leaves the request open or offers neutral
+acknowledgement or rejection instead of sending a false `CORRECTED`; it must not
+silently widen the server evidence list. The drawer also
+renders no linked-job/replacement/relationship selector: the contract proves no
+authorized replacement relation for this command, so that decision is deferred
+and `LINKED_JOB_CREATED` stays in the legacy `POST` path with its history.
+
 The legacy `POST /api/job-cards/:id/change-requests/:requestId/resolve` endpoint
 remains backward-compatible on the backend (`CORRECTED`, `RESCHEDULED`,
 `LINKED_JOB_CREATED`, `REJECTED`, and `ACKNOWLEDGED_ONLY`). Design specification:
@@ -708,9 +723,27 @@ When assignment offers apply, the transaction closes the old offer as needed
 and creates one offer for the new assignee. The committed response determines
 whether the receipt says that an answer is pending. Management can explicitly
 close an open personnel request as `RESCHEDULED` in the same transaction when
-the PATCH appends a schedule revision, or as `CORRECTED` (RESCUE-003/B) in a
-management field-edit PATCH that persists at least one actual JobCard field
-change (no-ops and `STAFF` are rejected with `400 VALIDATION_ERROR`).
+the PATCH appends a schedule revision. The `CORRECTED` (RESCUE-003/B) closure is
+evidence-bound to the open request's reason: it is accepted only for reason
+`OTHER`, only when the same management PATCH persists a supported actual field
+change (a real `description` change, or a permitted `SALES_MEETING` `customerId`
+or `engagementKind` change) and the manager supplies a trimmed 1–2000 character
+`note` attesting how the correction addressed the request. Title, priority,
+schedule, assignee and contact-only edits are not evidence. `WRONG_PRODUCT` and
+every other reason remain open (or close neutrally with `ACKNOWLEDGED_ONLY` under
+the neutral contract below); no-op, unsupported, unrelated, missing/blank-note
+and `STAFF` calls fail with `400 VALIDATION_ERROR`
+(`fieldErrors.changeRequestResolution`) and roll back the field edit, request
+closure, activity and requester notification together.
+
+The `PATCH` correction closure has no linked-job or replacement relation. The
+existing contract does not prove an explicit authorized replacement relation
+for this command: a same tenant/customer job, a generic follow-up
+(`source_job_card_id`) or an operator-selected row is not replacement evidence.
+The unified recovery form therefore offers no relationship/replacement decision
+in this slice. The legacy `POST` `LINKED_JOB_CREATED` decision and its historical
+records remain unchanged; JOB-009 cancellation replacement and SALE-002/003
+delivery replacement keep their own contracts.
 
 #### Neutral acknowledgement for RESCUE-003
 
