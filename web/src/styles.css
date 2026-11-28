@@ -5750,6 +5750,8 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 
 .servora-calendar-event-status-icon {
   flex: 0 0 auto;
+  width: 0.95em;
+  height: 0.95em;
 }
 
 .servora-calendar-event-meta {
@@ -6039,6 +6041,8 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 
 .calendar-released-badge-icon {
   flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
 }
 
 .servora-operational-card.calendar-event-card--released:not(.servora-operational-card--selected) {
@@ -6067,6 +6071,26 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.servora-operational-card .calendar-event-actions > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-height: var(--control-height);
+  padding: 0.55rem 0.95rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-button);
+  color: var(--accent-hover);
+  background: var(--paper);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.servora-operational-card .calendar-event-actions > a:hover {
+  border-color: var(--border-accent);
+  background: var(--accent-soft);
 }
 
 /* ── Form (inside drawer) ── */
@@ -6386,6 +6410,7 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .calendar-toolbar > *,
   .calendar-toolbar label,
   .calendar-event-actions > *,
+  .servora-operational-card .calendar-event-actions > *,
   .calendar-form-times > * {
     width: 100%;
   }
