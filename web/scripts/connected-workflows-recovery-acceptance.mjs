@@ -130,6 +130,7 @@ async function openCase(browser, url, sample) {
       .some((endpoint) => path === jobPath + endpoint)) return send(empty);
     if (method === 'GET' && (path === '/api/notifications' || path === '/api/job-cards'
       || path === '/api/job-cards/change-requests/open' || path.endsWith('/assignment-offers/needs-action')
+      || path === '/api/job-cards/pending-acceptance/past-start'
       || path.endsWith('/unaccepted-past-start'))) return send(empty);
     if (method === 'POST' && path === jobPath + '/change-requests/' + requestId + '/resolve') {
       mutations.push(request.postDataJSON());
@@ -487,6 +488,7 @@ try {
     assert.deepEqual(test.unexpected, []);
     await context.close();
   }
+  report.completed = true;
 } finally {
   report.issues = issues;
   writeFileSync(resolve(evidence, 'measurements.json'), JSON.stringify(report, null, 2) + '\n');
