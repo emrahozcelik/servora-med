@@ -7,6 +7,7 @@ import {
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   JOB_CARD_STATUSES,
+  JOB_CHANGE_REQUEST_RESOLUTIONS,
   MEETING_DETAIL_FIELDS,
   type DeliveryPurpose,
   type JobAssignmentOfferDeclineReasonCode,
@@ -16,6 +17,7 @@ import {
   type JobCardActivityStatus,
   type JobCardEngagementKind,
   type JobCardPriority,
+  type JobChangeRequestResolution,
 } from './types.js';
 
 type JsonRecord = Record<string, unknown>;
@@ -381,11 +383,17 @@ function details(
     // JOB-010 §1a: the grant is a standalone fact (authorization id, instant,
     // revision, planned interval); the timeline renders it as a plain fact.
     case 'JOB_EARLY_START_AUTHORIZED':
-    // JOB-010 release 2a: the request and its decision carry their semantics
-    // in metadata (request id, reason code / resolution); the timeline
-    // renders them as plain facts.
+    // JOB-010 release 2a: the request stays a plain fact; its resolution
+    // projects only the allowlisted decision enum when valid metadata exists.
     case 'JOB_CHANGE_REQUESTED':
-    case 'JOB_CHANGE_REQUEST_RESOLVED':
+      return { kind: 'NONE' };
+    case 'JOB_CHANGE_REQUEST_RESOLVED': {
+      const resolution = jsonRecord(record.metadata)?.resolution;
+      return typeof resolution === 'string'
+        && (JOB_CHANGE_REQUEST_RESOLUTIONS as readonly string[]).includes(resolution)
+        ? { kind: 'CHANGE_REQUEST_RESOLVED', resolution: resolution as JobChangeRequestResolution }
+        : { kind: 'NONE' };
+    }
     // JOB-010 release 2b: assignment offer facts carry their semantics in
     // metadata (offer id, reason code, deadline); the timeline renders them
     // as plain facts. The Staff answer itself is projected below.

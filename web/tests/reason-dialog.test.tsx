@@ -354,6 +354,33 @@ describe('ReasonDialog', () => {
     expect(host.querySelector('.reason-dialog-description')).toBeNull();
     expect(host.querySelector('[role="dialog"] > p')?.textContent).toBe('Tek satır açıklama.');
   });
+
+  it('invokes onReasonChange on input so parent externalError can clear', async () => {
+    const onReasonChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <ServoraAntProvider>
+          <ReasonDialog
+            open
+            title="Talebi kapat"
+            description="Açıklama girin."
+            reasonLabel="Düzeltme açıklaması"
+            confirmLabel="Kaydet"
+            maxLength={2000}
+            required
+            pending={false}
+            externalError="Sunucu doğrulama hatası."
+            onReasonChange={onReasonChange}
+            onConfirm={() => {}}
+            onCancel={() => {}}
+          />
+        </ServoraAntProvider>,
+      );
+    });
+    const textarea = host.querySelector('textarea')!;
+    await act(async () => { typeInTextarea(textarea, 'Yeni not'); });
+    expect(onReasonChange).toHaveBeenCalledWith('Yeni not');
+  });
 });
 
 describe('JobWorkflowDialog Dilim 3 enhancements', () => {

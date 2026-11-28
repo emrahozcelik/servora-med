@@ -1,0 +1,217 @@
+{
+  "baselineSource": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+  "candidateSource": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+  "comparedAt": "2026-11-28T10:47:17.471Z",
+  "comparisons": [
+    {
+      "name": "small-mobile",
+      "viewport": [
+        320,
+        800
+      ],
+      "baselineA": {
+        "source": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+        "documentWidth": 320,
+        "pageActionCount": 9,
+        "minTargetPx": 44,
+        "transferScrollOverflow": false
+      },
+      "candidateB": {
+        "source": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+        "documentWidth": 320,
+        "pageActionCount": 1,
+        "drawerDecisionCount": 7,
+        "minTargetPx": 44,
+        "drawerScrollOverflow": false,
+        "gridColumns": 1
+      },
+      "delta": {
+        "pageActionButtonsReducedFrom": 9,
+        "pageActionButtonsTo": 1,
+        "overflowMaintainedZero": true,
+        "allTargetsAtLeast44Px": true,
+        "lifecycleOrderPreserved": true
+      }
+    },
+    {
+      "name": "phone",
+      "viewport": [
+        390,
+        844
+      ],
+      "baselineA": {
+        "source": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+        "documentWidth": 390,
+        "pageActionCount": 9,
+        "minTargetPx": 44,
+        "transferScrollOverflow": false
+      },
+      "candidateB": {
+        "source": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+        "documentWidth": 390,
+        "pageActionCount": 1,
+        "drawerDecisionCount": 7,
+        "minTargetPx": 44,
+        "drawerScrollOverflow": false,
+        "gridColumns": 1
+      },
+      "delta": {
+        "pageActionButtonsReducedFrom": 9,
+        "pageActionButtonsTo": 1,
+        "overflowMaintainedZero": true,
+        "allTargetsAtLeast44Px": true,
+        "lifecycleOrderPreserved": true
+      }
+    },
+    {
+      "name": "tablet",
+      "viewport": [
+        768,
+        1024
+      ],
+      "baselineA": {
+        "source": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+        "documentWidth": 768,
+        "pageActionCount": 9,
+        "minTargetPx": 44,
+        "transferScrollOverflow": false
+      },
+      "candidateB": {
+        "source": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+        "documentWidth": 768,
+        "pageActionCount": 1,
+        "drawerDecisionCount": 7,
+        "minTargetPx": 44,
+        "drawerScrollOverflow": false,
+        "gridColumns": 1
+      },
+      "delta": {
+        "pageActionButtonsReducedFrom": 9,
+        "pageActionButtonsTo": 1,
+        "overflowMaintainedZero": true,
+        "allTargetsAtLeast44Px": true,
+        "lifecycleOrderPreserved": true
+      }
+    },
+    {
+      "name": "desktop",
+      "viewport": [
+        1440,
+        900
+      ],
+      "baselineA": {
+        "source": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+        "documentWidth": 1440,
+        "pageActionCount": 9,
+        "minTargetPx": 44,
+        "transferScrollOverflow": false
+      },
+      "candidateB": {
+        "source": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+        "documentWidth": 1440,
+        "pageActionCount": 1,
+        "drawerDecisionCount": 7,
+        "minTargetPx": 44,
+        "drawerScrollOverflow": false,
+        "gridColumns": 2
+      },
+      "delta": {
+        "pageActionButtonsReducedFrom": 9,
+        "pageActionButtonsTo": 1,
+        "overflowMaintainedZero": true,
+        "allTargetsAtLeast44Px": true,
+        "lifecycleOrderPreserved": true
+      }
+    },
+    {
+      "name": "text-200",
+      "viewport": [
+        390,
+        844
+      ],
+      "baselineA": {
+        "source": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+        "documentWidth": 390,
+        "pageActionCount": 9,
+        "minTargetPx": 88,
+        "transferScrollOverflow": false
+      },
+      "candidateB": {
+        "source": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+        "documentWidth": 390,
+        "pageActionCount": 1,
+        "drawerDecisionCount": 7,
+        "minTargetPx": 88,
+        "drawerScrollOverflow": false,
+        "gridColumns": 1
+      },
+      "delta": {
+        "pageActionButtonsReducedFrom": 9,
+        "pageActionButtonsTo": 1,
+        "overflowMaintainedZero": true,
+        "allTargetsAtLeast44Px": true,
+        "lifecycleOrderPreserved": true
+      }
+    },
+    {
+      "name": "reflow-400-equivalent",
+      "viewport": [
+        320,
+        225
+      ],
+      "baselineA": {
+        "source": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+        "documentWidth": 320,
+        "pageActionCount": 9,
+        "minTargetPx": 44,
+        "transferScrollOverflow": false
+      },
+      "candidateB": {
+        "source": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+        "documentWidth": 320,
+        "pageActionCount": 1,
+        "drawerDecisionCount": 7,
+        "minTargetPx": 44,
+        "drawerScrollOverflow": false,
+        "gridColumns": 1
+      },
+      "delta": {
+        "pageActionButtonsReducedFrom": 9,
+        "pageActionButtonsTo": 1,
+        "overflowMaintainedZero": true,
+        "allTargetsAtLeast44Px": true,
+        "lifecycleOrderPreserved": true
+      }
+    },
+    {
+      "name": "reduced-motion",
+      "viewport": [
+        390,
+        844
+      ],
+      "baselineA": {
+        "source": "d2bc099d4bd3131228f951d54e425ac24e75d9be",
+        "documentWidth": 390,
+        "pageActionCount": 9,
+        "minTargetPx": 44,
+        "transferScrollOverflow": false
+      },
+      "candidateB": {
+        "source": "bca74bfb1bb2542111d4636f0e4938d07246bbea",
+        "documentWidth": 390,
+        "pageActionCount": 1,
+        "drawerDecisionCount": 7,
+        "minTargetPx": 44,
+        "drawerScrollOverflow": false,
+        "gridColumns": 1
+      },
+      "delta": {
+        "pageActionButtonsReducedFrom": 9,
+        "pageActionButtonsTo": 1,
+        "overflowMaintainedZero": true,
+        "allTargetsAtLeast44Px": true,
+        "lifecycleOrderPreserved": true
+      }
+    }
+  ]
+}

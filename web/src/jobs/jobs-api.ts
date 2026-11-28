@@ -115,9 +115,9 @@ export const CHANGE_REQUEST_REASON_CODES = [
   'MISSING_STOCK_OR_EQUIPMENT', 'VISIT_NOT_POSSIBLE', 'OTHER',
 ] as const;
 export type ChangeRequestReasonCode = (typeof CHANGE_REQUEST_REASON_CODES)[number];
-/** The management decisions release 2a lets a manager record right now. */
+/** The management decisions release 2a / RESCUE-003/B lets a manager record. */
 export const CHANGE_REQUEST_RESOLUTIONS = [
-  'CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED', 'REJECTED',
+  'CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED', 'REJECTED', 'ACKNOWLEDGED_ONLY',
 ] as const;
 export type ChangeRequestResolution = (typeof CHANGE_REQUEST_RESOLUTIONS)[number];
 /**
@@ -549,6 +549,7 @@ export type JobCardActivityDetails =
       /** JOB-012: the proposed time, under the same reader scope as the reason. */
       proposedScheduledAt: string | null;
     }
+  | { kind: 'CHANGE_REQUEST_RESOLVED'; resolution: string }
   | { kind: 'NONE' };
 export type JobCardActivity = {
   id: string; jobCardId: string; eventType: string; actor: RelatedName | null;
@@ -599,7 +600,7 @@ export type PatchJobCardInput = {
    */
   changeRequestResolution?: {
     changeRequestId: string;
-    resolution: 'RESCHEDULED';
+    resolution: 'RESCHEDULED' | 'CORRECTED';
     note?: string | null;
   };
 };
@@ -1379,6 +1380,9 @@ function parseDetails(value: unknown): JobCardActivityDetails {
       MEETING_DETAIL_FIELDS.indexOf(field) <= (index === 0
         ? -1 : MEETING_DETAIL_FIELDS.indexOf(changedFields[index - 1]!)))) invalid('changedFields');
     return { kind, changedFields };
+  }
+  if (kind === 'CHANGE_REQUEST_RESOLVED') {
+    return { kind, resolution: string(v.resolution, 'resolution') };
   }
   return invalid('details.kind');
 }

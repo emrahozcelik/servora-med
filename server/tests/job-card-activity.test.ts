@@ -425,6 +425,46 @@ describe('safe JobCard activity presenter', () => {
     });
   });
 
+  it('projects JOB_CHANGE_REQUEST_RESOLVED only for allowlisted resolution values', () => {
+    for (const resolution of [
+      'CANCELLED',
+      'CORRECTED',
+      'RESCHEDULED',
+      'LINKED_JOB_CREATED',
+      'REJECTED',
+      'SUPERSEDED',
+      'ACKNOWLEDGED_ONLY',
+    ] as const) {
+      const result = presentActivity(baseRecord('JOB_CHANGE_REQUEST_RESOLVED', {
+        actorId: 'manager-1',
+        actorName: 'Müdür',
+        metadata: {
+          requestId: 'req-1',
+          resolution,
+          linkedJobCardId: null,
+          secret: 'never-leak',
+        },
+      }));
+      expect(result.details).toEqual({
+        kind: 'CHANGE_REQUEST_RESOLVED',
+        resolution,
+      });
+      expect(JSON.stringify(result)).not.toMatch(/req-1|never-leak|metadata/);
+    }
+
+    for (const metadata of [
+      null,
+      {},
+      { requestId: 'req-1' },
+      { requestId: 'req-1', resolution: null },
+      { requestId: 'req-1', resolution: 42 },
+      { requestId: 'req-1', resolution: 'UNKNOWN_RESOLUTION' },
+    ]) {
+      expect(presentActivity(baseRecord('JOB_CHANGE_REQUEST_RESOLVED', { metadata })).details)
+        .toEqual({ kind: 'NONE' });
+    }
+  });
+
   it('keeps the other assignment offer facts as plain facts', () => {
     expect(presentActivity(baseRecord('JOB_ASSIGNMENT_OFFER_OPENED', {
       metadata: { offerId: 'offer-1', reasonCode: 'SCHEDULE_CONFLICT', reasonText: 'x' },

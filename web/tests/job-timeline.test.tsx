@@ -565,4 +565,55 @@ describe('safe JobCard timeline', () => {
     const matchEntry = host.querySelector('[data-activity-id="submit-match"]');
     expect(matchEntry?.querySelector('.activity-timeline-badge')).toBeNull();
   });
+
+  it('uses info tone and timeline-info icon for ACKNOWLEDGED_ONLY and REJECTED change-request resolutions, never success', async () => {
+    const activities: JobCardActivity[] = [
+      {
+        id: 'cr-ack',
+        jobCardId: 'job-1',
+        eventType: 'JOB_CHANGE_REQUEST_RESOLVED',
+        actor: { id: 'm1', name: 'Emrah Yönetici' },
+        details: { kind: 'CHANGE_REQUEST_RESOLVED', resolution: 'ACKNOWLEDGED_ONLY' },
+        createdAt: '2026-11-28T10:00:00.000Z',
+      },
+      {
+        id: 'cr-rej',
+        jobCardId: 'job-1',
+        eventType: 'JOB_CHANGE_REQUEST_RESOLVED',
+        actor: { id: 'm1', name: 'Emrah Yönetici' },
+        details: { kind: 'CHANGE_REQUEST_RESOLVED', resolution: 'REJECTED' },
+        createdAt: '2026-11-28T09:30:00.000Z',
+      },
+      {
+        id: 'cr-corr',
+        jobCardId: 'job-1',
+        eventType: 'JOB_CHANGE_REQUEST_RESOLVED',
+        actor: { id: 'm1', name: 'Emrah Yönetici' },
+        details: { kind: 'CHANGE_REQUEST_RESOLVED', resolution: 'CORRECTED' },
+        createdAt: '2026-11-28T09:00:00.000Z',
+      },
+    ];
+    await act(async () => {
+      root.render(<JobTimeline jobId="job-1" load={vi.fn().mockResolvedValue(page(activities))} />);
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    const ackItem = host.querySelector('[data-activity-id="cr-ack"]')?.closest('.activity-timeline-item');
+    const rejItem = host.querySelector('[data-activity-id="cr-rej"]')?.closest('.activity-timeline-item');
+    const corrItem = host.querySelector('[data-activity-id="cr-corr"]')?.closest('.activity-timeline-item');
+
+    expect(ackItem?.classList.contains('activity-timeline-item--info')).toBe(true);
+    expect(ackItem?.textContent).toContain('Kayda alındı ve kapatıldı');
+    expect(ackItem?.querySelector('.activity-timeline-marker--info svg')).not.toBeNull();
+    expect(ackItem?.querySelector('.activity-timeline-marker--success')).toBeNull();
+
+    expect(rejItem?.classList.contains('activity-timeline-item--info')).toBe(true);
+    expect(rejItem?.textContent).toContain('Reddedildi');
+    expect(rejItem?.querySelector('.activity-timeline-marker--info svg')).not.toBeNull();
+    expect(rejItem?.querySelector('.activity-timeline-marker--success')).toBeNull();
+
+    expect(corrItem?.classList.contains('activity-timeline-item--success')).toBe(true);
+    expect(corrItem?.textContent).toContain('Düzeltildi');
+    expect(corrItem?.querySelector('.activity-timeline-marker--success svg')).not.toBeNull();
+  });
 });

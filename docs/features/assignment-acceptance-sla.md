@@ -669,10 +669,44 @@ the server contract, vocabulary and permissions are unchanged.
 #### Job detail recovery entry
 
 Managers and admins find open change requests and assignments requiring
-recovery under **Görevi çözüme ulaştır** in Job Detail. The section opens
-expanded so the case facts and available commands are visible on arrival.
-The existing actions keep their confirmation, permissions and job-level
-feedback. A completed decision still shows its result when the section closes.
+recovery under **Müdahale gereken durum** (`ManagerRecoverySection`) with one
+primary **Görevi çözüme ulaştır** action in Job Detail, instead of scattered
+per-panel recovery buttons. When an assignment offer and an open change request
+coexist, both distinct source facts appear in that region without competing
+CTAs. Clicking **Görevi çözüme ulaştır** opens the unified
+`ManagerRecoveryDrawer` (`ResponsiveFormDrawer`):
+
+- One single-select native radio fieldset (`Kararınız`) ordered by JOB-013
+  suggestion, offer state, and change-request reason, with no pre-selected
+  destructive `CANCEL`.
+- Conditional inputs rendered only for the selected decision (drafts preserved
+  across decision switches in an open drawer without sending hidden fields).
+- Authoritative `İşlem sonucu` preview (`Değişmeyenler`, offer outcome, request
+  disposition) and non-stacked `ReasonDialog` /
+  `PastStartAcknowledgementDrawer` overlays when required.
+- Informational non-green feedback (`detail-feedback-info`) for neutral
+  acknowledgement and rejection receipts, and `En güncel bilgileri yükle`
+  recovery on version/request conflicts while preserving the manager's draft.
+
+The ordinary `CORRECT` (`İş bilgilerini düzelt`) edit option is an authorized
+field edit and stays available for every request reason; it does not by itself
+close the request. The drawer additionally offers an opt-in `CORRECTED` closure
+only for an open request whose reason is `OTHER`, when the selected edit
+persists a supported evidence field (`description`, or a permitted
+`SALES_MEETING` `customerId`/`engagementKind` change), and the manager supplies
+the trimmed 1–2000 character management attestation note. For `WRONG_PRODUCT`
+and every other reason the drawer keeps the ordinary edit option but sends no
+`CORRECTED` closure: it leaves the request open or offers neutral
+acknowledgement or rejection instead of sending a false `CORRECTED`; it must not
+silently widen the server evidence list. The drawer also
+renders no linked-job/replacement/relationship selector: the contract proves no
+authorized replacement relation for this command, so that decision is deferred
+and `LINKED_JOB_CREATED` stays in the legacy `POST` path with its history.
+
+The legacy `POST /api/job-cards/:id/change-requests/:requestId/resolve` endpoint
+remains backward-compatible on the backend (`CORRECTED`, `RESCHEDULED`,
+`LINKED_JOB_CREATED`, `REJECTED`, and `ACKNOWLEDGED_ONLY`). Design specification:
+[RESCUE-003/B manager recovery form UI spec](../backlog/2026-11-28-rescue-003b/09-manager-recovery-form-ui-spec.md).
 UI changes to this recovery path follow the
 [Connected Workflows acceptance gate](connected-workflows-ui-acceptance.md).
 
@@ -688,18 +722,45 @@ assignee and time together.
 When assignment offers apply, the transaction closes the old offer as needed
 and creates one offer for the new assignee. The committed response determines
 whether the receipt says that an answer is pending. Management can explicitly
-close an open personnel request as `RESCHEDULED` in the same transaction.
-That closure requires an actual schedule revision.
+close an open personnel request as `RESCHEDULED` in the same transaction when
+the PATCH appends a schedule revision. The `CORRECTED` (RESCUE-003/B) closure is
+evidence-bound to the open request's reason: it is accepted only for reason
+`OTHER`, only when the same management PATCH persists a supported actual field
+change (a real `description` change, or a permitted `SALES_MEETING` `customerId`
+or `engagementKind` change) and the manager supplies a trimmed 1–2000 character
+`note` attesting how the correction addressed the request. Title, priority,
+schedule, assignee and contact-only edits are not evidence. `WRONG_PRODUCT` and
+every other reason remain open (or close neutrally with `ACKNOWLEDGED_ONLY` under
+the neutral contract below); no-op, unsupported, unrelated, missing/blank-note
+and `STAFF` calls fail with `400 VALIDATION_ERROR`
+(`fieldErrors.changeRequestResolution`) and roll back the field edit, request
+closure, activity and requester notification together.
+
+The `PATCH` correction closure has no linked-job or replacement relation. The
+existing contract does not prove an explicit authorized replacement relation
+for this command: a same tenant/customer job, a generic follow-up
+(`source_job_card_id`) or an operator-selected row is not replacement evidence.
+The unified recovery form therefore offers no relationship/replacement decision
+in this slice. The legacy `POST` `LINKED_JOB_CREATED` decision and its historical
+records remain unchanged; JOB-009 cancellation replacement and SALE-002/003
+delivery replacement keep their own contracts.
 
 #### Neutral acknowledgement for RESCUE-003
 
-The neutral acknowledgement contract is for a future change-request resolution.
-`ACKNOWLEDGED_ONLY` is the proposed stored value. A manager or admin closes an
-open request with an explicit note of 1–2000 characters after trimming. The job, assignee, planned interval,
-deadline, assignment offer, incidents and their attribution retain their
-current values. Use the existing resolution transaction, idempotency receipt,
-activity and requester notification. Concurrent close attempts have one
-winner. A repeated matching request returns its committed receipt.
+The neutral acknowledgement contract (`ACKNOWLEDGED_ONLY`, `DECISIONS.md`
+JOB-014) is implemented in migration `077_change_request_acknowledged_only.sql`
+(widening `job_card_change_requests_resolution_check` and
+`job_card_change_requests_closure_check`), `resolveChangeRequest`, activity
+projection (`CHANGE_REQUEST_RESOLVED` on `JOB_CHANGE_REQUEST_RESOLVED`), and the
+PostgreSQL acceptance suite
+(`server/tests/rescue-003b-neutral-acknowledgement-postgres.test.ts`). A manager
+or admin closes an open request with an explicit note of 1–2000 characters
+after trimming (`linkedJobCardId` forbidden). The job, assignee, planned
+interval, deadline, assignment offer, incidents and their attribution retain
+their current values. The decision uses the existing resolution transaction,
+idempotency receipt, activity and requester notification (`job.change_request_resolved`).
+Concurrent close attempts have one winner (`FOR UPDATE`), and a repeated matching
+request returns its committed receipt.
 
 | Request or decision | OVR-7 | Automatic OVR-4 and OVR-6 alerts |
 | --- | --- | --- |
@@ -721,11 +782,10 @@ offer reminders and Calendar notifications keep their own contracts.
 
 Keep the OVR-7 allowlist and historical grouping intact. A separate qualifying
 resolution can still contribute to the report under its normal rules.
-Adding the neutral value requires the JOB-010 decision, stored enum/check,
-API, activity presentation and PostgreSQL acceptance tests in the same change.
-Cover one committed receipt and requester notification under replay, one
-winner under concurrent closure, exclusion under OVR-7, resumption of an
-undelivered alert, and suppression of an already delivered alert.
+`POST /api/job-cards/:id/change-requests/:requestId/resolve` remains
+backward-compatible for `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED`,
+`REJECTED`, and `ACKNOWLEDGED_ONLY` alongside atomic `PATCH` `RESCHEDULED` and
+`CORRECTED` closure.
 
 ### Ownership for parallel work
 

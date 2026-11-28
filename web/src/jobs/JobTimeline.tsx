@@ -11,6 +11,7 @@ import type { SignalGlyphName } from '../ui/signal-icons';
 import {
   assignmentOfferCloseReasonLabel,
   assignmentSuggestedSolutionLabel,
+  changeRequestResolutionLabel,
   historicalJobStatusLabels,
   isKnownJobCardActivityEvent,
   jobActivityLabel,
@@ -72,7 +73,17 @@ const ACTIVITY_META: Record<KnownJobCardActivityEvent, ActivityVisualMeta> = {
   SALE_ITEM_REMOVED: { tone: 'neutral', icon: 'timeline-neutral' },
 };
 
-function activityPresentationMeta(eventType: string): ActivityVisualMeta {
+function activityPresentationMeta(
+  eventType: string,
+  details?: JobCardActivityDetails,
+): ActivityVisualMeta {
+  if (
+    eventType === 'JOB_CHANGE_REQUEST_RESOLVED'
+    && details?.kind === 'CHANGE_REQUEST_RESOLVED'
+    && (details.resolution === 'ACKNOWLEDGED_ONLY' || details.resolution === 'REJECTED')
+  ) {
+    return { tone: 'info', icon: 'timeline-info' };
+  }
   return isKnownJobCardActivityEvent(eventType)
     ? ACTIVITY_META[eventType]
     : { tone: 'neutral', icon: 'timeline-neutral' };
@@ -185,6 +196,9 @@ function detailText(details: JobCardActivityDetails) {
   }
   if (details.kind === 'MEETING_DETAILS') return details.changedFields
     .map((field) => meetingFieldLabels[field]).join(', ');
+  if (details.kind === 'CHANGE_REQUEST_RESOLVED') {
+    return changeRequestResolutionLabel(details.resolution);
+  }
   return '';
 }
 
@@ -208,7 +222,7 @@ function submitComparisonBadge(details: JobCardActivityDetails): ActivityTimelin
 }
 
 function presentActivity(activity: JobCardActivity): ActivityTimelineItem {
-  const meta = activityPresentationMeta(activity.eventType);
+  const meta = activityPresentationMeta(activity.eventType, activity.details);
   return {
     key: activity.id,
     action: jobActivityLabel(activity.eventType),

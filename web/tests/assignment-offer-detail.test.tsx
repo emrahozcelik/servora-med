@@ -1068,7 +1068,7 @@ describe('decline and release dialogs', () => {
       .toBe('Personelin takviminde çakışma var: Klinik ziyareti 09:00.');
   });
 
-  it('opens the existing reassignment form from the declined-offer guidance', async () => {
+  it('opens the unified manager recovery drawer with reassignment pre-selected for ON_LEAVE', async () => {
     const card = jobCard({
       assignmentOffer: closedOffer({ closeReason: 'ON_LEAVE' }),
       workflowContext: {
@@ -1081,15 +1081,19 @@ describe('decline and release dialogs', () => {
     const fetchMock = mockDetailFetch(card);
     await renderScreen(card, fetchMock, manager);
 
-    expect(host.querySelector('[data-assignment-offer-recovery="DECLINED"]')).not.toBeNull();
-    const trigger = host.querySelector<HTMLButtonElement>('[data-assignment-offer-action="reassign"]');
-    expect(trigger).not.toBeNull();
+    expect(host.querySelector('[data-manager-recovery="true"]')).not.toBeNull();
+    const trigger = host.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]');
+    expect(trigger?.textContent?.trim()).toBe('Görevi çözüme ulaştır');
     await act(async () => trigger!.click());
     await settle();
 
-    // The shared record-edit reassignment form, not a second copy in the block.
-    expect(host.querySelector('.delivery-assignee-details')).not.toBeNull();
-    expect(host.textContent).toContain('Sorumlu personel düzenleme alanı açıldı.');
+    const form = host.querySelector('[data-manager-recovery-form="true"]');
+    expect(form).not.toBeNull();
+    const reassignRadio = form?.querySelector<HTMLInputElement>(
+      'input[name="manager-recovery-decision"][value="REASSIGN_KEEP_TIME"]',
+    );
+    expect(reassignRadio?.checked).toBe(true);
+    expect(form?.querySelector('select[name="assignedTo"]')).not.toBeNull();
   });
 
   it('closes the stale dialog and reloads when the acceptance window has closed', async () => {

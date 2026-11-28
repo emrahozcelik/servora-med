@@ -136,6 +136,7 @@ export const changeRequestResolutionLabels: Record<string, string> = {
   RESCHEDULED: 'Yeniden planlandı',
   LINKED_JOB_CREATED: 'Bağlı yeni iş oluşturuldu',
   REJECTED: 'Reddedildi',
+  ACKNOWLEDGED_ONLY: 'Kayda alındı ve kapatıldı',
   CANCELLED: 'İptal ile kapatıldı',
   SUPERSEDED: 'Sonraki işlemle kapatıldı',
 };

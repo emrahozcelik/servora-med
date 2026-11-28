@@ -58,10 +58,12 @@ describe('JOB-010 release 2a change-request copy', () => {
       CORRECTED: 'Düzeltildi',
       RESCHEDULED: 'Yeniden planlandı',
       LINKED_JOB_CREATED: 'Bağlı yeni iş oluşturuldu',
+      ACKNOWLEDGED_ONLY: 'Kayda alındı ve kapatıldı',
       REJECTED: 'Reddedildi',
       CANCELLED: 'İptal ile kapatıldı',
       SUPERSEDED: 'Sonraki işlemle kapatıldı',
     });
+    expect(changeRequestResolutionLabel('ACKNOWLEDGED_ONLY')).toBe('Kayda alındı ve kapatıldı');
     expect(changeRequestResolutionLabel('REJECTED')).toBe('Reddedildi');
     expect(changeRequestResolutionLabel('FUTURE_RESOLUTION')).toBe('İşlemle kapatıldı');
   });

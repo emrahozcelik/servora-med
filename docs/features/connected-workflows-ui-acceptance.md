@@ -29,9 +29,23 @@ Link measurements and screenshots in the PR. Record the exact source, viewport, 
 The [RESCUE-003 capture runner](../../web/scripts/connected-workflows-recovery-acceptance.mjs)
 runs the real job detail route. From `web/`, set `FLEET_EVIDENCE_DIR` to the
 output path and `CONNECTED_VISUAL_SOURCE` to the tested SHA, then run
-`node scripts/connected-workflows-recovery-acceptance.mjs`. It captures the
-combined transfer form at each required setting and exercises an open wheel,
-validation, a calendar rejection, pending submission and the committed receipt
-through the real AppShell on a standard phone. For comparison,
+`node scripts/connected-workflows-recovery-acceptance.mjs`. For RESCUE-003/A
+(preserved in [RESCUE-003/A evidence](../evidence/rescue-003-connected-workflows/README.md)),
+it captured the combined transfer form at each required setting and exercised an
+open wheel, validation, a calendar rejection, pending submission and the
+committed receipt through the real AppShell on a standard phone. For comparison,
 run the same script from the baseline checkout's `web/` directory with
 `CONNECTED_VISUAL_BASELINE=1`, a separate evidence directory and the baseline SHA.
+
+## RESCUE-003/B
+
+Specification: [RESCUE-003/B manager recovery form UI spec](../backlog/2026-11-28-rescue-003b/09-manager-recovery-form-ui-spec.md).
+RESCUE-003/B replaces the scattered Job Detail recovery buttons with one
+**Görevi çözüme ulaştır** trigger (`ManagerRecoverySection`) and unified
+`ManagerRecoveryDrawer` (`ResponsiveFormDrawer`), and stores its rendered
+acceptance evidence in [RESCUE-003/B evidence](../evidence/rescue-003b-manager-recovery-form/README.md)
+using the same [capture runner](../../web/scripts/connected-workflows-recovery-acceptance.mjs)
+against the real AppShell and production styles across all required viewports,
+text/zoom scales, reduced-motion, coexisting source facts, conditional decision
+fields, and error/pending/settled/unknown states (preserving RESCUE-003/A's
+evidence directory untouched).

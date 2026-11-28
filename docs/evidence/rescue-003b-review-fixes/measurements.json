@@ -1,0 +1,2227 @@
+{
+  "fixedClock": "2026-11-26T11:00:00.000Z",
+  "timezone": "Europe/Istanbul",
+  "source": "7bb6f5eac7443c95d4a851168cce8e8ef3320c7a",
+  "baseline": false,
+  "samples": [
+    {
+      "name": "small-mobile",
+      "width": 320,
+      "height": 800,
+      "viewport": [
+        320,
+        800
+      ],
+      "dpr": 1,
+      "documentWidth": 320,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 250.8125,
+          "height": 44,
+          "top": 618.921875,
+          "bottom": 662.921875
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 320,
+        "height": 61.703125,
+        "top": 738.296875,
+        "bottom": 800
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 320,
+        "header": {
+          "width": 286,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 318,
+          "scrollWidth": 318
+        },
+        "formOverflow": {
+          "clientWidth": 286,
+          "scrollWidth": 286
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 286,
+            "height": 114.625
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 286,
+            "height": 88.03125
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 286,
+            "height": 47.75
+          },
+          {
+            "label": "Planlanan zamanı kaydet",
+            "width": 286,
+            "height": 44
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      },
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "Yeni planlanan zaman (zorunlu): Cum 27 Kas · 16:30",
+          "width": 286,
+          "height": 49.03125
+        },
+        {
+          "label": "Bugün +1s",
+          "width": 87.25,
+          "height": 44
+        },
+        {
+          "label": "Yarın 10:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Yarın 14:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Pazartesi 09:00",
+          "width": 113.578125,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 286,
+          "height": 47.75
+        },
+        {
+          "label": "Planlanan zamanı kaydet",
+          "width": 286,
+          "height": 44
+        },
+        {
+          "label": "Personel önerisini 'Yeniden planlandı' olarak kapat",
+          "width": 258.8125,
+          "height": 44
+        }
+      ],
+      "footerReachable": {
+        "hitTargetOk": true,
+        "inViewport": true,
+        "navTop": 738.296875,
+        "buttonBottom": 741.296875
+      }
+    },
+    {
+      "name": "phone",
+      "width": 390,
+      "height": 844,
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 320.8125,
+          "height": 44,
+          "top": 579.765625,
+          "bottom": 623.765625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 390,
+        "header": {
+          "width": 356,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 388,
+          "scrollWidth": 388
+        },
+        "formOverflow": {
+          "clientWidth": 356,
+          "scrollWidth": 356
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 356,
+            "height": 88.03125
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 356,
+            "height": 47.75
+          },
+          {
+            "label": "Planlanan zamanı kaydet",
+            "width": 356,
+            "height": 44
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      },
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "Yeni planlanan zaman (zorunlu): Cum 27 Kas · 16:30",
+          "width": 356,
+          "height": 49.03125
+        },
+        {
+          "label": "Bugün +1s",
+          "width": 87.25,
+          "height": 44
+        },
+        {
+          "label": "Yarın 10:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Yarın 14:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Pazartesi 09:00",
+          "width": 113.578125,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 356,
+          "height": 47.75
+        },
+        {
+          "label": "Planlanan zamanı kaydet",
+          "width": 356,
+          "height": 44
+        },
+        {
+          "label": "Personel önerisini 'Yeniden planlandı' olarak kapat",
+          "width": 328.8125,
+          "height": 44
+        }
+      ],
+      "footerReachable": {
+        "hitTargetOk": true,
+        "inViewport": true,
+        "navTop": 782.296875,
+        "buttonBottom": 784.84375
+      }
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024,
+      "viewport": [
+        768,
+        1024
+      ],
+      "dpr": 1,
+      "documentWidth": 768,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 181.984375,
+          "height": 44,
+          "top": 467.015625,
+          "bottom": 511.015625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 768,
+        "height": 61.703125,
+        "top": 962.296875,
+        "bottom": 1024
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 480,
+        "header": {
+          "width": 446,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 478,
+          "scrollWidth": 478
+        },
+        "formOverflow": {
+          "clientWidth": 446,
+          "scrollWidth": 446
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 446,
+            "height": 69
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 446,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 446,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 446,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 446,
+            "height": 69
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 446,
+            "height": 69
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 112,
+            "height": 47.75
+          },
+          {
+            "label": "Planlanan zamanı kaydet",
+            "width": 207.03125,
+            "height": 47.75
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      },
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "Yeni planlanan zaman (zorunlu): Cum 27 Kas · 16:30",
+          "width": 446,
+          "height": 49.03125
+        },
+        {
+          "label": "Bugün +1s",
+          "width": 87.25,
+          "height": 44
+        },
+        {
+          "label": "Yarın 10:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Yarın 14:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Pazartesi 09:00",
+          "width": 113.578125,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "label": "Planlanan zamanı kaydet",
+          "width": 207.03125,
+          "height": 47.75
+        },
+        {
+          "label": "Personel önerisini 'Yeniden planlandı' olarak kapat",
+          "width": 418.8125,
+          "height": 44
+        }
+      ],
+      "footerReachable": {
+        "hitTargetOk": true,
+        "inViewport": true,
+        "navTop": 962.296875,
+        "buttonBottom": 1022.9375
+      }
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "viewport": [
+        1440,
+        900
+      ],
+      "dpr": 1,
+      "documentWidth": 1440,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 181.984375,
+          "height": 44,
+          "top": 563.234375,
+          "bottom": 607.234375
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "facts",
+        "actions",
+        "notes",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/customers",
+        "/products",
+        "/reports",
+        "/staff",
+        "/docs",
+        "/help",
+        "/settings",
+        "/jobs"
+      ],
+      "bottomNavigation": null,
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 896,
+        "header": {
+          "width": 862,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 894,
+          "scrollWidth": 894
+        },
+        "formOverflow": {
+          "clientWidth": 862,
+          "scrollWidth": 862
+        },
+        "gridColumns": 2,
+        "twoColumnSideBySide": true,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 465.5625,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 465.5625,
+            "height": 69
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 112,
+            "height": 47.75
+          },
+          {
+            "label": "Planlanan zamanı kaydet",
+            "width": 207.03125,
+            "height": 47.75
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": 24,
+          "contextToMainVertical": null,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      },
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "",
+          "width": 465.5625,
+          "height": 51.03125
+        },
+        {
+          "label": "Bugün +1s",
+          "width": 87.25,
+          "height": 44
+        },
+        {
+          "label": "Yarın 10:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Yarın 14:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Pazartesi 09:00",
+          "width": 113.578125,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "label": "Planlanan zamanı kaydet",
+          "width": 207.03125,
+          "height": 47.75
+        },
+        {
+          "label": "Personel önerisini 'Yeniden planlandı' olarak kapat",
+          "width": 438.375,
+          "height": 44
+        }
+      ],
+      "footerReachable": {
+        "hitTargetOk": true,
+        "inViewport": true,
+        "navTop": null,
+        "buttonBottom": 899.328125
+      }
+    },
+    {
+      "name": "text-200",
+      "width": 390,
+      "height": 844,
+      "textScale": 200,
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "32px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 253.625,
+          "height": 181.1875,
+          "top": 1372.4375,
+          "bottom": 1553.625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 151.109375,
+        "top": 692.890625,
+        "bottom": 844
+      },
+      "summaryGaps": {
+        "headerToSources": 40,
+        "sourcesToButton": 40
+      },
+      "drawer": {
+        "drawerWidth": 390,
+        "header": {
+          "width": 324,
+          "titleWidth": 212,
+          "titleHeight": 165.5625,
+          "closeWidth": 88,
+          "closeHeight": 88
+        },
+        "scroller": {
+          "clientWidth": 388,
+          "scrollWidth": 388
+        },
+        "formOverflow": {
+          "clientWidth": 324,
+          "scrollWidth": 324
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 32,
+        "radioRows": [
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 324,
+            "height": 351.5
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 324,
+            "height": 384.375
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 324,
+            "height": 384.375
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 324,
+            "height": 336.375
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 324,
+            "height": 250.296875
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 324,
+            "height": 250.296875
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 324,
+            "height": 93.5
+          },
+          {
+            "label": "Planlanan zamanı kaydet",
+            "width": 324,
+            "height": 133.1875
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 40,
+          "decisionsToNext": 40,
+          "unavailableToNext": 40,
+          "fieldsToPreview": 40,
+          "previewToFooter": 40
+        }
+      },
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 88,
+          "height": 88
+        },
+        {
+          "label": "Yeni planlanan zaman (zorunlu): Cum 27 Kas · 16:30",
+          "width": 324,
+          "height": 96.0625
+        },
+        {
+          "label": "Bugün +1s",
+          "width": 172.484375,
+          "height": 88
+        },
+        {
+          "label": "Yarın 10:00",
+          "width": 178.578125,
+          "height": 88
+        },
+        {
+          "label": "Yarın 14:00",
+          "width": 178.578125,
+          "height": 88
+        },
+        {
+          "label": "Pazartesi 09:00",
+          "width": 225.15625,
+          "height": 88
+        },
+        {
+          "label": "Vazgeç",
+          "width": 324,
+          "height": 93.5
+        },
+        {
+          "label": "Planlanan zamanı kaydet",
+          "width": 324,
+          "height": 133.1875
+        },
+        {
+          "label": "Personel önerisini 'Yeniden planlandı' olarak kapat",
+          "width": 269.609375,
+          "height": 129.5625
+        }
+      ],
+      "footerReachable": {
+        "hitTargetOk": true,
+        "inViewport": true,
+        "navTop": 692.890625,
+        "buttonBottom": 728.671875
+      }
+    },
+    {
+      "name": "reflow-400-equivalent",
+      "width": 320,
+      "height": 225,
+      "dpr": 4,
+      "viewport": [
+        320,
+        225
+      ],
+      "documentWidth": 320,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 250.8125,
+          "height": 44,
+          "top": 618.921875,
+          "bottom": 662.921875
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 320,
+        "height": 61.703125,
+        "top": 163.296875,
+        "bottom": 225
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 320,
+        "header": {
+          "width": 286,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 318,
+          "scrollWidth": 318
+        },
+        "formOverflow": {
+          "clientWidth": 286,
+          "scrollWidth": 286
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 286,
+            "height": 114.625
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 286,
+            "height": 88.03125
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 286,
+            "height": 88.03125
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 286,
+            "height": 47.75
+          },
+          {
+            "label": "Planlanan zamanı kaydet",
+            "width": 286,
+            "height": 44
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      },
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "Yeni planlanan zaman (zorunlu): Cum 27 Kas · 16:30",
+          "width": 286,
+          "height": 49.03125
+        },
+        {
+          "label": "Bugün +1s",
+          "width": 87.25,
+          "height": 44
+        },
+        {
+          "label": "Yarın 10:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Yarın 14:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Pazartesi 09:00",
+          "width": 113.578125,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 286,
+          "height": 47.75
+        },
+        {
+          "label": "Planlanan zamanı kaydet",
+          "width": 286,
+          "height": 44
+        },
+        {
+          "label": "Personel önerisini 'Yeniden planlandı' olarak kapat",
+          "width": 258.8125,
+          "height": 44
+        }
+      ],
+      "footerReachable": {
+        "hitTargetOk": true,
+        "inViewport": true,
+        "navTop": 163.296875,
+        "buttonBottom": 166.796875
+      }
+    },
+    {
+      "name": "reduced-motion",
+      "width": 390,
+      "height": 844,
+      "motion": true,
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 320.8125,
+          "height": 44,
+          "top": 579.765625,
+          "bottom": 623.765625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 390,
+        "header": {
+          "width": 356,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 388,
+          "scrollWidth": 388
+        },
+        "formOverflow": {
+          "clientWidth": 356,
+          "scrollWidth": 356
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 356,
+            "height": 88.03125
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 356,
+            "height": 47.75
+          },
+          {
+            "label": "Planlanan zamanı kaydet",
+            "width": 356,
+            "height": 44
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      },
+      "drawerTargets": [
+        {
+          "label": "Formu kapat",
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "Yeni planlanan zaman (zorunlu): Cum 27 Kas · 16:30",
+          "width": 356,
+          "height": 49.03125
+        },
+        {
+          "label": "Bugün +1s",
+          "width": 87.25,
+          "height": 44
+        },
+        {
+          "label": "Yarın 10:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Yarın 14:00",
+          "width": 90.296875,
+          "height": 44
+        },
+        {
+          "label": "Pazartesi 09:00",
+          "width": 113.578125,
+          "height": 44
+        },
+        {
+          "label": "Vazgeç",
+          "width": 356,
+          "height": 47.75
+        },
+        {
+          "label": "Planlanan zamanı kaydet",
+          "width": 356,
+          "height": 44
+        },
+        {
+          "label": "Personel önerisini 'Yeniden planlandı' olarak kapat",
+          "width": 328.8125,
+          "height": 44
+        }
+      ],
+      "footerReachable": {
+        "hitTargetOk": true,
+        "inViewport": true,
+        "navTop": 782.296875,
+        "buttonBottom": 784.84375
+      }
+    }
+  ],
+  "entryCases": [
+    {
+      "name": "declined-assignment-phone",
+      "width": 390,
+      "height": 844,
+      "scenario": "assignment-reassign",
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": true,
+      "hasChangeRequestSource": false,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 320.8125,
+          "height": 44,
+          "top": 612.953125,
+          "bottom": 656.953125
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 390,
+        "header": {
+          "width": 356,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 388,
+          "scrollWidth": 388
+        },
+        "formOverflow": {
+          "clientWidth": 356,
+          "scrollWidth": 356
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REOFFER",
+            "label": "Yeniden teklif gönder",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 356,
+            "height": 88.03125
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 356,
+            "height": 47.75
+          },
+          {
+            "label": "Personeli değiştir",
+            "width": 356,
+            "height": 44
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      }
+    },
+    {
+      "name": "declined-assignment-desktop",
+      "width": 1440,
+      "height": 900,
+      "scenario": "assignment-reassign",
+      "viewport": [
+        1440,
+        900
+      ],
+      "dpr": 1,
+      "documentWidth": 1440,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": true,
+      "hasChangeRequestSource": false,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 181.984375,
+          "height": 44,
+          "top": 563.234375,
+          "bottom": 607.234375
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "facts",
+        "actions",
+        "notes",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/customers",
+        "/products",
+        "/reports",
+        "/staff",
+        "/docs",
+        "/help",
+        "/settings",
+        "/jobs"
+      ],
+      "bottomNavigation": null,
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 896,
+        "header": {
+          "width": 862,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 894,
+          "scrollWidth": 894
+        },
+        "formOverflow": {
+          "clientWidth": 862,
+          "scrollWidth": 862
+        },
+        "gridColumns": 2,
+        "twoColumnSideBySide": true,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "REOFFER",
+            "label": "Yeniden teklif gönder",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 465.5625,
+            "height": 69
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 112,
+            "height": 47.75
+          },
+          {
+            "label": "Personeli değiştir",
+            "width": 152.953125,
+            "height": 47.75
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": 24,
+          "contextToMainVertical": null,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      }
+    },
+    {
+      "name": "coexisting-sources-phone",
+      "width": 390,
+      "height": 844,
+      "scenario": "coexisting",
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": true,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 320.8125,
+          "height": 44,
+          "top": 939.421875,
+          "bottom": 983.421875
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 390,
+        "header": {
+          "width": 356,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 388,
+          "scrollWidth": 388
+        },
+        "formOverflow": {
+          "clientWidth": 356,
+          "scrollWidth": 356
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "ACCEPT_PROPOSED_TIME",
+            "label": "Önerilen zamanı onayla",
+            "width": 356,
+            "height": 95.59375
+          },
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REOFFER",
+            "label": "Yeniden teklif gönder",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 356,
+            "height": 88.03125
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 356,
+            "height": 47.75
+          },
+          {
+            "label": "Önerilen zamanı onayla",
+            "width": 356,
+            "height": 44
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      }
+    },
+    {
+      "name": "coexisting-sources-desktop",
+      "width": 1440,
+      "height": 900,
+      "scenario": "coexisting",
+      "viewport": [
+        1440,
+        900
+      ],
+      "dpr": 1,
+      "documentWidth": 1440,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": true,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 181.984375,
+          "height": 44,
+          "top": 720.578125,
+          "bottom": 764.578125
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "facts",
+        "actions",
+        "notes",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/customers",
+        "/products",
+        "/reports",
+        "/staff",
+        "/docs",
+        "/help",
+        "/settings",
+        "/jobs"
+      ],
+      "bottomNavigation": null,
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 896,
+        "header": {
+          "width": 862,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 894,
+          "scrollWidth": 894
+        },
+        "formOverflow": {
+          "clientWidth": 862,
+          "scrollWidth": 862
+        },
+        "gridColumns": 2,
+        "twoColumnSideBySide": true,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "ACCEPT_PROPOSED_TIME",
+            "label": "Önerilen zamanı onayla",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "RESCHEDULE",
+            "label": "Farklı bir zaman belirle",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "REASSIGN_AND_RESCHEDULE",
+            "label": "Personeli ve zamanı değiştir",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "REASSIGN_KEEP_TIME",
+            "label": "Başka personele devret",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "REOFFER",
+            "label": "Yeniden teklif gönder",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 465.5625,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 465.5625,
+            "height": 69
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 112,
+            "height": 47.75
+          },
+          {
+            "label": "Önerilen zamanı onayla",
+            "width": 195.921875,
+            "height": 47.75
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": 24,
+          "contextToMainVertical": null,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      }
+    },
+    {
+      "name": "started-job-phone",
+      "width": 390,
+      "height": 844,
+      "scenario": "started-change-request",
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 320.8125,
+          "height": 44,
+          "top": 579.765625,
+          "bottom": 623.765625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      },
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 390,
+        "header": {
+          "width": 356,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 388,
+          "scrollWidth": 388
+        },
+        "formOverflow": {
+          "clientWidth": 356,
+          "scrollWidth": 356
+        },
+        "gridColumns": 1,
+        "twoColumnSideBySide": false,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "CORRECT",
+            "label": "İş bilgilerini düzelt",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 356,
+            "height": 88.03125
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 356,
+            "height": 88.03125
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 356,
+            "height": 47.75
+          },
+          {
+            "label": "Değişiklikleri kaydet",
+            "width": 356,
+            "height": 44
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": null,
+          "contextToMainVertical": 20,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      }
+    },
+    {
+      "name": "started-job-desktop",
+      "width": 1440,
+      "height": 900,
+      "scenario": "started-change-request",
+      "viewport": [
+        1440,
+        900
+      ],
+      "dpr": 1,
+      "documentWidth": 1440,
+      "rootFont": "16px",
+      "motion": false,
+      "triggerCount": 1,
+      "duplicateTriggerCount": 1,
+      "hasOfferSource": false,
+      "hasChangeRequestSource": true,
+      "targets": [
+        {
+          "label": "Görevi çözüme ulaştır",
+          "width": 181.984375,
+          "height": 44,
+          "top": 563.234375,
+          "bottom": 607.234375
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "facts",
+        "actions",
+        "notes",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "navigationLinks": [
+        "/jobs",
+        "/customers",
+        "/products",
+        "/reports",
+        "/staff",
+        "/docs",
+        "/help",
+        "/settings",
+        "/jobs"
+      ],
+      "bottomNavigation": null,
+      "summaryGaps": {
+        "headerToSources": 20,
+        "sourcesToButton": 20
+      },
+      "drawer": {
+        "drawerWidth": 896,
+        "header": {
+          "width": 862,
+          "titleWidth": 175.71875,
+          "titleHeight": 27.609375,
+          "closeWidth": 44,
+          "closeHeight": 44
+        },
+        "scroller": {
+          "clientWidth": 894,
+          "scrollWidth": 894
+        },
+        "formOverflow": {
+          "clientWidth": 862,
+          "scrollWidth": 862
+        },
+        "gridColumns": 2,
+        "twoColumnSideBySide": true,
+        "nestedPermanentCards": 0,
+        "primaryFont": 16,
+        "radioRows": [
+          {
+            "decision": "CORRECT",
+            "label": "İş bilgilerini düzelt",
+            "width": 465.5625,
+            "height": 88.03125
+          },
+          {
+            "decision": "ACKNOWLEDGED_ONLY",
+            "label": "Talebi kayda al ve kapat",
+            "width": 465.5625,
+            "height": 88.03125
+          },
+          {
+            "decision": "REJECT_CHANGE_REQUEST",
+            "label": "Talebi reddet",
+            "width": 465.5625,
+            "height": 69
+          },
+          {
+            "decision": "CANCEL",
+            "label": "İptal et",
+            "width": 465.5625,
+            "height": 69
+          }
+        ],
+        "footerButtons": [
+          {
+            "label": "Vazgeç",
+            "width": 112,
+            "height": 47.75
+          },
+          {
+            "label": "Değişiklikleri kaydet",
+            "width": 174.140625,
+            "height": 47.75
+          }
+        ],
+        "sectionGaps": {
+          "contextToMainHorizontal": 24,
+          "contextToMainVertical": null,
+          "decisionsToNext": 20,
+          "unavailableToNext": 20,
+          "fieldsToPreview": 20,
+          "previewToFooter": 20
+        }
+      }
+    }
+  ],
+  "interactions": {
+    "keyboardAndRescheduleAndKeepTime": {
+      "keyboardRadioSwitch": true,
+      "wheelEscapeRestoredFocus": true,
+      "wheelTamamRestoredFocus": true,
+      "presetCheck": {
+        "canScroll": true,
+        "visibleEnd": true,
+        "fade": "linear-gradient(to right, rgba(0, 0, 0, 0), oklch(0.99 0.002 245) 70%)"
+      },
+      "wheelTargets": [
+        {
+          "label": "Tarih ve saat seçimini kapat",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "label": "Gün",
+          "width": 179,
+          "height": 220
+        },
+        {
+          "label": "Saat",
+          "width": 89.5,
+          "height": 220
+        },
+        {
+          "label": "Dakika",
+          "width": 89.5,
+          "height": 220
+        },
+        {
+          "label": "Vazgeç",
+          "width": 173.796875,
+          "height": 47.75
+        },
+        {
+          "label": "Tamam",
+          "width": 173.8125,
+          "height": 47.75
+        }
+      ],
+      "slotTargets": [
+        {
+          "label": "27 Kasım Cuma 17:00–18:00",
+          "width": 68,
+          "height": 44
+        }
+      ]
+    },
+    "transferFlow": {
+      "validation": true,
+      "conflictPreservedDraft": true,
+      "pending": true,
+      "outcome": {
+        "role": "status",
+        "icon": true,
+        "confirmed": true,
+        "color": "oklch(0.35 0.09 150)",
+        "background": "oklch(0.94 0.028 150)"
+      },
+      "patch": {
+        "expectedVersion": 4,
+        "assignedTo": "66666666-6666-4666-8666-666666666666",
+        "scheduledAt": "2026-11-27T14:00:00.000Z",
+        "changeRequestResolution": {
+          "changeRequestId": "22222222-2222-4222-8222-222222222222",
+          "resolution": "RESCHEDULED"
+        }
+      }
+    },
+    "uncertainTransfer": {
+      "lockedUntilRefresh": true,
+      "refreshed": true
+    },
+    "acceptProposedTime": {
+      "defaultSelected": true,
+      "committed": true
+    },
+    "expiredProposal": {
+      "acceptOptionHidden": true,
+      "explained": true
+    },
+    "cancelRequestNoPreselect": {
+      "checkedCount": 0,
+      "validationBlockedSubmit": true
+    },
+    "reoffer": {
+      "committed": true
+    },
+    "correctWrongProduct": {
+      "linkedOptionAbsent": true,
+      "closureHidden": true,
+      "recordSavedIndependently": true
+    },
+    "correct": {
+      "titleAloneIneligible": true,
+      "staleOptInClearedOnRevert": true,
+      "reasonDialogValidationAndFocus": true,
+      "committedWithAttestedNote": true
+    },
+    "acknowledgedOnly": {
+      "validationOnEmpty": true,
+      "nonGreenPreview": true,
+      "receiptTone": {
+        "isInfo": true,
+        "isConfirmed": false,
+        "icon": true,
+        "color": "oklch(0.37 0.12 242)",
+        "background": "oklch(0.91 0.03 242)"
+      }
+    },
+    "rejectChangeRequest": {
+      "validationOnEmpty": true,
+      "committed": true
+    },
+    "cancelFlow": {
+      "replacedWithoutStacking": true,
+      "draftRestoredOnCancel": true,
+      "committed": true
+    },
+    "navigation": true
+  },
+  "browser": "140.0.7339.186",
+  "completed": true,
+  "issues": []
+}
