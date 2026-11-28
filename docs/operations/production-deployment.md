@@ -725,6 +725,18 @@ database rollback. A healthy application with a failed postdeploy backup is
 reported as `LIVE_BUT_POSTDEPLOY_BACKUP_FAILED` and is not rolled back solely
 for that backup failure.
 
+For a release containing the SCH-001 addendum's released-reservation predicate
+(RESCUE-004/A), that automatic switch happens after candidate ingress, so it is
+not the SCH-001 §7 rollback path. Decide the manual pre-dispatch gate in
+[rescue-004a-rollback-reconciliation.md](./rescue-004a-rollback-reconciliation.md):
+independently verified write quiescence (blocked ingress + drained in-flight
+write paths/workers retained across activation, smoke, and any old-service
+restart) with pre-rollback read-only inventory and operator-only reconciliation
+to zero, or a separately authorized attempt-bound R4 route
+(`MANUAL_REQUIRED_ATTEMPT_FENCED` on smoke failure) when writers cannot be
+fenced; otherwise keep the candidate on production HOLD. The deploy code is
+unchanged; this is an operational gate.
+
 #### Recovering from `LIVE_BUT_OBSERVATION_STATE_FAILED`
 
 The run fails with `reason=LIVE_BUT_OBSERVATION_STATE_FAILED` (host line

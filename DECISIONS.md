@@ -2927,6 +2927,63 @@ host transition and the first one-action deployment need separate owner go-ahead
 
 Owning runbook: [docs/operations/production-deployment.md](docs/operations/production-deployment.md).
 
+### Addendum (SCH-001 §7) — no-migration automatic rollback after candidate ingress
+
+- **Date:** 2026-11-28
+- **Status:** clarification of existing accepted rules (OPS-DEPLOY-002 and
+  SCH-001 §7) for the RESCUE-004/A release class. Documentation only: it adds
+  no deploy-code path, no live-host capability, no automatic data action, and no
+  production authority, and it makes no claim about which release production
+  currently runs.
+
+OPS-DEPLOY-002's normal route switches and restarts the candidate, checks host
+health, and only then runs the runner's public browser smoke. A smoke failure
+with zero applied migrations automatically switches the previous release back.
+That automatic switch is not SCH-001 §7's rollback path: it happens after
+candidate ingress can persist released-offer / occupancy state, while SCH-001 §7
+requires effective write quiescence, an overlap inventory, and explicit
+reconciliation before an older binary serves writers. The older binary counts a
+`DECLINED`/`RELEASED` newest offer as occupying again, so stored overlaps
+(`released+held` and `released+released`) become conflicts.
+
+**Applicability.** Any candidate release containing the SCH-001 addendum's
+released-reservation predicate (`JOB_STAFF_RESERVATION_RELEASED_SQL`,
+RESCUE-004/A). Releases without it keep OPS-DEPLOY-002 exactly as written. This
+correction is pre-merge: no deployment, rollback, or data change is authorized
+or performed by this record, and the gate is decided manually before dispatch.
+
+**Pre-dispatch gate.**
+
+- **Verified write fence:** acceptable on the normal route only when an
+  independently verified write fence (blocked authenticated/public/API ingress
+  plus drained in-flight write paths and relevant workers) covers candidate
+  activation, smoke, and any old-service restart without breaking the selected
+  route. `max(...)` timestamp snapshots are supporting negative-evidence signals
+  only, never sole proof.
+- **Attempt-bound R4 fallback:** if writers cannot be safely fenced on the
+  normal route, use a separately authorized attempt-bound R4 route
+  (`ops/deploy-production.sh --attempt-id ...`), whose browser-smoke failure
+  stops at `MANUAL_REQUIRED_ATTEMPT_FENCED` instead of reverting, and keep a
+  forward-fix candidate ready. Any later manual rollback remains gated by
+  SCH-001 §7.
+- **Production HOLD:** if neither a safe verified write fence nor a separately
+  authorized attempt-bound R4 path exists, the candidate stays on production
+  **HOLD** and is not dispatched.
+
+**Rollback and reconciliation sequence.** Under the write fence, run the
+read-only `REPEATABLE READ` inventory **before** rollback (never passing
+credential-bearing PostgreSQL URLs in `psql` process `argv`), approve and
+execute each reconciliation via normal application commands using authorized
+operator-only access, repeat the inventory until zero overlaps remain, maintain
+the fence across return to the older binary, and optionally run a post-check
+before lifting the fence. Never auto-edit job cards, offers, assignments,
+customers, or calendar rows, and never change deploy code to bypass this gate.
+
+Exact audit method, SQL, and evidence template:
+[docs/operations/rescue-004a-rollback-reconciliation.md](docs/operations/rescue-004a-rollback-reconciliation.md)
+and
+[docs/operations/sql/rescue-004a-rollback-inventory.sql](docs/operations/sql/rescue-004a-rollback-inventory.sql).
+
 ## U3-A — Offboarded Staff cannot be reactivated
 
 Status: accepted by the owner on 2026-11-17 ("Ayrılan personel yeniden
