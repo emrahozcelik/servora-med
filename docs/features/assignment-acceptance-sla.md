@@ -676,6 +676,9 @@ feedback. A completed decision still shows its result when the section closes.
 UI changes to this recovery path follow the
 [Connected Workflows acceptance gate](connected-workflows-ui-acceptance.md).
 
+
+The next design handoff is [RESCUE-003/B — manager recovery form UI specification](../backlog/2026-11-28-rescue-003b/09-manager-recovery-form-ui-spec.md). It distinguishes the merged A scope from the remaining unified decision form, recommendation and neutral closure work. It does not change runtime policy until the corresponding implementation is accepted.
+
 #### Combined assignment transfer and rescheduling
 
 Management can change the owner and planned start together from a pre-start
