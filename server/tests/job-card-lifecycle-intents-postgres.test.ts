@@ -42,10 +42,10 @@ async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
 }
 
 describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => {
-  it('catalog head is 076 with 76 migrations', async () => {
+  it('catalog head is 077 with 77 migrations', async () => {
     const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
     expect(catalog.head?.version).toBe('077_backup_worker_trusted_time_evidence');
-    expect(catalog.count).toBe(76);
+    expect(catalog.count).toBe(77);
   });
 
   it('applies 001 -> 069 on an empty schema with an empty intent table', async () => {
@@ -54,7 +54,7 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.map((row) => row.version).at(-1)).toBe('077_backup_worker_trusted_time_evidence');
-      expect(applied.rows).toHaveLength(76);
+      expect(applied.rows).toHaveLength(77);
       const count = await pool.query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM job_card_lifecycle_intents',
       );

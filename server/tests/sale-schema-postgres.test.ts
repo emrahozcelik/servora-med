@@ -42,7 +42,7 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       const history = (await pool.query('SELECT version,applied_at,xmin::text FROM schema_migrations ORDER BY version')).rows;
       expect(await runMigrations({ migrationsDirectory: directory, store })).toEqual({ appliedVersions: [] });
       expect((await pool.query('SELECT version,applied_at,xmin::text FROM schema_migrations ORDER BY version')).rows).toEqual(history);
-      expect(history).toHaveLength(76);
+      expect(history).toHaveLength(77);
     } finally { await pool.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); await rm(previous, { recursive: true, force: true }); }
   });
   it('enforces same-org foreign keys, duplicate products and numeric bounds in PostgreSQL', async () => {

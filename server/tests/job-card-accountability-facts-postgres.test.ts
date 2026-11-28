@@ -190,7 +190,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders', '054_job_action_locations_submit_approval', '055_job_submit_location_comparison', '056_meeting_met_contact', '057_sale_from_visit', '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal', '062_follow_up_cycle_end_reason', '063_job_card_early_start_authorizations', '064_job_card_change_requests', '065_job_card_assignment_offers', '066_overdue_correction_deadline_and_extension', '067_overdue_delivery_identity_per_incident', '068_weekly_report_workweek', '069_lateness_alerts_and_quiet_hours', '070_overdue_incident_invalidation_closure', '071_sale_standalone_and_delivery_link', '072_sale_submit_without_start', '073_assignment_offer_time_proposal', '074_installation_operator_and_module_state', '075_installation_module_registry_widening', '076_assignment_offer_suggested_solution', '077_backup_worker_trusted_time_evidence']);
 
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.count).toBe(76);
+      expect(catalog.count).toBe(77);
       expect(catalog.head?.version).toBe('077_backup_worker_trusted_time_evidence');
 
       const after = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM job_cards');

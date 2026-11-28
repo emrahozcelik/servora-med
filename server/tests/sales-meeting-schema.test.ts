@@ -172,7 +172,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(76);
+      expect(firstRun.appliedVersions).toHaveLength(77);
       expect(firstRun.appliedVersions.at(-1)).toBe('077_backup_worker_trusted_time_evidence');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');

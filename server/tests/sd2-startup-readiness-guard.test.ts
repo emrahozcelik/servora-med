@@ -74,7 +74,7 @@ function createMockLogger() {
 }
 
 describe('SD2 catalog source', () => {
-  it('derives expected head from catalog as 076', async () => {
+  it('derives expected head from catalog as 077', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     expect(catalog.head?.version).toBe('077_backup_worker_trusted_time_evidence');
     expect(catalog.count).toBe(77);

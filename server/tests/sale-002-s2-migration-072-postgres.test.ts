@@ -191,7 +191,7 @@ describe.skipIf(!databaseUrl)('SALE-002 S2 migration 072 (R9)', () => {
     }
   });
 
-  it('moves the health schema version to 076', async () => {
+  it('moves the health schema version to 077', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     expect(catalog.head?.version).toBe(MIGRATION_077);
     expect(getHealthSchemaVersionMismatchError(catalog, MIGRATION_077)).toBeNull();

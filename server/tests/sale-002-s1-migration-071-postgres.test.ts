@@ -190,7 +190,7 @@ function withoutDeliveryLink(rows: Row[]): Row[] {
 describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
   it('installs 071 under the exact catalog head 077 and moves HEALTH_SCHEMA_VERSION', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.count).toBe(76);
+    expect(catalog.count).toBe(77);
     expect(catalog.head?.version).toBe(MIGRATION_077);
 
     if (existsSync(distMigrationsDirectory)) {
@@ -201,13 +201,13 @@ describe.skipIf(!databaseUrl)('SALE-002 S1 migration 071', () => {
     await withSchema(async (pool, schema) => {
       const store = new PostgresMigrationStore(pool);
       const applied = await runMigrations({ migrationsDirectory, store });
-      expect(applied.appliedVersions).toHaveLength(76);
+      expect(applied.appliedVersions).toHaveLength(77);
       expect(applied.appliedVersions[70]).toBe(MIGRATION_071);
 
       const history = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows.map((row) => row.version);
-      expect(history).toHaveLength(76);
+      expect(history).toHaveLength(77);
       expect(history[70]).toBe(MIGRATION_071);
 
       expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });

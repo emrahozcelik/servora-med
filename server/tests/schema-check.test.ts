@@ -300,7 +300,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 76 head 076', async () => {
+  it('produces dist catalog 77 head 077', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
     expect(distCatalog.count).toBe(77);
     expect(distCatalog.head?.version).toBe('077_backup_worker_trusted_time_evidence');

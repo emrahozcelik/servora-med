@@ -92,7 +92,7 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
   it('freshly applies the full chain, preserves the audit allowlist, and adds the D4 audit vocabulary', async () => {
     await withIsolatedDatabase(async (pool) => {
       const result = await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
-      expect(result.appliedVersions).toHaveLength(76);
+      expect(result.appliedVersions).toHaveLength(77);
       expect(result.appliedVersions.at(-1)).toBe('077_backup_worker_trusted_time_evidence');
       expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED', 'CONTACT_DELETED', 'USER_DELETED']));
 

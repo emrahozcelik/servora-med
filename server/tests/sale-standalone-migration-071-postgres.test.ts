@@ -179,7 +179,7 @@ describe.skipIf(!databaseUrl)('SALE-002 migration 071', () => {
 
       const catalog: MigrationCatalog = await loadMigrationCatalog(migrationsDirectory);
       expect(catalog.head?.version).toBe(MIGRATION_077);
-      expect(catalog.count).toBe(76);
+      expect(catalog.count).toBe(77);
       expect((await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       )).rows[0]!.version).toBe(MIGRATION_077);
@@ -266,7 +266,7 @@ describe.skipIf(!databaseUrl)('SALE-002 migration 071', () => {
       const history = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows;
-      expect(history).toHaveLength(76);
+      expect(history).toHaveLength(77);
       expect(history.at(-1)!.version).toBe(MIGRATION_077);
       expect(await runMigrations({ migrationsDirectory, store })).toEqual({ appliedVersions: [] });
 

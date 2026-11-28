@@ -132,7 +132,7 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
         store,
         logger: { info() {}, error() {} },
       });
-      expect(migrationResult.appliedVersions).toHaveLength(76);
+      expect(migrationResult.appliedVersions).toHaveLength(77);
       expect(migrationResult.appliedVersions.at(-1)).toBe('077_backup_worker_trusted_time_evidence');
 
       const organizationId = await createOrganization(pool, 'U3 deletion organization');
