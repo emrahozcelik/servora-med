@@ -1,0 +1,775 @@
+{
+  "fixedClock": "2026-11-26T11:00:00.000Z",
+  "timezone": "Europe/Istanbul",
+  "source": "7c8f66d",
+  "baseline": true,
+  "samples": [
+    {
+      "name": "small-mobile",
+      "width": 320,
+      "height": 800,
+      "viewport": [
+        320,
+        800
+      ],
+      "dpr": 1,
+      "documentWidth": 320,
+      "rootFont": "16px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Yeni zaman belirle",
+          "width": 250.8125,
+          "height": 44,
+          "top": 675.296875,
+          "bottom": 719.296875
+        },
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 250.8125,
+          "height": 44,
+          "top": 729.6875,
+          "bottom": 773.6875
+        },
+        {
+          "label": "İşi iptal et",
+          "width": 250.8125,
+          "height": 44,
+          "top": 784.078125,
+          "bottom": 828.078125
+        },
+        {
+          "label": "Gerekli düzeltmeyi yaptım",
+          "width": 250.8125,
+          "height": 44,
+          "top": 941.328125,
+          "bottom": 985.328125
+        },
+        {
+          "label": "Zamanı değiştirdim",
+          "width": 250.8125,
+          "height": 44,
+          "top": 995.71875,
+          "bottom": 1039.71875
+        },
+        {
+          "label": "Yerine yeni iş açtım",
+          "width": 250.8125,
+          "height": 44,
+          "top": 1050.109375,
+          "bottom": 1094.109375
+        },
+        {
+          "label": "Öneriyi reddet",
+          "width": 250.8125,
+          "height": 44,
+          "top": 1104.5,
+          "bottom": 1148.5
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": null,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 320,
+        "height": 61.703125,
+        "top": 738.296875,
+        "bottom": 800
+      }
+    },
+    {
+      "name": "phone",
+      "width": 390,
+      "height": 844,
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Yeni zaman belirle",
+          "width": 320.8125,
+          "height": 44,
+          "top": 634.953125,
+          "bottom": 678.953125
+        },
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 320.8125,
+          "height": 44,
+          "top": 689.34375,
+          "bottom": 733.34375
+        },
+        {
+          "label": "İşi iptal et",
+          "width": 320.8125,
+          "height": 44,
+          "top": 743.734375,
+          "bottom": 787.734375
+        },
+        {
+          "label": "Gerekli düzeltmeyi yaptım",
+          "width": 320.8125,
+          "height": 44,
+          "top": 900.984375,
+          "bottom": 944.984375
+        },
+        {
+          "label": "Zamanı değiştirdim",
+          "width": 320.8125,
+          "height": 44,
+          "top": 955.375,
+          "bottom": 999.375
+        },
+        {
+          "label": "Yerine yeni iş açtım",
+          "width": 320.8125,
+          "height": 44,
+          "top": 1009.765625,
+          "bottom": 1053.765625
+        },
+        {
+          "label": "Öneriyi reddet",
+          "width": 320.8125,
+          "height": 44,
+          "top": 1064.15625,
+          "bottom": 1108.15625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": null,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      }
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024,
+      "viewport": [
+        768,
+        1024
+      ],
+      "dpr": 1,
+      "documentWidth": 768,
+      "rootFont": "16px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Yeni zaman belirle",
+          "width": 157.546875,
+          "height": 44,
+          "top": 522.203125,
+          "bottom": 566.203125
+        },
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 216.734375,
+          "height": 44,
+          "top": 522.203125,
+          "bottom": 566.203125
+        },
+        {
+          "label": "İşi iptal et",
+          "width": 120,
+          "height": 44,
+          "top": 522.203125,
+          "bottom": 566.203125
+        },
+        {
+          "label": "Gerekli düzeltmeyi yaptım",
+          "width": 214.921875,
+          "height": 44,
+          "top": 659.3125,
+          "bottom": 703.3125
+        },
+        {
+          "label": "Zamanı değiştirdim",
+          "width": 166.59375,
+          "height": 44,
+          "top": 659.3125,
+          "bottom": 703.3125
+        },
+        {
+          "label": "Yerine yeni iş açtım",
+          "width": 164.421875,
+          "height": 44,
+          "top": 659.3125,
+          "bottom": 703.3125
+        },
+        {
+          "label": "Öneriyi reddet",
+          "width": 131.40625,
+          "height": 44,
+          "top": 713.703125,
+          "bottom": 757.703125
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": null,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 768,
+        "height": 61.703125,
+        "top": 962.296875,
+        "bottom": 1024
+      }
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "viewport": [
+        1440,
+        900
+      ],
+      "dpr": 1,
+      "documentWidth": 1440,
+      "rootFont": "16px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Yeni zaman belirle",
+          "width": 157.546875,
+          "height": 44,
+          "top": 618.421875,
+          "bottom": 662.421875
+        },
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 216.734375,
+          "height": 44,
+          "top": 618.421875,
+          "bottom": 662.421875
+        },
+        {
+          "label": "İşi iptal et",
+          "width": 120,
+          "height": 44,
+          "top": 618.421875,
+          "bottom": 662.421875
+        },
+        {
+          "label": "Gerekli düzeltmeyi yaptım",
+          "width": 214.921875,
+          "height": 44,
+          "top": 755.53125,
+          "bottom": 799.53125
+        },
+        {
+          "label": "Zamanı değiştirdim",
+          "width": 166.59375,
+          "height": 44,
+          "top": 755.53125,
+          "bottom": 799.53125
+        },
+        {
+          "label": "Yerine yeni iş açtım",
+          "width": 164.421875,
+          "height": 44,
+          "top": 755.53125,
+          "bottom": 799.53125
+        },
+        {
+          "label": "Öneriyi reddet",
+          "width": 131.40625,
+          "height": 44,
+          "top": 755.53125,
+          "bottom": 799.53125
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "facts",
+        "actions",
+        "notes",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": null,
+      "navigationLinks": [
+        "/jobs",
+        "/customers",
+        "/products",
+        "/reports",
+        "/staff",
+        "/docs",
+        "/help",
+        "/settings",
+        "/jobs"
+      ],
+      "bottomNavigation": null
+    },
+    {
+      "name": "text-200",
+      "width": 390,
+      "height": 844,
+      "textScale": 200,
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 420,
+      "rootFont": "32px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Yeni zaman belirle",
+          "width": 253.625,
+          "height": 88,
+          "top": 378.40625,
+          "bottom": 466.40625
+        },
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 253.625,
+          "height": 88,
+          "top": 487.203125,
+          "bottom": 575.203125
+        },
+        {
+          "label": "İşi iptal et",
+          "width": 253.625,
+          "height": 88,
+          "top": 596,
+          "bottom": 684
+        },
+        {
+          "label": "Gerekli düzeltmeyi yaptım",
+          "width": 253.625,
+          "height": 88,
+          "top": 1006.421875,
+          "bottom": 1094.421875
+        },
+        {
+          "label": "Zamanı değiştirdim",
+          "width": 253.625,
+          "height": 88,
+          "top": 1115.21875,
+          "bottom": 1203.21875
+        },
+        {
+          "label": "Yerine yeni iş açtım",
+          "width": 253.625,
+          "height": 88,
+          "top": 1224.015625,
+          "bottom": 1312.015625
+        },
+        {
+          "label": "Öneriyi reddet",
+          "width": 253.625,
+          "height": 88,
+          "top": 1332.8125,
+          "bottom": 1420.8125
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": null,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 151.109375,
+        "top": 692.890625,
+        "bottom": 844
+      }
+    },
+    {
+      "name": "reflow-400-equivalent",
+      "width": 320,
+      "height": 225,
+      "dpr": 4,
+      "viewport": [
+        320,
+        225
+      ],
+      "documentWidth": 320,
+      "rootFont": "16px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Yeni zaman belirle",
+          "width": 250.8125,
+          "height": 44,
+          "top": 90.296875,
+          "bottom": 134.296875
+        },
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 250.8125,
+          "height": 44,
+          "top": 144.6875,
+          "bottom": 188.6875
+        },
+        {
+          "label": "İşi iptal et",
+          "width": 250.8125,
+          "height": 44,
+          "top": 199.078125,
+          "bottom": 243.078125
+        },
+        {
+          "label": "Gerekli düzeltmeyi yaptım",
+          "width": 250.8125,
+          "height": 44,
+          "top": 356.328125,
+          "bottom": 400.328125
+        },
+        {
+          "label": "Zamanı değiştirdim",
+          "width": 250.8125,
+          "height": 44,
+          "top": 410.71875,
+          "bottom": 454.71875
+        },
+        {
+          "label": "Yerine yeni iş açtım",
+          "width": 250.8125,
+          "height": 44,
+          "top": 465.109375,
+          "bottom": 509.109375
+        },
+        {
+          "label": "Öneriyi reddet",
+          "width": 250.8125,
+          "height": 44,
+          "top": 519.5,
+          "bottom": 563.5
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": null,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 320,
+        "height": 61.703125,
+        "top": 163.296875,
+        "bottom": 225
+      }
+    },
+    {
+      "name": "reduced-motion",
+      "width": 390,
+      "height": 844,
+      "motion": true,
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Yeni zaman belirle",
+          "width": 320.8125,
+          "height": 44,
+          "top": 634.953125,
+          "bottom": 678.953125
+        },
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 320.8125,
+          "height": 44,
+          "top": 689.34375,
+          "bottom": 733.34375
+        },
+        {
+          "label": "İşi iptal et",
+          "width": 320.8125,
+          "height": 44,
+          "top": 743.734375,
+          "bottom": 787.734375
+        },
+        {
+          "label": "Gerekli düzeltmeyi yaptım",
+          "width": 320.8125,
+          "height": 44,
+          "top": 900.984375,
+          "bottom": 944.984375
+        },
+        {
+          "label": "Zamanı değiştirdim",
+          "width": 320.8125,
+          "height": 44,
+          "top": 955.375,
+          "bottom": 999.375
+        },
+        {
+          "label": "Yerine yeni iş açtım",
+          "width": 320.8125,
+          "height": 44,
+          "top": 1009.765625,
+          "bottom": 1053.765625
+        },
+        {
+          "label": "Öneriyi reddet",
+          "width": 320.8125,
+          "height": 44,
+          "top": 1064.15625,
+          "bottom": 1108.15625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": null,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      }
+    },
+    {
+      "name": "declined-assignment-phone",
+      "width": 390,
+      "height": 844,
+      "scenario": "assignment",
+      "viewport": [
+        390,
+        844
+      ],
+      "dpr": 1,
+      "documentWidth": 390,
+      "rootFont": "16px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 290.4375,
+          "height": 44,
+          "top": 681.734375,
+          "bottom": 725.734375
+        },
+        {
+          "label": "Yeni zaman belirle",
+          "width": 290.4375,
+          "height": 44,
+          "top": 736.125,
+          "bottom": 780.125
+        },
+        {
+          "label": "Aynı zamanla yeniden teklif et",
+          "width": 290.4375,
+          "height": 44,
+          "top": 790.515625,
+          "bottom": 834.515625
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "actions",
+        "facts",
+        "notes",
+        "lateness-history",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": false,
+      "navigationLinks": [
+        "/jobs",
+        "/jobs",
+        "/customers",
+        "/reports"
+      ],
+      "bottomNavigation": {
+        "width": 390,
+        "height": 61.703125,
+        "top": 782.296875,
+        "bottom": 844
+      }
+    },
+    {
+      "name": "declined-assignment-desktop",
+      "width": 1440,
+      "height": 900,
+      "scenario": "assignment",
+      "viewport": [
+        1440,
+        900
+      ],
+      "dpr": 1,
+      "documentWidth": 1440,
+      "rootFont": "16px",
+      "motion": false,
+      "summaryFont": null,
+      "targets": [
+        {
+          "label": "Sorumlu personeli değiştir",
+          "width": 216.734375,
+          "height": 43.59375,
+          "top": 632.015625,
+          "bottom": 675.609375
+        },
+        {
+          "label": "Yeni zaman belirle",
+          "width": 157.546875,
+          "height": 43.59375,
+          "top": 632.015625,
+          "bottom": 675.609375
+        },
+        {
+          "label": "Aynı zamanla yeniden teklif et",
+          "width": 240.96875,
+          "height": 43.59375,
+          "top": 632.015625,
+          "bottom": 675.609375
+        }
+      ],
+      "sections": [
+        "heading",
+        "lifecycle",
+        "responsibility",
+        "facts",
+        "actions",
+        "notes",
+        "timeline"
+      ],
+      "responsibilityNested": false,
+      "assignmentUsesOneSurface": false,
+      "navigationLinks": [
+        "/jobs",
+        "/customers",
+        "/products",
+        "/reports",
+        "/staff",
+        "/docs",
+        "/help",
+        "/settings",
+        "/jobs"
+      ],
+      "bottomNavigation": null
+    }
+  ],
+  "interactions": {
+    "preset": {
+      "canScroll": true,
+      "visibleEnd": true,
+      "fade": "linear-gradient(to right, rgba(0, 0, 0, 0), oklch(0.94 0.01 245) 70%)"
+    },
+    "slotTargets": [
+      {
+        "label": "27 Kasım Cuma 17:00–18:00",
+        "width": 68,
+        "height": 44
+      }
+    ]
+  },
+  "browser": "140.0.7339.186",
+  "issues": [
+    "text-200: page horizontal overflow",
+    "declined-assignment-desktop: target below 44 CSS px: Sorumlu personeli değiştir",
+    "declined-assignment-desktop: target below 44 CSS px: Yeni zaman belirle",
+    "declined-assignment-desktop: target below 44 CSS px: Aynı zamanla yeniden teklif et"
+  ]
+}

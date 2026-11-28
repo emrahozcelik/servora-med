@@ -255,7 +255,8 @@ describe('assignment offer detail surface', () => {
 
     const block = host.querySelector('[data-assignment-offer-recovery="DECLINED"]');
     expect(block).not.toBeNull();
-    expect(block?.querySelector('h3')?.textContent).toBe('Ayşe Personel görevi reddetti');
+    expect(block?.matches('section[data-assignment-offer]')).toBe(true);
+    expect(block?.querySelector('h2')?.textContent).toBe('Ayşe Personel görevi reddetti');
     expect(block?.textContent).toContain('Plan çakışması');
     expect(block?.textContent).toContain('“Önümüzdeki haftaya ziyaret sağlanacak”');
     expect(block?.querySelector('time')?.getAttribute('dateTime')).toBe('2026-11-21T11:20:00.000Z');
@@ -281,14 +282,14 @@ describe('assignment offer detail surface', () => {
     ['EXPIRED', 'Ayşe Personel teklifi süresinde yanıtlamadı'],
   ] as const)('names the %s state in the guidance headline', async (state, headline) => {
     await renderSection(jobCard({ assignmentOffer: closedOffer({ state }) }), manager);
-    expect(host.querySelector('[data-assignment-offer-recovery] h3')?.textContent).toBe(headline);
+    expect(host.querySelector('[data-assignment-offer-recovery] h2')?.textContent).toBe(headline);
   });
 
   it('reads a passed planned window as a passed planned time, and only that withdrawal', async () => {
     await renderSection(jobCard({
       assignmentOffer: closedOffer({ state: 'WITHDRAWN', closeReason: 'PLANNED_WINDOW_PASSED', closeText: null }),
     }), manager);
-    expect(host.querySelector('[data-assignment-offer-recovery] h3')?.textContent)
+    expect(host.querySelector('[data-assignment-offer-recovery] h2')?.textContent)
       .toBe('Planlanan zaman geçti');
 
     // Any other withdrawal already opened a newer offer: no recovery copy.

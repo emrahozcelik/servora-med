@@ -8,7 +8,9 @@ import { ResultState } from '../ui/antd/ResultState';
 import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
 import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
+import { SignalGlyph } from '../ui/signal-icons';
 import { focusScheduleEditor } from './AssignmentOffer';
+import type { RenderAssignmentTransfer } from './AssignmentTransferForm';
 import {
   changeRequestReasonLabel,
   changeRequestResolutionLabel,
@@ -292,6 +294,7 @@ export function ManagementChangeRequestPanel({
   onActionStart,
   onRefresh,
   onReassign,
+  renderTransferAction,
   canSetNewTime = true,
   onCancel,
   loadLinkedJobs = listJobCards,
@@ -314,6 +317,7 @@ export function ManagementChangeRequestPanel({
    * guidance never grows a second assignee form of its own.
    */
   onReassign?: (trigger: HTMLButtonElement) => void;
+  renderTransferAction?: RenderAssignmentTransfer;
   /** False when this viewer has no planned-time editor on the page. */
   canSetNewTime?: boolean;
   /** Opens the existing cancel command dialog; never a second cancel form. */
@@ -335,6 +339,12 @@ export function ManagementChangeRequestPanel({
   const [resolved, setResolved] = useState<ChangeRequestResolution | null>(null);
   const [alreadyClosed, setAlreadyClosed] = useState(false);
   const closureTriggerRef = useRef<HTMLButtonElement>(null);
+  const rejectionNoteRef = useRef<HTMLTextAreaElement>(null);
+  const linkedJobRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => {
+    if (formError) (rejectionNoteRef.current ?? linkedJobRef.current)?.focus();
+  }, [formError]);
 
   const requestId = request?.id ?? null;
   // The (job, request) the panel is answering. An async closure that settles
@@ -577,7 +587,7 @@ export function ManagementChangeRequestPanel({
             Sorumlu personel değişti; öneriyi kapatmayı unutmayın.
           </p>
         )}
-        {guidanceActions.length > 0 && (
+        {(guidanceActions.length > 0 || renderTransferAction) && (
           <>
             <p className="change-request-guidance-label"><strong>Ne yapabilirsiniz</strong></p>
             <div className="review-buttons change-request-guidance-actions">
@@ -595,6 +605,7 @@ export function ManagementChangeRequestPanel({
                   {action.label}
                 </button>
               ))}
+              {renderTransferAction?.({ disabled: locked, primary: guidanceActions.length === 0 })}
             </div>
           </>
         )}
@@ -639,27 +650,25 @@ export function ManagementChangeRequestPanel({
 
       <ResponsiveFormDrawer
         open={dialog !== null && dialogLabel !== null}
-        title={`Öneriyi kapat: ${dialogLabel ?? ''}`}
+        title={dialogLabel ?? ''}
         onDismiss={closeDialog}
         returnFocusRef={closureTriggerRef}
         dismissDisabled={pending !== null}
       >
         {dialog !== null && dialogLabel !== null && (
           <form className="change-request-form" onSubmit={submitClosure} noValidate>
-            <p data-change-request-closure-outcome={dialog}>
-              <strong>{dialogLabel}</strong>
-            </p>
             <p>{CLOSURE_CONFIRMATION}</p>
             {dialog === 'REJECTED' && (
               <div className="field-group">
                 <label htmlFor="change-request-reject-note">Açıklama</label>
                 <textarea
                   id="change-request-reject-note"
+                  ref={rejectionNoteRef}
                   rows={4}
                   value={note}
                   disabled={pending !== null}
                   required
-                  aria-invalid={formError ? true : undefined}
+                  aria-invalid={Boolean(formError)}
                   aria-describedby={formError
                     ? 'change-request-reject-help change-request-closure-error'
                     : 'change-request-reject-help'}
@@ -690,10 +699,11 @@ export function ManagementChangeRequestPanel({
                   <>
                     <select
                       id="change-request-linked-job"
+                      ref={linkedJobRef}
                       value={linkedJobCardId}
                       disabled={pending !== null}
                       required
-                      aria-invalid={formError ? true : undefined}
+                      aria-invalid={Boolean(formError)}
                       aria-describedby={formError
                         ? 'change-request-linked-job-help change-request-closure-error'
                         : 'change-request-linked-job-help'}
@@ -717,14 +727,23 @@ export function ManagementChangeRequestPanel({
               </div>
             )}
             {formError && (
-              <p className="field-error" id="change-request-closure-error" role="alert">{formError}</p>
+              <p className="field-error" id="change-request-closure-error" role="alert">
+                <SignalGlyph name="exclamation" className="detail-feedback-icon" size={16} />
+                {formError}
+              </p>
             )}
-            {mutationError && <p className="field-error" role="alert">{mutationError}</p>}
+            {mutationError && (
+              <p className="field-error" role="alert">
+                <SignalGlyph name="exclamation" className="detail-feedback-icon" size={16} />
+                {mutationError}
+              </p>
+            )}
             <div className="review-buttons">
               <button className="secondary-button" type="button" disabled={pending !== null} onClick={closeDialog}>
                 Vazgeç
               </button>
               <button className="primary-button compact-button" type="submit" disabled={pending !== null}>
+                {pending !== null && <SignalGlyph name="clock" className="detail-feedback-icon" size={16} />}
                 {pending !== null ? 'Kaydediliyor…' : 'Öneriyi kapat'}
               </button>
             </div>
@@ -747,6 +766,7 @@ export function ChangeRequestSection({
   onRefresh,
   canSetNewTime = true,
   onReassign,
+  renderTransferAction,
   onCancel,
 }: {
   job: JobCard;
@@ -764,6 +784,7 @@ export function ChangeRequestSection({
   canSetNewTime?: boolean;
   /** Opens the existing reassignment form (management guidance only). */
   onReassign?: (trigger: HTMLButtonElement) => void;
+  renderTransferAction?: RenderAssignmentTransfer;
   /** Opens the existing cancel command dialog (management guidance only). */
   onCancel?: (trigger: HTMLButtonElement) => void;
 }) {
@@ -778,6 +799,7 @@ export function ChangeRequestSection({
         onRefresh={onRefresh}
         canSetNewTime={canSetNewTime}
         onReassign={onReassign}
+        renderTransferAction={renderTransferAction}
         onCancel={onCancel}
       />
     );

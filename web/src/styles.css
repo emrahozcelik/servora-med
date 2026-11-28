@@ -3283,9 +3283,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
    Critical Red and never Ant's `error` status (DESIGN.md semantic colors,
    DECISIONS.md UI-005). */
 .servora-workflow-step--attention .servora-ant-steps-item-title { color: var(--warning); }
-/* Manager-only lateness history: expanded above the workflow on desktop, a
-   native collapsed disclosure below the record details on mobile (UI-005). */
+/* Native job detail disclosures share the same keyboard and touch target. */
+.job-recovery,
 .overdue-history { min-width: 0; }
+.job-recovery-summary,
 .overdue-history-summary {
   min-height: var(--control-height);
   padding: 0.5rem 0.15rem;
@@ -3294,6 +3295,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.job-recovery-summary { font-size: 1rem; }
 .overdue-history-count {
   margin-inline-start: 0.4rem;
   color: var(--muted);
@@ -3431,6 +3433,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-color: var(--border-error);
   background: var(--error-soft);
 }
+.detail-feedback-confirmed {
+  color: var(--success);
+  border-color: var(--border-success);
+  background: var(--success-soft);
+}
+.detail-feedback-icon {
+  width: 1em;
+  height: 1em;
+  margin-inline-end: 0.4rem;
+  vertical-align: -0.15em;
+}
 /* UI-FEEDBACK/B: the owned Ant App resets its subtree to a fixed px base; the
    JobDetail page receipt keeps a rem size so 200% text enlarges it
    (UI-001, DESIGN.md accessibility). */
@@ -3483,6 +3496,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 /* Stacked job-detail panels (Staff request, assignment offer) keep a visible gap
    so two panels never read as one box. Early start lives inside the main column
    next to the schedule, where the grid gap owns its spacing. */
+.job-recovery > .detail-summary.surface-flat,
 .job-detail > .detail-summary.surface-flat { margin-block: 0.75rem; }
 .early-start-authorization h2 { margin: 0 0 0.35rem; font-size: 1rem; }
 .early-start-authorization .form-help { margin: 0 0 0.75rem; }
@@ -3955,8 +3969,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-size: 0.75rem;
   font-weight: 650;
 }
-/* JOB-010 recovery: a closed assignment offer keeps its next step visible.
-   Tonal Delay Amber callout (no nested bordered box), never the cancelled red. */
+/* JOB-010 uses one warning surface for the closed offer and its next steps. */
 .assignment-offer-recovery {
   display: grid;
   gap: 0.6rem;
@@ -3964,6 +3977,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin: 0 0 0.85rem;
   padding: 0.85rem 0.95rem;
   border: 0;
+  border-radius: var(--radius-control);
   background: var(--warning-wash);
 }
 .assignment-offer-recovery-headline {
@@ -3973,7 +3987,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 .assignment-offer-recovery .job-row-facts {
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
 }
 .assignment-offer-recovery-actions-label {
   margin: 0;
@@ -4063,7 +4077,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 .change-request-guidance .job-row-facts {
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
 }
 .change-request-guidance-label {
   margin: 0;
@@ -4076,13 +4090,28 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .change-request-closures .review-buttons {
   justify-content: flex-start;
 }
+.assignment-offer-recovery .review-buttons button,
 .change-request-guidance .review-buttons button,
+.change-request-form .review-buttons button,
+.assignment-transfer-form .review-buttons button,
 .change-request-closures .review-buttons button {
   min-height: var(--control-height);
 }
-.change-request-form {
+.change-request-form,
+.assignment-transfer-form,
+.assignment-transfer-fields {
   display: grid;
   gap: 1rem;
+}
+.assignment-transfer-form,
+[data-assignment-offer-action="transfer-and-reschedule"] {
+  font-size: 0.875rem;
+}
+.assignment-transfer-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .change-request-closures {
   display: grid;

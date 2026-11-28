@@ -489,6 +489,7 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     expect(screenButtons.map((b) => b.textContent?.trim())).toEqual([
       'Sorumlu personeli değiştir',
       'Yeni zaman belirle',
+      'Personeli ve zamanı birlikte değiştir',
       'Aynı zamanla yeniden teklif et',
     ]);
     expect(screenButtons[0]?.className).toContain('primary-button');
@@ -541,6 +542,7 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
       'Önerilen zamanı onayla',
       'Yeni zaman belirle',
       'Sorumlu personeli değiştir',
+      'Personeli ve zamanı birlikte değiştir',
       'Aynı zamanla yeniden teklif et',
     ]);
     expect(proposalButtons[0]?.className).toContain('primary-button');

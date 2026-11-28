@@ -10,6 +10,7 @@ import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
+import type { RenderAssignmentTransfer } from './AssignmentTransferForm';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './PastStartAcknowledgementDrawer';
 import { ScheduleQuickControls } from './ScheduleQuickControls';
 import {
@@ -114,8 +115,9 @@ function proposalAcceptErrorMessage(caught: unknown): string {
   return caught instanceof Error ? caught.message : 'Önerilen zaman onaylanamadı.';
 }
 
-function isManagementRecoveryOffer(job: JobCard, offer: AssignmentOffer): boolean {
-  if (job.status !== 'NEW') return false;
+export function hasManagementRecoveryOffer(job: JobCard): boolean {
+  const offer = job.assignmentOffer;
+  if (job.status !== 'NEW' || !offer) return false;
   if (MANAGEMENT_RECOVERY_OFFER_STATES.includes(offer.state)) return true;
   return offer.state === 'WITHDRAWN' && offer.closeReason === 'PLANNED_WINDOW_PASSED';
 }
@@ -305,6 +307,7 @@ export function AssignmentReasonSection({
  */
 export function AssignmentOfferSection({
   job, user, disabled = false, onChanged, onCommitted, onActionStart, onRefresh, onReassign, canSetNewTime = true,
+  renderTransferAction,
 }: {
   job: JobCard;
   user: CurrentUser;
@@ -327,6 +330,7 @@ export function AssignmentOfferSection({
   onReassign?: (trigger: HTMLButtonElement) => void;
   /** False when this viewer has no planned-time editor on the page. */
   canSetNewTime?: boolean;
+  renderTransferAction?: RenderAssignmentTransfer;
 }) {
   const offer = job.assignmentOffer ?? null;
   const [pending, setPending] = useState(false);
@@ -376,7 +380,7 @@ export function AssignmentOfferSection({
     && REOFFERABLE_OFFER_STATES.includes(offer.state);
   // A declined/released/expired offer with a NEW job leaves recovery to
   // management: the bare state row alone never says what to do next.
-  const recovery = management && isManagementRecoveryOffer(job, offer);
+  const recovery = management && hasManagementRecoveryOffer(job);
   const closeReasonLabel = assignmentOfferCloseReasonLabel(offer.closeReason);
   const newTimeFirst = offer.state === 'EXPIRED'
     || (offer.closeReason !== null && NEW_TIME_FIRST_CLOSE_REASONS.includes(offer.closeReason));
@@ -523,14 +527,14 @@ export function AssignmentOfferSection({
 
   return (
     <section
-      className="detail-summary surface-flat assignment-offer"
+      className={recovery ? 'assignment-offer assignment-offer-recovery' : 'detail-summary surface-flat assignment-offer'}
       aria-labelledby="assignment-offer-title"
       data-assignment-offer={offer.state}
+      data-assignment-offer-recovery={recovery ? offer.state : undefined}
     >
-      <h2 id="assignment-offer-title">Görev kabul durumu</h2>
       {recovery ? (
-        <div className="assignment-offer-recovery" data-assignment-offer-recovery={offer.state}>
-          <h3 className="assignment-offer-recovery-headline">{recoveryHeadline(offer)}</h3>
+        <>
+          <h2 id="assignment-offer-title" className="assignment-offer-recovery-headline">{recoveryHeadline(offer)}</h2>
           <dl className="job-row-facts">
             {closeReasonLabel !== null && (
               <div>
@@ -593,6 +597,10 @@ export function AssignmentOfferSection({
                 {action.label}
               </button>
             ))}
+            {renderTransferAction?.({
+              disabled: disabled || pending || proposalPending || done,
+              primary: recoveryActions.length === 0 && !proposalPrimary,
+            })}
             {reofferButton}
           </div>
           {canReoffer && (
@@ -603,9 +611,10 @@ export function AssignmentOfferSection({
               Planlanan zamanı kaydettiğinizde {offer.assignee.name} kişisine yeni atama teklifi gider.
             </p>
           )}
-        </div>
+        </>
       ) : (
         <>
+          <h2 id="assignment-offer-title">Görev kabul durumu</h2>
           <dl className="job-row-facts">
             <div>
               <dt>Durum</dt>

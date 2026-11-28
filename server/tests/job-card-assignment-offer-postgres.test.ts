@@ -1327,6 +1327,101 @@ describe.skipIf(!databaseUrl)('JOB-010 release 2b — assignment offer', () => {
     });
   });
 
+  it.each(['SALES_MEETING', 'PRODUCT_DELIVERY'] as const)(
+    'RESCUE-003: moves the %s assignment and interval with one new offer',
+    async (type) => {
+      await withSchema(async (pool) => {
+        const baseline = await readDbBaseline(pool);
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const original = await insertUser(pool, organizationId, 'STAFF', 'Original staff');
+        const replacement = await insertUser(pool, organizationId, 'STAFF', 'Replacement staff');
+        const customerId = await insertCustomer(pool, organizationId);
+        const otherCustomerId = await insertCustomer(pool, organizationId, 'Other clinic');
+        const time = (minutes: number) => isoOffset(baseline, minutes * MINUTE_MS);
+        const manager = actor(managerId, organizationId, 'MANAGER');
+        const { service } = buildService(pool, { now: new Date(time(90)) }, WINDOW_ON);
+        const job = await insertJob(pool, {
+          organizationId, customerId, type, status: 'NEW', assignedTo: original,
+          createdBy: managerId, scheduledAt: time(120), scheduledEndsAt: time(180),
+        });
+        const previousOffer = await insertOffer(pool, {
+          organizationId, jobCardId: job.id, assigneeUserId: original, openedBy: managerId,
+          openedAt: new Date(time(60)), acceptanceDueAt: new Date(time(100)),
+        });
+        await insertJob(pool, {
+          organizationId, customerId: otherCustomerId, type, status: 'ACCEPTED', assignedTo: replacement,
+          createdBy: managerId, scheduledAt: time(240), scheduledEndsAt: time(300),
+          acceptedAt: time(70),
+        });
+
+        const moving = {
+          expectedVersion: job.version, assignedTo: replacement,
+          scheduledAt: time(360),
+        };
+        await expect(service.patch(manager, job.id, {
+          ...moving, scheduledAt: time(240),
+        })).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+        await expect(readJob(pool, job.id)).resolves.toMatchObject({
+          version: job.version, assigned_to: original,
+          scheduled_at: new Date(time(120)), scheduled_ends_at: new Date(time(180)),
+        });
+        await expect(readOffers(pool, job.id)).resolves.toMatchObject([
+          { id: previousOffer, state: 'OPEN' },
+        ]);
+        expect(await selectNotifications(pool, organizationId, job.id)).toEqual([]);
+
+        // The request lookup runs after the job and revision writes. Its
+        // failure must roll back the entire edit, including history.
+        await expect(service.patch(manager, job.id, {
+          ...moving,
+          changeRequestResolution: { changeRequestId: randomUUID(), resolution: 'RESCHEDULED' },
+        })).rejects.toMatchObject({ code: 'CHANGE_REQUEST_NOT_FOUND', statusCode: 404 });
+        await expect(readJob(pool, job.id)).resolves.toMatchObject({
+          version: job.version, assigned_to: original,
+          scheduled_at: new Date(time(120)), scheduled_ends_at: new Date(time(180)),
+        });
+        await expect(readOffers(pool, job.id)).resolves.toMatchObject([
+          { id: previousOffer, state: 'OPEN' },
+        ]);
+        expect(await selectActivities(pool, job.id)).toEqual([]);
+        expect(await selectNotifications(pool, organizationId, job.id)).toEqual([]);
+
+        const updated = await service.patch(manager, job.id, moving);
+        expect(updated).toMatchObject({
+          version: job.version + 1, status: 'NEW', assignedTo: replacement,
+          scheduledAt: time(360), scheduledEndsAt: time(420),
+          assignmentOffer: { state: 'OPEN', assignee: { id: replacement } },
+        });
+        await expect(service.patch(manager, job.id, moving))
+          .rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+        await expect(readOffers(pool, job.id)).resolves.toMatchObject([
+          { id: previousOffer, state: 'WITHDRAWN', close_reason: 'REASSIGNED' },
+          { state: 'OPEN', opened_reason: 'REASSIGN', assignee_user_id: replacement },
+        ]);
+        const notificationRecipients = (await selectNotifications(pool, organizationId, job.id))
+          .filter((notification) => notification.kind === 'job.reassigned')
+          .map((notification) => notification.recipient_user_id);
+        expect(notificationRecipients).toEqual([replacement]);
+        const revisions = await pool.query<{ revision_no: number; scheduled_at: Date }>(
+          `SELECT revision_no, scheduled_at FROM job_card_schedule_revisions
+            WHERE organization_id = $1 AND job_card_id = $2 ORDER BY revision_no`,
+          [organizationId, job.id],
+        );
+        expect(revisions.rows).toEqual([
+          { revision_no: 1, scheduled_at: new Date(time(120)) },
+          { revision_no: 2, scheduled_at: new Date(time(360)) },
+        ]);
+        const assignments = await pool.query<{ to_user_id: string }>(
+          `SELECT to_user_id FROM job_card_assignment_history
+            WHERE organization_id = $1 AND job_card_id = $2 ORDER BY changed_at, id`,
+          [organizationId, job.id],
+        );
+        expect(assignments.rows.map((row) => row.to_user_id)).toEqual([original, replacement]);
+      });
+    },
+  );
+
   it('manager cancel withdraws the live offer', async () => {
     await withSchema(async (pool) => {
       const baseline = await readDbBaseline(pool);

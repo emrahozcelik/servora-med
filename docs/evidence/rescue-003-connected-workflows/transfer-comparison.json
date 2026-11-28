@@ -1,0 +1,119 @@
+[
+  {
+    "name": "small-mobile",
+    "viewport": [
+      320,
+      800
+    ],
+    "documentWidth": 320,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": null
+  },
+  {
+    "name": "phone",
+    "viewport": [
+      390,
+      844
+    ],
+    "documentWidth": 390,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": null
+  },
+  {
+    "name": "tablet",
+    "viewport": [
+      768,
+      1024
+    ],
+    "documentWidth": 768,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": null
+  },
+  {
+    "name": "desktop",
+    "viewport": [
+      1440,
+      900
+    ],
+    "documentWidth": 1440,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": null
+  },
+  {
+    "name": "text-200",
+    "viewport": [
+      390,
+      844
+    ],
+    "documentWidth": 390,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 88,
+    "transferPrimaryFontCssPx": 28,
+    "transferPrimaryReachable": true
+  },
+  {
+    "name": "reflow-400-equivalent",
+    "viewport": [
+      320,
+      225
+    ],
+    "documentWidth": 320,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": true
+  },
+  {
+    "name": "reduced-motion",
+    "viewport": [
+      390,
+      844
+    ],
+    "documentWidth": 390,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": null
+  },
+  {
+    "name": "declined-assignment-phone",
+    "viewport": [
+      390,
+      844
+    ],
+    "documentWidth": 390,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": null
+  },
+  {
+    "name": "declined-assignment-desktop",
+    "viewport": [
+      1440,
+      900
+    ],
+    "documentWidth": 1440,
+    "navigationIdentical": true,
+    "lifecycleSectionsIdentical": true,
+    "smallestTargetCssPx": 44,
+    "transferPrimaryFontCssPx": 14,
+    "transferPrimaryReachable": null
+  }
+]
