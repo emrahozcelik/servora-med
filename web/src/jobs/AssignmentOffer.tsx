@@ -10,6 +10,7 @@ import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
+import type { RenderAssignmentTransfer } from './AssignmentTransferForm';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './PastStartAcknowledgementDrawer';
 import { ScheduleQuickControls } from './ScheduleQuickControls';
 import {
@@ -306,6 +307,7 @@ export function AssignmentReasonSection({
  */
 export function AssignmentOfferSection({
   job, user, disabled = false, onChanged, onCommitted, onActionStart, onRefresh, onReassign, canSetNewTime = true,
+  renderTransferAction,
 }: {
   job: JobCard;
   user: CurrentUser;
@@ -328,6 +330,7 @@ export function AssignmentOfferSection({
   onReassign?: (trigger: HTMLButtonElement) => void;
   /** False when this viewer has no planned-time editor on the page. */
   canSetNewTime?: boolean;
+  renderTransferAction?: RenderAssignmentTransfer;
 }) {
   const offer = job.assignmentOffer ?? null;
   const [pending, setPending] = useState(false);
@@ -594,6 +597,10 @@ export function AssignmentOfferSection({
                 {action.label}
               </button>
             ))}
+            {renderTransferAction?.({
+              disabled: disabled || pending || proposalPending || done,
+              primary: recoveryActions.length === 0 && !proposalPrimary,
+            })}
             {reofferButton}
           </div>
           {canReoffer && (

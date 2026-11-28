@@ -14,6 +14,7 @@ const jobId = '11111111-1111-4111-8111-111111111111';
 const requestId = '22222222-2222-4222-8222-222222222222';
 const jobPath = '/api/job-cards/' + jobId;
 const staff = { id: '33333333-3333-4333-8333-333333333333', name: 'Ayşe Personel' };
+const successor = { id: '66666666-6666-4666-8666-666666666666', name: 'Deniz Personel' };
 const manager = {
   id: '44444444-4444-4444-8444-444444444444', organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   name: 'Murat Yönetici', email: 'murat@example.invalid', role: 'MANAGER',
@@ -94,6 +95,7 @@ async function openCase(browser, url, sample) {
   let released;
   const pendingResponse = new Promise((complete) => { released = complete; });
   let resolved = false;
+  let transferred = null;
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
     Object.defineProperty(window, 'EventSource', { configurable: true, value: undefined });
@@ -106,7 +108,7 @@ async function openCase(browser, url, sample) {
     const send = (json, status = 200) => route.fulfill({ json, status });
     if (method === 'GET' && path === '/api/auth/me') return send({ user: manager });
     if (method === 'GET' && path === jobPath) {
-      return send(resolved ? { ...currentJob, version: 5, changeRequest: null } : currentJob);
+      return send(transferred ?? (resolved ? { ...currentJob, version: 5, changeRequest: null } : currentJob));
     }
     if (method === 'GET' && path === '/api/notifications/unread-count') return send({ unreadCount: 0 });
     if (method === 'GET' && path === '/api/web-push/status') return send({ enabled: false, subscribed: false, vapidPublicKey: null });
@@ -114,7 +116,15 @@ async function openCase(browser, url, sample) {
     if (method === 'POST' && path === '/api/job-cards/available-slots') {
       return send({ slots: [{ startsAt: '2026-11-27T14:00:00.000Z', endsAt: '2026-11-27T15:00:00.000Z' }] });
     }
-    if (method === 'GET' && path === '/api/staff') return send([{ ...staff, role: 'STAFF', isActive: true }]);
+    if (method === 'GET' && path === '/api/staff') {
+      return send([staff, successor].map((person) => ({
+        id: person.id, version: 1,
+        user: { ...manager, ...person, email: person.id + '@example.invalid', role: 'STAFF',
+          lastLoginAt: null, createdAt: fixedClock, updatedAt: fixedClock },
+        title: null, phone: null, region: null, managerUserId: null, managerName: null,
+        counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
+      })));
+    }
     if (method === 'GET' && path === jobPath + '/submission-lateness') return send({ open: null });
     if (method === 'GET' && ['/delivery-items', '/notes', '/activity', '/follow-ups', '/overdue-incidents']
       .some((endpoint) => path === jobPath + endpoint)) return send(empty);
@@ -126,6 +136,35 @@ async function openCase(browser, url, sample) {
       await pendingResponse;
       resolved = true;
       return send({ jobCardId: jobId, changeRequestId: requestId, resolution: 'REJECTED', resolvedAt: fixedClock });
+    }
+    if (method === 'PATCH' && path === jobPath) {
+      const mutation = request.postDataJSON();
+      mutations.push(mutation);
+      if (sample.transferConflict && mutations.length === 1) {
+        return send({ code: 'OCCUPANCY_LIMIT_REACHED', error: 'Bu saat için personel takvimi dolu.' }, 409);
+      }
+      await pendingResponse;
+      const duration = Date.parse(currentJob.scheduledEndsAt) - Date.parse(currentJob.scheduledAt);
+      transferred = {
+        ...currentJob,
+        status: 'NEW',
+        version: currentJob.version + 1,
+        assignedTo: successor.id,
+        assignee: successor,
+        scheduledAt: mutation.scheduledAt,
+        scheduledEndsAt: new Date(Date.parse(mutation.scheduledAt) + duration).toISOString(),
+        changeRequest: mutation.changeRequestResolution ? null : currentJob.changeRequest,
+        workflowContext: {
+          ...currentJob.workflowContext, lifecycle: { ...currentJob.workflowContext.lifecycle, acceptedAt: null, acceptedBy: null },
+        },
+        assignmentOffer: {
+          ...declinedJob.assignmentOffer, id: '77777777-7777-4777-8777-777777777777',
+          state: 'OPEN', assignee: successor,
+          openedAt: fixedClock, acceptanceDueAt: '2026-11-27T12:00:00.000Z',
+          closedAt: null, closeReason: null, closeText: null, suggestedSolution: null,
+        },
+      };
+      return send(transferred);
     }
     unexpected.push(method + ' ' + path);
     return send({ error: 'Unexpected test request' }, 404);
@@ -209,6 +248,82 @@ async function captureWheel(page) {
   return { targets, preset, slotTargets };
 }
 
+const transferLabel = 'Personeli ve zamanı birlikte değiştir';
+
+async function openTransfer(page) {
+  const trigger = page.getByRole('button', { name: transferLabel, exact: true });
+  assert.equal(await trigger.count(), 1);
+  await trigger.click();
+  const form = page.locator('[data-assignment-transfer-form]');
+  await form.getByRole('combobox', { name: 'Yeni sorumlu personel' }).waitFor();
+  assert.equal(await form.locator('button[type="submit"].primary-button').count(), 1);
+  return form;
+}
+
+async function captureTransferFlow(browser, url) {
+  const test = await openCase(browser, url, { ...samples[1], transferConflict: true });
+  const { page, context, mutations, released } = test;
+  const form = await openTransfer(page);
+  const submit = form.getByRole('button', { name: 'Devret ve planla' });
+  const person = form.getByRole('combobox', { name: 'Yeni sorumlu personel' });
+  await submit.click();
+  await form.getByText('Yeni sorumlu personel seçin.').waitFor();
+  assert.equal(mutations.length, 0);
+  assert.equal(await person.getAttribute('aria-invalid'), 'true');
+  assert.equal(await person.evaluate((element) => element === document.activeElement), true);
+  await capture(page, 'transfer-validation');
+  await person.selectOption(successor.id);
+  const wheelTrigger = form.locator('.wheel-field-trigger');
+  await wheelTrigger.click();
+  const wheel = page.locator('[data-servora-wheel-sheet]');
+  await wheel.waitFor();
+  const wheelTargets = await overlayTargets(wheel);
+  await capture(page, 'transfer-wheel-picker');
+  await page.keyboard.press('Escape');
+  await wheel.waitFor({ state: 'hidden' });
+  assert.equal(await form.isVisible(), true);
+  assert.equal(await wheelTrigger.evaluate((element) => element === document.activeElement), true);
+  await wheelTrigger.click();
+  await wheel.getByRole('button', { name: 'Tamam', exact: true }).click();
+  assert.equal(await wheelTrigger.evaluate((element) => element === document.activeElement), true);
+  await form.getByRole('button', { name: /17:00–18:00/ }).click();
+  await form.getByRole('checkbox', { name: /yeniden planlandı/i }).check();
+  await submit.click();
+  await form.getByRole('alert').getByText('Bu saat için personel takvimi dolu.').waitFor();
+  assert.equal(await person.inputValue(), successor.id);
+  assert.equal(await form.getByRole('checkbox', { name: /yeniden planlandı/i }).isChecked(), true);
+  await capture(page, 'transfer-calendar-conflict');
+  await submit.click();
+  const pending = form.getByRole('button', { name: 'Kaydediliyor…' });
+  await pending.waitFor();
+  assert.equal(await pending.isDisabled(), true);
+  assert.equal(await pending.locator('svg[aria-hidden="true"]').count(), 1);
+  await capture(page, 'transfer-pending');
+  released();
+  const receipt = page.locator('[data-job-detail-section="feedback"]');
+  await receipt.getByText(/Personel ve plan güncellendi/).waitFor();
+  assert.equal(await form.count(), 0);
+  assert.equal(mutations.length, 2); // One rejected attempt and one successful compound PATCH.
+  assert.deepEqual(mutations[1], {
+    expectedVersion: 4, assignedTo: successor.id, scheduledAt: '2026-11-27T14:00:00.000Z',
+    changeRequestResolution: { changeRequestId: requestId, resolution: 'RESCHEDULED' },
+  });
+  const outcome = await receipt.evaluate((element) => ({
+    status: element.getAttribute('role'), icon: Boolean(element.querySelector('svg')),
+    confirmed: element.classList.contains('detail-feedback-confirmed'),
+    color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundColor,
+  }));
+  assert.equal(outcome.icon && outcome.confirmed, true);
+  await capture(page, 'transfer-success');
+  for (const target of wheelTargets) {
+    requireMetric(target.width >= 44 && target.height >= 44, 'transfer wheel target below 44 CSS px: ' + target.label);
+  }
+  assert.deepEqual(test.errors, []);
+  assert.deepEqual(test.unexpected, []);
+  await context.close();
+  return { wheelTargets, invalid: true, conflict: true, pending: true, outcome, patch: mutations[1] };
+}
+
 const vite = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
 let browser;
 try {
@@ -223,7 +338,8 @@ try {
     await page.getByRole('button', { name: 'Yeni zaman belirle' }).scrollIntoViewIfNeeded();
     await capture(page, sample.name + '-actions');
     const metrics = await geometry(page);
-    report.samples.push({ ...sample, ...metrics });
+    const sampleReport = { ...sample, ...metrics };
+    report.samples.push(sampleReport);
     requireMetric(metrics.documentWidth <= sample.width + 1, sample.name + ': page horizontal overflow');
     requireMetric(metrics.sections.indexOf('heading') < metrics.sections.indexOf('lifecycle')
       && metrics.sections.indexOf('lifecycle') < metrics.sections.indexOf('facts'), sample.name + ': lifecycle order');
@@ -245,6 +361,35 @@ try {
     for (const target of metrics.targets) {
       requireMetric(target.width >= 44 && target.height >= 44, sample.name + ': target below 44 CSS px: ' + target.label);
     }
+    if (!baseline) {
+      const form = await openTransfer(page);
+      const header = await page.locator('.form-drawer-header').evaluate((element) => {
+        const title = element.querySelector('h2').getBoundingClientRect();
+        const close = element.querySelector('.drawer-close').getBoundingClientRect();
+        return { width: element.clientWidth, titleWidth: title.width, titleHeight: title.height, closeWidth: close.width, closeHeight: close.height };
+      });
+      sampleReport.transferHeader = header;
+      requireMetric(header.titleWidth >= 120 && header.closeWidth <= header.width / 2,
+        sample.name + ': transfer close control crowds the title');
+      const transferTargets = await overlayTargets(page.locator('[data-servora-form-drawer] [role="dialog"]'));
+      const checkboxTarget = await form.locator('.form-checkbox-row label').evaluateAll((labels) =>
+        labels.map((label) => {
+          const { width, height } = label.getBoundingClientRect();
+          return { label: label.textContent.trim(), width, height };
+        }));
+      sampleReport.transferTargets = [...transferTargets, ...checkboxTarget];
+      const formGeometry = await form.evaluate((element) => {
+        const scroller = element.closest('[role="dialog"]');
+        return { clientWidth: scroller.clientWidth, scrollWidth: scroller.scrollWidth };
+      });
+      sampleReport.transferForm = formGeometry;
+      requireMetric(formGeometry.scrollWidth <= formGeometry.clientWidth + 1, sample.name + ': transfer form horizontal overflow');
+      for (const target of sampleReport.transferTargets) {
+        requireMetric(target.width >= 44 && target.height >= 44, sample.name + ': transfer target below 44 CSS px: ' + target.label);
+      }
+      await capture(page, sample.name + '-transfer');
+      await form.getByRole('button', { name: 'Vazgeç' }).click();
+    }
     requireMetric(test.errors.length === 0, sample.name + ': ' + test.errors.join(', '));
     requireMetric(test.unexpected.length === 0, sample.name + ': ' + test.unexpected.join(', '));
     await context.close();
@@ -257,6 +402,7 @@ try {
     report.interactions.slotTargets = wheel.slotTargets;
     await context.close();
   } else {
+    report.interactions.transfer = await captureTransferFlow(browser, url);
     const test = await openCase(browser, url, samples[1]);
     const { page, context, mutations, released } = test;
     const scope = page.locator('details.job-recovery');

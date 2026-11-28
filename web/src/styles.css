@@ -4093,12 +4093,21 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .assignment-offer-recovery .review-buttons button,
 .change-request-guidance .review-buttons button,
 .change-request-form .review-buttons button,
+.assignment-transfer-form .review-buttons button,
 .change-request-closures .review-buttons button {
   min-height: var(--control-height);
 }
-.change-request-form {
+.change-request-form,
+.assignment-transfer-form,
+.assignment-transfer-fields {
   display: grid;
   gap: 1rem;
+}
+.assignment-transfer-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .change-request-closures {
   display: grid;

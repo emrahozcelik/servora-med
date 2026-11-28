@@ -29,6 +29,9 @@ Link measurements and screenshots in the PR. Record the exact source, viewport, 
 The [RESCUE-003 capture runner](../../web/scripts/connected-workflows-recovery-acceptance.mjs)
 runs the real job detail route. From `web/`, set `FLEET_EVIDENCE_DIR` to the
 output path and `CONNECTED_VISUAL_SOURCE` to the tested SHA, then run
-`node scripts/connected-workflows-recovery-acceptance.mjs`. For comparison,
+`node scripts/connected-workflows-recovery-acceptance.mjs`. It captures the
+combined transfer form at each required setting and exercises an open wheel,
+validation, a calendar rejection, pending submission and the committed receipt
+through the real AppShell on a standard phone. For comparison,
 run the same script from the baseline checkout's `web/` directory with
 `CONNECTED_VISUAL_BASELINE=1`, a separate evidence directory and the baseline SHA.

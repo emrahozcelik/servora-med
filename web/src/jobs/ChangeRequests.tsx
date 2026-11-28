@@ -10,6 +10,7 @@ import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { SignalGlyph } from '../ui/signal-icons';
 import { focusScheduleEditor } from './AssignmentOffer';
+import type { RenderAssignmentTransfer } from './AssignmentTransferForm';
 import {
   changeRequestReasonLabel,
   changeRequestResolutionLabel,
@@ -293,6 +294,7 @@ export function ManagementChangeRequestPanel({
   onActionStart,
   onRefresh,
   onReassign,
+  renderTransferAction,
   canSetNewTime = true,
   onCancel,
   loadLinkedJobs = listJobCards,
@@ -315,6 +317,7 @@ export function ManagementChangeRequestPanel({
    * guidance never grows a second assignee form of its own.
    */
   onReassign?: (trigger: HTMLButtonElement) => void;
+  renderTransferAction?: RenderAssignmentTransfer;
   /** False when this viewer has no planned-time editor on the page. */
   canSetNewTime?: boolean;
   /** Opens the existing cancel command dialog; never a second cancel form. */
@@ -584,7 +587,7 @@ export function ManagementChangeRequestPanel({
             Sorumlu personel değişti; öneriyi kapatmayı unutmayın.
           </p>
         )}
-        {guidanceActions.length > 0 && (
+        {(guidanceActions.length > 0 || renderTransferAction) && (
           <>
             <p className="change-request-guidance-label"><strong>Ne yapabilirsiniz</strong></p>
             <div className="review-buttons change-request-guidance-actions">
@@ -602,6 +605,7 @@ export function ManagementChangeRequestPanel({
                   {action.label}
                 </button>
               ))}
+              {renderTransferAction?.({ disabled: locked, primary: guidanceActions.length === 0 })}
             </div>
           </>
         )}
@@ -762,6 +766,7 @@ export function ChangeRequestSection({
   onRefresh,
   canSetNewTime = true,
   onReassign,
+  renderTransferAction,
   onCancel,
 }: {
   job: JobCard;
@@ -779,6 +784,7 @@ export function ChangeRequestSection({
   canSetNewTime?: boolean;
   /** Opens the existing reassignment form (management guidance only). */
   onReassign?: (trigger: HTMLButtonElement) => void;
+  renderTransferAction?: RenderAssignmentTransfer;
   /** Opens the existing cancel command dialog (management guidance only). */
   onCancel?: (trigger: HTMLButtonElement) => void;
 }) {
@@ -793,6 +799,7 @@ export function ChangeRequestSection({
         onRefresh={onRefresh}
         canSetNewTime={canSetNewTime}
         onReassign={onReassign}
+        renderTransferAction={renderTransferAction}
         onCancel={onCancel}
       />
     );

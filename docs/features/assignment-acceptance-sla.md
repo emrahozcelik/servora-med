@@ -676,6 +676,21 @@ feedback. A completed decision still shows its result when the section closes.
 UI changes to this recovery path follow the
 [Connected Workflows acceptance gate](connected-workflows-ui-acceptance.md).
 
+#### Combined assignment transfer and rescheduling
+
+Management can change the owner and planned start together from a pre-start
+sales meeting or product delivery in assignment recovery or with an open
+personnel request. The action uses the existing edit capabilities and submits
+one version-checked job PATCH. The job keeps its planned duration. The existing
+calendar, occupancy, past-start and overdue-extension rules apply to the new
+assignee and time together.
+
+When assignment offers apply, the transaction closes the old offer as needed
+and creates one offer for the new assignee. The committed response determines
+whether the receipt says that an answer is pending. Management can explicitly
+close an open personnel request as `RESCHEDULED` in the same transaction.
+That closure requires an actual schedule revision.
+
 #### Neutral acknowledgement for RESCUE-003
 
 The neutral acknowledgement contract is for a future change-request resolution.

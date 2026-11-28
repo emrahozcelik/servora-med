@@ -131,6 +131,7 @@ import {
 } from './jobs/SubmissionLateness';
 import { EarlyStartAuthorizationSection } from './jobs/EarlyStartAuthorization';
 import { ChangeRequestSection } from './jobs/ChangeRequests';
+import { AssignmentTransferAction, type RenderAssignmentTransfer } from './jobs/AssignmentTransferForm';
 import {
   AssignmentOfferSection,
   EMPTY_ASSIGNMENT_REASON,
@@ -3211,6 +3212,39 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setPastStartAckError('');
     setPastStartAck(request);
   }
+  function offerReassignmentSync(previous: JobCard, patched: Awaited<ReturnType<typeof patchJobCard>>) {
+    if (!patched.assignmentTransitionId || previous.assignedTo === patched.assignedTo) return;
+    setMessagingLookupKey((value) => value + 1);
+    void reassignmentSync.offerSync({
+      transitionId: patched.assignmentTransitionId,
+      oldAssignee: { id: previous.assignedTo, name: previous.assignee.name },
+      newAssignee: { id: patched.assignedTo, name: patched.assignee.name },
+    });
+  }
+
+  async function commitAssignmentTransfer(
+    input: PatchJobCardInput,
+    onConfirmed: (patched: JobCard) => string,
+  ) {
+    const owner = state.kind === 'ready' ? startMutationOperation() : null;
+    if (!owner || state.kind !== 'ready') throw new ApiError(409, 'JOB_MUTATION_IN_PROGRESS', 'İş için başka bir işlem sürüyor.');
+    const previous = state.detail.job;
+    mutationEpoch.current += 1;
+    clearChildReceipt();
+    setPending(true);
+    try {
+      const patched = await patchJobCard(jobId, input);
+      if (!isOperationCurrent(owner.sessionToken, jobId)) return;
+      const receipt = onConfirmed(patched);
+      await settleChildCommit(receipt);
+      if (!isOperationCurrent(owner.sessionToken, jobId) || accessLostRef.current) return;
+      onChanged();
+      offerReassignmentSync(previous, patched);
+    } finally {
+      endMutationOperation(owner);
+    }
+  }
+
   async function saveJobPatch(
     input: PatchJobCardInput,
     successMessage: string,
@@ -3262,18 +3296,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (read === 'fresh') setMessage(successMessage);
       else setFeedbackFocusRequest((value) => value + 1);
       onChanged();
-      if (
-        patched.assignmentTransitionId
-        && input.assignedTo !== undefined
-        && input.assignedTo !== state.detail.job.assignedTo
-      ) {
-        setMessagingLookupKey((value) => value + 1);
-        void reassignmentSync.offerSync({
-          transitionId: patched.assignmentTransitionId,
-          oldAssignee: { id: state.detail.job.assignedTo, name: state.detail.job.assignee.name },
-          newAssignee: { id: input.assignedTo ?? null, name: patched.assignee.name },
-        });
-      }
+      if (input.assignedTo !== undefined) offerReassignmentSync(state.detail.job, patched);
       return true;
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return false;
@@ -4174,7 +4197,25 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     || saleCorrectionLocked || committedStale !== null;
   // JOB-010 recovery: the assignment guidance reuses the one record-edit
   // reassignment flow the decision panel already offers.
-  const assignmentRecordEdit = presentationFor(detail).recordEditAction;
+  const detailPresentation = presentationFor(detail);
+  const assignmentRecordEdit = detailPresentation.recordEditAction;
+  const canTransfer = isManagementUser(user)
+    && (detail.kind === 'SALES_MEETING' || detail.kind === 'PRODUCT_DELIVERY')
+    && assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
+    && detailPresentation.scheduleEdit !== null;
+  const transferFromChangeRequest = detail.job.changeRequest != null
+    && detail.job.workflowContext.allowedActions.includes('RESOLVE_CHANGE_REQUEST');
+  const renderTransferAction: RenderAssignmentTransfer | undefined = canTransfer
+    ? ({ disabled, primary }) => (
+      <AssignmentTransferAction
+        job={detail.job}
+        disabled={disabled}
+        primary={primary}
+        onTransfer={commitAssignmentTransfer}
+        onRefresh={reloadCommittedTruth}
+      />
+    )
+    : undefined;
 
   const recordContent = <>
     {detail.kind === 'SALE' && <SaleDetailsSection details={detail.saleDetails} originPending={saleOriginPending} />}
@@ -4294,7 +4335,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         user={user}
         disabled={invalidationLocked}
         openRequestSignal={changeRequestSignal}
-        canSetNewTime={Boolean(presentationFor(detail).scheduleEdit)}
+        canSetNewTime={Boolean(detailPresentation.scheduleEdit)}
+        renderTransferAction={transferFromChangeRequest ? renderTransferAction : undefined}
         onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
           : undefined}
@@ -4316,7 +4358,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         onCommitted={settleChildCommit}
         onActionStart={clearChildReceipt}
         onRefresh={() => reloadCommittedTruth()}
-        canSetNewTime={Boolean(presentationFor(detail).scheduleEdit)}
+        canSetNewTime={Boolean(detailPresentation.scheduleEdit)}
+        renderTransferAction={transferFromChangeRequest ? undefined : renderTransferAction}
         onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
           ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
           : undefined}
