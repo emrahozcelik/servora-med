@@ -381,6 +381,109 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
     });
   });
 
+  it('manual calendar transfer uses shared SCH-001 occupancy while preserving manual-to-manual checks when Calendar UI is off', async () => {
+    await withFixture(async ({ pool, createPool, organizationId, admin, target, replacement, customerId }) => {
+      const testNow = new Date('2026-09-10T09:00:00.000Z');
+      const observedPool = createPool();
+      let observedOccupancy: QueryContext | null = null;
+      try {
+        observePoolQueries(observedPool, {
+          before: (query) => {
+            if (!observedOccupancy
+              && query.text.includes("SELECT 'MANUAL'::text AS source")
+              && query.text.includes('FROM calendar_events e')
+              && query.text.includes('FROM job_cards j')) {
+              observedOccupancy = query;
+            }
+          },
+        });
+
+        // SCH-001: non-on-site GENERAL_TASK does not occupy Staff even if dates are set.
+        await insertJob(pool, {
+          organizationId,
+          assignedTo: replacement.id,
+          createdBy: admin.id,
+          type: 'GENERAL_TASK',
+          scheduledAt: new Date('2026-09-10T10:00:00.000Z'),
+          scheduledEndsAt: new Date('2026-09-10T11:00:00.000Z'),
+        });
+        const event1 = await insertCalendar(
+          pool,
+          organizationId,
+          target.id,
+          admin.id,
+          '2026-09-10T10:00:00.000Z',
+          '2026-09-10T11:00:00.000Z',
+        );
+
+        const service = new PostgresStaffOffboardingService(
+          observedPool,
+          undefined,
+          () => testNow,
+          { enabled: false },
+          { enabled: false },
+        );
+        const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
+        const plan1 = await service.preview(adminUser, target.id);
+        const res1 = await service.execute(adminUser, target.id, {
+          clientActionId: randomUUID(),
+          planHash: plan1.planHash,
+          reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+          jobDecisions: [],
+          calendarDecisions: [{ calendarEventId: event1, replacementUserId: replacement.id }],
+          followUpDecisions: [],
+          customerDecisions: [{ customerId, action: 'REASSIGN' as const, replacementUserId: replacement.id }],
+          reminderDecisions: [],
+        });
+        expect(res1.status).toBe('OFFBOARDED');
+        expect(observedOccupancy).not.toBeNull();
+        expect(observedOccupancy!.values[5]).toBe(1);
+        expect(observedOccupancy!.values[6]).toBe(event1);
+        expect(observedOccupancy!.values[7]).toBe(true);
+
+        // Explicit manual-event transfer still rejects manual-to-manual overlap
+        // against replacement's newly transferred event even with Calendar UI off.
+        const target2 = await insertUser(pool, organizationId, 'STAFF', 'Target 2');
+        const event2 = await insertCalendar(
+          pool,
+          organizationId,
+          target2.id,
+          admin.id,
+          '2026-09-10T10:30:00.000Z',
+          '2026-09-10T11:30:00.000Z',
+        );
+        const plan2 = await service.preview(adminUser, target2.id);
+        await expect(service.execute(adminUser, target2.id, {
+          clientActionId: randomUUID(),
+          planHash: plan2.planHash,
+          reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+          jobDecisions: [],
+          calendarDecisions: [{ calendarEventId: event2, replacementUserId: replacement.id }],
+          followUpDecisions: [],
+          customerDecisions: [],
+          reminderDecisions: [],
+        })).rejects.toMatchObject({
+          code: 'CALENDAR_CONFLICT',
+          statusCode: 409,
+          message: 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.',
+        });
+
+        const after = await pool.query<{ assigned_user_id: string }>(
+          `SELECT assigned_user_id FROM calendar_events WHERE id = $1`,
+          [event2],
+        );
+        expect(after.rows[0]!.assigned_user_id).toBe(target2.id);
+        const target2Row = await pool.query<{ is_active: boolean }>(
+          `SELECT is_active FROM users WHERE id = $1`,
+          [target2.id],
+        );
+        expect(target2Row.rows[0]!.is_active).toBe(true);
+      } finally {
+        await observedPool.end();
+      }
+    });
+  });
+
   it('allows back-to-back transfer', async () => {
     await withFixture(async ({ pool, organizationId, admin, target, replacement, customerId }) => {
       await insertJob(pool, {
