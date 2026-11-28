@@ -4103,6 +4103,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   display: grid;
   gap: 1rem;
 }
+.assignment-transfer-form,
+[data-assignment-offer-action="transfer-and-reschedule"] {
+  font-size: 0.875rem;
+}
 .assignment-transfer-fields {
   min-width: 0;
   margin: 0;

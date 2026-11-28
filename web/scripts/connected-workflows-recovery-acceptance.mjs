@@ -397,6 +397,13 @@ try {
       requireMetric(header.titleWidth >= 120 && header.closeWidth <= header.width / 2,
         sample.name + ': transfer close control crowds the title');
       const transferTargets = await overlayTargets(page.locator('[data-servora-form-drawer] [role="dialog"]'));
+      const primary = form.getByRole('button', { name: 'Devret ve planla', exact: true });
+      sampleReport.transferPrimaryFont = await primary.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+      if (sample.textScale) {
+        const standardFont = report.samples.find(({ name }) => name === 'phone').transferPrimaryFont;
+        requireMetric(sampleReport.transferPrimaryFont >= standardFont * 2,
+          sample.name + ': transfer primary text did not grow to 200%');
+      }
       const checkboxTarget = await form.locator('.form-checkbox-row label').evaluateAll((labels) =>
         labels.map((label) => {
           const { width, height } = label.getBoundingClientRect();
@@ -414,9 +421,8 @@ try {
       }
       await capture(page, sample.name + '-transfer');
       if (sample.textScale || sample.dpr) {
-        const submit = form.getByRole('button', { name: 'Devret ve planla', exact: true });
-        await submit.scrollIntoViewIfNeeded();
-        sampleReport.transferPrimaryReachable = await submit.evaluate((element) => {
+        await primary.scrollIntoViewIfNeeded();
+        sampleReport.transferPrimaryReachable = await primary.evaluate((element) => {
           const bounds = element.getBoundingClientRect();
           return element.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
         });
