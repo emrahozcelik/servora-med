@@ -42,7 +42,44 @@ describe('calendar API', () => {
       priority: 'normal',
       customer: null,
       relatedJobPath: '/jobs/job-1',
-    })).toMatchObject({ source: 'JOB', relatedJobPath: '/jobs/job-1' });
+    })).toMatchObject({
+      source: 'JOB',
+      relatedJobPath: '/jobs/job-1',
+      staffReservationReleased: false,
+    });
+  });
+
+  it('parses staffReservationReleased when present and keeps legacy absent shape false', () => {
+    const baseJob = {
+      ...manual,
+      source: 'JOB',
+      jobCardId: 'job-2',
+      jobType: 'PRODUCT_DELIVERY',
+      jobStatus: 'NEW',
+      priority: 'normal',
+      customer: { id: 'cust-1', name: 'Anadolu Dental' },
+      relatedJobPath: '/jobs/job-2',
+      followUpContext: null,
+    };
+
+    expect(parseCalendarEvent({ ...baseJob, staffReservationReleased: true })).toMatchObject({
+      source: 'JOB',
+      staffReservationReleased: true,
+    });
+    expect(parseCalendarEvent({ ...baseJob, staffReservationReleased: false })).toMatchObject({
+      source: 'JOB',
+      staffReservationReleased: false,
+    });
+    expect(parseCalendarEvent(baseJob)).toMatchObject({
+      source: 'JOB',
+      staffReservationReleased: false,
+    });
+    expect(() => parseCalendarEvent({ ...baseJob, staffReservationReleased: 'true' })).toThrow(
+      'staffReservationReleased',
+    );
+    expect(() => parseCalendarEvent({ ...baseJob, staffReservationReleased: null })).toThrow(
+      'staffReservationReleased',
+    );
   });
 
   it('parses nullable follow-up context and rejects impossible access/path combinations', () => {

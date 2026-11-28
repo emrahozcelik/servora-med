@@ -1059,3 +1059,167 @@ describe('CalendarPage notification reconciliation', () => {
     );
   });
 });
+
+describe('CalendarPage RESCUE-004/A staffReservationReleased presentation', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  const releasedJobEvent = {
+    ...jobEvent,
+    id: 'job-released-1',
+    title: 'Anadolu Dental ürün teslimi',
+    startsAt: '2026-07-29T11:00:00.000Z',
+    endsAt: '2026-07-29T12:00:00.000Z',
+    jobStatus: 'NEW',
+    staffReservationReleased: true,
+  };
+
+  const reservedJobEvent = {
+    ...jobEvent,
+    id: 'job-reserved-1',
+    title: 'Ege Dental ürün teslimi',
+    startsAt: '2026-07-29T13:00:00.000Z',
+    endsAt: '2026-07-29T14:00:00.000Z',
+    jobStatus: 'NEW',
+    staffReservationReleased: false,
+  };
+
+  const legacyPastNewJobEvent = {
+    ...jobEvent,
+    id: 'job-legacy-past-1',
+    title: 'Eski sunucu yanıtı ziyareti',
+    startsAt: '2026-07-28T07:00:00.000Z',
+    endsAt: '2026-07-28T08:00:00.000Z',
+    jobStatus: 'NEW',
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_TODAY);
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    calendarApi.listCalendar.mockResolvedValue([
+      releasedJobEvent,
+      reservedJobEvent,
+      legacyPastNewJobEvent,
+      manualEvent,
+    ]);
+    calendarApi.listCalendarAssignees.mockResolvedValue([
+      { id: 'staff-1', name: 'Ayşe Personel' },
+      { id: 'staff-2', name: 'Bora Personel' },
+    ]);
+    calendarApi.getCalendarEvent.mockResolvedValue(releasedJobEvent);
+    jobsApi.findAvailableSlots.mockResolvedValue({ slots: [] });
+    jobsApi.patchJobCard.mockResolvedValue({
+      id: 'job-1',
+      version: 3,
+      assignedTo: 'staff-1',
+      title: releasedJobEvent.title,
+      assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+      assignmentTransitionId: null,
+    });
+    resizeTo(1024);
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await act(async () => root.unmount());
+    container.remove();
+    vi.clearAllMocks();
+  });
+
+  async function render(user: CurrentUser = manager, path = '/calendar') {
+    await act(async () => {
+      root.render(<MemoryRouter initialEntries={[path]}><CalendarPage user={user} /></MemoryRouter>);
+    });
+    await act(async () => {});
+  }
+
+  it('distinguishes released JOB events on desktop while keeping reserved, legacy and manual events unchanged', async () => {
+    await render();
+
+    const releasedChip = container.querySelector<HTMLButtonElement>('button[data-event-id="job-released-1"]');
+    expect(releasedChip).toBeTruthy();
+    expect(releasedChip!.className).toContain('servora-calendar-event-summary--released');
+    expect(releasedChip!.getAttribute('data-reservation-released')).toBe('true');
+    expect(releasedChip!.getAttribute('aria-label')).toContain('İş · Müdahale gerekiyor');
+    expect(releasedChip!.querySelector('.servora-calendar-event-status')?.textContent).toContain('Müdahale');
+    expect(releasedChip!.querySelector('.servora-calendar-event-status svg[aria-hidden="true"]')).toBeTruthy();
+
+    for (const id of ['job-reserved-1', 'job-legacy-past-1', 'event-1']) {
+      const chip = container.querySelector<HTMLButtonElement>(`button[data-event-id="${id}"]`);
+      expect(chip).toBeTruthy();
+      expect(chip!.className).not.toContain('servora-calendar-event-summary--released');
+      expect(chip!.hasAttribute('data-reservation-released')).toBe(false);
+      expect(chip!.querySelector('.servora-calendar-event-status')).toBeNull();
+      expect(chip!.getAttribute('aria-label')).not.toContain('Müdahale');
+    }
+
+    const cards = Array.from(container.querySelectorAll('.calendar-event-card'));
+    expect(cards).toHaveLength(3);
+    const releasedCard = cards.find((card) => card.textContent?.includes('Anadolu Dental ürün teslimi'))!;
+    expect(releasedCard.className).toContain('calendar-event-card--released');
+    expect(releasedCard.textContent).toContain('Ayşe Personel');
+    expect(releasedCard.textContent).toContain('Müdahale gerekiyor');
+    expect(releasedCard.textContent).toContain('personel kapasitesi serbesttir');
+    expect(releasedCard.querySelector('.calendar-released-badge svg[aria-hidden="true"]')).toBeTruthy();
+    expect(releasedCard.querySelector('a[href="/jobs/job-1"]')?.textContent).toBe('İşi aç');
+
+    const nonReleasedCards = cards.filter((card) => card !== releasedCard);
+    for (const card of nonReleasedCards) {
+      expect(card.className).not.toContain('calendar-event-card--released');
+      expect(card.querySelector('.calendar-released-badge')).toBeNull();
+      expect(card.querySelector('.calendar-event-released-note')).toBeNull();
+    }
+
+    const prevDayButton = container.querySelector<HTMLButtonElement>('button[aria-label="2026-07-28"]')!;
+    await act(async () => prevDayButton.click());
+    await act(async () => {});
+    const legacyCard = container.querySelector('.calendar-event-card')!;
+    expect(legacyCard.textContent).toContain('Eski sunucu yanıtı ziyareti');
+    expect(legacyCard.className).not.toContain('calendar-event-card--released');
+    expect(legacyCard.querySelector('.calendar-released-badge')).toBeNull();
+  });
+
+  it('keeps released intervention status visible when selected and in the edit drawer without blocking saves', async () => {
+    await render(manager, '/calendar?event=job-released-1');
+
+    const selectedArticle = container.querySelector('article[aria-current="true"]')!;
+    expect(selectedArticle).toBeTruthy();
+    expect(selectedArticle.querySelector('.servora-operational-card--selected')).toBeTruthy();
+    expect(selectedArticle.querySelector('.calendar-released-badge')?.textContent).toContain('Müdahale gerekiyor');
+
+    const editBtn = Array.from(selectedArticle.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Düzenle')!;
+    await act(async () => editBtn.click());
+
+    const drawer = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    const notice = drawer.querySelector('.calendar-form-released-notice');
+    expect(notice).toBeTruthy();
+    expect(notice!.textContent).toContain('personel kapasitesi serbesttir');
+    expect(notice!.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+
+    await act(async () => {
+      drawer.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    expect(jobsApi.patchJobCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders mobile compact attention cell semantics and agenda intervention details at 390px', async () => {
+    resizeTo(390);
+    await render();
+
+    const compactCount = container.querySelector('.servora-calendar-count--attention');
+    expect(compactCount).toBeTruthy();
+    expect(compactCount!.textContent).toBe('3');
+    expect(compactCount!.getAttribute('data-has-released')).toBe('true');
+    expect(compactCount!.getAttribute('aria-label')).toContain('1 müdahale gerekiyor');
+
+    const agendaBadge = container.querySelector('.calendar-agenda-section .calendar-released-badge');
+    expect(agendaBadge).toBeTruthy();
+    expect(agendaBadge!.textContent).toContain('Müdahale gerekiyor');
+    expect(agendaBadge!.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+  });
+});
