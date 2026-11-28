@@ -25,7 +25,6 @@ const screenshotsDir = resolve(evidence, 'screenshots');
 mkdirSync(screenshotsDir, { recursive: true });
 
 const jobId = '11111111-1111-4111-8111-111111111111';
-const linkedJobId = '88888888-8888-4888-8888-888888888888';
 const requestId = '22222222-2222-4222-8222-222222222222';
 const offerId = '77777777-7777-4777-8777-777777777777';
 const customerId = '55555555-5555-4555-8555-555555555555';
@@ -263,6 +262,20 @@ function buildScenarioJob(scenario = 'change-request') {
           reasonText: 'Görüşme başlığı ve ürün kapsamı güncellenmeli.',
         },
       };
+    case 'sales-meeting-other-change-request':
+      return {
+        ...baseJob,
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Anadolu Dental Polikliniği cihaz görüşmesi',
+        description: 'Demo ünitesi görüşmesi.',
+        status: 'ACCEPTED',
+        changeRequest: {
+          ...changeRequestFixture,
+          reasonCode: 'OTHER',
+          reasonText: 'Klinik ek cihaz kapsamının açıklamasını istedi.',
+        },
+      };
     default:
       throw new Error(`Unknown scenario: ${scenario}`);
   }
@@ -419,36 +432,6 @@ async function openCase(browser, url, options) {
       )
     ) {
       return send(empty);
-    }
-    if (method === 'GET' && path === '/api/job-cards') {
-      return send({
-        items: [
-          {
-            id: linkedJobId,
-            type: 'PRODUCT_DELIVERY',
-            status: 'NEW',
-            version: 1,
-            title: 'Anadolu Dental ek teslimat',
-            priority: 'normal',
-            dueDate: null,
-            scheduledAt: '2026-11-28T10:00:00.000Z',
-            scheduledEndsAt: '2026-11-28T11:00:00.000Z',
-            engagementKind: null,
-            createdAt: fixedClock,
-            updatedAt: fixedClock,
-            staffCompletedAt: null,
-            customer: { id: customerId, name: 'Anadolu Dental Polikliniği' },
-            contact: null,
-            assignee: successor,
-            deliveryItemCount: 1,
-            allowedCommands: ['CANCEL'],
-          },
-        ],
-        total: 1,
-        limit: 50,
-        offset: 0,
-        nextCursor: null,
-      });
     }
     if (
       method === 'GET'
@@ -1151,9 +1134,9 @@ async function runDecisionInteractions(browser, url) {
     await context.close();
   }
 
-  // 7. CORRECT (on SALES_MEETING), LINKED_JOB_CREATED, ACKNOWLEDGED_ONLY, REJECT_CHANGE_REQUEST, CANCEL
+  // 7. CORRECT (WRONG_PRODUCT independent save & OTHER opt-in ReasonDialog closure), ACKNOWLEDGED_ONLY, REJECT_CHANGE_REQUEST, CANCEL
   {
-    // CORRECT
+    // P1 + P2 unsupported reason (WRONG_PRODUCT): no LINKED_JOB_CREATED, no opt-in closure, record edit saves independently
     const test = await openCase(browser, url, {
       width: 390,
       height: 844,
@@ -1161,52 +1144,101 @@ async function runDecisionInteractions(browser, url) {
     });
     const { page, context, mutations, errors, unexpected } = test;
     const drawer = await openDrawer(page);
+    assert.equal(await drawer.locator('[data-recovery-decision="LINKED_JOB_CREATED"]').count(), 0);
+    await drawer.locator('[data-recovery-advisory-note="true"]').waitFor();
     assert.equal(await drawer.locator('input[type="radio"]:checked').inputValue(), 'CORRECT');
     const fields = drawer.locator('[data-recovery-fields="CORRECT"]');
-    const closeCr = fields.getByRole('checkbox', { name: /Düzeltildi/i });
-    assert.equal(await closeCr.isDisabled(), true);
-    await fields.getByLabel('Başlık').fill('Anadolu Dental Polikliniği güncellenen cihaz görüşmesi');
-    assert.equal(await closeCr.isEnabled(), true);
-    await closeCr.check();
-    await capture(page, 'decision-correct-drawer');
+    await fields.getByLabel('Açıklama').fill('Güncellenen ürün kapsamı açıklaması.');
+    assert.equal(await fields.locator('input[name="resolveChangeRequest"]').count(), 0);
+    await fields.locator('[data-correct-closure-ineligible="unsupported-reason"]').waitFor();
+    await capture(page, 'decision-correct-wrong-product-drawer');
     await drawer.locator('[data-recovery-submit="true"]').click();
     await page.locator('[data-job-detail-section="feedback"]')
       .getByText(/Görüşme bilgileri güncellendi\./).waitFor();
     assert.equal(mutations.length, 1);
-    assert.deepEqual(mutations[0].body.changeRequestResolution, {
-      changeRequestId: requestId,
-      resolution: 'CORRECTED',
-    });
+    assert.equal('changeRequestResolution' in mutations[0].body, false);
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);
-    results.correct = { checkboxGatedUntilEdited: true, committedWithClosure: true };
+    results.correctWrongProduct = { linkedOptionAbsent: true, closureHidden: true, recordSavedIndependently: true };
     await context.close();
   }
 
   {
-    // LINKED_JOB_CREATED
+    // P2 eligible opt-in closure (OTHER): title alone blocked, description qualifies, stale opt-in cleared on revert, ReasonDialog note required
     const test = await openCase(browser, url, {
       width: 390,
       height: 844,
-      scenario: 'change-request',
+      scenario: 'sales-meeting-other-change-request',
     });
     const { page, context, mutations, errors, unexpected } = test;
     const drawer = await openDrawer(page);
-    await drawer.locator('[data-recovery-decision="LINKED_JOB_CREATED"]').click();
-    const fields = drawer.locator('[data-recovery-fields="LINKED_JOB_CREATED"]');
-    const linkedSelect = fields.getByRole('combobox', { name: 'Yerine açtığınız iş' });
-    await linkedSelect.locator(`option[value="${linkedJobId}"]`).waitFor({ state: 'attached' });
-    await linkedSelect.selectOption(linkedJobId);
-    await capture(page, 'decision-linked-job-drawer');
+    assert.equal(await drawer.locator('[data-recovery-decision="LINKED_JOB_CREATED"]').count(), 0);
+    await drawer.locator('[data-recovery-decision="CORRECT"]').click();
+    const fields = drawer.locator('[data-recovery-fields="CORRECT"]');
+
+    // Title alone does not qualify
+    await fields.getByLabel('Başlık').fill('Anadolu Dental Polikliniği güncellenen başlık');
+    assert.equal(await fields.locator('input[name="resolveChangeRequest"]').count(), 0);
+
+    // Normalized description change qualifies and shows attestation opt-in
+    const descField = fields.getByLabel('Açıklama');
+    await descField.fill('Ek cihaz kapsamı ve teknik demo adımları eklendi.');
+    const optIn = fields.locator('input[name="resolveChangeRequest"]');
+    await optIn.waitFor();
+    await optIn.check();
+
+    // Reverting description clears stale opt-in
+    await descField.fill('  Demo ünitesi görüşmesi.  ');
+    assert.equal(await fields.locator('input[name="resolveChangeRequest"]').count(), 0);
+
+    // Re-editing description keeps opt-in cleared until re-checked
+    await descField.fill('Ek cihaz kapsamı ve teknik demo adımları eklendi.');
+    await optIn.waitFor();
+    assert.equal(await optIn.isChecked(), false);
+    await optIn.check();
+    assert.equal(await drawer.locator('[data-recovery-submit="true"]').textContent(), 'Not ekleyip kaydet');
+    await capture(page, 'decision-correct-drawer');
+
+    // Submit opens ReasonDialog without stacking
     await drawer.locator('[data-recovery-submit="true"]').click();
-    await page.locator('[data-job-detail-section="feedback"]')
-      .getByText(/Öneri kapatıldı:/).waitFor();
+    const dialog = page.locator('.reason-dialog[role="dialog"]');
+    await dialog.waitFor();
+    assert.equal(await page.locator('[data-servora-form-drawer]').count(), 0);
+
+    // Empty note validation inside ReasonDialog
+    await dialog.getByRole('button', { name: 'Kaydet ve talebi kapat' }).click();
+    await dialog.getByText('Talebi “Düzeltildi” olarak kapatmak için açıklama notu zorunludur.').waitFor();
+    const dialogTextarea = dialog.getByLabel('Düzeltme açıklaması');
+    assert.equal(await dialogTextarea.getAttribute('aria-invalid'), 'true');
+    await page.waitForFunction(() => document.activeElement?.tagName === 'TEXTAREA');
+    assert.equal(await dialogTextarea.evaluate((el) => el === document.activeElement), true);
+    assert.equal(mutations.length, 0);
+
+    await dialogTextarea.fill('Ek cihaz kapsamı açıklamaya eklendi, personelin talebi karşılandı.');
+    const dialogTargets = await overlayTargets(dialog);
+    for (const t of dialogTargets) {
+      requireMetric(t.width >= 44 && t.height >= 44, 'correct-resolve ReasonDialog target below 44 CSS px: ' + t.label);
+    }
+    await capture(page, 'decision-correct-reason-dialog');
+
+    await dialog.getByRole('button', { name: 'Kaydet ve talebi kapat' }).click();
+    const feedback = page.locator('[data-job-detail-section="feedback"]');
+    await feedback.getByText(/Personel önerisi “Düzeltildi” olarak kapatıldı\./).waitFor();
+    assert.equal(await feedback.evaluate((el) => el.classList.contains('detail-feedback-confirmed')), true);
     assert.equal(mutations.length, 1);
-    assert.equal(mutations[0].body.resolution, 'LINKED_JOB_CREATED');
-    assert.equal(mutations[0].body.linkedJobCardId, linkedJobId);
+    assert.deepEqual(mutations[0].body.changeRequestResolution, {
+      changeRequestId: requestId,
+      resolution: 'CORRECTED',
+      note: 'Ek cihaz kapsamı açıklamaya eklendi, personelin talebi karşılandı.',
+    });
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);
-    results.linkedJobCreated = { committed: true };
+    results.correct = {
+      titleAloneIneligible: true,
+      staleOptInClearedOnRevert: true,
+      reasonDialogValidationAndFocus: true,
+      committedWithAttestedNote: true,
+    };
     await context.close();
   }
 

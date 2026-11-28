@@ -3,7 +3,12 @@ import {
   hasManagementRecoveryOffer,
 } from './assignment-transfer-helpers';
 import type { JobWorkflowPresentation } from './job-workflow-presentation';
-import type { JobCard } from './jobs-api';
+import type {
+  ChangeRequestReasonCode,
+  JobCard,
+  JobCardEngagementKind,
+  JobCardPriority,
+} from './jobs-api';
 
 export const MANAGER_RECOVERY_DECISION_IDS = [
   'ACCEPT_PROPOSED_TIME',
@@ -12,7 +17,6 @@ export const MANAGER_RECOVERY_DECISION_IDS = [
   'REASSIGN_AND_RESCHEDULE',
   'REOFFER',
   'CORRECT',
-  'LINKED_JOB_CREATED',
   'CANCEL',
   'REJECT_CHANGE_REQUEST',
   'ACKNOWLEDGED_ONLY',
@@ -27,7 +31,6 @@ export const MANAGER_RECOVERY_DECISION_LABELS: Record<ManagerRecoveryDecisionId,
   REASSIGN_AND_RESCHEDULE: 'Personeli ve zamanı değiştir',
   REOFFER: 'Yeniden teklif gönder',
   CORRECT: 'İş bilgilerini düzelt',
-  LINKED_JOB_CREATED: 'Yerine yeni iş açtım (bağlı iş seç)',
   CANCEL: 'İptal et',
   REJECT_CHANGE_REQUEST: 'Talebi reddet',
   ACKNOWLEDGED_ONLY: 'Talebi kayda al ve kapat',
@@ -50,8 +53,85 @@ export type ManagerRecoveryPlan = {
   options: ManagerRecoveryDecisionOption[];
   recommendedId: ManagerRecoveryDecisionId | null;
   defaultSelectedId: ManagerRecoveryDecisionId | null;
+  advisoryNote: string;
   unavailableNotes: string[];
 };
+
+export type CorrectDraftValues = {
+  title: string;
+  description: string;
+  priority: JobCardPriority;
+  engagementKind: JobCardEngagementKind;
+  customerId: string;
+};
+
+export type CorrectClosureEligibility = {
+  hasAnyEdit: boolean;
+  titleChanged: boolean;
+  descriptionChanged: boolean;
+  priorityChanged: boolean;
+  engagementChanged: boolean;
+  customerChanged: boolean;
+  qualifyingFields: string[];
+  hasQualifyingChange: boolean;
+  hasOpenChangeRequest: boolean;
+  requestReasonCode: ChangeRequestReasonCode | null;
+  canOptInClosure: boolean;
+};
+
+export function evaluateCorrectClosureEligibility(
+  job: JobCard,
+  draft: CorrectDraftValues,
+): CorrectClosureEligibility {
+  const isFollowUp = job.followUpContext !== null;
+  const titleChanged = draft.title.trim() !== job.title;
+  const normalizedDraftDesc = draft.description.trim() || null;
+  const normalizedJobDesc = job.description?.trim() || null;
+  const descriptionChanged = normalizedDraftDesc !== normalizedJobDesc;
+  const priorityChanged = draft.priority !== job.priority;
+  const engagementChanged =
+    job.type === 'SALES_MEETING'
+    && draft.engagementKind !== (job.engagementKind ?? 'SALES_MEETING');
+  const rawCustomerChanged =
+    job.type === 'SALES_MEETING'
+    && !isFollowUp
+    && draft.customerId !== (job.customerId ?? '');
+  const customerChanged = rawCustomerChanged && draft.customerId.trim() !== '';
+
+  const qualifyingFields: string[] = [];
+  if (descriptionChanged) qualifyingFields.push('Açıklama');
+  if (engagementChanged) qualifyingFields.push('Görüşme / ziyaret türü');
+  if (customerChanged) qualifyingFields.push('Müşteri');
+
+  const hasAnyEdit =
+    titleChanged
+    || descriptionChanged
+    || priorityChanged
+    || engagementChanged
+    || rawCustomerChanged;
+
+  const hasOpenChangeRequest =
+    job.changeRequest != null
+    && job.workflowContext.allowedActions.includes('RESOLVE_CHANGE_REQUEST');
+  const requestReasonCode = hasOpenChangeRequest ? job.changeRequest!.reasonCode : null;
+
+  return {
+    hasAnyEdit,
+    titleChanged,
+    descriptionChanged,
+    priorityChanged,
+    engagementChanged,
+    customerChanged,
+    qualifyingFields,
+    hasQualifyingChange: qualifyingFields.length > 0,
+    hasOpenChangeRequest,
+    requestReasonCode,
+    canOptInClosure:
+      hasOpenChangeRequest
+      && requestReasonCode === 'OTHER'
+      && qualifyingFields.length > 0,
+  };
+}
 
 const STARTED_STATUSES = new Set<JobCard['status']>([
   'IN_PROGRESS',
@@ -95,9 +175,13 @@ function decisionDescription(
     case 'REOFFER':
       return `Mevcut plan ve personel (${job.assignee.name}) ile yeni atama teklifi açar.`;
     case 'CORRECT':
-      return 'Yetkili iş bilgilerini günceller; gerekirse talebi aynı işlemde kapatır.';
-    case 'LINKED_JOB_CREATED':
-      return 'Bu işin yerine açılmış diğer müşteri işini bağlayarak talebi kapatır.';
+      if (job.changeRequest?.reasonCode === 'OTHER') {
+        return 'Yetkili iş bilgilerini günceller; nitelikli düzenlemede talebi onay ve not ile kapatabilirsiniz.';
+      }
+      if (job.changeRequest != null) {
+        return 'Yetkili iş bilgilerini günceller; bu talep nedeni düzenlemeyle kapatılmaz ve talep açık kalır.';
+      }
+      return 'Yetkili iş bilgilerini günceller.';
     case 'CANCEL':
       return 'İşi kalıcı olarak iptal eder; onay penceresinde iptal nedeni istenir.';
     case 'REJECT_CHANGE_REQUEST':
@@ -163,7 +247,6 @@ export function buildManagerRecoveryPlan(input: {
     CORRECT:
       presentation.recordEditAction?.action === 'EDIT_JOB_FIELDS'
       && (job.type === 'SALES_MEETING' || job.type === 'GENERAL_TASK'),
-    LINKED_JOB_CREATED: hasOpenChangeRequest && job.customerId !== null,
     CANCEL: job.workflowContext.allowedCommands.includes('CANCEL'),
     REJECT_CHANGE_REQUEST: hasOpenChangeRequest,
     ACKNOWLEDGED_ONLY: hasOpenChangeRequest,
@@ -217,7 +300,6 @@ export function buildManagerRecoveryPlan(input: {
           'REOFFER',
           'CORRECT',
           'CANCEL',
-          'LINKED_JOB_CREATED',
           'ACKNOWLEDGED_ONLY',
           'REJECT_CHANGE_REQUEST',
         ];
@@ -232,7 +314,6 @@ export function buildManagerRecoveryPlan(input: {
               'REOFFER',
               'CORRECT',
               'CANCEL',
-              'LINKED_JOB_CREATED',
               'ACKNOWLEDGED_ONLY',
               'REJECT_CHANGE_REQUEST',
             ]
@@ -244,7 +325,6 @@ export function buildManagerRecoveryPlan(input: {
               'REOFFER',
               'CORRECT',
               'CANCEL',
-              'LINKED_JOB_CREATED',
               'ACKNOWLEDGED_ONLY',
               'REJECT_CHANGE_REQUEST',
             ];
@@ -258,7 +338,6 @@ export function buildManagerRecoveryPlan(input: {
           'REOFFER',
           'ACCEPT_PROPOSED_TIME',
           'CANCEL',
-          'LINKED_JOB_CREATED',
           'ACKNOWLEDGED_ONLY',
           'REJECT_CHANGE_REQUEST',
         ];
@@ -273,7 +352,6 @@ export function buildManagerRecoveryPlan(input: {
           'REASSIGN_AND_RESCHEDULE',
           'REOFFER',
           'CORRECT',
-          'LINKED_JOB_CREATED',
           'ACKNOWLEDGED_ONLY',
           'REJECT_CHANGE_REQUEST',
         ];
@@ -289,7 +367,6 @@ export function buildManagerRecoveryPlan(input: {
             'REOFFER',
             'CORRECT',
             'CANCEL',
-            'LINKED_JOB_CREATED',
             'ACKNOWLEDGED_ONLY',
             'REJECT_CHANGE_REQUEST',
           ];
@@ -306,7 +383,6 @@ export function buildManagerRecoveryPlan(input: {
             'CORRECT',
             'ACCEPT_PROPOSED_TIME',
             'CANCEL',
-            'LINKED_JOB_CREATED',
             'ACKNOWLEDGED_ONLY',
             'REJECT_CHANGE_REQUEST',
           ];
@@ -320,7 +396,6 @@ export function buildManagerRecoveryPlan(input: {
                 'CORRECT',
                 'ACCEPT_PROPOSED_TIME',
                 'CANCEL',
-                'LINKED_JOB_CREATED',
                 'ACKNOWLEDGED_ONLY',
                 'REJECT_CHANGE_REQUEST',
               ]
@@ -332,7 +407,6 @@ export function buildManagerRecoveryPlan(input: {
                 'CORRECT',
                 'ACCEPT_PROPOSED_TIME',
                 'CANCEL',
-                'LINKED_JOB_CREATED',
                 'ACKNOWLEDGED_ONLY',
                 'REJECT_CHANGE_REQUEST',
               ];
@@ -350,7 +424,6 @@ export function buildManagerRecoveryPlan(input: {
         'REASSIGN_KEEP_TIME',
         'REASSIGN_AND_RESCHEDULE',
         'CORRECT',
-        'LINKED_JOB_CREATED',
         'ACKNOWLEDGED_ONLY',
         'REJECT_CHANGE_REQUEST',
       ];
@@ -360,7 +433,6 @@ export function buildManagerRecoveryPlan(input: {
         'REASSIGN_AND_RESCHEDULE',
         'REASSIGN_KEEP_TIME',
         'CORRECT',
-        'LINKED_JOB_CREATED',
         'ACKNOWLEDGED_ONLY',
         'REJECT_CHANGE_REQUEST',
         'CANCEL',
@@ -371,7 +443,6 @@ export function buildManagerRecoveryPlan(input: {
         'REASSIGN_KEEP_TIME',
         'RESCHEDULE',
         'REASSIGN_AND_RESCHEDULE',
-        'LINKED_JOB_CREATED',
         'ACKNOWLEDGED_ONLY',
         'REJECT_CHANGE_REQUEST',
         'CANCEL',
@@ -382,7 +453,6 @@ export function buildManagerRecoveryPlan(input: {
         'RESCHEDULE',
         'REASSIGN_AND_RESCHEDULE',
         'CORRECT',
-        'LINKED_JOB_CREATED',
         'ACKNOWLEDGED_ONLY',
         'REJECT_CHANGE_REQUEST',
         'CANCEL',
@@ -409,6 +479,11 @@ export function buildManagerRecoveryPlan(input: {
     destructive: id === 'CANCEL',
   }));
 
+  const advisoryNote =
+    'Sıralama mevcut iş, teklif ve talep kayıtları ile tarayıcı saatine dayalı süre tahminine göre önerilir; '
+    + 'personel uygunluğu ve ek randevu riskleri bilinmiyor kabul edilir. '
+    + 'Kesin geçerlilik ve takvim çakışması kaydetme sırasında sunucu tarafından doğrulanır.';
+
   return {
     hasRecoveryOffer,
     hasOpenChangeRequest,
@@ -417,6 +492,7 @@ export function buildManagerRecoveryPlan(input: {
     options,
     recommendedId,
     defaultSelectedId,
+    advisoryNote,
     unavailableNotes,
   };
 }
@@ -440,7 +516,10 @@ export function buildManagerRecoveryPreview(input: {
   scheduledTimeLabel?: string | null;
   resolveChangeRequest?: boolean;
   hasCorrectionChanges?: boolean;
-  linkedJobLabel?: string | null;
+  correctClosureEligibility?: Pick<
+    CorrectClosureEligibility,
+    'canOptInClosure' | 'hasQualifyingChange' | 'requestReasonCode'
+  >;
   followUpCancelDecision?: 'RESCHEDULE' | 'END_CYCLE' | null;
 }): ManagerRecoveryPreview {
   const {
@@ -453,7 +532,7 @@ export function buildManagerRecoveryPreview(input: {
     scheduledTimeLabel,
     resolveChangeRequest = false,
     hasCorrectionChanges = false,
-    linkedJobLabel,
+    correctClosureEligibility,
     followUpCancelDecision = null,
   } = input;
 
@@ -578,44 +657,46 @@ export function buildManagerRecoveryPreview(input: {
         tone: 'info',
       };
 
-    case 'CORRECT':
+    case 'CORRECT': {
+      const reasonCode =
+        correctClosureEligibility?.requestReasonCode ?? (hasOpenChangeRequest ? job.changeRequest?.reasonCode ?? null : null);
+      const canCloseOther =
+        correctClosureEligibility?.canOptInClosure
+        ?? (hasOpenChangeRequest && reasonCode === 'OTHER' && hasCorrectionChanges);
+      const hasQualifyingChange = correctClosureEligibility?.hasQualifyingChange ?? hasCorrectionChanges;
+      const willCloseAsCorrected = hasOpenChangeRequest && canCloseOther && resolveChangeRequest;
+
       return {
-        summary: hasCorrectionChanges
-          ? 'Düzenlenen iş bilgileri kaydedilecek.'
-          : 'Kaydetmek için en az bir iş bilgisini güncelleyin.',
-        effects: ['Yalnızca değiştirdiğiniz yetkili iş bilgileri güncellenir.'],
+        summary: !hasCorrectionChanges
+          ? 'Kaydetmek için en az bir iş bilgisini güncelleyin.'
+          : willCloseAsCorrected
+            ? 'Düzenlenen iş bilgileri kaydedilecek ve açık “Diğer” talebi notunuzla “Düzeltildi” olarak kapatılacak.'
+            : 'Düzenlenen iş bilgileri kaydedilecek.',
+        effects: [
+          'Yalnızca değiştirdiğiniz yetkili iş bilgileri güncellenir.',
+          ...(willCloseAsCorrected
+            ? ['Bir sonraki adımda girilecek açıklama notuyla açık personel talebi “Düzeltildi” olarak kapatılır.']
+            : []),
+        ],
         nonEffects: [
           'Planlanan zaman, sorumlu personel ve atama teklifi değişmez.',
-          ...(hasOpenChangeRequest && !(resolveChangeRequest && hasCorrectionChanges)
+          ...(hasOpenChangeRequest && !willCloseAsCorrected
             ? ['Açık personel talebi kapatılmaz.']
             : []),
         ],
         offerOutcome: null,
         requestDisposition: hasOpenChangeRequest
-          ? resolveChangeRequest && hasCorrectionChanges
-            ? 'Açık personel talebi aynı işlemde “Düzeltildi” olarak kapatılacak.'
-            : 'Açık personel talebi açık kalacak.'
+          ? willCloseAsCorrected
+            ? 'Onay notu adımından sonra açık personel talebi aynı işlemde “Düzeltildi” olarak kapatılacak.'
+            : reasonCode !== 'OTHER'
+              ? 'Bu talep nedeni düzenlemeyle kapatılmaz; talep açık kalacak.'
+              : !hasQualifyingChange
+                ? '“Diğer” talebini kapatmak için açıklama, görüşme türü veya izinli müşteri değişmelidir; talep açık kalacak.'
+                : 'Açık personel talebi açık kalacak.'
           : null,
         tone: 'info',
       };
-
-    case 'LINKED_JOB_CREATED':
-      return {
-        summary: linkedJobLabel
-          ? `Personel talebi “${linkedJobLabel}” işine bağlanarak kapatılacak.`
-          : 'Personel talebi yerine açılan başka bir müşteri işine bağlanarak kapatılacak.',
-        effects: [
-          'Açık personel değişiklik talebi “Bağlı yeni iş oluşturuldu” olarak kapatılır.',
-          'Personele bildirim gider ve kayıt geçmişe eklenir.',
-        ],
-        nonEffects: [
-          'Bu işin kendi kayıt bilgileri, planlanan zamanı ve sorumlu personeli değişmez.',
-          ...(coexistingOfferNote ? [coexistingOfferNote] : []),
-        ],
-        offerOutcome: null,
-        requestDisposition: 'Talep “Bağlı yeni iş oluşturuldu” olarak kapatılacak.',
-        tone: 'info',
-      };
+    }
 
     case 'CANCEL':
       return {

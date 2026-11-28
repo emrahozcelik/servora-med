@@ -9,12 +9,12 @@ import type {
   AssignmentOffer,
   JobCard,
   JobCardChangeRequest,
-  JobCardListItem,
   MeetingDetails,
 } from '../src/jobs/jobs-api';
 import {
   buildManagerRecoveryPlan,
   buildManagerRecoveryPreview,
+  evaluateCorrectClosureEligibility,
   type ManagerRecoveryDecisionId,
 } from '../src/jobs/manager-recovery-policy';
 import { ManagerRecoverySection } from '../src/jobs/ManagerRecoverySection';
@@ -344,9 +344,115 @@ describe('RESCUE-003/B pure policy & preview (MF-02, MF-03, MF-05)', () => {
       expect(plan.options.some((o) => o.id === 'REOFFER')).toBe(false);
       expect(plan.options.map((o) => o.id)).toContain('ACKNOWLEDGED_ONLY');
       expect(plan.options.map((o) => o.id)).toContain('REJECT_CHANGE_REQUEST');
-      expect(plan.options.map((o) => o.id)).toContain('LINKED_JOB_CREATED');
+      expect(plan.options.map((o) => o.id)).not.toContain('LINKED_JOB_CREATED');
       expect(plan.unavailableNotes.some((n) => n.includes('İş başlatıldığı için'))).toBe(true);
     }
+  });
+
+  it('MF-02 & P2 pure policy: clarifies server facts vs unknown risk and gates CORRECT opt-in closure strictly to open OTHER + qualifying edits', () => {
+    const otherMeeting = makeJob({
+      type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
+      description: 'Mevcut açıklama',
+      changeRequest: makeChangeRequest({ reasonCode: 'OTHER' }),
+    });
+    const plan = buildManagerRecoveryPlan({ job: otherMeeting, presentation: present(otherMeeting), nowMs: NOW_MS });
+    expect(plan.advisoryNote).not.toContain('yalnızca sunucudan gelen');
+    expect(plan.advisoryNote).toContain('tarayıcı saatine dayalı süre tahminine');
+    expect(plan.advisoryNote).toContain('bilinmiyor kabul edilir');
+    expect(plan.advisoryNote).toContain('sunucu tarafından doğrulanır');
+    expect(plan.options.some((o) => o.id === 'LINKED_JOB_CREATED')).toBe(false);
+
+    const baseDraft = {
+      title: otherMeeting.title,
+      description: 'Mevcut açıklama',
+      priority: otherMeeting.priority,
+      engagementKind: 'SALES_MEETING' as const,
+      customerId: 'cust-1',
+    };
+
+    // Title + priority + whitespace-only padding do NOT qualify
+    expect(evaluateCorrectClosureEligibility(otherMeeting, {
+      ...baseDraft,
+      title: 'Yeni Başlık',
+      priority: 'urgent',
+      description: '  Mevcut açıklama  ',
+    })).toMatchObject({
+      hasAnyEdit: true,
+      hasQualifyingChange: false,
+      canOptInClosure: false,
+    });
+
+    // Normalized description qualifies
+    expect(evaluateCorrectClosureEligibility(otherMeeting, {
+      ...baseDraft,
+      description: 'Güncellenmiş açıklama',
+    })).toMatchObject({
+      hasQualifyingChange: true,
+      qualifyingFields: ['Açıklama'],
+      canOptInClosure: true,
+    });
+
+    // SALES_MEETING engagementKind & non-follow-up customerId qualify; empty customerId does not
+    expect(evaluateCorrectClosureEligibility(otherMeeting, {
+      ...baseDraft,
+      engagementKind: 'CUSTOMER_VISIT',
+    })).toMatchObject({
+      hasQualifyingChange: true,
+      qualifyingFields: ['Görüşme / ziyaret türü'],
+      canOptInClosure: true,
+    });
+    expect(evaluateCorrectClosureEligibility(otherMeeting, {
+      ...baseDraft,
+      customerId: 'cust-2',
+    })).toMatchObject({
+      hasQualifyingChange: true,
+      qualifyingFields: ['Müşteri'],
+      canOptInClosure: true,
+    });
+    expect(evaluateCorrectClosureEligibility(otherMeeting, {
+      ...baseDraft,
+      customerId: '',
+    })).toMatchObject({
+      hasQualifyingChange: false,
+      canOptInClosure: false,
+    });
+
+    // Follow-up SALES_MEETING cannot change customerId
+    const followUpMeeting = makeJob({
+      ...otherMeeting,
+      followUpContext: {
+        sourceJobCardId: 'job-0',
+        sourceTitle: 'İlk Ziyaret',
+        sourceScheduledAt: '2026-11-20T10:00:00.000Z',
+        sourceCompletedAt: '2026-11-20T11:00:00.000Z',
+        sourceMeetingOutcome: 'FOLLOW_UP_NEEDED',
+        sourceMeetingSummary: null,
+        sourceCreatedBy: 'manager-1',
+      },
+    });
+    expect(evaluateCorrectClosureEligibility(followUpMeeting, {
+      ...baseDraft,
+      customerId: 'cust-2',
+    })).toMatchObject({
+      hasQualifyingChange: false,
+      canOptInClosure: false,
+    });
+
+    // Unsupported reason (WRONG_PRODUCT) never allows CORRECT opt-in closure
+    const wrongProductMeeting = makeJob({
+      ...otherMeeting,
+      changeRequest: makeChangeRequest({ reasonCode: 'WRONG_PRODUCT' }),
+    });
+    expect(evaluateCorrectClosureEligibility(wrongProductMeeting, {
+      ...baseDraft,
+      description: 'Güncellenmiş açıklama',
+      engagementKind: 'CUSTOMER_VISIT',
+    })).toMatchObject({
+      hasQualifyingChange: true,
+      canOptInClosure: false,
+      requestReasonCode: 'WRONG_PRODUCT',
+    });
   });
 
   it('preview reports exact side effects and non-effects when offer and change request coexist', () => {
@@ -425,7 +531,6 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
           onReassigned={vi.fn()}
           onChanged={vi.fn()}
           loadStaffFn={vi.fn().mockResolvedValue(staffList)}
-          loadLinkedJobsFn={vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 })}
         />,
       );
     });
@@ -466,7 +571,6 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
           onReassigned={vi.fn()}
           onChanged={vi.fn()}
           loadStaffFn={vi.fn().mockResolvedValue(staffList)}
-          loadLinkedJobsFn={vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 })}
         />,
       );
     });
@@ -480,6 +584,11 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
     expect(forms).toHaveLength(1);
     const form = forms[0]!;
     expect(form.querySelector('form')).toBeNull();
+    expect(form.querySelector('[data-recovery-decision="LINKED_JOB_CREATED"]')).toBeNull();
+    const advisoryText = form.querySelector('[data-recovery-advisory-note="true"]')?.textContent ?? '';
+    expect(advisoryText).not.toContain('yalnızca sunucudan gelen');
+    expect(advisoryText).toContain('tarayıcı saatine dayalı süre tahminine');
+    expect(advisoryText).toContain('sunucu tarafından doğrulanır');
 
     const fieldset = form.querySelector('fieldset.manager-recovery-decisions');
     expect(fieldset?.querySelector('legend')?.textContent).toBe('Kararınız');
@@ -514,7 +623,7 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
     expect(form.querySelector<HTMLTextAreaElement>('textarea[name="rejectNote"]')?.value).toBe('Mevcut plan korunmalı.');
   });
 
-  it('CORRECT disables resolveChangeRequest until a field changes and sends PATCH with CORRECTED resolution', async () => {
+  it('CORRECT hides closure opt-in for WRONG_PRODUCT and saves record changes independently without closing the request', async () => {
     const job = makeJob({
       status: 'ACCEPTED',
       changeRequest: makeChangeRequest({ reasonCode: 'WRONG_PRODUCT' }),
@@ -528,17 +637,39 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
         return json({ items: [], total: 0, limit: 50, offset: 0 });
       }
       if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url === '/api/customers/cust-1') {
+        return json({
+          id: 'cust-1',
+          organizationId: 'org-1',
+          name: 'Özel Dent Klinik',
+          customerType: 'clinic',
+          taxNumber: null,
+          phone: null,
+          email: null,
+          city: 'İstanbul',
+          district: null,
+          address: null,
+          assignedStaffUserId: 'staff-1',
+          status: 'active',
+          version: 1,
+          assignedStaffName: 'Ayşe Personel',
+          primaryContact: null,
+          contacts: [],
+          hasOperationHistory: false,
+          openJobCount: 1,
+          completedJobCount: 0,
+        });
+      }
       if (url.startsWith('/api/customers')) return json({ items: [{ id: 'cust-1', name: 'Özel Dent Klinik', isActive: true }], total: 1, limit: 20, offset: 0 });
       if (url.startsWith('/api/staff?')) return json(staffList);
-      if (url.startsWith('/api/job-cards?')) return json({ items: [], total: 0, limit: 20, offset: 0 });
       if ((url.split('?')[0] ?? url) === '/api/job-cards/job-1/sales') return json({ items: [], total: 0, limit: 20, offset: 0 });
       if ((url.split('?')[0] ?? url) === '/api/job-cards/job-1/meeting-details') return json(null, 404);
       if (method === 'PATCH' && url === '/api/job-cards/job-1') {
         patchedBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-        return json({ ...job, title: 'Güncellenmiş Ziyaret', version: 4, changeRequest: null });
+        return json({ ...job, description: 'Yeni ürün kapsamı', version: 4 });
       }
       if (url.split('?')[0] === '/api/job-cards/job-1') {
-        return json(patchedBodies.length > 0 ? { ...job, title: 'Güncellenmiş Ziyaret', version: 4, changeRequest: null } : job);
+        return json(patchedBodies.length > 0 ? { ...job, description: 'Yeni ürün kapsamı', version: 4 } : job);
       }
       throw new Error(`Unexpected ${method} ${url}`);
     });
@@ -551,40 +682,301 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
     });
     await settle();
 
-    // No old <details class="job-recovery"> on JobDetailScreen
     expect(host.querySelector('details.job-recovery')).toBeNull();
-    const trigger = host.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')!;
-    await act(async () => { trigger.click(); });
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')!.click();
+    });
     await settle();
 
-    const correctRadio = host.querySelector<HTMLInputElement>('input[value="CORRECT"]')!;
-    await act(async () => { correctRadio.click(); });
+    // P1: LINKED_JOB_CREATED must not be offered and no customer job list fetch happens
+    expect(host.querySelector('[data-recovery-decision="LINKED_JOB_CREATED"]')).toBeNull();
+    expect(fetchMock.mock.calls.some(([req]) => String(req).includes('/api/job-cards?'))).toBe(false);
+
+    await act(async () => {
+      host.querySelector<HTMLInputElement>('input[value="CORRECT"]')!.click();
+    });
     await settle();
 
-    const resolveCheckbox = host.querySelector<HTMLInputElement>('input[name="resolveChangeRequest"]')!;
-    expect(resolveCheckbox.disabled).toBe(true);
-
-    const titleInput = host.querySelector<HTMLInputElement>('input[name="title"]')!;
-    await act(async () => { setNativeValue(titleInput, 'Güncellenmiş Ziyaret'); });
+    // WRONG_PRODUCT never exposes opt-in closure even after editing description
+    const descInput = host.querySelector<HTMLTextAreaElement>('textarea[name="description"]')!;
+    await act(async () => { setNativeValue(descInput, 'Yeni ürün kapsamı'); });
     await settle();
+    expect(host.querySelector('input[name="resolveChangeRequest"]')).toBeNull();
+    expect(host.querySelector('[data-correct-closure-ineligible="unsupported-reason"]')).not.toBeNull();
 
-    expect(resolveCheckbox.disabled).toBe(false);
-    await act(async () => { resolveCheckbox.click(); });
-    await settle();
+    // Neutral decision stays available separately
+    expect(host.querySelector('[data-recovery-decision="ACKNOWLEDGED_ONLY"]')).not.toBeNull();
 
-    const form = host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!;
-    await act(async () => { form.requestSubmit(); });
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await settle();
 
     expect(patchedBodies).toHaveLength(1);
     expect(patchedBodies[0]).toMatchObject({
       expectedVersion: 3,
-      title: 'Güncellenmiş Ziyaret',
-      changeRequestResolution: { changeRequestId: 'cr-1', resolution: 'CORRECTED' },
+      description: 'Yeni ürün kapsamı',
+    });
+    expect('changeRequestResolution' in patchedBodies[0]!).toBe(false);
+    const feedback = host.querySelector('[data-job-detail-section="feedback"]');
+    expect(feedback?.classList.contains('detail-feedback-confirmed')).toBe(true);
+    expect(feedback?.textContent).toContain('Görüşme bilgileri güncellendi.');
+    expect(feedback?.textContent).not.toContain('Düzeltildi');
+    // Request remains open on the page
+    expect(host.querySelector('[data-change-request="management"]')).not.toBeNull();
+  });
+
+  it('CORRECT on open OTHER request requires qualifying edit, clears stale opt-in when reverted, and uses ReasonDialog for attested note', async () => {
+    const job = makeJob({
+      status: 'ACCEPTED',
+      description: 'İlk açıklama',
+      changeRequest: makeChangeRequest({ reasonCode: 'OTHER', reasonText: 'Açıklama netleştirilmeli.' }),
+    });
+    const patchedBodies: Array<Record<string, unknown>> = [];
+    let failFirstWithFieldError = true;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/notes?') || url.includes('/activity?') || url.includes('/overdue-incidents') || url.includes('/follow-ups')) {
+        return json({ items: [], total: 0, limit: 50, offset: 0 });
+      }
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url === '/api/customers/cust-1') {
+        return json({
+          id: 'cust-1',
+          organizationId: 'org-1',
+          name: 'Özel Dent Klinik',
+          customerType: 'clinic',
+          taxNumber: null,
+          phone: null,
+          email: null,
+          city: 'İstanbul',
+          district: null,
+          address: null,
+          assignedStaffUserId: 'staff-1',
+          status: 'active',
+          version: 1,
+          assignedStaffName: 'Ayşe Personel',
+          primaryContact: null,
+          contacts: [],
+          hasOperationHistory: false,
+          openJobCount: 1,
+          completedJobCount: 0,
+        });
+      }
+      if (url.startsWith('/api/customers')) return json({ items: [{ id: 'cust-1', name: 'Özel Dent Klinik', isActive: true }], total: 1, limit: 20, offset: 0 });
+      if (url.startsWith('/api/staff?')) return json(staffList);
+      if ((url.split('?')[0] ?? url) === '/api/job-cards/job-1/sales') return json({ items: [], total: 0, limit: 20, offset: 0 });
+      if ((url.split('?')[0] ?? url) === '/api/job-cards/job-1/meeting-details') return json(null, 404);
+      if (method === 'PATCH' && url === '/api/job-cards/job-1') {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        patchedBodies.push(body);
+        if (failFirstWithFieldError) {
+          failFirstWithFieldError = false;
+          return json({
+            error: 'Talep kapatma notu sunucu tarafından reddedildi.',
+            code: 'VALIDATION_ERROR',
+            details: { fieldErrors: { changeRequestResolution: 'Açıklama notu geçersiz.' } },
+          }, 400);
+        }
+        return json({ ...job, description: 'Netleştirilmiş açıklama', version: 4, changeRequest: null });
+      }
+      if (url.split('?')[0] === '/api/job-cards/job-1') {
+        return json(
+          patchedBodies.length > 1
+            ? { ...job, description: 'Netleştirilmiş açıklama', version: 4, changeRequest: null }
+            : job,
+        );
+      }
+      throw new Error(`Unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await act(async () => {
+      root.render(
+        <JobDetailScreen jobId="job-1" user={managerUser} onBack={() => {}} onChanged={() => {}} />,
+      );
+    });
+    await settle();
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')!.click();
+    });
+    await settle();
+
+    await act(async () => {
+      host.querySelector<HTMLInputElement>('input[value="CORRECT"]')!.click();
+    });
+    await settle();
+
+    // Initially hidden; title alone does NOT show opt-in closure
+    expect(host.querySelector('input[name="resolveChangeRequest"]')).toBeNull();
+    const titleInput = host.querySelector<HTMLInputElement>('input[name="title"]')!;
+    await act(async () => { setNativeValue(titleInput, 'Başlık değişti'); });
+    await settle();
+    expect(host.querySelector('input[name="resolveChangeRequest"]')).toBeNull();
+
+    // Editing normalized description shows opt-in attestation checkbox
+    const descInput = host.querySelector<HTMLTextAreaElement>('textarea[name="description"]')!;
+    await act(async () => { setNativeValue(descInput, 'Netleştirilmiş açıklama'); });
+    await settle();
+    const optInCheckbox = host.querySelector<HTMLInputElement>('input[name="resolveChangeRequest"]')!;
+    expect(optInCheckbox).not.toBeNull();
+    expect(optInCheckbox.checked).toBe(false);
+    await act(async () => { optInCheckbox.click(); });
+    await settle();
+    expect(optInCheckbox.checked).toBe(true);
+    expect(host.querySelector('[data-recovery-submit="true"]')?.textContent).toBe('Not ekleyip kaydet');
+
+    // Reverting description clears stale opt-in and hides checkbox
+    await act(async () => { setNativeValue(descInput, '  İlk açıklama  '); });
+    await settle();
+    expect(host.querySelector('input[name="resolveChangeRequest"]')).toBeNull();
+
+    // Re-editing description keeps checkbox unchecked (stale opt-in was cleared!)
+    await act(async () => { setNativeValue(descInput, 'Netleştirilmiş açıklama'); });
+    await settle();
+    const freshCheckbox = host.querySelector<HTMLInputElement>('input[name="resolveChangeRequest"]')!;
+    expect(freshCheckbox.checked).toBe(false);
+    await act(async () => { freshCheckbox.click(); });
+    await settle();
+
+    // Submitting with opt-in checked hands off to ReasonDialog without stacking two dialogs
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
+    await settle();
+    expect(host.querySelector('[data-manager-recovery-form="true"]')).toBeNull();
+    const reasonDialog = host.querySelector('.reason-dialog[role="dialog"]')!;
+    expect(reasonDialog).not.toBeNull();
+    expect(reasonDialog.textContent).toContain('Nitelikli değişiklik: Açıklama');
+
+    // Empty / whitespace note blocked with validation and focus on textarea
+    const dialogSubmit = Array.from(reasonDialog.querySelectorAll<HTMLButtonElement>('button'))
+      .find((b) => b.textContent === 'Kaydet ve talebi kapat')!;
+    await act(async () => { dialogSubmit.click(); });
+    await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
+    await settle();
+    const noteTextarea = reasonDialog.querySelector('textarea')!;
+    expect(noteTextarea.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(noteTextarea);
+    expect(patchedBodies).toHaveLength(0);
+
+    // Server fieldErrors.changeRequestResolution keeps ReasonDialog open, focuses textarea, and clears on input
+    await act(async () => { setNativeValue(noteTextarea, '  Açıklamaya kapsam eklendi.  '); });
+    await act(async () => { dialogSubmit.click(); });
+    await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
+    await settle();
+    expect(patchedBodies).toHaveLength(1);
+    expect(patchedBodies[0]).toMatchObject({
+      changeRequestResolution: {
+        changeRequestId: 'cr-1',
+        resolution: 'CORRECTED',
+        note: 'Açıklamaya kapsam eklendi.',
+      },
+    });
+    expect(host.querySelector('.reason-dialog [role="alert"]')?.textContent).toContain('Talep kapatma notu sunucu tarafından reddedildi.');
+    expect(document.activeElement).toBe(host.querySelector('.reason-dialog textarea'));
+
+    // Retyping clears server error and second submit commits with confirmed receipt
+    await act(async () => { setNativeValue(host.querySelector<HTMLTextAreaElement>('.reason-dialog textarea')!, '  Kapsam talebe göre güncellendi.  '); });
+    await settle();
+    await act(async () => {
+      Array.from(host.querySelectorAll<HTMLButtonElement>('.reason-dialog button'))
+        .find((b) => b.textContent === 'Kaydet ve talebi kapat')!.click();
+    });
+    await settle();
+
+    expect(patchedBodies).toHaveLength(2);
+    expect(patchedBodies[1]).toMatchObject({
+      expectedVersion: 3,
+      description: 'Netleştirilmiş açıklama',
+      changeRequestResolution: {
+        changeRequestId: 'cr-1',
+        resolution: 'CORRECTED',
+        note: 'Kapsam talebe göre güncellendi.',
+      },
     });
     const feedback = host.querySelector('[data-job-detail-section="feedback"]');
     expect(feedback?.classList.contains('detail-feedback-confirmed')).toBe(true);
     expect(feedback?.textContent).toContain('Görüşme bilgileri güncellendi.');
+    expect(feedback?.textContent).toContain('Personel önerisi “Düzeltildi” olarak kapatıldı.');
+  });
+
+  it('CORRECT on open OTHER request allows saving title/priority independently without closing the request', async () => {
+    const job = makeJob({
+      type: 'GENERAL_TASK',
+      engagementKind: null,
+      status: 'ACCEPTED',
+      changeRequest: makeChangeRequest({ reasonCode: 'OTHER', reasonText: 'Görev detayı netleştirilmeli.' }),
+    });
+    const patchedBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/api/notifications/read-by-entity')) return json({});
+      if (url.includes('/notes?') || url.includes('/activity?') || url.includes('/overdue-incidents') || url.includes('/follow-ups')) {
+        return json({ items: [], total: 0, limit: 50, offset: 0 });
+      }
+      if (url.includes('/submission-lateness')) return json({ open: null });
+      if (url.startsWith('/api/staff?')) return json(staffList);
+      if (method === 'PATCH' && url === '/api/job-cards/job-1') {
+        patchedBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return json({ ...job, title: 'Güncel Görev Başlığı', version: 4 });
+      }
+      if (url.split('?')[0] === '/api/job-cards/job-1') {
+        return json(patchedBodies.length > 0 ? { ...job, title: 'Güncel Görev Başlığı', version: 4 } : job);
+      }
+      throw new Error(`Unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await act(async () => {
+      root.render(
+        <JobDetailScreen jobId="job-1" user={managerUser} onBack={() => {}} onChanged={() => {}} />,
+      );
+    });
+    await settle();
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')!.click();
+    });
+    await settle();
+
+    await act(async () => {
+      host.querySelector<HTMLInputElement>('input[value="CORRECT"]')!.click();
+    });
+    await settle();
+
+    const titleInput = host.querySelector<HTMLInputElement>('input[name="title"]')!;
+    const prioritySelect = host.querySelector<HTMLSelectElement>('select[name="priority"]')!;
+    await act(async () => {
+      setNativeValue(titleInput, 'Güncel Görev Başlığı');
+      setNativeValue(prioritySelect, 'high');
+    });
+    await settle();
+
+    expect(host.querySelector('input[name="resolveChangeRequest"]')).toBeNull();
+    expect(host.querySelector('[data-correct-closure-ineligible="qualifying-field-required"]')).not.toBeNull();
+    expect(host.querySelector('[data-recovery-submit="true"]')?.textContent).toBe('Değişiklikleri kaydet');
+
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
+    await settle();
+
+    expect(patchedBodies).toHaveLength(1);
+    expect(patchedBodies[0]).toMatchObject({
+      expectedVersion: 3,
+      title: 'Güncel Görev Başlığı',
+      priority: 'high',
+    });
+    expect('changeRequestResolution' in patchedBodies[0]!).toBe(false);
+    const feedback = host.querySelector('[data-job-detail-section="feedback"]');
+    expect(feedback?.textContent).toContain('Görev bilgileri güncellendi.');
+    expect(feedback?.textContent).not.toContain('Düzeltildi');
+    expect(host.querySelector('[data-change-request="management"]')).not.toBeNull();
   });
 
   it('ACKNOWLEDGED_ONLY and REJECT_CHANGE_REQUEST use non-green detail-feedback-info on JobDetailScreen', async () => {
@@ -683,7 +1075,6 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
           onReassigned={vi.fn()}
           onChanged={vi.fn()}
           loadStaffFn={vi.fn().mockResolvedValue(staffList)}
-          loadLinkedJobsFn={vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 })}
         />,
       );
     });
@@ -719,28 +1110,11 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
     expect(host.querySelector<HTMLInputElement>('input[value="CANCEL"]')?.checked).toBe(true);
   });
 
-  it('MF-09 & MF-10: LINKED_JOB_CREATED loads eligible customer jobs, handles VERSION_CONFLICT while keeping draft, and Staff never sees management recovery', async () => {
-    const linkedList: JobCardListItem[] = [
-      {
-        id: 'job-2',
-        title: 'Yeni Planlanan Ziyaret',
-        type: 'SALES_MEETING',
-        engagementKind: 'SALES_MEETING',
-        status: 'NEW',
-        priority: 'normal',
-        scheduledAt: FUTURE_START,
-        scheduledEndsAt: FUTURE_END,
-        dueDate: null,
-        assignedTo: 'staff-2',
-        assignee: { id: 'staff-2', name: 'Mehmet Personel' },
-        customer: { id: 'cust-1', name: 'Özel Dent Klinik' },
-      },
-    ];
+  it('MF-09 & MF-10: handles VERSION_CONFLICT while keeping draft, exposes refresh action, and Staff never sees management recovery', async () => {
     const job = makeJob({
       status: 'ACCEPTED',
       changeRequest: makeChangeRequest(),
     });
-    const loadLinkedJobsFn = vi.fn().mockResolvedValue({ items: linkedList, total: 1, limit: 20, offset: 0 });
     const onRefresh = vi.fn().mockResolvedValue(true);
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -765,7 +1139,6 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
           onReassigned={vi.fn()}
           onChanged={vi.fn()}
           loadStaffFn={vi.fn().mockResolvedValue(staffList)}
-          loadLinkedJobsFn={loadLinkedJobsFn}
         />,
       );
     });
@@ -777,13 +1150,12 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
     await settle();
 
     await act(async () => {
-      host.querySelector<HTMLInputElement>('input[value="LINKED_JOB_CREATED"]')!.click();
+      host.querySelector<HTMLInputElement>('input[value="REJECT_CHANGE_REQUEST"]')!.click();
     });
     await settle();
 
-    const select = host.querySelector<HTMLSelectElement>('select[name="linkedJobCardId"]')!;
-    expect(Array.from(select.options).some((o) => o.value === 'job-2')).toBe(true);
-    await act(async () => { setNativeValue(select, 'job-2'); });
+    const rejectTextarea = host.querySelector<HTMLTextAreaElement>('textarea[name="rejectNote"]')!;
+    await act(async () => { setNativeValue(rejectTextarea, 'Mevcut plan korunuyor.'); });
 
     await act(async () => {
       host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
@@ -792,7 +1164,7 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
 
     // Draft preserved and explicit refresh button exposed
     expect(host.querySelector('[data-recovery-submit-error="true"]')?.textContent).toContain('İş başka bir işlemle güncellendi.');
-    expect(select.value).toBe('job-2');
+    expect(rejectTextarea.value).toBe('Mevcut plan korunuyor.');
     const reloadButton = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
       b.textContent?.includes('En güncel bilgileri yükle'),
     );
@@ -814,11 +1186,159 @@ describe('RESCUE-003/B ManagerRecoverySection & JobDetail UI integration', () =>
           onReassigned={vi.fn()}
           onChanged={vi.fn()}
           loadStaffFn={vi.fn().mockResolvedValue(staffList)}
-          loadLinkedJobsFn={loadLinkedJobsFn}
         />,
       );
     });
     await settle();
     expect(host.querySelector('[data-manager-recovery="true"]')).toBeNull();
+  });
+
+  it('runCorrect ReasonDialog rechecks disabled/stale/conflict/unknown safely and never falls through to record-only PATCH', async () => {
+    const job = makeJob({
+      type: 'GENERAL_TASK',
+      engagementKind: null,
+      status: 'ACCEPTED',
+      description: 'İlk açıklama',
+      changeRequest: makeChangeRequest({ reasonCode: 'OTHER' }),
+    });
+    const patchedBodies: Array<Record<string, unknown>> = [];
+    const onUnknownOutcome = vi.fn();
+    let mode: 'definitive-error' | 'conflict' | 'unknown' = 'definitive-error';
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = withoutSaleCapability(String(input));
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'PATCH' && url === '/api/job-cards/job-1') {
+        patchedBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        if (mode === 'definitive-error') {
+          return json({ error: 'İşlem doğrulanamadı.', code: 'VALIDATION_ERROR' }, 400);
+        }
+        if (mode === 'conflict') {
+          return json({ error: 'İş güncellendi.', code: 'VERSION_CONFLICT' }, 409);
+        }
+        throw new TypeError('Failed to fetch');
+      }
+      throw new Error(`Unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const renderSection = async (opts: { job?: JobCard; disabled?: boolean } = {}) => {
+      await act(async () => {
+        root.render(
+          <ManagerRecoverySection
+            job={opts.job ?? job}
+            user={managerUser}
+            disabled={opts.disabled ?? false}
+            onCommitted={vi.fn().mockResolvedValue(undefined)}
+            onActionStart={vi.fn()}
+            onRefresh={vi.fn().mockResolvedValue(true)}
+            onUnknownOutcome={onUnknownOutcome}
+            onReassigned={vi.fn()}
+            onChanged={vi.fn()}
+            loadStaffFn={vi.fn().mockResolvedValue(staffList)}
+          />,
+        );
+      });
+      await settle();
+    };
+
+    await renderSection();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')!.click();
+    });
+    await settle();
+
+    await act(async () => {
+      host.querySelector<HTMLInputElement>('input[value="CORRECT"]')!.click();
+    });
+    await settle();
+    await act(async () => {
+      setNativeValue(host.querySelector<HTMLTextAreaElement>('textarea[name="description"]')!, 'Güncel açıklama');
+    });
+    await settle();
+    await act(async () => {
+      host.querySelector<HTMLInputElement>('input[name="resolveChangeRequest"]')!.click();
+    });
+    await settle();
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
+    await settle();
+
+    const dialog = host.querySelector('.reason-dialog[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+    await act(async () => {
+      setNativeValue(dialog.querySelector('textarea')!, 'Kapsam güncellendi.');
+    });
+
+    // Disabled blocks confirm and never sends PATCH
+    await renderSection({ disabled: true });
+    const confirmBtn = Array.from(host.querySelectorAll<HTMLButtonElement>('.reason-dialog button'))
+      .find((b) => b.textContent === 'Kaydet ve talebi kapat')!;
+    expect(confirmBtn.disabled).toBe(true);
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('.reason-dialog form')!.requestSubmit();
+    });
+    await settle();
+    expect(patchedBodies).toHaveLength(0);
+
+    // Re-enable -> definitive 400 stays inside modal with error (never leaves modal on non-stale/non-unknown)
+    await renderSection({ disabled: false });
+    await act(async () => {
+      Array.from(host.querySelectorAll<HTMLButtonElement>('.reason-dialog button'))
+        .find((b) => b.textContent === 'Kaydet ve talebi kapat')!.click();
+    });
+    await settle();
+    expect(patchedBodies).toHaveLength(1);
+    expect(patchedBodies[0]?.changeRequestResolution).toEqual({
+      changeRequestId: 'cr-1',
+      resolution: 'CORRECTED',
+      note: 'Kapsam güncellendi.',
+    });
+    expect(host.querySelector('.reason-dialog[role="dialog"]')).not.toBeNull();
+    expect(host.querySelector('.reason-dialog [role="alert"]')?.textContent).toContain('İşlem doğrulanamadı.');
+
+    // Unknown outcome leaves modal safely via onUnknownOutcome
+    mode = 'unknown';
+    await act(async () => {
+      Array.from(host.querySelectorAll<HTMLButtonElement>('.reason-dialog button'))
+        .find((b) => b.textContent === 'Kaydet ve talebi kapat')!.click();
+    });
+    await settle();
+    expect(host.querySelector('.reason-dialog[role="dialog"]')).toBeNull();
+    expect(onUnknownOutcome).toHaveBeenCalledTimes(1);
+
+    // Reopen and verify VERSION_CONFLICT leaves modal safely to recovery refresh banner
+    mode = 'conflict';
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')!.click();
+    });
+    await settle();
+    await act(async () => {
+      host.querySelector<HTMLInputElement>('input[value="CORRECT"]')!.click();
+    });
+    await settle();
+    await act(async () => {
+      setNativeValue(host.querySelector<HTMLTextAreaElement>('textarea[name="description"]')!, 'Güncel açıklama');
+    });
+    await settle();
+    await act(async () => {
+      host.querySelector<HTMLInputElement>('input[name="resolveChangeRequest"]')!.click();
+    });
+    await settle();
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
+    await settle();
+    await act(async () => {
+      setNativeValue(host.querySelector<HTMLTextAreaElement>('.reason-dialog textarea')!, 'Not tekrar.');
+    });
+    await act(async () => {
+      Array.from(host.querySelectorAll<HTMLButtonElement>('.reason-dialog button'))
+        .find((b) => b.textContent === 'Kaydet ve talebi kapat')!.click();
+    });
+    await settle();
+    expect(host.querySelector('.reason-dialog[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[data-recovery-submit-error="true"]')?.textContent).toContain('İş başka bir işlemle güncellendi.');
   });
 });

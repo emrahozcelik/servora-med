@@ -7199,6 +7199,10 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   color: var(--ink);
 }
 
+.manager-recovery-advisory-note {
+  margin: 0 0 0.25rem;
+}
+
 .manager-recovery-decision-list {
   display: grid;
   gap: 0.5rem;

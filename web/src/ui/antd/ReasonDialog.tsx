@@ -46,6 +46,7 @@ export type ReasonDialogProps = {
    * textarea's own error slot and focused when it appears.
    */
   externalError?: string | null;
+  onReasonChange?: (reason: string) => void;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
@@ -78,6 +79,7 @@ export function ReasonDialog({
   initialFocusRef,
   initialFocusReady = false,
   externalError = null,
+  onReasonChange,
   onConfirm,
   onCancel,
   returnFocusRef,
@@ -205,7 +207,7 @@ export function ReasonDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={details.length > 0 ? `${descriptionId} ${detailsId}` : undefined}
+        aria-describedby={details.length > 0 ? `${descriptionId} ${detailsId}` : descriptionId}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
@@ -241,6 +243,7 @@ export function ReasonDialog({
               ].filter(Boolean).join(' ')}
               onChange={(event) => {
                 setReason(event.target.value);
+                onReasonChange?.(event.target.value);
                 setError(Array.from(event.target.value.trim()).length > maxLength
                   ? `${reasonLabel} en fazla ${maxLength.toLocaleString('tr-TR')} karakter olmalıdır.`
                   : '');

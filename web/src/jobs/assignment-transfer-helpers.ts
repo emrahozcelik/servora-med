@@ -1,12 +1,10 @@
 import { ApiError } from '../services/api';
 import type { StaffProfile } from '../services/people-api';
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
-import { jobTypeLabel } from './job-labels';
 import type {
   AssignmentOffer,
   AssignmentOfferState,
   JobCard,
-  JobCardListItem,
 } from './jobs-api';
 import { CANONICAL_DURATION_MINUTES } from './scheduling';
 
@@ -130,12 +128,4 @@ export function buildPatchCommitReceipt(
       : ' Personel önerisi “Yeniden planlandı” olarak kapatıldı.';
   }
   return base;
-}
-
-const linkedJobDateFormatter = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' });
-
-/** The linked job choice: title, type label and the job's own date. */
-export function formatLinkedJobChoiceLabel(entry: JobCardListItem): string {
-  const date = entry.scheduledAt ?? entry.dueDate ?? entry.createdAt;
-  return `${entry.title} · ${jobTypeLabel(entry.type)} · ${linkedJobDateFormatter.format(new Date(date))}`;
 }

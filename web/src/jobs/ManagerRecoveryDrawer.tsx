@@ -16,7 +16,6 @@ import { assignmentWindowErrorMessage } from './assignment-window-errors';
 import {
   buildPatchCommitReceipt,
   filterEligibleTransferStaff,
-  formatLinkedJobChoiceLabel,
   formatProposedInterval,
   formatRecoveryInstant,
   hasManagementRecoveryOffer,
@@ -36,7 +35,6 @@ import {
   assignmentOfferUrgentReasonLabel,
   assignmentSuggestedSolutionLabel,
   changeRequestReasonLabel,
-  changeRequestResolutionLabel,
   JOB_CARD_ENGAGEMENT_LABELS,
 } from './job-labels';
 import {
@@ -47,7 +45,6 @@ import {
   acceptAssignmentProposal,
   cancelJobCard,
   JOB_CARD_ENGAGEMENT_KINDS,
-  listJobCards,
   pastStartAcknowledgementPayload,
   patchJobCard,
   reofferAssignment,
@@ -55,7 +52,6 @@ import {
   type FollowUpCancelContinuity,
   type JobCard,
   type JobCardEngagementKind,
-  type JobCardListItem,
   type JobCardPriority,
   type MeetingDetails,
   type PastStartAcknowledgement,
@@ -64,6 +60,7 @@ import {
 import {
   buildManagerRecoveryPlan,
   buildManagerRecoveryPreview,
+  evaluateCorrectClosureEligibility,
   type ManagerRecoveryDecisionId,
 } from './manager-recovery-policy';
 import { isAmbiguousMutationError, isDefinitiveMutationError } from './mutation-attempt-error';
@@ -79,12 +76,14 @@ import {
 } from './scheduling';
 import { useAvailableSlotSearch } from './useAvailableSlotSearch';
 
-type DrawerPanel = 'closed' | 'recovery' | 'reason' | 'acknowledgement' | 'cancel-confirm';
+type DrawerPanel =
+  | 'closed'
+  | 'recovery'
+  | 'reason'
+  | 'acknowledgement'
+  | 'cancel-confirm'
+  | 'correct-resolve';
 type StaffLoadState = { kind: 'loading' | 'error' } | { kind: 'ready'; staff: StaffProfile[] };
-type LinkedJobsLoadState =
-  | { kind: 'idle' | 'loading' }
-  | { kind: 'ready'; items: JobCardListItem[] }
-  | { kind: 'error'; message: string };
 
 type FieldErrors = Partial<{
   decision: string;
@@ -95,14 +94,12 @@ type FieldErrors = Partial<{
   title: string;
   engagementKind: string;
   customerId: string;
-  linkedJobCardId: string;
   rejectNote: string;
   acknowledgeNote: string;
   general: string;
 }>;
 
 const NOTE_MAX_LENGTH = 2000;
-const LINKED_JOB_LIMIT = 50;
 const REASON_REQUIRED_MESSAGE = 'Gecikmeyi sonlandıran tarih değişikliği için gerekçe yazın.';
 const STALE_MESSAGE =
   'İş başka bir işlemle güncellendi. Devam etmek için güncel bilgileri inceleyip formu yeniden açın.';
@@ -150,7 +147,10 @@ function resolveFollowUpCancelContinuity(
   return { continuity: { decision: 'RESCHEDULE', scheduledAt } };
 }
 
-function submitButtonLabel(decision: ManagerRecoveryDecisionId | null): string {
+function submitButtonLabel(
+  decision: ManagerRecoveryDecisionId | null,
+  correctWithClosure = false,
+): string {
   switch (decision) {
     case 'ACCEPT_PROPOSED_TIME':
       return 'Önerilen zamanı onayla';
@@ -163,9 +163,7 @@ function submitButtonLabel(decision: ManagerRecoveryDecisionId | null): string {
     case 'REOFFER':
       return 'Yeniden teklif gönder';
     case 'CORRECT':
-      return 'Değişiklikleri kaydet';
-    case 'LINKED_JOB_CREATED':
-      return 'Bağlı işle kapat';
+      return correctWithClosure ? 'Not ekleyip kaydet' : 'Değişiklikleri kaydet';
     case 'CANCEL':
       return 'İptal adımına geç';
     case 'REJECT_CHANGE_REQUEST':
@@ -193,7 +191,6 @@ export function ManagerRecoveryDrawer({
   onChanged,
   onBusyChange,
   loadStaffFn = listStaff,
-  loadLinkedJobsFn = listJobCards,
 }: {
   open: boolean;
   job: JobCard;
@@ -210,17 +207,14 @@ export function ManagerRecoveryDrawer({
   onChanged: () => void;
   onBusyChange?: (busy: boolean) => void;
   loadStaffFn?: typeof listStaff;
-  loadLinkedJobsFn?: typeof listJobCards;
 }) {
   const [panel, setPanel] = useState<DrawerPanel>('closed');
   const [reviewedJob, setReviewedJob] = useState<JobCard>(job);
   const [selectedDecision, setSelectedDecision] = useState<ManagerRecoveryDecisionId | null>(null);
 
-  // Shared staff / linked-job lists
+  // Shared staff list
   const [staffLoad, setStaffLoad] = useState<StaffLoadState>({ kind: 'loading' });
   const [staffReloadKey, setStaffReloadKey] = useState(0);
-  const [linkedJobsLoad, setLinkedJobsLoad] = useState<LinkedJobsLoadState>({ kind: 'idle' });
-  const [linkedJobsReloadKey, setLinkedJobsReloadKey] = useState(0);
 
   // Conditional drafts (preserved across decision switches within the open session)
   const [rescheduleLocal, setRescheduleLocal] = useState('');
@@ -245,7 +239,6 @@ export function ManagerRecoveryDrawer({
   const [correctPriority, setCorrectPriority] = useState<JobCardPriority>('normal');
   const [correctResolveCr, setCorrectResolveCr] = useState(false);
 
-  const [linkedJobCardId, setLinkedJobCardId] = useState('');
   const [rejectNote, setRejectNote] = useState('');
   const [acknowledgeNote, setAcknowledgeNote] = useState('');
 
@@ -291,7 +284,6 @@ export function ManagerRecoveryDrawer({
   const correctCustomerIdDom = `${idPrefix}-correct-customer`;
   const correctPriorityId = `${idPrefix}-correct-priority`;
   const correctCloseCrId = `${idPrefix}-correct-close-cr`;
-  const linkedJobSelectId = `${idPrefix}-linked-job`;
   const rejectNoteId = `${idPrefix}-reject-note`;
   const ackNoteId = `${idPrefix}-ack-note`;
 
@@ -304,7 +296,6 @@ export function ManagerRecoveryDrawer({
   const transferTimeRef = useRef<HTMLElement | null>(null);
   const correctTitleRef = useRef<HTMLInputElement>(null);
   const correctEngagementRef = useRef<HTMLSelectElement>(null);
-  const linkedJobRef = useRef<HTMLSelectElement>(null);
   const rejectNoteRef = useRef<HTMLTextAreaElement>(null);
   const ackNoteRef = useRef<HTMLTextAreaElement>(null);
 
@@ -327,7 +318,6 @@ export function ManagerRecoveryDrawer({
     setReviewedJob(job);
     setSelectedDecision(nextPlan.defaultSelectedId);
     setStaffLoad({ kind: 'loading' });
-    setLinkedJobsLoad({ kind: 'idle' });
 
     setRescheduleLocal(startLocal);
     setRescheduleDueDate(job.dueDate ?? '');
@@ -351,7 +341,6 @@ export function ManagerRecoveryDrawer({
     setCorrectPriority(job.priority);
     setCorrectResolveCr(false);
 
-    setLinkedJobCardId('');
     setRejectNote('');
     setAcknowledgeNote('');
     setCancelContinuity(
@@ -411,33 +400,6 @@ export function ManagerRecoveryDrawer({
       live = false;
     };
   }, [active, needsStaffList, reviewedJob.assignedTo, staffReloadKey, loadStaffFn]);
-
-  // Load same-customer jobs only when LINKED_JOB_CREATED is active.
-  useEffect(() => {
-    if (!active || selectedDecision !== 'LINKED_JOB_CREATED' || reviewedJob.customerId === null) {
-      return;
-    }
-    let cancelled = false;
-    setLinkedJobsLoad({ kind: 'loading' });
-    void loadLinkedJobsFn({ customerId: reviewedJob.customerId, limit: LINKED_JOB_LIMIT })
-      .then((page) => {
-        if (cancelled) return;
-        setLinkedJobsLoad({
-          kind: 'ready',
-          items: page.items.filter((entry) => entry.id !== reviewedJob.id),
-        });
-      })
-      .catch((caught: unknown) => {
-        if (cancelled) return;
-        setLinkedJobsLoad({
-          kind: 'error',
-          message: caught instanceof Error ? caught.message : 'Müşterinin işleri yüklenemedi.',
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active, selectedDecision, reviewedJob.customerId, reviewedJob.id, linkedJobsReloadKey, loadLinkedJobsFn]);
 
   useEffect(() => {
     if (!formOpen || (!submitError && !stale && validationFocusTick === 0)) return;
@@ -504,21 +466,36 @@ export function ManagerRecoveryDrawer({
   });
 
   const eligibleStaff = staffLoad.kind === 'ready' ? staffLoad.staff : [];
-  const linkedJobItems = linkedJobsLoad.kind === 'ready' ? linkedJobsLoad.items : [];
   const isFollowUp = reviewedJob.followUpContext !== null;
 
-  const titleChanged = correctTitle.trim() !== reviewedJob.title;
-  const descriptionChanged = (correctDescription.trim() || null) !== (reviewedJob.description ?? null);
-  const priorityChanged = correctPriority !== reviewedJob.priority;
-  const engagementChanged =
-    reviewedJob.type === 'SALES_MEETING'
-    && correctEngagementKind !== (reviewedJob.engagementKind ?? 'SALES_MEETING');
+  const correctEligibility = evaluateCorrectClosureEligibility(reviewedJob, {
+    title: correctTitle,
+    description: correctDescription,
+    priority: correctPriority,
+    engagementKind: correctEngagementKind,
+    customerId: correctCustomerId,
+  });
+  const hasCorrectionChanges = correctEligibility.hasAnyEdit;
+  const canOptInCorrectClosure = correctEligibility.canOptInClosure;
   const customerChanged =
     reviewedJob.type === 'SALES_MEETING'
     && !isFollowUp
     && correctCustomerId !== (reviewedJob.customerId ?? '');
-  const hasCorrectionChanges =
-    titleChanged || descriptionChanged || priorityChanged || engagementChanged || customerChanged;
+
+  // Clear stale opt-in when qualifying fields or request eligibility disappear,
+  // or return to the main recovery form if the record turns stale while in dialog.
+  useEffect(() => {
+    if (!canOptInCorrectClosure) {
+      setCorrectResolveCr(false);
+      setPanel((current) => (current === 'correct-resolve' ? 'recovery' : current));
+    }
+  }, [canOptInCorrectClosure]);
+
+  useEffect(() => {
+    if (stale && panel === 'correct-resolve') {
+      setPanel('recovery');
+    }
+  }, [stale, panel]);
 
   const rescheduleDeadlineChanged =
     rescheduleLocal.trim() !== currentStartLocal
@@ -558,8 +535,6 @@ export function ManagerRecoveryDrawer({
       ? formatProposedInterval(offer.proposedScheduledAt, offer.proposedScheduledEndsAt)
       : null;
 
-  const linkedJobSelectedEntry = linkedJobItems.find((entry) => entry.id === linkedJobCardId);
-
   const preview = buildManagerRecoveryPreview({
     job: reviewedJob,
     selectedDecisionId: selectedDecision,
@@ -574,10 +549,10 @@ export function ManagerRecoveryDrawer({
         : selectedDecision === 'REASSIGN_AND_RESCHEDULE'
           ? transferResolveCr
           : selectedDecision === 'CORRECT'
-            ? correctResolveCr
+            ? canOptInCorrectClosure && correctResolveCr
             : false,
     hasCorrectionChanges,
-    linkedJobLabel: linkedJobSelectedEntry ? formatLinkedJobChoiceLabel(linkedJobSelectedEntry) : null,
+    correctClosureEligibility: correctEligibility,
     followUpCancelDecision: cancelContinuity?.draft.decision ?? null,
   });
 
@@ -648,10 +623,6 @@ export function ManagerRecoveryDrawer({
       document.getElementById(correctCustomerIdDom)?.focus();
       return;
     }
-    if (nextErrors.linkedJobCardId) {
-      linkedJobRef.current?.focus();
-      return;
-    }
     if (nextErrors.rejectNote) {
       rejectNoteRef.current?.focus();
       return;
@@ -671,6 +642,7 @@ export function ManagerRecoveryDrawer({
       onPastStart?: () => void;
       onDeadlineReason?: (msg: string) => void;
       mapMessage?: (err: unknown) => string;
+      keepDialogOnError?: (err: unknown) => boolean;
     },
   ) {
     if (isAmbiguousMutationError(caught)) {
@@ -712,7 +684,7 @@ export function ManagerRecoveryDrawer({
       ? opts.mapMessage(caught)
       : assignmentWindowErrorMessage(caught, fallbackMessage);
     setSubmitError(message);
-    if (panel === 'reason') {
+    if (panel === 'reason' || (panel === 'correct-resolve' && !opts?.keepDialogOnError?.(caught))) {
       setPanel('recovery');
     }
   }
@@ -912,7 +884,80 @@ export function ManagerRecoveryDrawer({
     }
   }
 
-  async function runCorrect() {
+  function validateCorrectDraft(): FieldErrors {
+    const next: FieldErrors = {};
+    const normalizedTitle = correctTitle.trim();
+    if (!normalizedTitle || Array.from(normalizedTitle).length > 255) {
+      next.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
+    }
+    if (reviewedJob.type === 'SALES_MEETING') {
+      if (!correctEngagementKind) {
+        next.engagementKind = 'Görüşme veya ziyaret türünü seçin.';
+      }
+      if (!correctCustomerId && !isFollowUp) {
+        next.customerId = 'Aktif bir müşteri seçin.';
+      }
+    }
+    if (Object.keys(next).length === 0 && !hasCorrectionChanges) {
+      next.general = 'Kaydetmek için en az bir iş bilgisini değiştirin.';
+    }
+    return next;
+  }
+
+  async function runCorrect(resolutionNote?: string) {
+    const isConfirmedClosure = resolutionNote !== undefined;
+    if (pending || disabled) return;
+    if (blocked) {
+      if (isConfirmedClosure) {
+        setPanel('recovery');
+      }
+      return;
+    }
+    if (selectedDecision !== 'CORRECT') {
+      if (isConfirmedClosure) {
+        setSubmitError('Seçili karar değiştiği için düzeltme kapatma işlemi uygulanmadı.');
+      }
+      return;
+    }
+
+    const draftErrors = validateCorrectDraft();
+    const customerNotReady =
+      customerChanged && !isFollowUp && !correctCustomerReady;
+    if (Object.keys(draftErrors).length > 0 || customerNotReady) {
+      setErrors(draftErrors);
+      setSubmitError(
+        customerNotReady
+          ? 'Müşteri bilgisi hazır olmadan değişiklik kaydedilemez.'
+          : (draftErrors.general ?? 'Devam etmeden önce işaretli alanları düzeltin.'),
+      );
+      if (!isConfirmedClosure) {
+        setValidationFocusTick((t) => t + 1);
+      }
+      return;
+    }
+
+    let trimmedNote = '';
+    if (isConfirmedClosure) {
+      if (
+        !canOptInCorrectClosure
+        || !correctResolveCr
+        || changeRequest === null
+        || changeRequest.reasonCode !== 'OTHER'
+      ) {
+        setSubmitError('Nitelikli düzenleme veya talep kapatma onayı geçerli olmadığı için talep kapatılmadı.');
+        return;
+      }
+      trimmedNote = resolutionNote.trim();
+      if (trimmedNote.length === 0) {
+        setSubmitError('Talebi “Düzeltildi” olarak kapatmak için açıklama notu zorunludur.');
+        return;
+      }
+      if (Array.from(trimmedNote).length > NOTE_MAX_LENGTH) {
+        setSubmitError(`Düzeltme açıklaması en fazla ${NOTE_MAX_LENGTH.toLocaleString('tr-TR')} karakter olmalıdır.`);
+        return;
+      }
+    }
+
     const normalizedTitle = correctTitle.trim();
     const input: PatchJobCardInput = {
       expectedVersion: reviewedJob.version,
@@ -925,11 +970,12 @@ export function ManagerRecoveryDrawer({
             ...(customerChanged && !isFollowUp ? { customerId: correctCustomerId } : {}),
           }
         : {}),
-      ...(correctResolveCr && hasCorrectionChanges && changeRequest
+      ...(isConfirmedClosure
         ? {
             changeRequestResolution: {
-              changeRequestId: changeRequest.id,
+              changeRequestId: changeRequest!.id,
               resolution: 'CORRECTED',
+              note: trimmedNote,
             },
           }
         : {}),
@@ -949,15 +995,17 @@ export function ManagerRecoveryDrawer({
       );
       onChanged();
     } catch (caught) {
-      handleMutationError(caught, 'İş bilgileri güncellenemedi.');
+      handleMutationError(caught, 'İş bilgileri güncellenemedi.', {
+        keepDialogOnError: () => isConfirmedClosure,
+      });
     } finally {
       setPending(false);
     }
   }
 
   async function runResolveRequest(
-    resolution: 'LINKED_JOB_CREATED' | 'REJECTED' | 'ACKNOWLEDGED_ONLY',
-    extra: { note?: string; linkedJobCardId?: string },
+    resolution: 'REJECTED' | 'ACKNOWLEDGED_ONLY',
+    extra: { note: string },
   ) {
     if (!changeRequest) return;
     onActionStart();
@@ -974,10 +1022,8 @@ export function ManagerRecoveryDrawer({
       const receipt =
         resolution === 'REJECTED'
           ? 'Öneri reddedildi. İş bilgileri değişmedi.'
-          : resolution === 'ACKNOWLEDGED_ONLY'
-            ? 'Öneri kayda alındı ve kapatıldı. İş bilgileri, planlanan zaman ve gecikme kaydı değişmedi.'
-            : `Öneri kapatıldı: ${changeRequestResolutionLabel(resolution)}. İş bilgileri değişmedi.`;
-      await onCommitted(receipt, resolution === 'LINKED_JOB_CREATED' ? 'confirmed' : 'info');
+          : 'Öneri kayda alındı ve kapatıldı. İş bilgileri, planlanan zaman ve gecikme kaydı değişmedi.';
+      await onCommitted(receipt, 'info');
       onChanged();
     } catch (caught) {
       handleMutationError(caught, 'Öneri karara bağlanamadı.');
@@ -1071,28 +1117,9 @@ export function ManagerRecoveryDrawer({
       case 'REOFFER':
         break;
       case 'CORRECT': {
-        const normalizedTitle = correctTitle.trim();
-        if (!normalizedTitle || Array.from(normalizedTitle).length > 255) {
-          next.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
-        }
-        if (reviewedJob.type === 'SALES_MEETING') {
-          if (!correctEngagementKind) {
-            next.engagementKind = 'Görüşme veya ziyaret türünü seçin.';
-          }
-          if (!correctCustomerId && !isFollowUp) {
-            next.customerId = 'Aktif bir müşteri seçin.';
-          }
-        }
-        if (Object.keys(next).length === 0 && !hasCorrectionChanges) {
-          next.general = 'Kaydetmek için en az bir iş bilgisini değiştirin.';
-        }
+        Object.assign(next, validateCorrectDraft());
         break;
       }
-      case 'LINKED_JOB_CREATED':
-        if (!linkedJobCardId.trim()) {
-          next.linkedJobCardId = 'Yeni işi listeden seçin.';
-        }
-        break;
       case 'CANCEL':
         setErrors({});
         setSubmitError('');
@@ -1149,12 +1176,12 @@ export function ManagerRecoveryDrawer({
         void runReoffer();
         break;
       case 'CORRECT':
+        if (canOptInCorrectClosure && correctResolveCr) {
+          setSubmitError('');
+          setPanel('correct-resolve');
+          return;
+        }
         void runCorrect();
-        break;
-      case 'LINKED_JOB_CREATED':
-        void runResolveRequest('LINKED_JOB_CREATED', {
-          linkedJobCardId: linkedJobCardId.trim(),
-        });
         break;
       case 'REJECT_CHANGE_REQUEST':
         void runResolveRequest('REJECTED', { note: rejectNote.trim() });
@@ -1175,8 +1202,7 @@ export function ManagerRecoveryDrawer({
 
   const submitBlockedByLookup =
     (needsStaffList && (staffLoad.kind !== 'ready' || eligibleStaff.length === 0))
-    || (selectedDecision === 'CORRECT' && reviewedJob.type === 'SALES_MEETING' && !isFollowUp && !correctCustomerReady)
-    || (selectedDecision === 'LINKED_JOB_CREATED' && linkedJobsLoad.kind !== 'ready');
+    || (selectedDecision === 'CORRECT' && reviewedJob.type === 'SALES_MEETING' && !isFollowUp && !correctCustomerReady);
 
   if (!open) return null;
 
@@ -1322,6 +1348,9 @@ export function ManagerRecoveryDrawer({
                 aria-describedby={errors.decision ? decisionErrorId : undefined}
               >
                 <legend>Kararınız</legend>
+                <p className="form-help manager-recovery-advisory-note" data-recovery-advisory-note="true">
+                  {plan.advisoryNote}
+                </p>
                 <div className="manager-recovery-decision-list">
                   {plan.options.map((option) => {
                     const radioId = `${idPrefix}-decision-${option.id}`;
@@ -1876,90 +1905,45 @@ export function ManagerRecoveryDrawer({
                         </select>
                       </div>
 
-                      {changeRequest && (
-                        <div className="field-group">
+                      {changeRequest && changeRequest.reasonCode !== 'OTHER' && (
+                        <p className="form-help" data-correct-closure-ineligible="unsupported-reason">
+                          “{changeRequestReasonLabel(changeRequest.reasonCode)}” nedenli talep bu düzenleme ile kapatılmaz; iş bilgilerini bağımsız olarak kaydedebilirsiniz (talep açık kalır) veya ayrı olarak “Talebi kayda al ve kapat” kararını kullanabilirsiniz.
+                        </p>
+                      )}
+
+                      {changeRequest && changeRequest.reasonCode === 'OTHER' && !correctEligibility.hasQualifyingChange && (
+                        <p className="form-help" data-correct-closure-ineligible="qualifying-field-required">
+                          {reviewedJob.type === 'SALES_MEETING'
+                            ? isFollowUp
+                              ? 'Açık “Diğer” talebini kapatmak için açıklama veya görüşme / ziyaret türü alanlarından en az birini güncelleyin; yalnızca başlık veya öncelik değişikliği talebi kapatmaz.'
+                              : 'Açık “Diğer” talebini kapatmak için açıklama, görüşme / ziyaret türü veya müşteri alanlarından en az birini güncelleyin; yalnızca başlık veya öncelik değişikliği talebi kapatmaz.'
+                            : 'Açık “Diğer” talebini kapatmak için açıklama alanını güncelleyin; yalnızca başlık veya öncelik değişikliği talebi kapatmaz.'}
+                        </p>
+                      )}
+
+                      {canOptInCorrectClosure && (
+                        <div className="field-group" data-correct-closure-optin="true">
                           <div className="form-checkbox-row">
                             <input
                               id={correctCloseCrId}
                               name="resolveChangeRequest"
                               type="checkbox"
-                              checked={hasCorrectionChanges && correctResolveCr}
-                              disabled={pending || blocked || !hasCorrectionChanges}
-                              onChange={(event) => setCorrectResolveCr(event.target.checked)}
-                            />
-                            <label htmlFor={correctCloseCrId}>
-                              Personel önerisini 'Düzeltildi' olarak kapat
-                            </label>
-                          </div>
-                          {!hasCorrectionChanges && (
-                            <p className="form-help">
-                              Talebi “Düzeltildi” olarak kapatmak için önce en az bir alanı güncelleyin.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </fieldset>
-                  )}
-
-                  {selectedDecision === 'LINKED_JOB_CREATED' && (
-                    <fieldset className="manager-recovery-fieldset" disabled={pending || blocked}>
-                      <div className="field-group">
-                        <label htmlFor={linkedJobSelectId}>Yerine açtığınız iş</label>
-                        {linkedJobsLoad.kind === 'loading' && (
-                          <p className="field-status" role="status">Müşterinin işleri yükleniyor…</p>
-                        )}
-                        {linkedJobsLoad.kind === 'error' && (
-                          <>
-                            <p className="field-error" role="alert">{linkedJobsLoad.message}</p>
-                            <button
-                              className="secondary-button compact-button"
-                              type="button"
-                              onClick={() => setLinkedJobsReloadKey((v) => v + 1)}
-                            >
-                              Tekrar dene
-                            </button>
-                          </>
-                        )}
-                        {linkedJobsLoad.kind === 'ready' && (
-                          <>
-                            <select
-                              ref={linkedJobRef}
-                              id={linkedJobSelectId}
-                              name="linkedJobCardId"
-                              value={linkedJobCardId}
-                              required
-                              aria-invalid={errors.linkedJobCardId ? true : undefined}
-                              aria-describedby={[
-                                `${linkedJobSelectId}-help`,
-                                errors.linkedJobCardId ? `${linkedJobSelectId}-error` : null,
-                              ].filter(Boolean).join(' ')}
+                              checked={correctResolveCr}
+                              disabled={pending || blocked}
                               onChange={(event) => {
-                                setLinkedJobCardId(event.target.value);
-                                setErrors((prev) => ({ ...prev, linkedJobCardId: undefined }));
-                                setSubmitError('');
+                                setCorrectResolveCr(event.target.checked);
                                 clearIntentKey();
                               }}
-                            >
-                              <option value="">İş seçin</option>
-                              {linkedJobItems.map((entry) => (
-                                <option key={entry.id} value={entry.id}>
-                                  {formatLinkedJobChoiceLabel(entry)}
-                                </option>
-                              ))}
-                            </select>
-                            <span className="form-help" id={`${linkedJobSelectId}-help`}>
-                              {linkedJobItems.length === 0
-                                ? 'Bu müşteri için başka iş bulunmuyor.'
-                                : 'Yalnızca bu müşterinin diğer işleri listelenir.'}
-                            </span>
-                            {errors.linkedJobCardId && (
-                              <p id={`${linkedJobSelectId}-error`} className="field-error" role="alert">
-                                {errors.linkedJobCardId}
-                              </p>
-                            )}
-                          </>
-                        )}
-                      </div>
+                            />
+                            <label htmlFor={correctCloseCrId}>
+                              Bu düzenlemenin personel talebini karşıladığını onaylıyor ve talebi “Düzeltildi” olarak kapatmak istiyorum
+                            </label>
+                          </div>
+                          <p className="form-help">
+                            İşaretlerseniz kaydetmeden önce bu düzenlemenin talebi nasıl karşıladığını açıklayan 1–2.000 karakterlik kapanış notu istenir. İşaretlemezseniz yalnızca iş bilgileri güncellenir ve talep açık kalır.
+                          </p>
+                        </div>
+                      )}
                     </fieldset>
                   )}
 
@@ -2141,12 +2125,44 @@ export function ManagerRecoveryDrawer({
                 data-recovery-submit="true"
               >
                 {pending && <SignalGlyph name="clock" className="detail-feedback-icon" size={16} />}
-                {pending ? 'Kaydediliyor…' : submitButtonLabel(selectedDecision)}
+                {pending
+                  ? 'Kaydediliyor…'
+                  : submitButtonLabel(selectedDecision, canOptInCorrectClosure && correctResolveCr)}
               </button>
             )}
           </div>
         </form>
       </ResponsiveFormDrawer>
+
+      <ReasonDialog
+        open={panel === 'correct-resolve'}
+        title="Talebi “Düzeltildi” olarak kapat"
+        description="Düzenlenen iş bilgileri kaydedilecek ve personelin “Diğer” talebi yazdığınız açıklama ile “Düzeltildi” olarak kapatılacak."
+        details={[
+          `Nitelikli değişiklik: ${correctEligibility.qualifyingFields.join(', ')}`,
+          'Yönetici onayı: Bu düzenlemenin personelin talebini karşıladığını onaylıyorsunuz.',
+        ]}
+        reasonLabel="Düzeltme açıklaması"
+        helperText="Bu düzenlemenin personelin talebini nasıl karşıladığını açıklayın (1–2.000 karakter)."
+        requiredMessage="Talebi “Düzeltildi” olarak kapatmak için açıklama notu zorunludur."
+        confirmLabel="Kaydet ve talebi kapat"
+        cancelLabel="Düzenlemeye dön"
+        maxLength={NOTE_MAX_LENGTH}
+        required
+        pending={pending}
+        pendingLabel="Kaydediliyor…"
+        confirmDisabled={blocked || disabled}
+        externalError={panel === 'correct-resolve' ? submitError : null}
+        onReasonChange={() => setSubmitError('')}
+        returnFocusRef={triggerRef}
+        onCancel={() => {
+          setSubmitError('');
+          setPanel('recovery');
+        }}
+        onConfirm={(note) => {
+          void runCorrect(note);
+        }}
+      />
 
       <ReasonDialog
         open={panel === 'reason'}

@@ -409,6 +409,7 @@ async function openRecoveryAndSelect(host: ParentNode, decisionId: string) {
 type Decision = {
   name: string;
   receipt: string;
+  feedbackTone?: 'confirmed' | 'info';
   mutationPath: string;
   before: () => JobCard;
   after: () => JobCard;
@@ -519,24 +520,24 @@ const decisions: Decision[] = [
   },
   {
     name: 'change request record-only closure',
-    receipt: 'Öneri kapatıldı: Bağlı yeni iş oluşturuldu. İş bilgileri değişmedi.',
+    receipt: 'Öneri kayda alındı ve kapatıldı. İş bilgileri, planlanan zaman ve gecikme kaydı değişmedi.',
+    feedbackTone: 'info',
     mutationPath: '/api/job-cards/job-1/change-requests/request-1/resolve',
     before: () => changeRequestJob(),
     after: () => ({ ...changeRequestJob(), version: 5, changeRequest: null }),
     success: () => json({
-      jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'LINKED_JOB_CREATED',
+      jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'ACKNOWLEDGED_ONLY',
       resolvedAt: '2026-11-24T10:00:00.000Z',
     }),
     failure: () => json({
       error: 'Bu öneri zaten sonuçlandırılmış.', code: 'CHANGE_REQUEST_NOT_OPEN',
     }, 409),
     decide: async (host) => {
-      await openRecoveryAndSelect(host, 'LINKED_JOB_CREATED');
-      const select = host.querySelector<HTMLSelectElement>('select[name="linkedJobCardId"]');
-      if (!select) throw new Error('Linked job select is missing');
+      await openRecoveryAndSelect(host, 'ACKNOWLEDGED_ONLY');
+      const textarea = host.querySelector<HTMLTextAreaElement>('textarea[name="acknowledgeNote"]');
+      if (!textarea) throw new Error('Acknowledge note textarea is missing');
       await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'job-2');
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        setNativeValue(textarea, 'Personelin talebi incelendi, mevcut akış korunuyor.');
       });
       const form = host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]');
       if (!form) throw new Error('Manager recovery drawer is missing');
@@ -690,7 +691,8 @@ describe('JobDetail child decision receipts', () => {
     expect(host.querySelector('section.job-recovery')).toBeNull();
     expect(receiptRegions(decision.receipt)).toHaveLength(1);
     const [receipt] = receiptRegions(decision.receipt);
-    expect(receipt.classList.contains('detail-feedback-confirmed')).toBe(true);
+    const expectedClass = decision.feedbackTone === 'info' ? 'detail-feedback-info' : 'detail-feedback-confirmed';
+    expect(receipt.classList.contains(expectedClass)).toBe(true);
     expect(receipt.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     expect(harness.mutationCalls()).toBe(1);
   });
@@ -857,11 +859,10 @@ describe('JobDetail child decision receipts', () => {
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
     await renderScreen(before, fetch, source);
-    await openRecoveryAndSelect(host, 'LINKED_JOB_CREATED');
-    const select = host.querySelector<HTMLSelectElement>('select[name="linkedJobCardId"]')!;
+    await openRecoveryAndSelect(host, 'ACKNOWLEDGED_ONLY');
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea[name="acknowledgeNote"]')!;
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'job-2');
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      setNativeValue(textarea, 'Talep incelendi, mevcut plan korunuyor.');
     });
     const form = host.querySelector('[data-manager-recovery-form="true"]') as HTMLFormElement | null;
     if (!form) throw new Error('Manager recovery drawer is missing');
@@ -878,14 +879,14 @@ describe('JobDetail child decision receipts', () => {
 
     await act(async () => {
       resolveMutation(json({
-        jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'LINKED_JOB_CREATED',
+        jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'ACKNOWLEDGED_ONLY',
         resolvedAt: '2026-11-24T10:00:00.000Z',
       }));
     });
     await settle();
 
     expect(mutationCalls).toBe(1);
-    const receipt = 'Öneri kapatıldı: Bağlı yeni iş oluşturuldu. İş bilgileri değişmedi.';
+    const receipt = 'Öneri kayda alındı ve kapatıldı. İş bilgileri, planlanan zaman ve gecikme kaydı değişmedi.';
     expect(receiptRegions(receipt)).toHaveLength(1);
     expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent).toContain(receipt);
     expect(host.querySelector('[data-change-request-resolved]')).toBeNull();

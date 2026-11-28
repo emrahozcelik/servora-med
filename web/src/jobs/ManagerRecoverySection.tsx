@@ -15,7 +15,7 @@ import {
   assignmentSuggestedSolutionLabel,
   changeRequestReasonLabel,
 } from './job-labels';
-import type { JobCard, listJobCards, MeetingDetails } from './jobs-api';
+import type { JobCard, MeetingDetails } from './jobs-api';
 import { ManagerRecoveryDrawer } from './ManagerRecoveryDrawer';
 
 function isManagementUser(user: CurrentUser): boolean {
@@ -35,7 +35,6 @@ export function ManagerRecoverySection({
   onChanged,
   onBusyChange,
   loadStaffFn,
-  loadLinkedJobsFn,
 }: {
   job: JobCard;
   user: CurrentUser;
@@ -49,7 +48,6 @@ export function ManagerRecoverySection({
   onChanged: () => void;
   onBusyChange?: (busy: boolean) => void;
   loadStaffFn?: typeof listStaff;
-  loadLinkedJobsFn?: typeof listJobCards;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayHost, setOverlayHost] = useState<Element | null>(null);
@@ -216,7 +214,6 @@ export function ManagerRecoverySection({
           onChanged={onChanged}
           onBusyChange={onBusyChange}
           loadStaffFn={loadStaffFn}
-          loadLinkedJobsFn={loadLinkedJobsFn}
         />,
         overlayHost,
       )}
