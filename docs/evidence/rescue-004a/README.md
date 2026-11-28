@@ -1,7 +1,7 @@
 # RESCUE-004/A Calendar rendered acceptance
 
 Passed on November 28, 2026, at integrated application commit
-`c56938fca13327021e1aef17ab82413144050546` (built on reviewed backend base
+`d4c1f2bd6eca94651a1cb5c39de6e5aa99def2ec` (built on reviewed backend base
 `c71030671d562a436dc43e34efa9124b1d7b93ba`). Captures ran with Node `v22.23.3`,
 headless Chromium `140.0.7339.186`, locale `tr-TR`, timezone `Europe/Istanbul`,
 and fixed clock `2026-11-26T09:00:00.000Z`. The real Vite entry, `ServoraAntProvider`,
@@ -27,6 +27,12 @@ deterministic synthetic API responses.
 - Agenda action button (`.calendar-event-actions button`, e.g. `Düzenle`): `16px -> 32px`
 - Agenda action link (`.calendar-event-actions a`, e.g. `İşi aç`): `16px -> 32px`
 - Agenda heading (`.calendar-agenda-heading`): `16px -> 32px`
+
+### Agenda job link (`İşi aç`) computed contrast, geometry, and keyboard focus
+
+- Computed foreground/background contrast (`390` and `1440`, initial render and settled `calendar-form-success`): `10.89:1` (`--accent-hover` `rgb(0, 59, 116)` on `--paper` `rgb(251, 252, 253)`), outranking Ant Card's injected `.servora-ant-card .servora-ant-card-actions > li > span a:not(.servora-ant-card-btn)` selector (`0-3-3`) via owned classes only (`0-4-1`, no `!important`).
+- Responsive width & target height: `67.83 × 47.75 CSS px` (`width: auto` inside `326px` action bar) at `1440`, `332 × 44 CSS px` (`width: 100%` stacked) at `390`, `display: flex` (flex-blockified from `inline-flex`).
+- Keyboard focus & activation (`Shift+Tab` + `Enter` on settled `İşi aç` at `390` and `1440`): `:focus-visible` matches with `3px solid` outline and navigates cleanly to `/jobs/:id`.
 
 ### Touched controls vs untouched C1 day-grid constraints
 
@@ -74,10 +80,9 @@ deterministic synthetic API responses.
 - Chromium `320px` and `html { font-size: 200% }` simulate reflow and text scaling,
   and do not replace Safari/WebKit or physical device verification.
 
-## Verification commands run on `c56938fca13327021e1aef17ab82413144050546`
+## Verification commands run on `d4c1f2bd6eca94651a1cb5c39de6e5aa99def2ec`
 
-- `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run build` (in `web/`): **passed** (`tsc -b && vite build`)
-- `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npx vitest run tests/calendar-*.test.ts tests/calendar-*.test.tsx tests/assignment-*.test.ts tests/assignment-*.test.tsx tests/ui-button-contract.test.ts tests/type-floor-contract.test.ts tests/accessibility-contract.test.ts tests/visual-token-contract.test.ts` (in `web/`): **passed** (16 files, 293 tests)
-- `FLEET_EVIDENCE_DIR=.../rescue-004a-calendar RESCUE_004A_SOURCE=c56938fca13327021e1aef17ab82413144050546 node scripts/rescue-004a-calendar-acceptance.mjs`: **passed** (`issues: []`, see [measurements.json](measurements.json))
+- `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run build` (in `web/`): **passed** (`tsc -b && vite build`, 1752 modules)
+- `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npx vitest run tests/calendar-*.test.ts tests/calendar-*.test.tsx tests/assignment-*.test.ts tests/assignment-*.test.tsx tests/ui-button-contract.test.ts tests/type-floor-contract.test.ts tests/accessibility-contract.test.ts tests/visual-token-contract.test.ts` (in `web/`): **passed** (16 files, 294 tests)
+- `FLEET_EVIDENCE_DIR=.../rescue-004a-calendar RESCUE_004A_SOURCE=d4c1f2bd6eca94651a1cb5c39de6e5aa99def2ec node scripts/rescue-004a-calendar-acceptance.mjs`: **passed** (`issues: []`, see [measurements.json](measurements.json))
 - `node scripts/calendar-responsive-smoke.mjs`: **passed** (`390x844`, `390x844-200pct`, `320-wcag-400pct-reflow`, `420x844`, `768x1024`, `1024x768`, `1440x900`)
-- `FLEET_EVIDENCE_DIR=.../connected-workflows-recovery CONNECTED_VISUAL_SOURCE=c56938fca13327021e1aef17ab82413144050546 node scripts/connected-workflows-recovery-acceptance.mjs`: **passed** (`issues: []`)
