@@ -1,7 +1,7 @@
 # RESCUE-004/A Calendar rendered acceptance
 
 Passed on November 28, 2026, at integrated application commit
-`6a3a249d43e3c715d298cfbda16bd82f91e3de8b` (built on reviewed backend +
+`6a35a06f4f4281a8c96728a044c7bcfc1744ffbd` (built on `6a3a249`, reviewed backend +
 test-double parity `4e7c05b` / `1c4285caa8fad82355f94f9195617293a6c19e9a` and
 docs delta `8fc2f04` matching `f2a034a3fbe205bf787019a53c5e0d364cf0c2fe`).
 Captures ran with Node `v22.23.3`, headless Chromium `140.0.7339.186`, locale
@@ -102,9 +102,9 @@ API responses.
 - Chromium `320px` and `html { font-size: 200% }` simulate reflow and text scaling,
   and do not replace Safari/WebKit or physical device verification.
 
-## Verification commands run on `6a3a249d43e3c715d298cfbda16bd82f91e3de8b`
+## Verification commands run on `6a35a06f4f4281a8c96728a044c7bcfc1744ffbd`
 
 - `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run build` (in `web/`): **passed** (`tsc -b && vite build`, 1752 modules)
-- `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npx vitest run tests/calendar-*.test.ts tests/calendar-*.test.tsx tests/assignment-*.test.ts tests/assignment-*.test.tsx tests/ui-button-contract.test.ts tests/type-floor-contract.test.ts tests/accessibility-contract.test.ts tests/visual-token-contract.test.ts tests/mobile-spacing-styles.test.ts tests/responsive-layout-contract.test.ts` (in `web/`): **passed** (18 files, 318 tests)
+- `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npx vitest run tests/shared-visual-language-contract.test.ts tests/calendar-cell-density.test.ts tests/calendar-*.test.ts tests/calendar-*.test.tsx tests/assignment-*.test.ts tests/assignment-*.test.tsx tests/ui-button-contract.test.ts tests/type-floor-contract.test.ts tests/accessibility-contract.test.ts tests/visual-token-contract.test.ts tests/mobile-spacing-styles.test.ts tests/responsive-layout-contract.test.ts` (in `web/`): **passed** (19 files, 341 tests)
 - `PATH="/opt/homebrew/opt/node@22/bin:$PATH" node scripts/calendar-responsive-smoke.mjs` (in `web/`): **passed** (`390x844`, `390x844-200pct`, `320-wcag-400pct-reflow`, `420x844`, `768x1024`, `1024x768`, `1440x900`)
-- `FLEET_EVIDENCE_DIR=.../evidence RESCUE_004A_SOURCE=6a3a249d43e3c715d298cfbda16bd82f91e3de8b PATH="/opt/homebrew/opt/node@22/bin:$PATH" node scripts/rescue-004a-calendar-acceptance.mjs` (in `web/`): **passed** (`issues: []`, see [measurements.json](measurements.json))
+- `FLEET_EVIDENCE_DIR=.../evidence RESCUE_004A_SOURCE=6a35a06f4f4281a8c96728a044c7bcfc1744ffbd PATH="/opt/homebrew/opt/node@22/bin:$PATH" node scripts/rescue-004a-calendar-acceptance.mjs` (in `web/`): **passed** (`issues: []`, see [measurements.json](measurements.json))
