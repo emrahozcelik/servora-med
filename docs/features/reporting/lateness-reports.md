@@ -159,6 +159,8 @@ change request exists for the same organization and JobCard with:
     provable management and the incident stays in the Staff group; nothing is
     guessed.
   - `REJECTED` and the automatic `SUPERSEDED` never qualify.
+    The [future RESCUE-003 neutral acknowledgement](../assignment-acceptance-sla.md#neutral-acknowledgement-for-rescue-003)
+    follows the same reporting treatment while preserving the incident.
   A later role change of any user does not change the classification; and
 - an interval that overlaps the incident:
   `requested_at <= COALESCE(recovered_at, ended_at, requestTime)` and

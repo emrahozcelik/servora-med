@@ -676,6 +676,42 @@ feedback. A completed decision still shows its result when the section closes.
 UI changes to this recovery path follow the
 [Connected Workflows acceptance gate](connected-workflows-ui-acceptance.md).
 
+#### Neutral acknowledgement for RESCUE-003
+
+The neutral acknowledgement contract is for a future change-request resolution.
+`ACKNOWLEDGED_ONLY` is the proposed stored value. A manager or admin closes an
+open request with an explicit note of 1–2000 characters after trimming. The job, assignee, planned interval,
+deadline, assignment offer, incidents and their attribution retain their
+current values. Use the existing resolution transaction, idempotency receipt,
+activity and requester notification. Concurrent close attempts have one
+winner. A repeated matching request returns its committed receipt.
+
+| Request or decision | OVR-7 | Automatic OVR-4 and OVR-6 alerts |
+| --- | --- | --- |
+| Open | The incident keeps its persisted accountability. | The applicable discovery and lock-time checks pause alerts for the job. Manual management reminders remain available. |
+| Neutral acknowledgement | Keep the existing classification. The neutral closure contributes no qualifying resolution. | The next eligible scan can send an undelivered alert for the original active obligation. Existing delivery keys, due times and quiet hours apply. |
+| Rejection | Keep the existing classification. | Use the same eligible-scan and delivery rules as neutral closure. |
+| Evidence-bound correction, reschedule, linked replacement or qualifying cancellation | Apply existing OVR-7 overlap, accountability and resolution rules. | Apply the committed operation's existing effects on the obligation. Eligibility follows the resulting job and incident state. |
+
+The closure notification tells the requester that management recorded and
+closed the proposal. Persist it once with the decision. Resume automatic
+alerts through their normal workers. Already recorded deliveries stay recorded,
+and an alert blocked by quiet hours waits until the next OVR-6 sending window
+(Monday–Saturday, 08:00–21:00 organization local time). The original due time
+still governs eligibility. Independent intervention queue entries follow their
+own job, offer and incident rules.
+Resolve or worker paths keep their existing lock-time open-state checks and
+re-evaluate the current job, recipient and obligation. JOB-010 assignment
+offer reminders and Calendar notifications keep their own contracts.
+
+Keep the OVR-7 allowlist and historical grouping intact. A separate qualifying
+resolution can still contribute to the report under its normal rules.
+Adding the neutral value requires the JOB-010 decision, stored enum/check,
+API, activity presentation and PostgreSQL acceptance tests in the same change.
+Cover one committed receipt and requester notification under replay, one
+winner under concurrent closure, exclusion under OVR-7, resumption of an
+undelivered alert, and suppression of an already delivered alert.
+
 ### Ownership for parallel work
 
 | Worker | Owns |
