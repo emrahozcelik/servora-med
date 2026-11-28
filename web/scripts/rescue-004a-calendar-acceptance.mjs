@@ -733,16 +733,65 @@ async function measureCalendar(page, mode) {
       ariaLabel: chip.getAttribute('aria-label'),
     }));
 
-    const compactAttentionCount = document.querySelector('.servora-calendar-count--attention');
-    const compactDateValue = compactAttentionCount
-      ?.closest('[class*="picker-calendar-date"]')
-      ?.querySelector('[class*="picker-calendar-date-value"]');
-    let compactCountOverlap = false;
-    if (compactAttentionCount && compactDateValue) {
-      const a = compactAttentionCount.getBoundingClientRect();
-      const b = compactDateValue.getBoundingClientRect();
-      compactCountOverlap = a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1;
-    }
+    const roundRect = (rect) => ({
+      left: Math.round(rect.left * 100) / 100,
+      right: Math.round(rect.right * 100) / 100,
+      top: Math.round(rect.top * 100) / 100,
+      bottom: Math.round(rect.bottom * 100) / 100,
+      width: Math.round(rect.width * 100) / 100,
+      height: Math.round(rect.height * 100) / 100,
+    });
+    const textNodeRect = (el) => {
+      if (!el?.firstChild) return el ? el.getBoundingClientRect() : null;
+      const range = document.createRange();
+      range.selectNodeContents(el.firstChild);
+      return range.getBoundingClientRect();
+    };
+    const rectsOverlap = (a, b, tolerance = 0.5) => (
+      a.left < b.right - tolerance
+      && a.right > b.left + tolerance
+      && a.top < b.bottom - tolerance
+      && a.bottom > b.top + tolerance
+    );
+    const allCells = [...document.querySelectorAll('.servora-calendar--compact .servora-calendar-item')];
+    const compactBadges = [...document.querySelectorAll('.servora-calendar--compact .servora-calendar-count')]
+      .map((badge) => {
+        const ownCell = badge.closest('.servora-calendar-item');
+        const ownDateValue = ownCell?.querySelector('[class*="picker-calendar-date-value"]');
+        const badgeRect = badge.getBoundingClientRect();
+        const ownCellRect = ownCell?.getBoundingClientRect() ?? null;
+        const ownDateTextRect = textNodeRect(ownDateValue);
+        const withinOwnCell = Boolean(
+          ownCellRect
+          && badgeRect.left >= ownCellRect.left - 0.5
+          && badgeRect.right <= ownCellRect.right + 0.5
+          && badgeRect.top >= ownCellRect.top - 0.5
+          && badgeRect.bottom <= ownCellRect.bottom + 0.5,
+        );
+        const overlapWithOwnDateText = Boolean(ownDateTextRect && rectsOverlap(badgeRect, ownDateTextRect, 0.5));
+        const touchesAdjacentCell = allCells
+          .filter((cell) => cell !== ownCell)
+          .some((cell) => rectsOverlap(badgeRect, cell.getBoundingClientRect(), 0.25));
+        const touchesAdjacentDateText = allCells
+          .filter((cell) => cell !== ownCell)
+          .some((cell) => {
+            const adjRect = textNodeRect(cell.querySelector('[class*="picker-calendar-date-value"]'));
+            return Boolean(adjRect && rectsOverlap(badgeRect, adjRect, 0.25));
+          });
+        return {
+          text: badge.textContent?.trim() ?? '',
+          attention: badge.classList.contains('servora-calendar-count--attention'),
+          ariaLabel: badge.getAttribute('aria-label'),
+          badgeRect: roundRect(badgeRect),
+          ownCellRect: ownCellRect ? roundRect(ownCellRect) : null,
+          ownDateTextRect: ownDateTextRect ? roundRect(ownDateTextRect) : null,
+          withinOwnCell,
+          overlapWithDate: overlapWithOwnDateText,
+          touchesAdjacentCell,
+          touchesAdjacentDateText,
+        };
+      });
+    const compactAttentionBadge = compactBadges.find((entry) => entry.attention) ?? null;
 
     return {
       mode: currentMode.name,
@@ -775,11 +824,15 @@ async function measureCalendar(page, mode) {
       cards,
       jobLinks,
       desktopChips,
-      compactAttention: compactAttentionCount
+      compactBadges,
+      compactAttention: compactAttentionBadge
         ? {
-            text: compactAttentionCount.textContent?.trim() ?? '',
-            ariaLabel: compactAttentionCount.getAttribute('aria-label'),
-            overlapWithDate: compactCountOverlap,
+            ...compactAttentionBadge,
+            allWithinOwnCell: compactBadges.every((entry) => entry.withinOwnCell),
+            allClearOfOwnDate: compactBadges.every((entry) => !entry.overlapWithDate),
+            allClearOfAdjacent: compactBadges.every(
+              (entry) => !entry.touchesAdjacentCell && !entry.touchesAdjacentDateText,
+            ),
           }
         : null,
     };
@@ -886,7 +939,9 @@ try {
 
     if (mode.compact) {
       requireCheck(Boolean(metrics.compactAttention && metrics.compactAttention.text === '3' && /müdahale gerekiyor/i.test(metrics.compactAttention.ariaLabel ?? '')), `${mode.name}: compact attention cell missing`);
-      requireCheck(!metrics.compactAttention?.overlapWithDate, `${mode.name}: compact attention badge overlaps date value`);
+      requireCheck(Boolean(metrics.compactAttention?.withinOwnCell && metrics.compactAttention?.allWithinOwnCell), `${mode.name}: compact attention badge exceeds its own calendar cell`);
+      requireCheck(!metrics.compactAttention?.overlapWithDate && Boolean(metrics.compactAttention?.allClearOfOwnDate), `${mode.name}: compact attention badge overlaps own date text`);
+      requireCheck(!metrics.compactAttention?.touchesAdjacentCell && !metrics.compactAttention?.touchesAdjacentDateText && Boolean(metrics.compactAttention?.allClearOfAdjacent), `${mode.name}: compact attention badge touches adjacent cell or date`);
     } else {
       const releasedChip = metrics.desktopChips.find((c) => c.eventId === releasedJobId);
       const reservedChip = metrics.desktopChips.find((c) => c.eventId === reservedJobId);

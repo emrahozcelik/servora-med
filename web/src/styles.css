@@ -5823,9 +5823,18 @@ a + .follow-up-badge { margin-left: 0.5rem; }
 }
 
 @media (max-width: 40rem) {
+  .servora-calendar--compact {
+    container-type: inline-size;
+    container-name: servora-compact-calendar;
+  }
+
   /* Keep the native compact row rhythm stable; the count is decoration, not cell content. */
   .servora-calendar--compact .servora-calendar-item {
     position: relative;
+  }
+
+  .servora-calendar--compact .servora-calendar-item [class*="picker-cell-inner"][class*="picker-calendar-date"] {
+    max-width: 100%;
   }
 
   .servora-calendar--compact .servora-calendar-count {
@@ -5845,6 +5854,52 @@ a + .follow-up-badge { margin-left: 0.5rem; }
     /* 1.3rem count badge + its 0.2rem inset keeps clear of the date value. */
     padding-inline: 0.2rem 1.5rem;
     text-align: start;
+  }
+
+  /* When rem scaling (e.g. 200% text) or narrow cells make side-by-side
+     date+badge exceed the cell width, stack the count badge below the date
+     inside its own cell so it stays clear of adjacent dates and rows. */
+  @container servora-compact-calendar (max-width: 16rem) {
+    .servora-calendar--compact .servora-calendar-item [class*="picker-cell-inner"][class*="picker-calendar-date"] {
+      align-items: center;
+      display: inline-flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      height: auto;
+      justify-content: flex-start;
+      min-height: 2.75rem;
+      padding: 0.12rem 0.05rem;
+      width: 100%;
+    }
+
+    .servora-calendar--compact .servora-calendar-item [class*="picker-calendar-date-value"],
+    .servora-calendar--compact .servora-calendar-item:has(.servora-calendar-count)
+      [class*="picker-calendar-date-value"] {
+      height: auto;
+      line-height: 1.35;
+      padding-inline: 0.05rem;
+      text-align: center;
+    }
+
+    .servora-calendar--compact .servora-calendar-item [class*="picker-calendar-date-content"] {
+      display: flex;
+      height: auto;
+      justify-content: center;
+      line-height: 1.1;
+      width: 100%;
+    }
+
+    .servora-calendar--compact .servora-calendar-count {
+      bottom: auto;
+      height: auto;
+      line-height: 1.1;
+      max-width: 100%;
+      min-height: 1.05rem;
+      min-width: min(1.1rem, 100%);
+      padding: 0.05rem 0.2rem;
+      position: static;
+      right: auto;
+    }
   }
 }
 

@@ -46,4 +46,12 @@ describe('calendar month-cell density (visual review, C1 follow-up)', () => {
     expect(compact).toMatch(/height:\s*1\.3rem;/);
     expect(stylesCss).toMatch(/padding-inline:\s*0\.2rem\s+1\.5rem;/);
   });
+
+  it('stacks and contains the compact count badge inside its cell when rem scaling narrows the grid', () => {
+    expect(stylesCss).toMatch(/\.servora-calendar--compact\s*\{[^}]*container-type:\s*inline-size;[^}]*container-name:\s*servora-compact-calendar;/s);
+    const stacked = stylesCss.slice(stylesCss.indexOf('@container servora-compact-calendar (max-width: 16rem)'));
+    expect(stacked).toMatch(/flex-direction:\s*column;/);
+    expect(stacked).toMatch(/position:\s*static;/);
+    expect(stacked).toMatch(/max-width:\s*100%;/);
+  });
 });
