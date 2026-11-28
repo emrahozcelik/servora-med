@@ -223,7 +223,7 @@ async function insertJob(pool: Pool, input: {
   createdBy: string;
   title?: string;
   scheduledAt: string;
-  scheduledEndsAt: string;
+  scheduledEndsAt: string | null;
 }) {
   const accepted = ['ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED']
     .includes(input.status);
@@ -252,6 +252,7 @@ async function insertJob(pool: Pool, input: {
 }
 
 async function insertOffer(pool: Pool, input: {
+  id?: string;
   organizationId: string;
   jobCardId: string;
   assigneeUserId: string;
@@ -271,11 +272,12 @@ async function insertOffer(pool: Pool, input: {
     : input.assigneeUserId;
   return (await pool.query<{ id: string }>(
     `INSERT INTO job_card_assignment_offers
-       (organization_id, job_card_id, assignee_user_id, opened_at, opened_reason,
+       (id, organization_id, job_card_id, assignee_user_id, opened_at, opened_reason,
         opened_by, acceptance_due_at, state, closed_at, closed_by, close_reason, close_text)
-     VALUES ($1, $2, $3, $4, 'CREATE', $5, $6, $7, $8::timestamptz, $9::uuid, $10, $11)
+     VALUES ($1, $2, $3, $4, $5, 'CREATE', $6, $7, $8, $9::timestamptz, $10::uuid, $11, $12)
      RETURNING id`,
     [
+      input.id ?? randomUUID(),
       input.organizationId, input.jobCardId, input.assigneeUserId,
       input.openedAt, input.openedBy,
       new Date(input.openedAt.valueOf() + 10 * MINUTE_MS),
@@ -319,6 +321,26 @@ async function readOffers(pool: Pool, jobCardId: string) {
       WHERE job_card_id = $1 ORDER BY opened_at ASC, id ASC`,
     [jobCardId],
   )).rows;
+}
+
+async function readCanonicalLatestOffer(pool: Pool, jobCardId: string) {
+  return (await pool.query<{
+    id: string; state: string; opened_at: Date; assignee_user_id: string;
+  }>(
+    `SELECT id, state, opened_at, assignee_user_id
+       FROM job_card_assignment_offers
+      WHERE job_card_id = $1
+      ORDER BY opened_at DESC, id DESC
+      LIMIT 1`,
+    [jobCardId],
+  )).rows[0]!;
+}
+
+async function countJobActivities(pool: Pool, jobCardId: string): Promise<number> {
+  return Number((await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM job_card_activity_logs WHERE job_card_id = $1`,
+    [jobCardId],
+  )).rows[0]!.n);
 }
 
 describe.skipIf(!databaseUrl)('RESCUE-004/A released Staff reservation', () => {
@@ -847,6 +869,350 @@ describe.skipIf(!databaseUrl)('RESCUE-004/A released Staff reservation', () => {
         clientActionId: randomUUID(), expectedVersion: plain.version,
       });
       expect(plainAccept.status).toBe('ACCEPTED');
+    });
+  }, 30_000);
+
+  it('legacy START_ONLY: no released reservation is projected and the old ACCEPT/START lifecycle is preserved', async () => {
+    await withSchema(async (pool) => {
+      const baseline = await readDbBaseline(pool);
+      const seed = await seedOrganization(pool, 'startonly');
+      const slots = nextWorkingDaySlots(baseline);
+      const clock = { now: baseline };
+      const windowOff = buildService(pool, clock, {
+        calendar: CALENDAR_OFF, assignmentWindow: WINDOW_OFF,
+      }).service;
+
+      // Legacy START_ONLY on-site row: a start, no end. It is projected by the
+      // Calendar but never held a Staff occupancy interval. It is placed
+      // inside the JOB-010 early-start tolerance of the DB clock so START
+      // reaches the pre-existing interval validation.
+      const startOnlyStart = iso(baseline, 20 * MINUTE_MS);
+      const startOnly = await insertJob(pool, {
+        organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+        assignedTo: seed.staff.id, createdBy: seed.manager.id,
+        scheduledAt: startOnlyStart, scheduledEndsAt: null,
+      });
+      await insertOffer(pool, {
+        organizationId: seed.organizationId, jobCardId: startOnly.id,
+        assigneeUserId: seed.staff.id, openedBy: seed.manager.id,
+        openedAt: new Date(baseline.valueOf() - HOUR_MS), state: 'DECLINED',
+      });
+
+      // Control: the same newest current-assignee refusal on a real positive
+      // interval is a released reservation.
+      const positive = await insertJob(pool, {
+        organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+        assignedTo: seed.staff.id, createdBy: seed.manager.id,
+        scheduledAt: slots.laterFreeStart,
+        scheduledEndsAt: new Date(
+          Date.parse(slots.laterFreeStart) + HOUR_MS,
+        ).toISOString(),
+      });
+      await insertOffer(pool, {
+        organizationId: seed.organizationId, jobCardId: positive.id,
+        assigneeUserId: seed.staff.id, openedBy: seed.manager.id,
+        openedAt: new Date(baseline.valueOf() - HOUR_MS), state: 'DECLINED',
+      });
+
+      const repository = new PostgresCalendarRepository(pool, 30, false);
+      const calendar = new CalendarService(true, repository, () => clock.now);
+      const items = (await calendar.list(seed.manager, {
+        from: iso(baseline, -HOUR_MS),
+        to: iso(baseline, 5 * DAY_MS),
+        assignedTo: null,
+      })).items;
+      expect(items.find((item) => item.id === startOnly.id)).toMatchObject({
+        source: 'JOB',
+        startsAt: startOnlyStart,
+        endsAt: null,
+        staffReservationReleased: false,
+      });
+      expect(items.find((item) => item.id === positive.id)).toMatchObject({
+        source: 'JOB',
+        staffReservationReleased: true,
+      });
+
+      // Window-off lifecycle is unchanged: ACCEPT is still allowed, START
+      // still requires the existing positive interval and writes nothing.
+      const accepted = await windowOff.acceptAssignment(seed.staff, startOnly.id, {
+        clientActionId: randomUUID(), expectedVersion: startOnly.version,
+      });
+      expect(accepted.status).toBe('ACCEPTED');
+      // The 049 reservation clock (DB now) is inside the JOB-010 early-start
+      // tolerance, so START reaches the pre-existing interval validation.
+      const startError = await rejectionOf(() => windowOff.start(seed.staff, startOnly.id, {
+        clientActionId: randomUUID(), expectedVersion: accepted.version,
+      }));
+      expect(startError).toMatchObject({
+        code: 'SCHEDULED_INTERVAL_REQUIRED', statusCode: 400,
+      });
+      expect(await readJob(pool, startOnly.id)).toMatchObject({
+        status: 'ACCEPTED',
+        assigned_to: seed.staff.id,
+        scheduled_at: new Date(startOnlyStart),
+        scheduled_ends_at: null,
+        started_at: null,
+      });
+      expect((await readOffers(pool, startOnly.id)).map((offer) => offer.state))
+        .toEqual(['DECLINED']);
+    });
+  }, 30_000);
+
+  it('re-offer precedence: an on-time live OPEN offer rejects before stale overlaps and writes nothing', async () => {
+    await withSchema(async (pool) => {
+      const baseline = await readDbBaseline(pool);
+      const seed = await seedOrganization(pool, 'precedence');
+      const slots = nextWorkingDaySlots(baseline);
+      const laterSlots = nextWorkingDaySlots(new Date(baseline.valueOf() + DAY_MS));
+      const clock = { now: baseline };
+      const { service, published } = buildService(pool, clock, {
+        calendar: CALENDAR_OFF, assignmentWindow: WINDOW_ON,
+      });
+
+      const live = await service.create(seed.manager, meetingInput({
+        customerId: seed.customerId, assignedTo: seed.staff.id,
+        scheduledAt: slots.slotStart,
+      }));
+      // Stale/historical overlap: the service would reject this today, but
+      // stored data may contain it. Precedence must still be the documented
+      // ASSIGNMENT_OFFER_ALREADY_OPEN, not CALENDAR_CONFLICT.
+      const staleOverlap = await insertJob(pool, {
+        organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+        assignedTo: seed.staff.id, createdBy: seed.manager.id,
+        scheduledAt: slots.slotStart,
+        scheduledEndsAt: slots.slotEnd,
+      });
+      published.length = 0;
+      const liveBefore = await readJob(pool, live.id);
+      const liveOffersBefore = await readOffers(pool, live.id);
+      const liveActivitiesBefore = await countJobActivities(pool, live.id);
+
+      const liveError = await rejectionOf(() => service.reofferAssignment(
+        seed.manager, live.id, {
+          clientActionId: randomUUID(), expectedVersion: live.version,
+        },
+      ));
+      expect(liveError).toMatchObject({
+        code: 'ASSIGNMENT_OFFER_ALREADY_OPEN', statusCode: 409,
+      });
+      expect(await readJob(pool, live.id)).toMatchObject({
+        status: liveBefore.status, version: liveBefore.version,
+        assigned_to: liveBefore.assigned_to,
+      });
+      expect(await readOffers(pool, live.id)).toEqual(liveOffersBefore);
+      expect(await countJobActivities(pool, live.id)).toBe(liveActivitiesBefore);
+      expect(published).toEqual([]);
+      expect(staleOverlap.id).toBeTruthy();
+
+      // An overdue OPEN offer is still checked before its EXPIRED close: a
+      // stale overlap rolls that close back too and leaves the offer OPEN.
+      const overdue = await insertJob(pool, {
+        organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+        assignedTo: seed.staff.id, createdBy: seed.manager.id,
+        scheduledAt: laterSlots.slotStart,
+        scheduledEndsAt: laterSlots.slotEnd,
+      });
+      await insertOffer(pool, {
+        organizationId: seed.organizationId, jobCardId: overdue.id,
+        assigneeUserId: seed.staff.id, openedBy: seed.manager.id,
+        openedAt: new Date(baseline.valueOf() - 2 * HOUR_MS), state: 'OPEN',
+      });
+      await pool.query(
+        `UPDATE job_card_assignment_offers
+            SET acceptance_due_at = $1
+          WHERE job_card_id = $2 AND state = 'OPEN'`,
+        [new Date(baseline.valueOf() - 10 * MINUTE_MS), overdue.id],
+      );
+      const overdueOverlap = await insertJob(pool, {
+        organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+        assignedTo: seed.staff.id, createdBy: seed.manager.id,
+        scheduledAt: laterSlots.slotStart,
+        scheduledEndsAt: laterSlots.slotEnd,
+      });
+      const overdueBefore = await readJob(pool, overdue.id);
+      const overdueActivitiesBefore = await countJobActivities(pool, overdue.id);
+      const overdueError = await rejectionOf(() => service.reofferAssignment(
+        seed.manager, overdue.id, {
+          clientActionId: randomUUID(), expectedVersion: overdue.version,
+        },
+      ));
+      expectCalendarConflict(overdueError);
+      expect(await readJob(pool, overdue.id)).toMatchObject({
+        status: overdueBefore.status, version: overdueBefore.version,
+      });
+      expect((await readOffers(pool, overdue.id)).map((offer) => offer.state))
+        .toEqual(['OPEN']);
+      expect(await countJobActivities(pool, overdue.id)).toBe(overdueActivitiesBefore);
+      expect(overdueOverlap.id).toBeTruthy();
+    });
+  }, 30_000);
+
+  it('re-offer at a tied or regressed clock is canonically latest: the slot goes free to held', async () => {
+    await withSchema(async (pool) => {
+      const baseline = await readDbBaseline(pool);
+      const seed = await seedOrganization(pool, 'ordering');
+      const slots = nextWorkingDaySlots(baseline);
+      const laterSlots = nextWorkingDaySlots(new Date(baseline.valueOf() + DAY_MS));
+      const clock = { now: baseline };
+      const { service } = buildService(pool, clock, {
+        calendar: CALENDAR_OFF, assignmentWindow: WINDOW_ON,
+      });
+      const client: PoolClient = await pool.connect();
+      // A UUID no random v4 offer can outrank, so a tie always ranks the prior
+      // refusal first under `opened_at DESC, id DESC` without the guard.
+      const HIGH_UUID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+      const conflicts = (start: string, end: string) => findStaffOccupancyConflicts(client, {
+        organizationId: seed.organizationId,
+        assignedUserId: seed.staff.id,
+        startsAt: start,
+        endsAt: end,
+        includeCalendarEvents: false,
+      });
+      // Close enough that the minimum response window (opened_at + 10 min)
+      // wins the deadline over the scheduled lead boundary, so the assertion
+      // proves the policy used the effective, bumped open instant.
+      const nearStart = iso(baseline, 50 * MINUTE_MS);
+      const nearEnd = iso(baseline, 110 * MINUTE_MS);
+      try {
+        const tied = await insertJob(pool, {
+          organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+          assignedTo: seed.staff.id, createdBy: seed.manager.id,
+          scheduledAt: nearStart,
+          scheduledEndsAt: nearEnd,
+        });
+        await insertOffer(pool, {
+          id: HIGH_UUID,
+          organizationId: seed.organizationId, jobCardId: tied.id,
+          assigneeUserId: seed.staff.id, openedBy: seed.manager.id,
+          openedAt: baseline, state: 'DECLINED',
+        });
+        // Released before: the tied negative is canonical latest.
+        expect((await conflicts(nearStart, nearEnd))
+          .some((row) => row.id === tied.id)).toBe(false);
+
+        const tiedReceipt = await service.reofferAssignment(seed.manager, tied.id, {
+          clientActionId: randomUUID(), expectedVersion: tied.version,
+        });
+        const tiedLatest = await readCanonicalLatestOffer(pool, tied.id);
+        expect(tiedLatest).toMatchObject({
+          id: tiedReceipt.offerId, state: 'OPEN', assignee_user_id: seed.staff.id,
+        });
+        // The positive-interval refusal was not updated; the new offer is
+        // 1 ms later, and the deadline follows that effective opening instant.
+        expect(tiedLatest.opened_at.toISOString())
+          .toBe(new Date(baseline.valueOf() + 1).toISOString());
+        expect(tiedReceipt.acceptanceDueAt)
+          .toBe(new Date(baseline.valueOf() + 10 * MINUTE_MS + 1).toISOString());
+        expect((await conflicts(nearStart, nearEnd))
+          .some((row) => row.id === tied.id)).toBe(true);
+        const prior = (await pool.query<{ state: string; opened_at: Date; closed_at: Date }>(
+          `SELECT state, opened_at, closed_at FROM job_card_assignment_offers WHERE id = $1`,
+          [HIGH_UUID],
+        )).rows[0]!;
+        expect(prior.state).toBe('DECLINED');
+        expect(prior.opened_at.toISOString()).toBe(baseline.toISOString());
+        expect(prior.closed_at.toISOString()).toBe(baseline.toISOString());
+        const tiedRow = await readJob(pool, tied.id);
+        expect(tiedRow).toMatchObject({
+          status: 'NEW', version: tied.version + 1, assigned_to: seed.staff.id,
+          scheduled_at: new Date(nearStart),
+          scheduled_ends_at: new Date(nearEnd),
+        });
+
+        // Calendar projection no longer reports the now-held slot as released.
+        const calendar = new CalendarService(
+          true, new PostgresCalendarRepository(pool, 30, false), () => clock.now,
+        );
+        const calendarItems = (await calendar.list(seed.manager, {
+          from: iso(baseline, -HOUR_MS),
+          to: iso(baseline, 2 * HOUR_MS),
+          assignedTo: null,
+        })).items;
+        expect(calendarItems.find((item) => item.id === tied.id)).toMatchObject({
+          staffReservationReleased: false,
+        });
+
+        // A request clock behind the last writer (skew) takes the same bound.
+        const regressed = await insertJob(pool, {
+          organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+          assignedTo: seed.staff.id, createdBy: seed.manager.id,
+          scheduledAt: laterSlots.slotStart,
+          scheduledEndsAt: laterSlots.slotEnd,
+        });
+        const regressedPrior = await insertOffer(pool, {
+          organizationId: seed.organizationId, jobCardId: regressed.id,
+          assigneeUserId: seed.staff.id, openedBy: seed.manager.id,
+          openedAt: baseline, state: 'RELEASED',
+        });
+        clock.now = new Date(baseline.valueOf() - 5 * MINUTE_MS);
+        const regressedReceipt = await service.reofferAssignment(seed.manager, regressed.id, {
+          clientActionId: randomUUID(), expectedVersion: regressed.version,
+        });
+        const regressedLatest = await readCanonicalLatestOffer(pool, regressed.id);
+        expect(regressedLatest).toMatchObject({
+          id: regressedReceipt.offerId, state: 'OPEN',
+        });
+        expect(regressedLatest.id).not.toBe(regressedPrior);
+        expect(regressedLatest.opened_at.toISOString())
+          .toBe(new Date(baseline.valueOf() + 1).toISOString());
+        expect((await conflicts(laterSlots.slotStart, laterSlots.slotEnd))
+          .some((row) => row.id === regressed.id)).toBe(true);
+        expect(await readJob(pool, regressed.id)).toMatchObject({
+          status: 'NEW', version: regressed.version + 1, assigned_to: seed.staff.id,
+          scheduled_at: new Date(laterSlots.slotStart),
+          scheduled_ends_at: new Date(laterSlots.slotEnd),
+        });
+
+        // START_ONLY compatibility: the row never held a Staff interval. A
+        // re-offer keeps its existing canonical-end offer behavior and makes
+        // the new OPEN offer canonically latest, but the stored job still has
+        // no end, so the Calendar never reports a released reservation and the
+        // occupancy reader still ignores it.
+        const startOnly = await insertJob(pool, {
+          organizationId: seed.organizationId, type: 'SALES_MEETING', status: 'NEW',
+          assignedTo: seed.staff.id, createdBy: seed.manager.id,
+          scheduledAt: laterSlots.laterFreeStart, scheduledEndsAt: null,
+        });
+        await insertOffer(pool, {
+          id: HIGH_UUID.replaceAll('f', 'e'),
+          organizationId: seed.organizationId, jobCardId: startOnly.id,
+          assigneeUserId: seed.staff.id, openedBy: seed.manager.id,
+          openedAt: baseline, state: 'DECLINED',
+        });
+        const startOnlyReceipt = await service.reofferAssignment(
+          seed.manager, startOnly.id, {
+            clientActionId: randomUUID(), expectedVersion: startOnly.version,
+          },
+        );
+        const startOnlyLatest = await readCanonicalLatestOffer(pool, startOnly.id);
+        expect(startOnlyLatest).toMatchObject({
+          id: startOnlyReceipt.offerId, state: 'OPEN',
+        });
+        expect(startOnlyLatest.opened_at.toISOString())
+          .toBe(new Date(baseline.valueOf() + 1).toISOString());
+        expect(await readJob(pool, startOnly.id)).toMatchObject({
+          status: 'NEW', version: startOnly.version + 1,
+          assigned_to: seed.staff.id, scheduled_ends_at: null,
+        });
+        expect((await conflicts(
+          laterSlots.laterFreeStart,
+          new Date(Date.parse(laterSlots.laterFreeStart) + HOUR_MS).toISOString(),
+        )).some((row) => row.id === startOnly.id)).toBe(false);
+        const startOnlyCalendar = (await new CalendarService(
+          true, new PostgresCalendarRepository(pool, 30, false), () => clock.now,
+        ).list(seed.manager, {
+          from: laterSlots.searchFrom,
+          to: iso(baseline, 5 * DAY_MS),
+          assignedTo: null,
+        })).items.find((item) => item.id === startOnly.id);
+        expect(startOnlyCalendar).toMatchObject({
+          startsAt: laterSlots.laterFreeStart,
+          endsAt: null,
+          staffReservationReleased: false,
+        });
+      } finally {
+        client.release();
+      }
     });
   }, 30_000);
 });

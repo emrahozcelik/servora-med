@@ -24,14 +24,23 @@ type Queryable = Pick<PoolClient, 'query'>;
  * - `OPEN`, `ACCEPTED`, `EXPIRED`, `WITHDRAWN`, no offer and any other job
  *   status keep the SCH-001 behavior exactly.
  *
- * Only a planned on-site `NEW` job can be released. The predicate is reused
- * verbatim by the Calendar job projection (`staffReservationReleased`), so the
- * conflict reader and the read model cannot drift.
+ * Only a planned on-site `NEW` job can be released, and only while it still
+ * carries a real (positive) persisted interval. A legacy START_ONLY row
+ * (`scheduled_ends_at IS NULL`) is projected by the Calendar with a start and
+ * no end, but it never occupied a Staff interval, so there is no reservation
+ * to report as released. A non-positive interval is the same: it was never
+ * occupancy.
+ *
+ * The predicate is reused verbatim by the Calendar job projection
+ * (`staffReservationReleased`), so the conflict reader and the read model
+ * cannot drift.
  */
 export const JOB_STAFF_RESERVATION_RELEASED_SQL = `(
   j.status = 'NEW'
   AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
   AND j.scheduled_at IS NOT NULL
+  AND j.scheduled_ends_at IS NOT NULL
+  AND j.scheduled_ends_at > j.scheduled_at
   AND EXISTS (
     SELECT 1
     FROM (

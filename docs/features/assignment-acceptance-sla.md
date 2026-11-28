@@ -927,25 +927,32 @@ hash extended with `assignmentReason { code, text }`), STAFF assignee only.
 `{ clientActionId, expectedVersion, pastStartAcknowledgement? }`.
 MANAGER/ADMIN only (STAFF 403 before lookup), job `NEW`, `PRODUCT_DELIVERY` /
 `SALES_MEETING` with `scheduledAt`, flag on (else 409 `ASSIGNMENT_WINDOW_DISABLED`).
-A live `OPEN` offer (`now < due`) → 409 `ASSIGNMENT_OFFER_ALREADY_OPEN`; an
-overdue `OPEN` offer is closed `EXPIRED` (closed_by NULL) in the same
-transaction, with its activity but no expiry notification (the acting manager
-is handling it). Opens a new offer (`REOFFER`) to the current assignee with the
-rules above; version +1; idempotent with request hash; assignee locked before
-the job. Before anything is written, it re-checks the current assignee's planned
-interval with the shared occupancy reader, this job excluded: a conflict is
-`409 CALENDAR_CONFLICT` and rolls back the overdue close too. Response 201
-`{ jobCardId, offerId, acceptanceDueAt, urgentReason }`.
+A live, on-time `OPEN` offer (`now < due`) → 409 `ASSIGNMENT_OFFER_ALREADY_OPEN`
+**before** any occupancy check, even when stale/historical rows overlap the
+interval. Otherwise, under the same assignee-before-job lock, the current
+assignee's planned interval is re-checked with the shared occupancy reader,
+this job excluded: a conflict is `409 CALENDAR_CONFLICT` and writes nothing.
+Only a free interval lets an overdue `OPEN` offer be closed `EXPIRED`
+(closed_by NULL) in the same transaction, with its activity but no expiry
+notification (the acting manager is handling it), and a new offer (`REOFFER`)
+be opened to the current assignee with the rules above; version +1; idempotent
+with request hash. The conflict rolls the overdue close back too. Response 201
+`{ jobCardId, offerId, acceptanceDueAt, urgentReason }`. The new offer's
+`opened_at` follows the monotonic rule in the next section.
 
 ### Released Staff reservation (RESCUE-004/A)
 
 A planned on-site job in `NEW` stops occupying its assignee's time when the
 job's **newest** assignment offer (`opened_at DESC, id DESC`, selected before
 any assignee/state filter) belongs to the current assignee and is `DECLINED` or
-`RELEASED`. This is the only release. `OPEN`, `ACCEPTED`, `EXPIRED`,
-`WITHDRAWN`, no offer, a different assignee's answer, an older answer and every
-other status keep the SCH-001 occupancy exactly; urgent `OPEN` offers still
-occupy.
+`RELEASED`. This is the only release, and only a positive persisted interval
+can be released (`scheduled_at` and `scheduled_ends_at` present,
+`scheduled_ends_at > scheduled_at`). A legacy START_ONLY row
+(`scheduled_ends_at` NULL) is projected with a start and no end but never held
+a Staff interval, so it is never reported as released. `OPEN`, `ACCEPTED`,
+`EXPIRED`, `WITHDRAWN`, no offer, a different assignee's answer, an older
+answer and every other status keep the SCH-001 occupancy exactly; urgent `OPEN`
+offers still occupy.
 
 - The job, its `NEW` status, assignee, customer plan, history,
   assignment/OVR-7 evidence and notifications remain unchanged. Decline and
@@ -962,6 +969,17 @@ occupy.
 - With the assignment window off, a legacy `ACCEPT_ASSIGNMENT` / `START` of a
   job whose newest offer is `DECLINED`/`RELEASED` performs the same users-first
   lock and check, so toggling the flag cannot blindly reclaim a released slot.
+  That branch, like the release predicate, applies only to a positive persisted
+  interval; a START_ONLY row keeps its old lifecycle (including the existing
+  START interval requirement).
+- Re-offer keeps `ASSIGNMENT_OFFER_ALREADY_OPEN` precedence for a live on-time
+  `OPEN` offer before the occupancy check. Every producer that opens an
+  answerable offer through `openAssignmentOffer` records
+  `opened_at = max(requestTime, latest_opened_at + 1 ms)` and computes
+  the deadline/urgency/acknowledgement from that effective instant, so a tied
+  or regressed request clock cannot leave the fresh `OPEN` offer ranked below
+  the `DECLINED`/`RELEASED` answer it re-acquires. Historical rows are never
+  updated; the logical bump is at most 1 ms beyond the latest persisted offer.
 - Realtime refresh reuses the existing `job.updated` event and its `calendar`
   resource key; no notification kind is added. No flag or migration is added.
   `server/src/modules/job-cards/occupancy.ts` owns the single predicate, used

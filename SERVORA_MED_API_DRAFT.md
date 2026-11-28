@@ -1478,12 +1478,14 @@ receives `job.assignment_declined`. A `SCHEDULE_CONFLICT` release carries the sa
 
 MANAGER/ADMIN only (`403 FORBIDDEN` before lookup), flag on (else
 `409 ASSIGNMENT_WINDOW_DISABLED`), job `NEW`, `PRODUCT_DELIVERY` / `SALES_MEETING` with a
-`scheduledAt`. A live `OPEN` offer (`requestTime < acceptanceDueAt`) returns
-`409 ASSIGNMENT_OFFER_ALREADY_OPEN`; an overdue one is closed `EXPIRED` (no actor) in the
-same transaction. A new `REOFFER` offer opens to the current assignee and `version` +1.
-Idempotent through the request hash. Before writing, the current assignee's planned interval is
-re-checked with the shared occupancy reader (this job excluded); a conflict is
-`409 CALENDAR_CONFLICT` and rolls back the overdue close too.
+`scheduledAt`. A live, on-time `OPEN` offer (`requestTime < acceptanceDueAt`) returns
+`409 ASSIGNMENT_OFFER_ALREADY_OPEN` **before** any occupancy check, even when stale/historical
+rows overlap the interval. Otherwise, under the same users-first lock, the current assignee's
+planned interval is re-checked with the shared occupancy reader (this job excluded); a conflict
+is `409 CALENDAR_CONFLICT` and writes nothing. Only a free interval lets an overdue `OPEN` offer
+be closed `EXPIRED` (no actor) and a new `REOFFER` offer be written to the current assignee
+(`version` +1); the conflict rolls the overdue close back too. Idempotent through the request
+hash. The new offer's `opened_at` is monotonic (see "Released Staff reservation").
 
 Response `201`:
 
@@ -1498,7 +1500,10 @@ A planned `PRODUCT_DELIVERY` / `SALES_MEETING` in `NEW` releases its Staff reser
 job's newest assignment offer (canonical `opened_at DESC, id DESC`, inspected before any
 assignee/state filter) belongs to the job's current assignee and is `DECLINED` or `RELEASED`.
 `OPEN` (including urgent), `ACCEPTED`, `EXPIRED`, `WITHDRAWN`, no offer, a different assignee's
-answer, an older answer and every other status still occupy exactly as SCH-001 says. Decline and
+answer, an older answer and every other status still occupy exactly as SCH-001 says. Only a
+positive persisted interval can be released: a legacy START_ONLY row (`scheduled_ends_at` NULL)
+is projected in the Calendar with a start and no end but never held a Staff interval, so it is
+not reported as released and keeps its pre-existing ACCEPT/START lifecycle. Decline and
 release never change the job status, assignee, customer plan, history, assignment/OVR-7 evidence
 or notifications. The `409 CALENDAR_CONFLICT` envelope is unchanged.
 
@@ -1509,7 +1514,16 @@ Calendar writes. Re-offer, reassign/reschedule, proposal acceptance and any othe
 that makes a released job occupy again take the users-first lock and re-check the interval with
 this job excluded. With the assignment window off, a legacy `ACCEPT_ASSIGNMENT` / `START` of a
 job whose newest offer is `DECLINED`/`RELEASED` performs the same lock and check, so a flag
-toggle cannot blindly reclaim the slot.
+toggle cannot blindly reclaim the slot. That legacy branch, like the release predicate, applies
+only to a positive persisted interval; a START_ONLY row keeps its old ACCEPT/START behavior.
+
+Every producer that opens an answerable offer through `openAssignmentOffer` writes it at
+`opened_at = max(requestTime, latest_opened_at + 1 ms)` and computes the opening policy
+(acceptance deadline, urgency, past-start acknowledgement) from that effective instant. Equal
+request timestamps or a request clock behind the latest writer therefore cannot leave a fresh
+`OPEN` offer ranked below the `DECLINED`/`RELEASED` answer it re-acquires. Historical rows are
+never updated; the bump is at most 1 ms beyond the latest persisted offer, so SLA behavior is
+otherwise unchanged. A START_ONLY row has no interval to acquire.
 
 `GET /api/calendar` (and any Calendar job projection) adds exactly one additive job field:
 

@@ -3298,6 +3298,10 @@ management decision list.
 > [SCH-001](#sch-001--staff-occupancy-is-a-core-rule-the-calendar-module-contributes)
 > ("Addendum (RESCUE-004/A)"). JOB-010 §5's deadline, answers, history and
 > notifications are unchanged; only the occupancy consequence is amended.
+> Re-offer keeps `ASSIGNMENT_OFFER_ALREADY_OPEN` precedence for a live, on-time
+> `OPEN` offer before the occupancy check, and the new-offer `opened_at`
+> monotonic bump (with the deadline computed from that effective instant) is
+> owned by the SCH-001 addendum item 8.
 
 ## OVR-5 — Revision correction deadline and authorized deadline extension
 
@@ -3922,7 +3926,12 @@ turning a module off must not weaken a core workflow rule.
    **newest** assignment offer for that job belongs to the job's current
    assignee and its state is `DECLINED` or `RELEASED`. The newest offer is
    selected by canonical order (`opened_at DESC, id DESC`) **before** any
-   assignee/state filter. Older rows never color or release newer work.
+   assignee/state filter. Older rows never color or release newer work. Only a
+   **positive persisted interval** can be released (`scheduled_at IS NOT NULL`,
+   `scheduled_ends_at IS NOT NULL`, `scheduled_ends_at > scheduled_at`): a
+   legacy START_ONLY row is projected in the Calendar with a start and no end
+   but never held a Staff interval, so it is never reported as released and
+   keeps its pre-existing lifecycle (including the START interval validation).
 2. **Everything else keeps SCH-001.** `OPEN`, `ACCEPTED`, `EXPIRED`,
    `WITHDRAWN`, no offer, only a change request, another assignee's newest
    offer, and every other status (`ACCEPTED`, `IN_PROGRESS`,
@@ -3945,10 +3954,16 @@ turning a module off must not weaken a core workflow rule.
    JOB-012 proposal acceptance and every other allowed path that can make a
    released job occupy again acquire the existing users-first lock and check
    the interval with the same reader, excluding the job. A conflict is the
-   existing `409 CALENDAR_CONFLICT` envelope and writes nothing. Because the
+   existing `409 CALENDAR_CONFLICT` envelope and writes nothing. A live,
+   on-time `OPEN` offer keeps the established `409 ASSIGNMENT_OFFER_ALREADY_OPEN`
+   precedence, even when stale/historical overlapping rows exist; otherwise the
+   occupancy check runs under that lock **before** an overdue-offer close or
+   any offer write, so a conflict rolls back the close too. Because the
    assignment-window flag is optional, a legacy (window-off) `ACCEPT_ASSIGNMENT`
    or `START` of a job whose newest offer is `DECLINED`/`RELEASED` performs the
    same lock and check, so toggling the flag cannot blindly reclaim a slot.
+   Like the release predicate, that legacy branch applies only to a positive
+   persisted interval; a START_ONLY row keeps its old behavior.
 6. **No new flag or migration.** The latest-offer history already carries the
    fact; there is no backfill. Realtime refresh reuses the existing
    `job.updated` event and its `calendar` resource key; no new notification
@@ -3961,6 +3976,21 @@ turning a module off must not weaken a core workflow rule.
    the job, its assignee or history. Turning the optional Calendar or the
    assignment window off does not erase the recorded refusal or restore
    ownership of the released slot.
+8. **Monotonic offer order.** Every producer that opens an answerable offer
+   through `openAssignmentOffer` (create, sale approval, follow-up, reassign,
+   reschedule, re-offer) records the new offer at
+   `max(requestTime, canonical latest opened_at + 1 ms)` and computes the
+   opening policy (deadline, urgency, past-start acknowledgement) from that
+   effective instant. This is at most a 1 ms logical bump and affects only
+   a request clock that ties or regresses behind the latest persisted offer; it
+   guarantees a successful re-acquisition inserts an `OPEN` offer that canonical
+   `opened_at DESC, id DESC` reads see as newest instead of the `DECLINED` /
+   `RELEASED` answer it replaces. Existing rows are never updated; the
+   alternative would be a retriable atomic conflict on a truly regressed
+   clock, which is not needed for this bounded guarantee. `acceptance_due_at`,
+   urgency and the response therefore agree with the stored `opened_at`, and
+   SLA behavior is otherwise unchanged. A START_ONLY row still has no interval
+   to acquire.
 
 #### Consequences
 
