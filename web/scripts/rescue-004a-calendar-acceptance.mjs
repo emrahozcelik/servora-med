@@ -202,6 +202,29 @@ function makeJobDetail(event) {
   };
 }
 
+function makeJobListItem(event) {
+  return {
+    id: event.jobCardId,
+    type: event.jobType,
+    status: event.jobStatus,
+    version: event.version,
+    title: event.title,
+    priority: event.priority,
+    dueDate: null,
+    scheduledAt: event.startsAt,
+    scheduledEndsAt: event.endsAt,
+    engagementKind: event.jobType === 'SALES_MEETING' ? 'CUSTOMER_VISIT' : null,
+    createdAt: '2026-11-25T12:00:00.000Z',
+    updatedAt: '2026-11-26T07:30:00.000Z',
+    staffCompletedAt: null,
+    customer: event.customer,
+    contact: null,
+    assignee: event.assignedUser,
+    deliveryItemCount: 0,
+    allowedCommands: ['CANCEL'],
+  };
+}
+
 const emptyList = { items: [], total: 0, limit: 25, offset: 0, nextCursor: null };
 
 const viewportModes = [
@@ -225,6 +248,7 @@ const report = {
     'EventSource disabled (realtime offline)',
     'Service worker blocked',
   ],
+  screenshots: [],
   viewports: [],
   interactions: {},
   moduleOff: {},
@@ -233,6 +257,24 @@ const report = {
 
 function requireCheck(condition, message) {
   if (!condition) report.issues.push(message);
+}
+
+async function captureScreenshot(page, filename, { fullPage = true } = {}) {
+  await page.screenshot({ path: resolve(evidenceDir, filename), fullPage });
+  if (!report.screenshots.includes(filename)) {
+    report.screenshots.push(filename);
+  }
+}
+
+async function measureOverlayTargets(container, selector) {
+  return container.locator(selector).evaluateAll((elements) => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      label: element.getAttribute('aria-label') || element.textContent?.trim() || element.id || element.tagName,
+      width: Math.round(rect.width * 100) / 100,
+      height: Math.round(rect.height * 100) / 100,
+    };
+  }));
 }
 
 async function setupCalendarPage(browser, url, options = {}) {
@@ -252,6 +294,11 @@ async function setupCalendarPage(browser, url, options = {}) {
   const unexpectedRequests = [];
   const apiCalls = [];
   const patches = [];
+  let conflictRemaining = options.conflictCount ?? 0;
+  let releasePendingPatch;
+  const pendingPatchGate = new Promise((resolveGate) => {
+    releasePendingPatch = resolveGate;
+  });
 
   page.on('pageerror', (err) => errors.push(err.message));
   await page.addInitScript(() => {
@@ -372,9 +419,10 @@ async function setupCalendarPage(browser, url, options = {}) {
       });
     }
     if (method === 'GET' && pathname === '/api/job-cards') {
+      const jobItems = events.filter((e) => e.source === 'JOB').map(makeJobListItem);
       return send({
-        items: events.filter((e) => e.source === 'JOB').map(makeJobDetail),
-        total: 3,
+        items: jobItems,
+        total: jobItems.length,
         limit: 25,
         offset: 0,
         nextCursor: null,
@@ -407,6 +455,23 @@ async function setupCalendarPage(browser, url, options = {}) {
       const id = pathname.split('/')[3];
       const body = request.postDataJSON();
       patches.push({ id, body });
+      if (conflictRemaining > 0) {
+        conflictRemaining -= 1;
+        return send({
+          code: 'CALENDAR_CONFLICT',
+          error: 'Bu zaman aralığı başka bir planla çakışıyor.',
+          details: {
+            conflicts: [{
+              id: 'conflict-1',
+              title: 'Klinik Cihaz Eğitimi',
+              startsAt: '2026-11-26T10:30:00.000Z',
+            }],
+          },
+        }, 409);
+      }
+      if (options.holdPatch) {
+        await pendingPatchGate;
+      }
       const idx = events.findIndex((e) => e.jobCardId === id);
       if (idx >= 0) {
         events[idx] = {
@@ -426,6 +491,7 @@ async function setupCalendarPage(browser, url, options = {}) {
       && (pathname === '/api/job-cards/change-requests/open'
         || pathname.endsWith('/assignment-offers/needs-action')
         || pathname === '/api/job-cards/pending-acceptance/past-start'
+        || pathname.endsWith('/overview')
         || pathname === '/api/overview')
     ) {
       return send(emptyList);
@@ -440,7 +506,15 @@ async function setupCalendarPage(browser, url, options = {}) {
     await page.locator('.servora-calendar-root').waitFor();
     await page.locator('.calendar-event-card').first().waitFor();
   }
-  return { context, page, errors, unexpectedRequests, apiCalls, patches };
+  return {
+    context,
+    page,
+    errors,
+    unexpectedRequests,
+    apiCalls,
+    patches,
+    releasePatch: () => releasePendingPatch?.(),
+  };
 }
 
 async function measureCalendar(page, mode) {
@@ -453,11 +527,15 @@ async function measureCalendar(page, mode) {
       '.calendar-event-actions button',
       '.calendar-event-actions a',
       '.page-create-action',
+      '.desktop-shell-topbar button',
       '.mobile-bottom-nav a',
       '.mobile-bottom-nav button',
       '.mobile-top-bar button',
       '.mobile-top-bar a',
     ];
+    if (!currentMode.compact && currentMode.width >= 1440) {
+      targetSelectors.push('.servora-calendar-event-summary');
+    }
     for (const selector of targetSelectors) {
       for (const el of document.querySelectorAll(selector)) {
         const rect = el.getBoundingClientRect();
@@ -472,6 +550,41 @@ async function measureCalendar(page, mode) {
         });
       }
     }
+
+    const dayGridDateButtons = [...document.querySelectorAll('.servora-calendar-date')]
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          label: el.textContent?.trim() ?? '',
+          width: Math.round(rect.width * 100) / 100,
+          height: Math.round(rect.height * 100) / 100,
+          minHeightCss: getComputedStyle(el).minHeight,
+        };
+      })
+      .filter((entry) => entry.width > 0 && entry.height > 0);
+    const desktopChipDimensions = [...document.querySelectorAll('.servora-calendar-event-summary')]
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          eventId: el.getAttribute('data-event-id'),
+          width: Math.round(rect.width * 100) / 100,
+          height: Math.round(rect.height * 100) / 100,
+          minHeightCss: getComputedStyle(el).minHeight,
+        };
+      });
+
+    const samplePageCreate = document.querySelector('.page-create-action');
+    const sampleHeading = document.querySelector('.calendar-agenda-heading');
+    const sampleTransitionEl = document.querySelector('.calendar-help a, .servora-calendar-item');
+    const rootFontPx = Math.round(Number.parseFloat(getComputedStyle(document.documentElement).fontSize) * 100) / 100;
+    const pageCreateFontPx = samplePageCreate && getComputedStyle(samplePageCreate).display !== 'none'
+      ? Math.round(Number.parseFloat(getComputedStyle(samplePageCreate).fontSize) * 100) / 100
+      : null;
+    const agendaHeadingFontPx = sampleHeading
+      ? Math.round(Number.parseFloat(getComputedStyle(sampleHeading).fontSize) * 100) / 100
+      : null;
+    const reducedMotionMatches = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const computedTransitionDuration = sampleTransitionEl ? getComputedStyle(sampleTransitionEl).transitionDuration : null;
 
     const cards = [...document.querySelectorAll('.calendar-event-card')].map((card) => ({
       title: card.querySelector('h3')?.textContent?.trim() ?? '',
@@ -508,11 +621,24 @@ async function measureCalendar(page, mode) {
     return {
       mode: currentMode.name,
       viewport: [currentMode.width, currentMode.height],
+      dpr: window.devicePixelRatio,
+      rootFontPx,
+      pageCreateFontPx,
+      agendaHeadingFontPx,
+      reducedMotionMatches,
+      computedTransitionDuration,
       documentScrollWidth: document.documentElement.scrollWidth,
       documentClientWidth: document.documentElement.clientWidth,
       overflowX: docOverflow,
       targets,
       minTargetPx: targets.length ? Math.min(...targets.map((t) => Math.min(t.width, t.height))) : 0,
+      dayGridConstraints: {
+        note: 'Pre-existing C1 monthly grid density contract (min-height: 0 on .servora-calendar-date and <=50px month-cell chips, enforced by calendar-responsive-smoke.mjs).',
+        dateButtonsCount: dayGridDateButtons.length,
+        dateButtonMinHeightPx: dayGridDateButtons.length ? Math.min(...dayGridDateButtons.map((d) => d.height)) : null,
+        dateButtonSample: dayGridDateButtons.slice(0, 3),
+        desktopChipDimensions,
+      },
       cards,
       desktopChips,
       compactAttention: compactAttentionCount
@@ -549,7 +675,7 @@ try {
     metrics.subMinimumText = subMinText;
     report.viewports.push(metrics);
 
-    await page.screenshot({ path: resolve(evidenceDir, mode.screenshot), fullPage: true });
+    await captureScreenshot(page, mode.screenshot);
 
     requireCheck(!metrics.overflowX, `${mode.name}: horizontal overflow (${metrics.documentScrollWidth} > ${metrics.documentClientWidth})`);
     requireCheck(subMinText.length === 0, `${mode.name}: text below 12px (${JSON.stringify(subMinText)})`);
@@ -558,6 +684,26 @@ try {
         target.width >= 43.5 && target.height >= 43.5,
         `${mode.name}: target "${target.label}" below 44 CSS px (${target.width}x${target.height})`,
       );
+    }
+
+    if (mode.name === '200pct') {
+      const baseline390 = report.viewports.find((v) => v.mode === '390');
+      const expectedRootPx = (baseline390?.rootFontPx ?? 16) * 2;
+      requireCheck(
+        metrics.rootFontPx >= expectedRootPx - 0.1,
+        `200pct: computed root font-size ${metrics.rootFontPx}px below 200% of ${baseline390?.rootFontPx ?? 16}px`,
+      );
+      requireCheck(
+        (metrics.agendaHeadingFontPx ?? 0) >= (baseline390?.agendaHeadingFontPx ?? 16) * 2 - 0.1,
+        `200pct: computed .calendar-agenda-heading font-size ${metrics.agendaHeadingFontPx}px did not scale to 200%`,
+      );
+    }
+    if (mode.name === '400pct-reflow') {
+      requireCheck(metrics.dpr === 4, `400pct-reflow: expected dpr 4, got ${metrics.dpr}`);
+    }
+    if (mode.name === 'reduced-motion') {
+      requireCheck(metrics.reducedMotionMatches === true, 'reduced-motion: prefers-reduced-motion media query did not match');
+      requireCheck(metrics.computedTransitionDuration === '0s', `reduced-motion: expected 0s transitionDuration, got ${metrics.computedTransitionDuration}`);
     }
 
     const releasedCard = metrics.cards.find((c) => c.title === 'Anadolu Dental ürün teslimi');
@@ -584,51 +730,184 @@ try {
     await context.close();
   }
 
-  // 2. Interactive detail & selection & save without client overlap blocking (390 & 1440)
+  // 2. Interactive detail, wheel, conflict error, held PATCH pending, settled success & reopen (390 & 1440)
   for (const width of [390, 1440]) {
-    const session = await setupCalendarPage(browser, url, { width, height: width === 390 ? 844 : 900 });
-    const { page, context, errors, unexpectedRequests, patches } = session;
+    const session = await setupCalendarPage(browser, url, {
+      width,
+      height: width === 390 ? 844 : 900,
+      conflictCount: 1,
+      holdPatch: true,
+    });
+    const { page, context, errors, unexpectedRequests, patches, releasePatch } = session;
+    try {
+      let chipSelection;
+      let compactDayRoutingOk = null;
+      if (width === 1440) {
+        await page.locator(`button.servora-calendar-event-summary[data-event-id="${releasedJobId}"]`).click();
+        await page.waitForURL(/\?event=/);
+        await page.locator('article[aria-current="true"] .servora-operational-card--selected').waitFor();
+        await page.locator('article[aria-current="true"] .calendar-released-badge').waitFor();
+        await captureScreenshot(page, 'calendar-selected-1440.png');
+        chipSelection = { status: 'passed', preservesReleasedBadge: true };
+      } else {
+        await page.locator('.servora-calendar--compact').waitFor();
+        await page.locator('[class*="picker-cell-in-view"]:has([class*="picker-calendar-date-value"]:text-is("27"))').first().click();
+        await page.locator('.calendar-event-card h3', { hasText: 'Klinik stok sayımı' }).waitFor();
+        await page.locator('[class*="picker-cell-in-view"]:has([class*="picker-calendar-date-value"]:text-is("26"))').first().click();
+        await page.locator('.calendar-event-card--released').waitFor();
+        compactDayRoutingOk = true;
+        chipSelection = {
+          status: 'skipped',
+          reason: 'Compact calendar (< 640px) routes agenda by day cell without inline month-cell event chips; inline chip selection (?event=) is verified at 1440px and in calendar-page.test.tsx.',
+        };
+      }
 
-    if (width === 1440) {
-      await page.locator(`button.servora-calendar-event-summary[data-event-id="${releasedJobId}"]`).click();
-      await page.waitForURL(/\?event=/);
-      await page.locator('article[aria-current="true"] .servora-operational-card--selected').waitFor();
-      await page.locator('article[aria-current="true"] .calendar-released-badge').waitFor();
-      await page.screenshot({ path: resolve(evidenceDir, 'calendar-selected-1440.png'), fullPage: true });
+      const releasedCard = page.locator('.calendar-event-card--released');
+      await releasedCard.getByRole('button', { name: 'Düzenle' }).click();
+      const drawer = page.locator('[data-servora-form-drawer] [role="dialog"]');
+      await drawer.locator('.calendar-form-released-notice').waitFor();
+      await drawer.locator('.available-slot-chip').first().waitFor();
+
+      const drawerTargets = await measureOverlayTargets(
+        drawer,
+        'button:visible, select:visible, input:visible:not(.wheel-field-proxy)',
+      );
+      for (const target of drawerTargets) {
+        requireCheck(
+          target.width >= 43.5 && target.height >= 43.5,
+          `interactive-${width}: drawer target "${target.label}" below 44 CSS px (${target.width}x${target.height})`,
+        );
+      }
+      await captureScreenshot(page, `calendar-detail-drawer-${width}.png`);
+
+      let wheelResult = { status: 'skipped', reason: 'Desktop (>= 1024px) renders native datetime-local input.' };
+      if (width === 390) {
+        const trigger = drawer.locator('#calendar-event-starts-at');
+        await trigger.click();
+        const wheel = page.locator('[data-servora-wheel-sheet="true"]');
+        await wheel.waitFor();
+
+        const wheelTargets = await measureOverlayTargets(
+          wheel,
+          'button:visible:not(.wheel-sheet-backdrop), [role="spinbutton"]:visible, .wheel-column-item[data-wheel-selected="true"]:visible',
+        );
+        for (const target of wheelTargets) {
+          requireCheck(
+            target.width >= 43.5 && target.height >= 43.5,
+            `interactive-390: wheel target "${target.label}" below 44 CSS px (${target.width}x${target.height})`,
+          );
+        }
+        await captureScreenshot(page, 'calendar-wheel-open-390.png');
+
+        await page.keyboard.press('Escape');
+        await wheel.waitFor({ state: 'hidden' });
+        assert.equal(await drawer.isVisible(), true);
+        assert.equal(await trigger.evaluate((el) => el === document.activeElement), true);
+
+        await trigger.click();
+        await wheel.waitFor();
+        const hourColumn = wheel.locator('[role="spinbutton"][aria-label="Saat"]');
+        await hourColumn.focus();
+        await page.keyboard.press('ArrowUp');
+        await wheel.getByRole('button', { name: 'Tamam', exact: true }).click();
+        await wheel.waitFor({ state: 'hidden' });
+        assert.equal(await trigger.evaluate((el) => el === document.activeElement), true);
+        const updatedTriggerLabel = await trigger.textContent();
+        assert.match(updatedTriggerLabel ?? '', /13:30/);
+        wheelResult = {
+          status: 'passed',
+          escapeRestoredFocus: true,
+          tamamUpdatedValueAndRestoredFocus: true,
+          updatedTriggerLabel: updatedTriggerLabel?.trim() ?? '',
+          minWheelTargetPx: Math.min(...wheelTargets.map((t) => Math.min(t.width, t.height))),
+          wheelTargets,
+        };
+      } else {
+        await drawer.locator('#calendar-event-starts-at').fill('2026-11-26T13:30');
+      }
+
+      // Real visible API conflict error (409 CALENDAR_CONFLICT) preserving draft
+      await drawer.getByRole('button', { name: 'Kaydet' }).click();
+      const errorBox = drawer.locator('.form-error[role="alert"]');
+      await errorBox.waitFor();
+      await drawer.locator('.available-slot-chip').first().waitFor();
+      const errorText = await errorBox.textContent();
+      assert.match(errorText ?? '', /Bu zaman aralığı başka bir planla çakışıyor\. Taslağınız korundu\./);
+      assert.match(errorText ?? '', /Klinik Cihaz Eğitimi/);
+      assert.equal(patches.length, 1);
+      await captureScreenshot(page, `calendar-form-error-${width}.png`);
+
+      // Resolve via AvailableSlotsNotice & test controlled held PATCH pending disabled/loading state
+      await drawer.locator('.available-slot-chip').first().click();
+      await drawer.getByRole('button', { name: 'Kaydet' }).click();
+      const pendingSubmit = drawer.getByRole('button', { name: 'Kaydediliyor…' });
+      await pendingSubmit.waitFor();
+      assert.equal(await pendingSubmit.isDisabled(), true);
+      assert.equal(await drawer.locator('fieldset').evaluate((el) => el.disabled), true);
+      assert.equal(await drawer.locator('#calendar-event-starts-at').isDisabled(), true);
+      assert.equal(await drawer.locator('select').isDisabled(), true);
+      assert.equal(await drawer.locator('.available-slot-chip').first().isDisabled(), true);
+      await captureScreenshot(page, `calendar-form-pending-${width}.png`);
+
+      // Release PATCH -> drawer closes, Calendar refreshes with saved 17:00–18:00 interval
+      releasePatch();
+      await drawer.waitFor({ state: 'hidden' });
+      await releasedCard.locator('.calendar-event-time', { hasText: '17:00 – 18:00' }).waitFor();
+      if (width === 1440) {
+        await page.locator(`button.servora-calendar-event-summary[data-event-id="${releasedJobId}"] .servora-calendar-event-time`, { hasText: '17:00' }).waitFor();
+        await captureScreenshot(page, `calendar-form-success-${width}.png`);
+      } else {
+        await releasedCard.scrollIntoViewIfNeeded();
+        await captureScreenshot(page, `calendar-form-success-${width}.png`, { fullPage: false });
+      }
+      assert.equal(patches.length, 2);
+      assert.equal(patches[1].id, releasedJobId);
+      assert.equal(patches[1].body.scheduledAt, '2026-11-26T14:00:00.000Z');
+
+      // Reopen editing drawer -> confirms saved server time and preserved released notice
+      await releasedCard.getByRole('button', { name: 'Düzenle' }).click();
+      await drawer.locator('.calendar-form-released-notice').waitFor();
+      await drawer.locator('.available-slot-chip').first().waitFor();
+      if (width === 390) {
+        assert.match((await drawer.locator('#calendar-event-starts-at').textContent()) ?? '', /17:00/);
+      } else {
+        assert.equal(await drawer.locator('#calendar-event-starts-at').inputValue(), '2026-11-26T17:00');
+      }
+      await captureScreenshot(page, `calendar-form-reopened-${width}.png`);
+      await drawer.getByRole('button', { name: 'Vazgeç' }).click();
+      await drawer.waitFor({ state: 'hidden' });
+
+      // Route navigation: Calendar -> JobDetail -> back to Calendar
+      await releasedCard.getByRole('link', { name: 'İşi aç' }).click();
+      await page.waitForURL(new RegExp(`/jobs/${releasedJobId}$`));
+      await page.locator('h1', { hasText: 'Anadolu Dental ürün teslimi' }).waitFor();
+
+      const backControl = width < 1024
+        ? page.getByRole('link', { name: 'Takvim', exact: false }).first()
+        : page.getByRole('link', { name: 'Takvime dön' });
+      await backControl.click();
+      await page.waitForURL(/\/calendar/);
+      await page.locator('.calendar-event-card--released').waitFor();
+
+      requireCheck(errors.length === 0, `interactive-${width}: page errors (${errors.join(', ')})`);
+      requireCheck(unexpectedRequests.length === 0, `interactive-${width}: unexpected requests (${unexpectedRequests.join(', ')})`);
+      report.interactions[`width_${width}`] = {
+        chipSelection,
+        compactDayRoutingOk,
+        drawerOpenedAndNoticeVisible: true,
+        minDrawerTargetPx: Math.min(...drawerTargets.map((t) => Math.min(t.width, t.height))),
+        drawerTargets,
+        wheel: wheelResult,
+        conflictErrorShownAndDraftPreserved: true,
+        pendingDisabledAndLoadingVerified: true,
+        successPersistedAndReopenedVerified: true,
+        patchNotBlockedByClient: patches.length === 2,
+        roundTripNavigationOk: true,
+      };
+    } finally {
+      releasePatch();
+      await context.close();
     }
-
-    const releasedCard = page.locator('.calendar-event-card--released');
-    await releasedCard.getByRole('button', { name: 'Düzenle' }).click();
-    const drawer = page.locator('[data-servora-form-drawer] [role="dialog"]');
-    await drawer.locator('.calendar-form-released-notice').waitFor();
-    await page.screenshot({ path: resolve(evidenceDir, `calendar-detail-drawer-${width}.png`), fullPage: true });
-
-    await drawer.getByRole('button', { name: 'Kaydet' }).click();
-    await drawer.waitFor({ state: 'hidden' });
-    assert.equal(patches.length, 1);
-    assert.equal(patches[0].id, releasedJobId);
-
-    // Route navigation: Calendar -> JobDetail -> back to Calendar
-    await releasedCard.getByRole('link', { name: 'İşi aç' }).click();
-    await page.waitForURL(new RegExp(`/jobs/${releasedJobId}$`));
-    await page.locator('h1', { hasText: 'Anadolu Dental ürün teslimi' }).waitFor();
-
-    const backControl = width < 1024
-      ? page.getByRole('link', { name: 'Takvim', exact: false }).first()
-      : page.getByRole('link', { name: 'Takvime dön' });
-    await backControl.click();
-    await page.waitForURL(/\/calendar/);
-    await page.locator('.calendar-event-card--released').waitFor();
-
-    requireCheck(errors.length === 0, `interactive-${width}: page errors (${errors.join(', ')})`);
-    requireCheck(unexpectedRequests.length === 0, `interactive-${width}: unexpected requests (${unexpectedRequests.join(', ')})`);
-    report.interactions[`width_${width}`] = {
-      selectedPreservesReleasedBadge: width === 1440,
-      drawerOpenedAndNoticeVisible: true,
-      patchNotBlockedByClient: patches.length === 1,
-      roundTripNavigationOk: true,
-    };
-    await context.close();
   }
 
   // 3. Safe module-off behavior (capabilities.calendar = false)
@@ -641,9 +920,10 @@ try {
     });
     const { page, context, errors, unexpectedRequests, apiCalls } = session;
     await page.waitForURL(/\/jobs$/);
+    await page.getByText('Anadolu Dental ürün teslimi').first().waitFor();
     const hasCalendarNav = await page.locator('nav a[href="/calendar"]').count();
     const calledCalendarApi = apiCalls.some((call) => call.includes('/api/calendar'));
-    await page.screenshot({ path: resolve(evidenceDir, 'calendar-module-off-1440.png'), fullPage: true });
+    await captureScreenshot(page, 'calendar-module-off-1440.png');
 
     requireCheck(hasCalendarNav === 0, 'module-off: Takvim navigation link still visible');
     requireCheck(!calledCalendarApi, 'module-off: /api/calendar was called when module is disabled');
