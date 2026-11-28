@@ -709,13 +709,20 @@ describe('RESCUE-003 on the real JobDetail page', () => {
     });
     await settle();
 
-    const trigger = buttonByText(container, 'Personeli ve zamanı birlikte değiştir');
+    const trigger = container.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]');
     expect(trigger).not.toBeNull();
     await act(async () => trigger!.click());
     await settle();
 
-    const form = container.querySelector<HTMLFormElement>('[data-assignment-transfer-form="true"]');
+    const form = container.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]');
     expect(form).not.toBeNull();
+    const transferRadio = form!.querySelector<HTMLInputElement>(
+      'input[name="manager-recovery-decision"][value="REASSIGN_AND_RESCHEDULE"]',
+    );
+    expect(transferRadio).not.toBeNull();
+    await act(async () => transferRadio!.click());
+    await settle();
+
     await act(async () => {
       setNativeValue(form!.querySelector<HTMLSelectElement>('select[name=assignedTo]')!, nextStaff.user.id);
       setNativeValue(form!.querySelector<HTMLInputElement>('input[name=scheduledAt]')!, NEW_START_LOCAL);
@@ -748,9 +755,9 @@ describe('RESCUE-003 on the real JobDetail page', () => {
       await settle();
 
       const notice = container.querySelector('[data-job-detail-committed-refresh]');
-      expect(notice?.textContent).toContain('Personel ve plan değişikliğinin sonucu doğrulanamadı.');
-      expect(container.querySelector('[data-assignment-transfer-form]')).toBeNull();
-      expect(container.querySelector<HTMLButtonElement>('[data-change-request-resolve="REJECTED"]')?.disabled).toBe(true);
+      expect(notice?.textContent).toContain('Personel ve plan değişikliği kaydedilemedi. İşlemin sonucu doğrulanamadı.');
+      expect(container.querySelector('[data-manager-recovery-form]')).toBeNull();
+      expect(container.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')?.disabled).toBe(true);
       expect(earlyStart()?.disabled).toBe(true);
       expect(messagingReads).toBe(initialMessagingReads);
       await act(async () => oldReads[1]!(json(before)));
@@ -761,7 +768,7 @@ describe('RESCUE-003 on the real JobDetail page', () => {
       await act(async () => buttonByText(notice!, 'Güncel durumu yenile')!.click());
       await settle();
       expect(container.querySelector('[data-job-detail-committed-refresh]')).toBeNull();
-      expect(container.querySelector<HTMLButtonElement>('[data-change-request-resolve="REJECTED"]')?.disabled).toBe(false);
+      expect(container.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]')?.disabled).toBe(false);
       expect(messagingReads).toBeGreaterThan(initialMessagingReads);
       expect(patchCalls(fetchMock)).toHaveLength(1);
       return;
@@ -775,6 +782,6 @@ describe('RESCUE-003 on the real JobDetail page', () => {
     // The refreshed card shows the new offer state, distinct from "accepted".
     expect(container.querySelector('[data-assignment-offer-state="OPEN"]')?.textContent)
       .toBe(opensOffer ? 'Yanıt bekliyor' : undefined);
-    expect(Boolean(container.querySelector('[data-assignment-offer-action="transfer-and-reschedule"]'))).toBe(!opensOffer);
+    expect(Boolean(container.querySelector('[data-manager-recovery="true"]'))).toBe(!opensOffer);
   });
 });

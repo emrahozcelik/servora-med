@@ -132,6 +132,7 @@ import {
 import { EarlyStartAuthorizationSection } from './jobs/EarlyStartAuthorization';
 import { ChangeRequestSection } from './jobs/ChangeRequests';
 import { AssignmentTransferAction, type RenderAssignmentTransfer } from './jobs/AssignmentTransferForm';
+import { ManagerRecoverySection } from './jobs/ManagerRecoverySection';
 import {
   AssignmentOfferSection,
   EMPTY_ASSIGNMENT_REASON,
@@ -991,10 +992,12 @@ export function CommittedStaleNotice({ message, kind = 'committed', reloadPendin
 
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false, messageIsConfirmed = false,
+  messageIsInfo = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   onSaveAllDeliveredAtNow, scheduleShiftSignal, scheduleCommittedSignal, onRequestChange,
   meetingDetails = null, records, realtimeStaleNotice, committedStaleNotice, notes, timeline, children,
-  pendingLabel, pendingCommand, continuity, submissionLateness, earlyStart, changeRequest, assignmentOffer,
+  pendingLabel, pendingCommand, continuity, submissionLateness, earlyStart, managerRecovery,
+  changeRequest, assignmentOffer,
   overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
   deadlineExtensionError = null, pairGuidance, pairManagedCommand = null,
@@ -1008,6 +1011,7 @@ export function JobDetailPanel({
   message: string;
   messageIsError?: boolean;
   messageIsConfirmed?: boolean;
+  messageIsInfo?: boolean;
   feedbackRef?: Ref<HTMLDivElement>;
   onCommand: (command: LifecycleCommand, trigger: HTMLButtonElement) => void;
   onRecordEdit?: (
@@ -1036,6 +1040,8 @@ export function JobDetailPanel({
   submissionLateness?: ReactNode;
   /** JOB-010 §1a early-start authorization action/status. */
   earlyStart?: ReactNode;
+  /** RESCUE-003/B unified management recovery surface. */
+  managerRecovery?: ReactNode;
   /** JOB-010 release 2a Staff change/termination request and its decision path. */
   changeRequest?: ReactNode;
   /** JOB-010 release 2b server-owned assignment offer and management recovery. */
@@ -1067,9 +1073,6 @@ export function JobDetailPanel({
   /** UI-FEEDBACK/A: the committed notice is the single visible/announced result. */
   const committedStale = committedStaleNotice !== undefined && committedStaleNotice !== null;
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
-  const showRecovery = isManagementUser(user)
-    && ((changeRequest != null && job.changeRequest != null)
-      || (assignmentOffer != null && hasManagementRecoveryOffer(job)));
   const recoveryContent = <>{changeRequest}{assignmentOffer}</>;
   const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
     && job.workflowContext.allowedActions.includes('EDIT_DELIVERY_ACTUAL_TIME')
@@ -1287,13 +1290,17 @@ export function JobDetailPanel({
         <div
           ref={committedStaleNotice ? undefined : feedbackRef}
           className={`detail-feedback${messageIsError ? ' detail-feedback-error'
-            : messageIsConfirmed ? ' detail-feedback-confirmed' : ''}`}
+            : messageIsInfo ? ' detail-feedback-info'
+              : messageIsConfirmed ? ' detail-feedback-confirmed' : ''}`}
           role={messageIsError ? 'alert' : 'status'}
           tabIndex={-1}
           data-job-detail-section="feedback"
         >
-          {messageIsConfirmed && !messageIsError && (
+          {messageIsConfirmed && !messageIsError && !messageIsInfo && (
             <SignalGlyph name="timeline-success" className="detail-feedback-icon" size={16} />
+          )}
+          {messageIsInfo && !messageIsError && (
+            <SignalGlyph name="timeline-info" className="detail-feedback-icon" size={16} />
           )}
           {message}
         </div>
@@ -1312,12 +1319,8 @@ export function JobDetailPanel({
       {realtimeStaleNotice}
       {continuity}
       {submissionLateness}
-      {showRecovery ? (
-        <details className="job-recovery" open>
-          <summary className="job-recovery-summary">Görevi çözüme ulaştır</summary>
-          {recoveryContent}
-        </details>
-      ) : recoveryContent}
+      {managerRecovery}
+      {recoveryContent}
       {!narrow && overdueHistory}
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
@@ -1709,6 +1712,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
   const [committedChildReceipt, setCommittedChildReceipt] = useState<string | null>(null);
+  const [committedChildTone, setCommittedChildTone] = useState<'confirmed' | 'info'>('confirmed');
   /** UI-FEEDBACK/A: a committed mutation whose canonical re-read failed. */
   const [committedStale, setCommittedStale] = useState<CommittedStaleNoticeState | null>(null);
   const committedStaleRef = useRef<CommittedStaleNoticeState | null>(null);
@@ -1719,6 +1723,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [notesRealtimeKey, setNotesRealtimeKey] = useState(0);
   const [messagingActionVisible, setMessagingActionVisible] = useState(false);
   const [followUpChildrenCount, setFollowUpChildrenCount] = useState<number | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [invalidationMutation, setInvalidationMutation] = useState<JobInvalidationMutationState>({ kind: 'idle' });
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   /**
@@ -2067,6 +2072,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setPendingCommand(null);
     setMessage('');
     setMessageIsError(false);
+    setCommittedChildReceipt(null);
+    setCommittedChildTone('confirmed');
     setMeetingSubmissionError(null);
     setInvalidationMutation({ kind: 'idle' });
     setDialog(null);
@@ -2298,6 +2305,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setPending(true);
     setMessage('');
     setMessageIsError(false);
+    setCommittedChildReceipt(null);
+    setCommittedChildTone('confirmed');
     try {
       const input: JobCardInvalidationInput = {
         clientActionId: attempt.clientActionId,
@@ -2491,7 +2500,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
    * must be a new live-region update, not a silent text mutation.
    */
   function clearChildReceipt() {
+    mutationEpoch.current += 1;
     setCommittedChildReceipt(null);
+    setCommittedChildTone('confirmed');
     setMessage('');
     setMessageIsError(false);
   }
@@ -2505,8 +2516,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
    * helper never throws for a read failure, so a committed child mutation is
    * never re-sent by a caller that caught one.
    */
-  async function settleChildCommit(receipt: string) {
+  async function settleChildCommit(receipt: string, tone: 'confirmed' | 'info' = 'confirmed') {
     setCommittedChildReceipt(receipt);
+    setCommittedChildTone(tone);
     // A child decision is a mutation too: invalidate reads that started before
     // the server accepted it, exactly like the in-page handlers do before their
     // request. An older realtime/refresh read must never overwrite the receipt
@@ -4206,11 +4218,16 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     || invalidationMutation.kind === 'reconciling'
     || invalidationMutation.kind === 'retry-ready';
   const invalidationLocked = pending || uncertain || invalidationMutationLocked
-    || saleCorrectionLocked || committedStale !== null;
+    || saleCorrectionLocked || recoveryBusy || committedStale !== null;
   // JOB-010 recovery: the assignment guidance reuses the one record-edit
   // reassignment flow the decision panel already offers.
   const detailPresentation = presentationFor(detail);
   const assignmentRecordEdit = detailPresentation.recordEditAction;
+  const hasRecoveryOffer = hasManagementRecoveryOffer(detail.job);
+  const hasOpenChangeRequest = detail.job.changeRequest != null
+    && detail.job.workflowContext.allowedActions.includes('RESOLVE_CHANGE_REQUEST');
+  const showManagerRecovery = isManagementUser(user)
+    && (hasRecoveryOffer || hasOpenChangeRequest);
   const canTransfer = isManagementUser(user)
     && (detail.kind === 'SALES_MEETING' || detail.kind === 'PRODUCT_DELIVERY')
     && assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
@@ -4304,7 +4321,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     pendingCommand={pendingCommand}
     message={message}
     messageIsError={messageIsError}
-    messageIsConfirmed={message === committedChildReceipt}
+    messageIsConfirmed={message === committedChildReceipt && committedChildTone === 'confirmed'}
+    messageIsInfo={message === committedChildReceipt && committedChildTone === 'info'}
     feedbackRef={feedbackRef}
     realtimeStaleNotice={realtimeStale && !committedStale ? <div className="detail-feedback detail-feedback-error" role="status">
       <p>Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.</p>
@@ -4341,41 +4359,69 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         onRefresh={() => reloadCommittedTruth()}
       />
     }
+    managerRecovery={
+      showManagerRecovery ? (
+        <ManagerRecoverySection
+          job={detail.job}
+          user={user}
+          disabled={pending || uncertain || invalidationMutationLocked || saleCorrectionLocked || committedStale !== null}
+          meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
+          onCommitted={settleChildCommit}
+          onActionStart={clearChildReceipt}
+          onRefresh={reloadCommittedTruth}
+          onUnknownOutcome={(unknownMessage) => {
+            mutationEpoch.current += 1;
+            updateCommittedStale({ kind: 'unknown', message: unknownMessage });
+            setFeedbackFocusRequest((value) => value + 1);
+          }}
+          onReassigned={offerReassignmentSync}
+          onChanged={() => {
+            setTimelineKey((value) => value + 1);
+            onChanged();
+          }}
+          onBusyChange={setRecoveryBusy}
+        />
+      ) : undefined
+    }
     changeRequest={
-      <ChangeRequestSection
-        job={detail.job}
-        user={user}
-        disabled={invalidationLocked}
-        openRequestSignal={changeRequestSignal}
-        canSetNewTime={Boolean(detailPresentation.scheduleEdit)}
-        renderTransferAction={transferFromChangeRequest ? renderTransferAction : undefined}
-        onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
-          ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
-          : undefined}
-        onCancel={(trigger) => { command('CANCEL', trigger); }}
-        onCommitted={settleChildCommit}
-        onActionStart={clearChildReceipt}
-        onRefresh={() => reloadCommittedTruth()}
-        onChanged={() => {
-          setTimelineKey((value) => value + 1);
-          void refreshTruth();
-        }}
-      />
+      !(isManagementUser(user) && showManagerRecovery) ? (
+        <ChangeRequestSection
+          job={detail.job}
+          user={user}
+          disabled={invalidationLocked}
+          openRequestSignal={changeRequestSignal}
+          canSetNewTime={Boolean(detailPresentation.scheduleEdit)}
+          renderTransferAction={transferFromChangeRequest ? renderTransferAction : undefined}
+          onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
+            ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
+            : undefined}
+          onCancel={(trigger) => { command('CANCEL', trigger); }}
+          onCommitted={settleChildCommit}
+          onActionStart={clearChildReceipt}
+          onRefresh={() => reloadCommittedTruth()}
+          onChanged={() => {
+            setTimelineKey((value) => value + 1);
+            void refreshTruth();
+          }}
+        />
+      ) : undefined
     }
     assignmentOffer={
-      <AssignmentOfferSection
-        job={detail.job}
-        user={user}
-        disabled={invalidationLocked}
-        onCommitted={settleChildCommit}
-        onActionStart={clearChildReceipt}
-        onRefresh={() => reloadCommittedTruth()}
-        canSetNewTime={Boolean(detailPresentation.scheduleEdit)}
-        renderTransferAction={transferFromChangeRequest ? undefined : renderTransferAction}
-        onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
-          ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
-          : undefined}
-      />
+      !(isManagementUser(user) && hasRecoveryOffer) ? (
+        <AssignmentOfferSection
+          job={detail.job}
+          user={user}
+          disabled={invalidationLocked}
+          onCommitted={settleChildCommit}
+          onActionStart={clearChildReceipt}
+          onRefresh={() => reloadCommittedTruth()}
+          canSetNewTime={Boolean(detailPresentation.scheduleEdit)}
+          renderTransferAction={transferFromChangeRequest ? undefined : renderTransferAction}
+          onReassign={assignmentRecordEdit?.action === 'EDIT_JOB_FIELDS'
+            ? (trigger) => { openRecordEditDialog('EDIT_JOB_FIELDS', trigger); }
+            : undefined}
+        />
+      ) : undefined
     }
     overdueHistory={isManagementUser(user) ? (
       <OverdueIncidentHistorySection jobId={jobId} collapsible={narrowDetail} />

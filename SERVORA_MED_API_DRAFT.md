@@ -712,10 +712,10 @@ type PatchDeadlineExtensionInput = {
   // ...ordinary editable fields
   /** Required when the change ends at least one open deadline obligation. */
   deadlineExtensionReason?: string
-  /** Resolves the job's OPEN change request atomically with a deadline move. */
+  /** Resolves the job's OPEN change request atomically with a schedule move or field edit. */
   changeRequestResolution?: {
     changeRequestId: string
-    resolution: 'RESCHEDULED'
+    resolution: 'RESCHEDULED' | 'CORRECTED'
     note?: string | null
   }
 }
@@ -756,17 +756,23 @@ type PatchDeadlineExtensionInput = {
   is appended per patch that ended something, with the delay types, per-episode old/new
   boundary, reason and revision number.
 - **Atomic change-request resolution.** `changeRequestResolution` is accepted only from
-  MANAGER/ADMIN and only when the same patch appends a schedule revision; otherwise
-  `400 VALIDATION_ERROR` with `fieldErrors.changeRequestResolution`. The named request
+  MANAGER/ADMIN (`STAFF` receives `400 VALIDATION_ERROR` with
+  `fieldErrors.changeRequestResolution`). `RESCHEDULED` is accepted only when the same
+  patch appends a schedule revision (`scheduledAt`, `scheduledEndsAt`, or `dueDate`
+  change); `CORRECTED` (RESCUE-003/B) is accepted only when the same patch persists at
+  least one actual field change on the JobCard (`title`, `description`, `customerId`,
+  `contactId`, `assignedTo`, `priority`, schedule/`dueDate` revision, or
+  `engagementKind`). A no-op patch or mismatched resolution returns `400 VALIDATION_ERROR`
+  with `fieldErrors.changeRequestResolution` and writes nothing. The named request
   must be this job's OPEN request: another job's or an unknown id is
   `404 CHANGE_REQUEST_NOT_FOUND`, an already resolved one is
-  `409 CHANGE_REQUEST_NOT_OPEN`, and nothing is written. Only `RESCHEDULED` is accepted;
-  `note` is optional and at most 2 000 characters. The resolution commits inside the
-  patch transaction (state, resolution, `resolved_by`, `resolved_at` = the patch instant,
-  `JOB_CHANGE_REQUEST_RESOLVED` activity, Staff notification and realtime event), in the
-  users → JobCard → change-request lock order. The server never resolves a request the
-  patch did not name. A replay of the same patch fails with the ordinary
-  `409 VERSION_CONFLICT` and resolves nothing twice.
+  `409 CHANGE_REQUEST_NOT_OPEN`, and nothing is written. Only `RESCHEDULED` and
+  `CORRECTED` are accepted here; `note` is optional and at most 2 000 characters. The
+  resolution commits inside the patch transaction (state, resolution, `resolved_by`,
+  `resolved_at` = the patch instant, `JOB_CHANGE_REQUEST_RESOLVED` activity, Staff
+  notification and realtime event), in the users → JobCard → change-request lock order.
+  The server never resolves a request the patch did not name. A replay of the same patch
+  fails with the ordinary `409 VERSION_CONFLICT` and resolves nothing twice.
 
 ### Overdue incident history (OVR-2 / OVR-4 / OVR-5 readers)
 
@@ -1325,15 +1331,23 @@ Response `201`:
 
 - MANAGER/ADMIN only: STAFF gets `403 FORBIDDEN` before any lookup; cross-org and unknown
   jobs or requests return `404`.
-- `resolution` is `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED` or `REJECTED`.
-  `REJECTED` requires `note` (1–2000 code points); `LINKED_JOB_CREATED` requires a
-  `linkedJobCardId` that belongs to the same organization and is not this job. Both are
-  `400 VALIDATION_ERROR` otherwise.
+- `resolution` is `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED`, `REJECTED` or
+  `ACKNOWLEDGED_ONLY` (RESCUE-003/B). Both `REJECTED` and `ACKNOWLEDGED_ONLY` require
+  `note` (trimmed, 1–2000 code points) and forbid `linkedJobCardId`; `LINKED_JOB_CREATED`
+  requires a `linkedJobCardId` that belongs to the same organization and is not this job
+  (and forbids `linkedJobCardId` on every other resolution). Violations return
+  `400 VALIDATION_ERROR`.
 - An already closed request returns `409 CHANGE_REQUEST_NOT_OPEN`.
 - It records the decision only; correcting, rescheduling, creating the linked job and
-  cancelling stay the existing commands. The `JOB_CHANGE_REQUEST_RESOLVED` activity, its
-  realtime `job.updated` event and a `job.change_request_resolved` notification to the
-  requester (while still active) commit in the same transaction.
+  cancelling stay the existing commands. `ACKNOWLEDGED_ONLY` leaves the JobCard,
+  assignee, planned interval, deadline, assignment offer, and overdue incidents and
+  their attribution unchanged, clears `open.changeRequestOpenSince`, and allows eligible
+  undelivered OVR-4/OVR-6 alerts to resume under their original due times and quiet
+  hours while preserving already-delivered suppression. The `JOB_CHANGE_REQUEST_RESOLVED`
+  activity (projected as `details: { kind: 'CHANGE_REQUEST_RESOLVED', resolution }`, or
+  `{ kind: 'NONE' }` when metadata is missing/invalid), its realtime `job.updated` event
+  and a `job.change_request_resolved` notification to the requester (while still active)
+  commit in the same transaction.
 
 Response `200`:
 

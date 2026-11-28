@@ -3438,6 +3438,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-color: var(--border-success);
   background: var(--success-soft);
 }
+.detail-feedback-info {
+  color: var(--info);
+  border-color: var(--border-accent);
+  background: var(--info-soft);
+}
 .detail-feedback-icon {
   width: 1em;
   height: 1em;
@@ -7022,6 +7027,408 @@ html .servora-result-state .servora-ant-result-icon { text-align: left; }
   [data-weekly-report-detail="true"] .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-item-content {
     border-inline-end: 0;
     padding-top: 0.25rem;
+  }
+}
+
+/* ── RESCUE-003/B unified manager recovery surface & drawer ── */
+
+.job-recovery[data-manager-recovery="true"] {
+  display: grid;
+  gap: 1.25rem;
+  min-width: 0;
+  margin-block: 0.75rem 1rem;
+  font-size: 1rem;
+  background: var(--warning-wash);
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+}
+
+.job-recovery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.job-recovery-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 720;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.job-recovery-sources {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.job-recovery-source {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.job-recovery-source + .job-recovery-source {
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+
+.job-recovery-source-headline {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.job-recovery-source .job-row-facts {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+}
+
+.job-recovery-source .form-help {
+  margin: 0;
+}
+
+.job-recovery[data-manager-recovery="true"] .review-buttons {
+  justify-content: flex-start;
+  gap: 0.65rem;
+}
+
+.job-recovery[data-manager-recovery="true"] .review-buttons button {
+  min-height: var(--control-height);
+}
+
+.manager-recovery-drawer-root ~ .product-dialog-backdrop.dialog-backdrop {
+  z-index: 110;
+}
+
+.manager-recovery-form {
+  display: grid;
+  gap: 1.25rem;
+  min-width: 0;
+  font-size: 1rem;
+}
+
+.manager-recovery-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.manager-recovery-context {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+
+.manager-recovery-context-head {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.manager-recovery-context-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 720;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.manager-recovery-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.manager-recovery-facts,
+.manager-recovery-source .job-row-facts {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.manager-recovery-source {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--rule);
+}
+
+.manager-recovery-source h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.manager-recovery-source .form-help {
+  margin: 0;
+}
+
+.manager-recovery-main {
+  display: grid;
+  gap: 1.25rem;
+  min-width: 0;
+  align-content: start;
+}
+
+.manager-recovery-decisions {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.manager-recovery-decisions legend {
+  padding: 0;
+  margin-bottom: 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.manager-recovery-decision-list {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.manager-recovery-decision-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-height: var(--control-height);
+  min-width: 0;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.manager-recovery-decision-row:hover {
+  border-color: var(--border-control-hover);
+  background: var(--surface-hover);
+}
+
+.manager-recovery-decision-row:has(input:focus-visible) {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: 2px;
+}
+
+.manager-recovery-decision-row--selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.manager-recovery-decision-row--destructive.manager-recovery-decision-row--selected {
+  border-color: var(--border-error-strong);
+  background: var(--error-wash);
+}
+
+.manager-recovery-decision-row input[type="radio"] {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  min-height: 0;
+  margin: 0.15rem 0 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.manager-recovery-decision-body {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.manager-recovery-decision-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.manager-recovery-decision-title {
+  font-weight: 680;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.manager-recovery-decision-desc {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.manager-recovery-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-chip);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.manager-recovery-tag--recommended {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.manager-recovery-tag--staff {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.manager-recovery-unavailable {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+
+.manager-recovery-unavailable .form-help {
+  margin: 0;
+}
+
+.manager-recovery-fields {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--rule);
+}
+
+.manager-recovery-fieldset {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.manager-recovery-fieldset .field-group {
+  gap: 0.5rem;
+  margin-top: 0;
+}
+
+.manager-recovery-preview {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+
+.manager-recovery-preview--info {
+  border-color: var(--border-accent);
+  background: var(--info-soft);
+}
+
+.manager-recovery-preview--warning {
+  border-color: var(--border-warning);
+  background: var(--warning-wash);
+}
+
+.manager-recovery-preview--danger {
+  border-color: var(--border-error);
+  background: var(--error-wash);
+}
+
+.manager-recovery-preview h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.manager-recovery-preview-summary {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.manager-recovery-preview-unchanged {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.manager-recovery-preview-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.875rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.manager-recovery-preview .form-help {
+  margin: 0;
+}
+
+.manager-recovery-error-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-error);
+  border-radius: var(--radius-control);
+  background: var(--error-wash);
+  overflow-wrap: anywhere;
+}
+
+.manager-recovery-footer.review-buttons {
+  justify-content: flex-end;
+  gap: 0.65rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--rule);
+}
+
+.manager-recovery-footer.review-buttons button {
+  min-height: var(--control-height);
+}
+
+@media (min-width: 64rem) {
+  .form-drawer:has(.manager-recovery-form) {
+    width: min(56rem, 92vw);
+  }
+
+  .manager-recovery-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .manager-recovery-decision-row {
+    transition: none;
   }
 }
 

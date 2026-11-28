@@ -3286,6 +3286,10 @@ management decision list.
   accepted, is resolved: `getAllowedJobActions` grants the assigned Staff member
   `ADD_NOTE` in `NEW` (and `ACCEPTED`) for every type, matching JOB-006 §6.
 
+> Addendum (RESCUE-003/B): `ACKNOWLEDGED_ONLY` neutral change-request closure,
+> atomic `PATCH` `CORRECTED` closure, and the unified Job Detail recovery drawer
+> are specified in [JOB-014](#job-014--neutral-change-request-acknowledgement-atomic-correction-closure-and-unified-manager-recovery-surface-rescue-003b).
+
 ## OVR-5 — Revision correction deadline and authorized deadline extension
 
 - **Date:** 2026-11-21
@@ -3447,6 +3451,11 @@ management decision list.
    separate group "Yönetimce sonuçlandırılan değişiklik talebiyle ilişkili
    gecikmeler" and is not added to Staff responsibility. The group states a
    relationship, not a proven cause.
+
+> Addendum (RESCUE-003/B): `ACKNOWLEDGED_ONLY` (migration `077`) is excluded from
+> the OVR-7 operational allowlist (`cr.resolution IN ('CORRECTED', 'RESCHEDULED',
+> 'LINKED_JOB_CREATED')`, plus non-assignee `CANCELLED`), keeping the incident
+> and its attribution unchanged; see [JOB-014](#job-014--neutral-change-request-acknowledgement-atomic-correction-closure-and-unified-manager-recovery-surface-rescue-003b).
 
 ### Consequences
 
@@ -3721,6 +3730,91 @@ Contract, data and API: [docs/features/assignment-time-proposal.md](docs/feature
   `suggested_solution` and ties `proposed_scheduled_at` to it.
 - Management sees what the Staff member proposes. A single recovery form and
   suggestion-based action ordering remain RESCUE-003.
+
+## JOB-014 — Neutral change-request acknowledgement, atomic correction closure and unified manager recovery surface (RESCUE-003/B)
+
+- **Date:** 2026-11-28
+- **Status:** Accepted product direction
+  ([09-manager-recovery-form-ui-spec.md](docs/backlog/2026-11-28-rescue-003b/09-manager-recovery-form-ui-spec.md),
+  owner-approved handoff following PR #541 RESCUE-003/A). Extends JOB-010 D1,
+  JOB-013 and OVR-5b §4.11; keeps OVR-7 operational classification unchanged.
+  Implemented and covered by PostgreSQL and UI tests on unmerged feature branch
+  `feat/rescue-003b-manager-recovery-form`, pending PR review and merge sign-off;
+  no separate production activation is authorized by this record.
+
+### Context
+
+RESCUE-003/A grouped recovery panels under Job Detail and added atomic
+reassignment + rescheduling, but managers still faced scattered action buttons
+and disclosure rows, could not close an open Staff change request atomically on
+a non-schedule field correction, and had no truthful neutral closure when a
+request needed acknowledgement without mutating the JobCard or hiding lateness.
+
+### Decision
+
+1. **Neutral acknowledgement (`ACKNOWLEDGED_ONLY`).**
+   `job_card_change_requests` accepts `ACKNOWLEDGED_ONLY` (migration
+   `077_change_request_acknowledged_only.sql`), requiring a trimmed 1–2000
+   character `note` (enforced by API validation and
+   `job_card_change_requests_closure_check`) and forbidding `linkedJobCardId`.
+   - Zero mutation to the JobCard row, `version`, assignee, schedule, deadline,
+     assignment offer, overdue incidents, or accountability attribution.
+   - Commits inside the existing `resolveChangeRequest` transaction with
+     idempotent `clientActionId` replay/payload-hash conflict checks and
+     single-winner `FOR UPDATE` locking, appending
+     `JOB_CHANGE_REQUEST_RESOLVED` (projected as
+     `{ kind: 'CHANGE_REQUEST_RESOLVED', resolution }`), realtime
+     `job.updated`, and one `job.change_request_resolved` requester notification
+     while the requester is active.
+   - Excluded from the OVR-7 operational allowlist (`cr.resolution IN
+     ('CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED')` plus non-assignee
+     `CANCELLED` in `server/src/modules/reports/repository.ts`), preserving the
+     incident in its existing classification while allowing a separate later
+     qualifying resolution on the same job to regroup under normal OVR-7 rules.
+   - Clears `open.changeRequestOpenSince` and resumes eligible undelivered
+     OVR-4 (`STAFF_REMINDER`, `MANAGEMENT_ESCALATION`) and OVR-6 (`START_REMINDER`,
+     `APPROVAL_WAIT_ALERT`, `PENDING_ACCEPTANCE_ALERT`) automatic alerts under
+     their original due times and organization quiet hours, while preserving
+     suppression for already-delivered alert kinds/identities.
+2. **Atomic `PATCH` `CORRECTED` closure.** `PATCH /api/job-cards/:id` accepts
+   `changeRequestResolution: { changeRequestId, resolution: 'CORRECTED', note? }`
+   alongside `'RESCHEDULED'` (OVR-5b §4.11). Only `MANAGER`/`ADMIN` may send it,
+   and `'CORRECTED'` requires the patch to persist at least one actual field
+   change (`title`, `description`, `customerId`, `contactId`, `assignedTo`,
+   `priority`, schedule/`dueDate` revision, or `engagementKind`); no-ops and
+   `STAFF` calls fail with `400 VALIDATION_ERROR` (`fieldErrors.changeRequestResolution`)
+   and roll back without partial writes.
+3. **Unified RESCUE-003/B manager recovery decision surface.** Job Detail
+   replaces scattered recovery buttons for `MANAGER`/`ADMIN` with one
+   `Müdahale gereken durum` region (`ManagerRecoverySection`) and a single
+   **Görevi çözüme ulaştır** trigger opening `ManagerRecoveryDrawer`
+   (`ResponsiveFormDrawer`):
+   - Single-select native radio decision list (`Kararınız`) ordered by JOB-013
+     suggestion, offer state, and change-request reason, with no pre-selected
+     destructive `CANCEL`.
+   - Conditional fields only for the selected decision, action-specific
+     `İşlem sonucu` preview (`Değişmeyenler`, offer outcome, request disposition),
+     and non-stacked `ReasonDialog` / `PastStartAcknowledgementDrawer` overlays.
+   - Informational non-green feedback (`detail-feedback-info`) for neutral
+     acknowledgement and rejection receipts.
+4. **Backward compatibility and scope boundaries.**
+   `POST /api/job-cards/:id/change-requests/:requestId/resolve` remains
+   backward-compatible for `CORRECTED`, `RESCHEDULED`, `LINKED_JOB_CREATED`,
+   `REJECTED`, and `ACKNOWLEDGED_ONLY`. Rich candidate ranking/occupancy
+   policy, intervention queue routing, and broader workflow surfaces remain
+   separate in RESCUE-004, RESCUE-005, and RESCUE-006.
+
+### Consequences
+
+- Migration `077_change_request_acknowledged_only.sql` is additive-only (widens
+  two CHECK constraints on `job_card_change_requests` with fail-closed 064
+  precondition checks and zero backfill).
+- Contracts and acceptance gates:
+  [docs/features/assignment-acceptance-sla.md](docs/features/assignment-acceptance-sla.md),
+  [docs/features/connected-workflows-ui-acceptance.md](docs/features/connected-workflows-ui-acceptance.md),
+  [docs/features/reporting/lateness-reports.md](docs/features/reporting/lateness-reports.md),
+  [SERVORA_MED_API_DRAFT.md](SERVORA_MED_API_DRAFT.md), and
+  [SERVORA_MED_SCHEMA_DRAFT.md](SERVORA_MED_SCHEMA_DRAFT.md).
 
 ## SCH-001 — Staff occupancy is a core rule; the Calendar module contributes
 

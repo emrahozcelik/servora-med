@@ -158,9 +158,15 @@ change request exists for the same organization and JobCard with:
     cannot be read (no history row or no assignee at that instant), it is not
     provable management and the incident stays in the Staff group; nothing is
     guessed.
-  - `REJECTED` and the automatic `SUPERSEDED` never qualify.
-    The [future RESCUE-003 neutral acknowledgement](../assignment-acceptance-sla.md#neutral-acknowledgement-for-rescue-003)
-    follows the same reporting treatment while preserving the incident.
+  - `REJECTED`, automatic `SUPERSEDED`, and neutral `ACKNOWLEDGED_ONLY`
+    (migration `077_change_request_acknowledged_only.sql`; see
+    [neutral acknowledgement contract](../assignment-acceptance-sla.md#neutral-acknowledgement-for-rescue-003))
+    never qualify. The positive SQL allowlist in
+    `server/src/modules/reports/repository.ts`
+    (`cr.resolution IN ('CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED')`, plus
+    non-assignee `CANCELLED`) excludes them while preserving the incident and
+    its attribution; a subsequent qualifying resolution on the same job can still
+    regroup the incident under the normal overlap rules.
   A later role change of any user does not change the classification; and
 - an interval that overlaps the incident:
   `requested_at <= COALESCE(recovered_at, ended_at, requestTime)` and

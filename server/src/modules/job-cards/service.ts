@@ -162,6 +162,8 @@ import {
   type OpenChangeRequestItem,
   type JobChangeRequestDecision,
   type JobChangeRequestReasonCode,
+  type PatchChangeRequestResolution,
+  type PatchJobCardInput,
   type AssignmentOfferDecisionInput,
   type AcceptAssignmentProposalInput,
   type AcceptAssignmentProposalReceipt,
@@ -358,30 +360,13 @@ function unwrapBreach(evaluation: OverdueBreachEvaluation): OverdueIncidentIdent
   return evaluation.kind === 'breached' ? evaluation.identity : null;
 }
 
-type PatchInput = {
-  expectedVersion: number; title?: string; description?: string | null;
-  customerId?: string; contactId?: string | null; assignedTo?: string; priority?: JobCardPriority;
-  dueDate?: string | null; scheduledAt?: string | null;
-  scheduledEndsAt?: string | null;
-  engagementKind?: JobCardEngagementKind;
-  overrideReason?: string | null;
-  /** JOB-010 release 2b: required when a direct producer opens a passed-start offer. */
-  pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
-  /** OVR-5b §4.5: the reason of an extension that ends open lateness. */
-  deadlineExtensionReason?: string | null;
-  /** OVR-5b §4.11: resolve the job's OPEN change request in this same patch. */
-  changeRequestResolution?: ChangeRequestResolutionInput | null;
-};
+type PatchInput = PatchJobCardInput;
 
-/** OVR-5b §4.11: the atomic JOB-010 resolution carried by a deadline patch. */
-type ChangeRequestResolutionInput = {
-  changeRequestId: string;
-  resolution: 'RESCHEDULED';
-  note?: string | null;
-};
+/** OVR-5b §4.11 / RESCUE-003/B: the atomic JOB-010 resolution carried by a job patch. */
+type ChangeRequestResolutionInput = PatchChangeRequestResolution;
 
-/** OVR-5b §4.11: the only resolution a deadline patch may record. */
-const PATCH_CHANGE_REQUEST_RESOLUTIONS = ['RESCHEDULED'] as const;
+/** OVR-5b §4.11 / RESCUE-003/B: the resolutions a job patch may record. */
+const PATCH_CHANGE_REQUEST_RESOLUTIONS = ['RESCHEDULED', 'CORRECTED'] as const;
 
 /** OVR-5b §4.11: the complete nested shape; no other key is accepted. */
 const CHANGE_REQUEST_RESOLUTION_FIELDS: readonly string[] = [
@@ -895,7 +880,7 @@ function patchChangeRequestResolution(
   if (trimmedNote !== null && codePointLength(trimmedNote) > 2_000) throw fail();
   return {
     changeRequestId: record.changeRequestId as string,
-    resolution: 'RESCHEDULED',
+    resolution: record.resolution as ChangeRequestResolutionInput['resolution'],
     note: trimmedNote === null || trimmedNote === '' ? null : trimmedNote,
   };
 }
@@ -3810,7 +3795,17 @@ export class JobCardService {
     const changeRequestResolution = patchChangeRequestResolution(input);
     delete fields.deadlineExtensionReason;
     delete fields.changeRequestResolution;
-    if (Object.keys(fields).length === 0 || (fields.title !== undefined && !fields.title.trim()) ||
+    if (Object.keys(fields).length === 0) {
+      if (changeRequestResolution !== null) {
+        throw changeRequestResolutionError(
+          changeRequestResolution.resolution === 'RESCHEDULED'
+            ? 'Değişiklik talebi yalnızca zaman planı değişen bir güncellemeyle sonuçlandırılabilir.'
+            : 'Değişiklik talebi yalnızca iş bilgilerinde gerçek bir değişiklik yapan güncellemeyle sonuçlandırılabilir.',
+        );
+      }
+      throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
+    }
+    if ((fields.title !== undefined && !fields.title.trim()) ||
       (fields.priority !== undefined && !JOB_CARD_PRIORITIES.includes(fields.priority))) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
     }
@@ -4092,17 +4087,32 @@ export class JobCardService {
         || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
       scheduleRevisionChanged = scheduleChanged || dueDateChanged;
       const management = isManagementRole(actor.role);
-      // OVR-5b §4.11: only management may resolve the Staff request, and only
-      // a patch that really appends a schedule revision. Nothing is written.
+      const hasPersistedFieldChange =
+        (fields.title !== undefined && fields.title !== job.title)
+        || (fields.description !== undefined && fields.description !== (job.description ?? null))
+        || (fields.customerId !== undefined && fields.customerId !== (job.customerId ?? null))
+        || (fields.contactId !== undefined && fields.contactId !== (job.contactId ?? null))
+        || assigneeChanged
+        || (fields.priority !== undefined && fields.priority !== job.priority)
+        || scheduleRevisionChanged
+        || (fields.engagementKind !== undefined && fields.engagementKind !== (job.engagementKind ?? null));
+      // OVR-5b §4.11 / RESCUE-003/B: only management may resolve the Staff request,
+      // and RESCHEDULED requires a schedule revision while CORRECTED requires
+      // at least one actual persisted field edit. Nothing is written on failure.
       if (changeRequestResolution !== null) {
         if (!management) {
           throw changeRequestResolutionError(
             'Değişiklik talebini yalnızca yönetim sonuçlandırabilir.',
           );
         }
-        if (!scheduleRevisionChanged) {
+        if (changeRequestResolution.resolution === 'RESCHEDULED' && !scheduleRevisionChanged) {
           throw changeRequestResolutionError(
             'Değişiklik talebi yalnızca zaman planı değişen bir güncellemeyle sonuçlandırılabilir.',
+          );
+        }
+        if (changeRequestResolution.resolution === 'CORRECTED' && !hasPersistedFieldChange) {
+          throw changeRequestResolutionError(
+            'Değişiklik talebi yalnızca iş bilgilerinde gerçek bir değişiklik yapan güncellemeyle sonuçlandırılabilir.',
           );
         }
       }
@@ -5411,7 +5421,9 @@ export class JobCardService {
     const note = input.note === undefined || input.note === null
       ? null
       : optionalBoundedString(input.note, 'note', 2_000);
-    if (resolution === 'REJECTED' && note === null) throw validation('note');
+    if ((resolution === 'REJECTED' || resolution === 'ACKNOWLEDGED_ONLY') && note === null) {
+      throw validation('note');
+    }
     const linkedJobCardId = input.linkedJobCardId === undefined
       || input.linkedJobCardId === null
       ? null

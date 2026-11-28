@@ -10,6 +10,14 @@ import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
+import {
+  formatProposedInterval,
+  formatRecoveryInstant,
+  hasManagementRecoveryOffer,
+  proposalAcceptErrorMessage,
+  recoveryOfferHeadline,
+} from './assignment-transfer-helpers';
+export { hasManagementRecoveryOffer };
 import type { RenderAssignmentTransfer } from './AssignmentTransferForm';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './PastStartAcknowledgementDrawer';
 import { ScheduleQuickControls } from './ScheduleQuickControls';
@@ -50,16 +58,6 @@ const REOFFERABLE_OFFER_STATES: readonly AssignmentOfferState[] = [
   'DECLINED', 'RELEASED', 'EXPIRED', 'WITHDRAWN',
 ];
 
-/**
- * Closed offers that leave the next move with management. A planned window
- * that simply passed is the only WITHDRAWN shape the manager recovers from
- * here; every other withdrawal came from an action that already opened a
- * newer offer.
- */
-const MANAGEMENT_RECOVERY_OFFER_STATES: readonly AssignmentOfferState[] = [
-  'DECLINED', 'RELEASED', 'EXPIRED',
-];
-
 /** Reasons where the recovery starts with a new planned time. */
 const NEW_TIME_FIRST_CLOSE_REASONS: readonly AssignmentOfferCloseReason[] = [
   'SCHEDULE_CONFLICT', 'PLANNED_WINDOW_PASSED',
@@ -76,68 +74,8 @@ function isManagementUser(user: CurrentUser): boolean {
   return user.role === 'MANAGER' || user.role === 'ADMIN';
 }
 
-function formatInstant(value: string): string {
-  return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
-    .format(new Date(value));
-}
-
-const proposalDateFormatter = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' });
-const proposalTimeFormatter = new Intl.DateTimeFormat('tr-TR', { timeStyle: 'short' });
-
-/** JOB-012 proposal interval as `<date> <start>–<end>` (end is server-derived). */
-function formatProposedInterval(start: string, end: string | null): string {
-  const date = proposalDateFormatter.format(new Date(start));
-  const from = proposalTimeFormatter.format(new Date(start));
-  if (end === null) return `${date} ${from}`;
-  return `${date} ${from}–${proposalTimeFormatter.format(new Date(end))}`;
-}
-
-/**
- * JOB-012: a rejected proposal confirmation means the offer, the schedule or
- * the Staff calendar moved on. The explanation is Turkish and the card is
- * refreshed by the caller; unknown codes keep the server text.
- */
-function proposalAcceptErrorMessage(caught: unknown): string {
-  if (caught instanceof ApiError) {
-    switch (caught.code) {
-      case 'ASSIGNMENT_PROPOSAL_NOT_AVAILABLE':
-        return 'Personelin önerdiği zaman artık onaylanamıyor. İş güncellenmiş olabilir; en güncel durum gösteriliyor.';
-      case 'ASSIGNMENT_PROPOSAL_EXPIRED':
-        return 'Önerilen zaman geçti. Onaylanamıyor; personelden yeni bir zaman isteyin.';
-      case 'VERSION_CONFLICT':
-        return 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.';
-      case 'CALENDAR_CONFLICT':
-        return caught.message || 'Önerilen zaman personelin takvimiyle çakışıyor.';
-      default:
-        return assignmentWindowErrorMessage(caught, 'Önerilen zaman onaylanamadı.');
-    }
-  }
-  return caught instanceof Error ? caught.message : 'Önerilen zaman onaylanamadı.';
-}
-
-export function hasManagementRecoveryOffer(job: JobCard): boolean {
-  const offer = job.assignmentOffer;
-  if (job.status !== 'NEW' || !offer) return false;
-  if (MANAGEMENT_RECOVERY_OFFER_STATES.includes(offer.state)) return true;
-  return offer.state === 'WITHDRAWN' && offer.closeReason === 'PLANNED_WINDOW_PASSED';
-}
-
-/** The state headline a management viewer reads first. */
-function recoveryHeadline(offer: AssignmentOffer): string {
-  switch (offer.state) {
-    case 'DECLINED':
-      return `${offer.assignee.name} görevi reddetti`;
-    case 'RELEASED':
-      return `${offer.assignee.name} görevi geri bıraktı`;
-    case 'EXPIRED':
-      return `${offer.assignee.name} teklifi süresinde yanıtlamadı`;
-    case 'WITHDRAWN':
-      return 'Planlanan zaman geçti';
-    case 'OPEN':
-    case 'ACCEPTED':
-      return assignmentOfferStateLabel(offer.state);
-  }
-}
+const formatInstant = formatRecoveryInstant;
+const recoveryHeadline = recoveryOfferHeadline;
 
 /** Moves the reader to the existing planned-time editor; no new route. */
 export const SCHEDULE_EDITOR_OPEN_EVENT = 'servora:schedule-editor-open';

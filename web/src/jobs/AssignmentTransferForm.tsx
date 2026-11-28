@@ -8,6 +8,11 @@ import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
 import { SignalGlyph } from '../ui/signal-icons';
 import { WheelDateTimeField } from '../ui/WheelDateTimeField';
 import { apiFieldError } from './api-field-error';
+import {
+  buildPatchCommitReceipt,
+  filterEligibleTransferStaff,
+  plannedIntervalDurationMinutes,
+} from './assignment-transfer-helpers';
 import { assignmentWindowErrorMessage } from './assignment-window-errors';
 import { AvailableSlotsNotice } from './AvailableSlotsNotice';
 import {
@@ -78,9 +83,7 @@ export function AssignmentTransferAction({
   const currentStart = reviewedJob.scheduledAt ? isoInstantToLocalDateTime(reviewedJob.scheduledAt) : '';
   const intervalType = reviewedJob.type === 'SALES_MEETING' || reviewedJob.type === 'PRODUCT_DELIVERY'
     ? reviewedJob.type : null;
-  const duration = reviewedJob.scheduledAt && reviewedJob.scheduledEndsAt
-    ? Math.round((Date.parse(reviewedJob.scheduledEndsAt) - Date.parse(reviewedJob.scheduledAt)) / 60_000)
-    : null;
+  const duration = plannedIntervalDurationMinutes(reviewedJob);
   const changeRequest = reviewedJob.workflowContext.allowedActions.includes('RESOLVE_CHANGE_REQUEST')
     ? reviewedJob.changeRequest : null;
   const stale = job.id !== reviewedJob.id || job.version !== reviewedJob.version;
@@ -95,7 +98,7 @@ export function AssignmentTransferAction({
     void listStaff('active').then((profiles) => {
       if (live) setStaffLoad({
         kind: 'ready',
-        staff: profiles.filter((profile) => profile.user.isActive && profile.user.id !== reviewedJob.assignedTo),
+        staff: filterEligibleTransferStaff(profiles, reviewedJob.assignedTo),
       });
     }).catch(() => {
       if (live) setStaffLoad({ kind: 'error' });
@@ -185,14 +188,10 @@ export function AssignmentTransferAction({
     try {
       await onTransfer(input, (patched) => {
         setPanel('closed');
-        let receipt = 'Personel ve plan güncellendi.';
-        if (patched.assignmentOffer?.state === 'OPEN') {
-          receipt += ` ${patched.assignee.name} için yeni atama teklifi açıldı. Personelin yanıtı bekleniyor.`;
-        }
-        if (input.changeRequestResolution && patched.changeRequest == null) {
-          receipt += ' Personel önerisi “Yeniden planlandı” olarak kapatıldı.';
-        }
-        return receipt;
+        return buildPatchCommitReceipt(patched, {
+          kind: 'REASSIGN_AND_RESCHEDULE',
+          resolvedChangeRequest: input.changeRequestResolution?.resolution ?? null,
+        });
       });
       setPanel('closed');
     } catch (caught) {

@@ -439,9 +439,20 @@ use the owned Ant Design boundary in later implementation PRs.
 - **Approval review panel**: Manager/Admin summary of submission facts and readiness before
   decision controls. Primary decision is **Kontrolü tamamla ve işi kapat** (confirmation
   required); secondary is **Düzeltme için personele geri gönder** with mandatory reason.
-- **Management guidance panels**: lead with the facts and the real commands in reason
-  order (only the first action is primary); record-only resolutions sit in their own
-  separated, confirmed group that states they do not change the job.
+- **Management guidance panels**: Job Detail groups recovery-state assignment offers
+  and open Staff change requests into one `Müdahale gereken durum` region
+  (`ManagerRecoverySection`) with a single **Görevi çözüme ulaştır** action for
+  `MANAGER`/`ADMIN` (no duplicate sibling recovery CTAs). It opens the owned
+  `ResponsiveFormDrawer` (`Görevi çözüme ulaştır`) as one single-decision form:
+  case context (`İş ve durum özeti` with distinct source facts when offer and
+  request coexist), a native radio group inside `<fieldset><legend>Kararınız</legend>`
+  ordered by JOB-013 suggestion/reason (with `Önerilen` and `Personel önerisi`
+  tags and no pre-selected destructive `CANCEL`), conditional inputs only for the
+  selected decision, an authoritative `İşlem sonucu` preview (`Değişmeyenler`,
+  offer outcome, request disposition), and one explicit footer submit alongside
+  `Vazgeç`. Neutral acknowledgement (`ACKNOWLEDGED_ONLY`) and rejection
+  (`REJECTED`) receipts use separated non-green informational feedback
+  (`detail-feedback-info` + `timeline-info` icon) rather than Confirmed Green.
 - **Workflow dialogs**: confirmation for completion and withdraw-to-edit; reason capture for
   revision and cancel. Contain focus, support Escape when safe, restore focus to the opener,
   disable controls while pending, announce status/errors via live regions.

@@ -702,6 +702,28 @@ data is changed; existing rows keep a null suggestion.
 - The migration refuses to run if the 065/073 constraints it replaces differ from their
   accepted definitions.
 
+### 8.4 RESCUE-003/B neutral change-request acknowledgement (migration 077)
+
+Migration `077_change_request_acknowledged_only.sql`. Decision: `DECISIONS.md` JOB-014;
+contract: [docs/features/assignment-acceptance-sla.md](docs/features/assignment-acceptance-sla.md#neutral-acknowledgement-for-rescue-003).
+Additive-only with zero DML/backfill (all pre-existing `OPEN` and `CLOSED` rows satisfy
+both widened constraints).
+
+- Precondition (fail-closed): verifies `job_card_change_requests` exists with
+  `resolution`, `resolution_note`, and `linked_job_card_id`, and that
+  `job_card_change_requests_resolution_check` and
+  `job_card_change_requests_closure_check` match their exact migration `064` definitions
+  before replacing them.
+- `job_card_change_requests_resolution_check`: accepts `NULL` or
+  `('CANCELLED', 'CORRECTED', 'RESCHEDULED', 'LINKED_JOB_CREATED', 'REJECTED',
+  'SUPERSEDED', 'ACKNOWLEDGED_ONLY')`.
+- `job_card_change_requests_closure_check`: keeps the `OPEN` all-null guards and
+  `LINKED_JOB_CREATED` non-self link invariant (`linked_job_card_id <> job_card_id`), and
+  requires `resolution_note IS NOT NULL` for both `REJECTED` and `ACKNOWLEDGED_ONLY`
+  (`resolution NOT IN ('REJECTED', 'ACKNOWLEDGED_ONLY') OR resolution_note IS NOT NULL`).
+- Post-check verifies both replaced constraints preserve the full `064` vocabulary and
+  enforce the `ACKNOWLEDGED_ONLY` rules.
+
 ## 9. Explicit Omissions
 
 - stock quantity and stock movements

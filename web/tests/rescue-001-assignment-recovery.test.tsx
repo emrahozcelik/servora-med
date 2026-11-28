@@ -464,9 +464,8 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     expect(container.querySelector('[data-assignment-offer-proposal-expired="true"]')?.textContent)
       .toContain('Önerilen zaman geçti');
 
-    // 2) Full JobDetailScreen integration (ON_LEAVE): verifies real button order,
-    // clicking "Sorumlu personeli değiştir" opens the shared DeliveryAssigneeEditForm,
-    // and "İşi iptal et" sits separately in the İşlemler decision panel.
+    // 2) Full JobDetailScreen integration (ON_LEAVE): verifies single unified
+    // recovery entry ("Görevi çözüme ulaştır") and ManagerRecoveryDrawer ordering.
     const onLeaveCard = declinedJob({ closeReason: 'ON_LEAVE' });
     vi.stubGlobal('fetch', mockDetailFetch(onLeaveCard));
     await act(async () => {
@@ -481,32 +480,38 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     });
     await settle();
 
-    const recoveryBlock = container.querySelector('[data-assignment-offer-recovery="DECLINED"]');
+    const recoveryBlock = container.querySelector('[data-manager-recovery="true"]');
     expect(recoveryBlock).not.toBeNull();
-    const screenButtons = Array.from(recoveryBlock!.querySelectorAll<HTMLButtonElement>(
-      '[data-assignment-offer-action]',
-    ));
-    expect(screenButtons.map((b) => b.textContent?.trim())).toEqual([
-      'Sorumlu personeli değiştir',
-      'Yeni zaman belirle',
-      'Personeli ve zamanı birlikte değiştir',
-      'Aynı zamanla yeniden teklif et',
-    ]);
-    expect(screenButtons[0]?.className).toContain('primary-button');
-    expect(recoveryBlock!.textContent).not.toContain('İşi iptal et');
-    expect(Array.from(container.querySelectorAll('button')).map((b) => b.textContent?.trim()))
-      .toContain('İşi iptal et');
+    const triggerButtons = recoveryBlock!.querySelectorAll<HTMLButtonElement>('button');
+    expect(triggerButtons).toHaveLength(1);
+    expect(triggerButtons[0]?.textContent?.trim()).toBe('Görevi çözüme ulaştır');
+    expect(triggerButtons[0]?.className).toContain('primary-button');
 
     await act(async () => {
-      recoveryBlock!.querySelector<HTMLButtonElement>('[data-assignment-offer-action="reassign"]')!.click();
+      triggerButtons[0]!.click();
     });
     await settle();
-    expect(container.querySelector('.delivery-assignee-details')).not.toBeNull();
-    expect(container.textContent).toContain('Sorumlu personel düzenleme alanı açıldı.');
+
+    const form = container.querySelector('[data-manager-recovery-form="true"]');
+    expect(form).not.toBeNull();
+    const onLeaveDecisions = Array.from(
+      form!.querySelectorAll<HTMLInputElement>('input[name="manager-recovery-decision"]'),
+    ).map((input) => input.value);
+    expect(onLeaveDecisions).toEqual([
+      'REASSIGN_KEEP_TIME',
+      'REASSIGN_AND_RESCHEDULE',
+      'RESCHEDULE',
+      'REOFFER',
+      'CANCEL',
+    ]);
+    expect(
+      form!.querySelector<HTMLInputElement>('input[name="manager-recovery-decision"][value="REASSIGN_KEEP_TIME"]')?.checked,
+    ).toBe(true);
+    expect(form!.querySelector('select[name="assignedTo"]')).not.toBeNull();
 
     // 3) Full JobDetailScreen integration (SCHEDULE_CONFLICT with future proposal):
-    // verifies "Önerilen zamanı onayla" is primary first and clicking "Yeni zaman belirle"
-    // opens and focuses the real #job-scheduled-at planned-time editor.
+    // verifies "Önerilen zamanı onayla" is pre-selected first and selecting
+    // "Farklı bir zaman belirle" exposes the planned-time input inside the drawer.
     const futureStart = new Date(Date.now() + 2 * 86_400_000).toISOString();
     const futureEnd = new Date(Date.parse(futureStart) + 30 * 60_000).toISOString();
     const proposalCard = declinedJob({
@@ -515,12 +520,6 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
       proposedScheduledEndsAt: futureEnd,
     });
     vi.stubGlobal('fetch', mockDetailFetch(proposalCard));
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(Element.prototype, 'scrollIntoView', {
-      configurable: true,
-      writable: true,
-      value: scrollIntoView,
-    });
 
     await act(async () => {
       root.render(
@@ -535,24 +534,38 @@ describe('RESCUE-001 web characterization (R05 & R02)', () => {
     });
     await settle();
 
-    const proposalButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(
-      '[data-assignment-offer-recovery="DECLINED"] [data-assignment-offer-action]',
-    ));
-    expect(proposalButtons.map((b) => b.textContent?.trim())).toEqual([
-      'Önerilen zamanı onayla',
-      'Yeni zaman belirle',
-      'Sorumlu personeli değiştir',
-      'Personeli ve zamanı birlikte değiştir',
-      'Aynı zamanla yeniden teklif et',
-    ]);
-    expect(proposalButtons[0]?.className).toContain('primary-button');
-    expect(proposalButtons.slice(1).every((b) => b.className.includes('secondary-button'))).toBe(true);
-
+    const proposalTrigger = container.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]');
+    expect(proposalTrigger).not.toBeNull();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-assignment-offer-action="new-time"]')!.click();
+      proposalTrigger!.click();
     });
     await settle();
-    expect(container.querySelector('#job-scheduled-at')).not.toBeNull();
-    expect(document.activeElement?.id).toBe('job-scheduled-at');
+
+    const proposalForm = container.querySelector('[data-manager-recovery-form="true"]');
+    expect(proposalForm).not.toBeNull();
+    const proposalDecisions = Array.from(
+      proposalForm!.querySelectorAll<HTMLInputElement>('input[name="manager-recovery-decision"]'),
+    ).map((input) => input.value);
+    expect(proposalDecisions).toEqual([
+      'ACCEPT_PROPOSED_TIME',
+      'RESCHEDULE',
+      'REASSIGN_AND_RESCHEDULE',
+      'REASSIGN_KEEP_TIME',
+      'REOFFER',
+      'CANCEL',
+    ]);
+    expect(
+      proposalForm!.querySelector<HTMLInputElement>(
+        'input[name="manager-recovery-decision"][value="ACCEPT_PROPOSED_TIME"]',
+      )?.checked,
+    ).toBe(true);
+
+    await act(async () => {
+      proposalForm!.querySelector<HTMLInputElement>(
+        'input[name="manager-recovery-decision"][value="RESCHEDULE"]',
+      )!.click();
+    });
+    await settle();
+    expect(proposalForm!.querySelector('input[name="scheduledAt"]')).not.toBeNull();
   });
 });

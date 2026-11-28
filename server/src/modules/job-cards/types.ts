@@ -87,6 +87,7 @@ export const JOB_CHANGE_REQUEST_RESOLUTIONS = [
   'LINKED_JOB_CREATED',
   'REJECTED',
   'SUPERSEDED',
+  'ACKNOWLEDGED_ONLY',
 ] as const;
 export type JobChangeRequestResolution = (typeof JOB_CHANGE_REQUEST_RESOLUTIONS)[number];
 
@@ -96,6 +97,7 @@ export const JOB_CHANGE_REQUEST_DECISIONS = [
   'RESCHEDULED',
   'LINKED_JOB_CREATED',
   'REJECTED',
+  'ACKNOWLEDGED_ONLY',
 ] as const;
 export type JobChangeRequestDecision = (typeof JOB_CHANGE_REQUEST_DECISIONS)[number];
 
@@ -711,6 +713,33 @@ export type CreateChangeRequestReceipt = {
   jobCardId: string;
   changeRequestId: string;
   requestedAt: string;
+};
+
+export type PatchChangeRequestResolution = {
+  changeRequestId: string;
+  resolution: 'RESCHEDULED' | 'CORRECTED';
+  note?: string | null;
+};
+
+export type PatchJobCardInput = {
+  expectedVersion: number;
+  title?: string;
+  description?: string | null;
+  customerId?: string;
+  contactId?: string | null;
+  assignedTo?: string;
+  priority?: JobCardPriority;
+  dueDate?: string | null;
+  scheduledAt?: string | null;
+  scheduledEndsAt?: string | null;
+  engagementKind?: JobCardEngagementKind;
+  overrideReason?: string | null;
+  /** JOB-010 release 2b: required when a direct producer opens a passed-start offer. */
+  pastStartAcknowledgement?: PastStartAcknowledgementInput | null;
+  /** OVR-5b §4.5: the reason of an extension that ends open lateness. */
+  deadlineExtensionReason?: string | null;
+  /** OVR-5b §4.11 / RESCUE-003/B: resolve the job's OPEN change request in this same patch. */
+  changeRequestResolution?: PatchChangeRequestResolution | null;
 };
 
 export type ResolveChangeRequestInput = {
@@ -1331,6 +1360,10 @@ export type JobCardActivityDetails =
       suggestedSolution: JobAssignmentOfferSuggestedSolution | null;
       /** JOB-012: the Staff proposal, under the same reader scope. */
       proposedScheduledAt: string | null;
+    }
+  | {
+      kind: 'CHANGE_REQUEST_RESOLVED';
+      resolution: JobChangeRequestResolution;
     }
   | { kind: 'NONE' };
 

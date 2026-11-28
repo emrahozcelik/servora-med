@@ -286,6 +286,19 @@ function makeHarness(options: {
     if (url.includes('/follow-ups')) return json(emptyPage);
     if (url.includes('/api/staff?')) return json([]);
     if (url.includes('/api/customers/') && url.includes('/contacts')) return json(emptyPage);
+    if (method === 'GET' && path === '/api/job-cards' && url.includes('customerId=')) {
+      return json({
+        items: [{
+          id: 'job-2', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+          title: 'Yeni takip işi', priority: 'normal', dueDate: null,
+          scheduledAt: null, scheduledEndsAt: null, engagementKind: null,
+          createdAt: '2026-11-24T08:00:00.000Z', updatedAt: '2026-11-24T08:00:00.000Z',
+          staffCompletedAt: null, customer: { id: 'c1', name: 'ABC Klinik' }, contact: null,
+          assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 0, allowedCommands: [],
+        }],
+        total: 1, limit: 50, offset: 0,
+      });
+    }
     if (options.sale !== undefined && path.endsWith(`/api/job-cards/${options.before.id}/sale-details`)) {
       return json(committed ? options.sale.after() : options.sale.before);
     }
@@ -343,6 +356,19 @@ function saleTimeHarness(options: { readFailure?: ReadFailure } = {}) {
     if (url.includes('/follow-ups')) return json(emptyPage);
     if (url.includes('/api/staff?')) return json([]);
     if (url.includes('/api/customers/') && url.includes('/contacts')) return json(emptyPage);
+    if (method === 'GET' && path === '/api/job-cards' && url.includes('customerId=')) {
+      return json({
+        items: [{
+          id: 'job-2', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+          title: 'Yeni takip işi', priority: 'normal', dueDate: null,
+          scheduledAt: null, scheduledEndsAt: null, engagementKind: null,
+          createdAt: '2026-11-24T08:00:00.000Z', updatedAt: '2026-11-24T08:00:00.000Z',
+          staffCompletedAt: null, customer: { id: 'c1', name: 'ABC Klinik' }, contact: null,
+          assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 0, allowedCommands: [],
+        }],
+        total: 1, limit: 50, offset: 0,
+      });
+    }
     if (method === 'PATCH' && path.endsWith(`/api/job-cards/${before.id}/sale-details`)) {
       patchBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       return json({ error: 'Satış zamanı geçersiz.', code: 'SALE_TIME_INVALID' }, 400);
@@ -367,6 +393,17 @@ async function click(host: ParentNode, name: string) {
   const button = buttonByText(host, name);
   if (button === null) throw new Error(`Button not found: ${name}`);
   await act(async () => { button.click(); });
+}
+
+async function openRecoveryAndSelect(host: ParentNode, decisionId: string) {
+  await click(host, 'Görevi çözüme ulaştır');
+  await settle();
+  const radio = host.querySelector<HTMLInputElement>(
+    `input[name="manager-recovery-decision"][value="${decisionId}"]`,
+  );
+  if (radio === null) throw new Error(`Decision radio not found: ${decisionId}`);
+  await act(async () => { radio.click(); });
+  await settle();
 }
 
 type Decision = {
@@ -395,6 +432,8 @@ type Decision = {
   section?: string;
   /** Sale correction needs its explicit canonical-reload action. */
   retryAfterFailure?: (host: HTMLElement) => Promise<void>;
+  /** Expected GET count on a rejected decision (defaults to 2 for auto-reload sections). */
+  detailGetsAfterFailure?: number;
   sale?: { before: SaleDetails; after: () => SaleDetails };
 };
 
@@ -416,19 +455,19 @@ const decisions: Decision[] = [
       error: 'Öneri artık geçerli değil.', code: 'ASSIGNMENT_PROPOSAL_NOT_AVAILABLE',
     }, 409),
     decide: async (host) => {
-      await click(host, 'Önerilen zamanı onayla');
-      const dialog = host.querySelector('[role="dialog"]');
-      const confirm = dialog?.querySelector<HTMLButtonElement>('.product-dialog-actions .primary-button');
-      if (!confirm) throw new Error('Proposal confirmation is missing');
-      await act(async () => { confirm.click(); });
+      await openRecoveryAndSelect(host, 'ACCEPT_PROPOSED_TIME');
+      const form = host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]');
+      if (!form) throw new Error('Manager recovery drawer is missing');
+      await act(async () => { form.requestSubmit(); });
       await settle();
     },
     localReceipt: '[data-assignment-offer-proposal-accepted="true"]',
-    localError: '[data-assignment-offer-proposal-error="true"]',
+    localError: '[data-recovery-submit-error="true"]',
     localErrorText: 'Personelin önerdiği zaman artık onaylanamıyor',
-    lockedControl: '[data-assignment-offer-action="accept-proposal"]',
-    sectionGone: '[data-assignment-offer]',
-    section: '[data-assignment-offer]',
+    lockedControl: '[data-manager-recovery-trigger="true"]',
+    sectionGone: '[data-manager-recovery="true"]',
+    section: '[data-manager-recovery="true"]',
+    detailGetsAfterFailure: 1,
   },
   {
     name: 'assignment re-offer',
@@ -456,11 +495,14 @@ const decisions: Decision[] = [
       error: 'Aralık çok kısa.', code: 'ASSIGNMENT_WINDOW_TOO_SHORT',
     }, 409),
     decide: async (host) => {
-      await click(host, 'Aynı zamanla yeniden teklif et');
+      await openRecoveryAndSelect(host, 'REOFFER');
+      const form = host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]');
+      if (!form) throw new Error('Manager recovery drawer is missing');
+      await act(async () => { form.requestSubmit(); });
       await settle();
     },
     localReceipt: '[data-assignment-offer-reoffered="true"]',
-    localError: '[data-assignment-offer] .field-error',
+    localError: '[data-recovery-submit-error="true"]',
     localErrorText: 'Planlanan zaman aralığı atama için çok kısa.',
     failureRead: () => ({
       ...offerJob({
@@ -470,36 +512,44 @@ const decisions: Decision[] = [
       }),
       version: 4,
     }),
-    lockedControl: '[data-assignment-offer-action="reoffer"]',
-    sectionGone: '[data-assignment-offer]',
-    section: '[data-assignment-offer]',
+    lockedControl: '[data-manager-recovery-trigger="true"]',
+    sectionGone: '[data-manager-recovery="true"]',
+    section: '[data-manager-recovery="true"]',
+    detailGetsAfterFailure: 1,
   },
   {
     name: 'change request record-only closure',
-    receipt: 'Öneri kapatıldı: Düzeltildi. İş bilgileri değişmedi.',
+    receipt: 'Öneri kapatıldı: Bağlı yeni iş oluşturuldu. İş bilgileri değişmedi.',
     mutationPath: '/api/job-cards/job-1/change-requests/request-1/resolve',
     before: () => changeRequestJob(),
     after: () => ({ ...changeRequestJob(), version: 5, changeRequest: null }),
     success: () => json({
-      jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'CORRECTED',
+      jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'LINKED_JOB_CREATED',
       resolvedAt: '2026-11-24T10:00:00.000Z',
     }),
     failure: () => json({
       error: 'Bu öneri zaten sonuçlandırılmış.', code: 'CHANGE_REQUEST_NOT_OPEN',
     }, 409),
     decide: async (host) => {
-      await click(host, 'Gerekli düzeltmeyi yaptım');
-      const form = host.querySelector('form.change-request-form') as HTMLFormElement | null;
-      if (!form) throw new Error('Change request closure drawer is missing');
+      await openRecoveryAndSelect(host, 'LINKED_JOB_CREATED');
+      const select = host.querySelector<HTMLSelectElement>('select[name="linkedJobCardId"]');
+      if (!select) throw new Error('Linked job select is missing');
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'job-2');
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const form = host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]');
+      if (!form) throw new Error('Manager recovery drawer is missing');
       await act(async () => { form.requestSubmit(); });
       await settle();
     },
     localReceipt: '[data-change-request-resolved]',
-    localError: '[data-change-request-not-open="true"]',
-    localErrorText: 'Öneri zaten kapatılmış.',
-    lockedControl: '[data-change-request-resolve="CORRECTED"]',
-    sectionGone: '[data-change-request="management"]',
-    section: '[data-change-request="management"]',
+    localError: '[data-recovery-submit-error="true"]',
+    localErrorText: 'Bu öneri zaten sonuçlandırılmış.',
+    lockedControl: '[data-manager-recovery-trigger="true"]',
+    sectionGone: '[data-manager-recovery="true"]',
+    section: '[data-manager-recovery="true"]',
+    detailGetsAfterFailure: 1,
   },
   {
     name: 'early start authorization',
@@ -606,22 +656,24 @@ describe('JobDetail child decision receipts', () => {
       .filter((element) => element.textContent?.includes(receipt));
   }
 
-  it('groups a declined assignment under the management recovery disclosure', async () => {
+  it('groups a declined assignment under the unified manager recovery surface', async () => {
     const decision = decisions.find(({ name }) => name === 'assignment re-offer')!;
     const before = decision.before();
     const harness = makeHarness({ ...decision, before, succeed: true });
     await renderScreen(before, harness.fetch);
 
-    const recovery = host.querySelector<HTMLDetailsElement>('details.job-recovery');
-    const summary = recovery?.querySelector('summary');
-    expect(summary?.textContent).toBe('Görevi çözüme ulaştır');
-    expect(recovery?.open).toBe(true);
-    expect(recovery?.querySelector(decision.lockedControl)).not.toBeNull();
+    const recovery = host.querySelector<HTMLElement>('section.job-recovery[data-manager-recovery="true"]');
+    expect(recovery).not.toBeNull();
+    const trigger = recovery?.querySelector<HTMLButtonElement>('[data-manager-recovery-trigger="true"]');
+    expect(trigger?.textContent?.trim()).toBe('Görevi çözüme ulaştır');
+    expect(recovery?.querySelectorAll('button')).toHaveLength(1);
 
-    await act(async () => summary?.click());
-    expect(recovery?.open).toBe(false);
-    await act(async () => summary?.click());
-    expect(recovery?.open).toBe(true);
+    await act(async () => trigger?.click());
+    await settle();
+    expect(host.querySelector('[data-manager-recovery-form="true"]')).not.toBeNull();
+    await click(host, 'Vazgeç');
+    await settle();
+    expect(host.querySelector('[data-manager-recovery-form="true"]')).toBeNull();
     expect(harness.mutationCalls()).toBe(0);
   });
 
@@ -631,11 +683,11 @@ describe('JobDetail child decision receipts', () => {
     const harness = makeHarness({ ...decision, before, succeed: true });
     await renderScreen(before, harness.fetch);
 
-    const recovery = host.querySelector<HTMLDetailsElement>('details.job-recovery');
+    const recovery = host.querySelector<HTMLElement>('section.job-recovery[data-manager-recovery="true"]');
     expect(recovery?.querySelector('[data-change-request="management"]')).not.toBeNull();
     await decision.decide(host);
 
-    expect(host.querySelector('details.job-recovery')).toBeNull();
+    expect(host.querySelector('section.job-recovery')).toBeNull();
     expect(receiptRegions(decision.receipt)).toHaveLength(1);
     const [receipt] = receiptRegions(decision.receipt);
     expect(receipt.classList.contains('detail-feedback-confirmed')).toBe(true);
@@ -748,7 +800,7 @@ describe('JobDetail child decision receipts', () => {
 
         await decision.retryAfterFailure?.(host);
         await settle();
-        expect(harness.detailGets()).toBe(2);
+        expect(harness.detailGets()).toBe(decision.detailGetsAfterFailure ?? 2);
         expect(harness.mutationCalls()).toBe(1);
         expect(receiptRegions(decision.receipt)).toHaveLength(0);
         if (decision.localError.startsWith('[') || decision.localError.startsWith('.')) {
@@ -773,12 +825,26 @@ describe('JobDetail child decision receipts', () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = withoutSaleCapability(String(input));
       const method = (init?.method ?? 'GET').toUpperCase();
+      const path = url.split('?')[0] ?? url;
       if (url.endsWith('/api/notifications/read-by-entity')) return json({});
       if (url.includes('/notes?')) return json(emptyPage);
       if (url.includes('/activity?')) return json({ ...emptyPage, limit: 50 });
       if (url.includes('/submission-lateness')) return json({ open: null });
       if (url.includes('/overdue-incidents')) return json(emptyPage);
       if (url.includes('/follow-ups')) return json(emptyPage);
+      if (method === 'GET' && path === '/api/job-cards' && url.includes('customerId=')) {
+        return json({
+          items: [{
+            id: 'job-2', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+            title: 'Yeni takip işi', priority: 'normal', dueDate: null,
+            scheduledAt: null, scheduledEndsAt: null, engagementKind: null,
+            createdAt: '2026-11-24T08:00:00.000Z', updatedAt: '2026-11-24T08:00:00.000Z',
+            staffCompletedAt: null, customer: { id: 'c1', name: 'ABC Klinik' }, contact: null,
+            assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 0, allowedCommands: [],
+          }],
+          total: 1, limit: 50, offset: 0,
+        });
+      }
       if (method === 'POST' && (url.split('?')[0] ?? url).endsWith(
         '/api/job-cards/job-1/change-requests/request-1/resolve',
       )) {
@@ -791,9 +857,14 @@ describe('JobDetail child decision receipts', () => {
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
     await renderScreen(before, fetch, source);
-    await click(host, 'Gerekli düzeltmeyi yaptım');
-    const form = host.querySelector('form.change-request-form') as HTMLFormElement | null;
-    if (!form) throw new Error('Change request closure drawer is missing');
+    await openRecoveryAndSelect(host, 'LINKED_JOB_CREATED');
+    const select = host.querySelector<HTMLSelectElement>('select[name="linkedJobCardId"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'job-2');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const form = host.querySelector('[data-manager-recovery-form="true"]') as HTMLFormElement | null;
+    if (!form) throw new Error('Manager recovery drawer is missing');
     await act(async () => { form.requestSubmit(); });
 
     // The resolve request is still in flight when the realtime truth closes it.
@@ -807,14 +878,14 @@ describe('JobDetail child decision receipts', () => {
 
     await act(async () => {
       resolveMutation(json({
-        jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'CORRECTED',
+        jobCardId: 'job-1', changeRequestId: 'request-1', resolution: 'LINKED_JOB_CREATED',
         resolvedAt: '2026-11-24T10:00:00.000Z',
       }));
     });
     await settle();
 
     expect(mutationCalls).toBe(1);
-    const receipt = 'Öneri kapatıldı: Düzeltildi. İş bilgileri değişmedi.';
+    const receipt = 'Öneri kapatıldı: Bağlı yeni iş oluşturuldu. İş bilgileri değişmedi.';
     expect(receiptRegions(receipt)).toHaveLength(1);
     expect(host.querySelector('[data-job-detail-section="feedback"]')?.textContent).toContain(receipt);
     expect(host.querySelector('[data-change-request-resolved]')).toBeNull();
@@ -860,11 +931,9 @@ describe('JobDetail child decision receipts', () => {
       readFailure: 500,
     });
     await renderScreen(before, harness.fetch);
-    await click(host, 'Önerilen zamanı onayla');
-    const confirm = host.querySelector<HTMLButtonElement>(
-      '[role="dialog"] .product-dialog-actions .primary-button',
-    );
-    await act(async () => { confirm!.click(); });
+    await openRecoveryAndSelect(host, 'ACCEPT_PROPOSED_TIME');
+    const form = host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]');
+    await act(async () => { form!.requestSubmit(); });
     await settle();
     expect(host.querySelector('[data-job-detail-committed-refresh="true"]')).not.toBeNull();
 
@@ -915,12 +984,18 @@ describe('JobDetail child decision receipts', () => {
     });
     await renderScreen(before, fetch);
 
-    await click(host, 'Aynı zamanla yeniden teklif et');
+    await openRecoveryAndSelect(host, 'REOFFER');
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await settle();
     const firstReceipt = host.querySelector<HTMLElement>('[data-job-detail-section="feedback"]');
     expect(firstReceipt?.textContent).toContain('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.');
 
-    await click(host, 'Aynı zamanla yeniden teklif et');
+    await openRecoveryAndSelect(host, 'REOFFER');
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
     // The previous confirmation is retired as soon as the new action starts.
     expect(host.querySelector('[data-job-detail-section="feedback"]')).toBeNull();
@@ -985,7 +1060,10 @@ describe('JobDetail child decision receipts', () => {
       source.emitJobUpdate('job-1', '1');
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    await click(host, 'Aynı zamanla yeniden teklif et');
+    await openRecoveryAndSelect(host, 'REOFFER');
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
 
     // The pre-decision realtime read finishes last with the old version.
@@ -1022,10 +1100,13 @@ describe('JobDetail child decision receipts', () => {
       }),
     });
     await renderScreen(before, harness.fetch);
-    await click(host, 'Aynı zamanla yeniden teklif et');
+    await openRecoveryAndSelect(host, 'REOFFER');
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await settle();
 
-    expect(host.querySelector('[data-assignment-offer] .field-error')?.textContent)
+    expect(host.querySelector('[data-recovery-submit-error="true"]')?.textContent)
       .toContain('İş başka bir işlemle güncellendi.');
     expect(receiptRegions('Yeni atama teklifi açıldı; personelin yanıtı bekleniyor.')).toHaveLength(0);
     expect(harness.mutationCalls()).toBe(1);
@@ -1127,19 +1208,22 @@ describe('JobDetail child decision receipts', () => {
       succeed: true,
     });
     await renderScreen(before, harness.fetch);
-    await click(host, 'Öneriyi reddet');
-    const note = host.querySelector<HTMLTextAreaElement>('#change-request-reject-note');
+    await openRecoveryAndSelect(host, 'REJECT_CHANGE_REQUEST');
+    const note = host.querySelector<HTMLTextAreaElement>('textarea[name="rejectNote"]');
     if (!note) throw new Error('Rejection note is missing');
     await act(async () => { setNativeValue(note, 'Teslim yeniden planlandı.'); });
-    const form = host.querySelector('form.change-request-form') as HTMLFormElement | null;
-    if (!form) throw new Error('Rejection drawer is missing');
+    const form = host.querySelector('[data-manager-recovery-form="true"]') as HTMLFormElement | null;
+    if (!form) throw new Error('Manager recovery drawer is missing');
     await act(async () => { form.requestSubmit(); });
     await settle();
 
     const receipt = 'Öneri reddedildi. İş bilgileri değişmedi.';
     const regions = receiptRegions(receipt);
     expect(regions).toHaveLength(1);
-    expect(host.querySelector('[data-job-detail-section="feedback"]')).toBe(regions[0]);
+    const feedback = host.querySelector('[data-job-detail-section="feedback"]');
+    expect(feedback).toBe(regions[0]);
+    expect(feedback?.classList.contains('detail-feedback-info')).toBe(true);
+    expect(feedback?.classList.contains('detail-feedback-confirmed')).toBe(false);
     expect(host.querySelector('[data-change-request="management"]')).toBeNull();
     expect(host.querySelector('[data-change-request-resolved]')).toBeNull();
   });
@@ -1338,7 +1422,10 @@ describe('JobDetail child decision receipts', () => {
       source.emitJobUpdate('job-1', '1');
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    await click(host, 'Aynı zamanla yeniden teklif et');
+    await openRecoveryAndSelect(host, 'REOFFER');
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
 
     // The pre-decision realtime read finishes last without access.
@@ -1464,7 +1551,10 @@ describe('JobDetail child decision receipts', () => {
     expect(harness.reloadHeld()).toBe(true);
     expect(harness.detailGets()).toBe(2);
 
-    await click(host, 'Aynı zamanla yeniden teklif et');
+    await openRecoveryAndSelect(host, 'REOFFER');
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await settle();
     expect(harness.reofferPosts()).toBe(1);
 
@@ -1651,7 +1741,10 @@ describe('JobDetail child decision receipts', () => {
       await settle();
       expect(harness.oldHeld()).toBe(true);
 
-      await click(host, 'Aynı zamanla yeniden teklif et');
+      await openRecoveryAndSelect(host, 'REOFFER');
+      await act(async () => {
+        host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+      });
       await settle();
       expect(harness.postCommitHeld()).toBe(true);
 
@@ -1740,7 +1833,10 @@ describe('JobDetail child decision receipts', () => {
     await settle();
     expect(releaseOld).not.toBeNull();
 
-    await click(host, 'Aynı zamanla yeniden teklif et');
+    await openRecoveryAndSelect(host, 'REOFFER');
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('[data-manager-recovery-form="true"]')!.requestSubmit();
+    });
     await settle();
 
     // The post-commit 200 already reconciled; the older 403 still gets one safe recheck.
