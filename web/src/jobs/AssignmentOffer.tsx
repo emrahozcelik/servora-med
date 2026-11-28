@@ -114,8 +114,9 @@ function proposalAcceptErrorMessage(caught: unknown): string {
   return caught instanceof Error ? caught.message : 'Önerilen zaman onaylanamadı.';
 }
 
-function isManagementRecoveryOffer(job: JobCard, offer: AssignmentOffer): boolean {
-  if (job.status !== 'NEW') return false;
+export function hasManagementRecoveryOffer(job: JobCard): boolean {
+  const offer = job.assignmentOffer;
+  if (job.status !== 'NEW' || !offer) return false;
   if (MANAGEMENT_RECOVERY_OFFER_STATES.includes(offer.state)) return true;
   return offer.state === 'WITHDRAWN' && offer.closeReason === 'PLANNED_WINDOW_PASSED';
 }
@@ -376,7 +377,7 @@ export function AssignmentOfferSection({
     && REOFFERABLE_OFFER_STATES.includes(offer.state);
   // A declined/released/expired offer with a NEW job leaves recovery to
   // management: the bare state row alone never says what to do next.
-  const recovery = management && isManagementRecoveryOffer(job, offer);
+  const recovery = management && hasManagementRecoveryOffer(job);
   const closeReasonLabel = assignmentOfferCloseReasonLabel(offer.closeReason);
   const newTimeFirst = offer.state === 'EXPIRED'
     || (offer.closeReason !== null && NEW_TIME_FIRST_CLOSE_REASONS.includes(offer.closeReason));

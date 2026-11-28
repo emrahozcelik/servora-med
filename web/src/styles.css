@@ -3283,9 +3283,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
    Critical Red and never Ant's `error` status (DESIGN.md semantic colors,
    DECISIONS.md UI-005). */
 .servora-workflow-step--attention .servora-ant-steps-item-title { color: var(--warning); }
-/* Manager-only lateness history: expanded above the workflow on desktop, a
-   native collapsed disclosure below the record details on mobile (UI-005). */
+/* Native job detail disclosures share the same keyboard and touch target. */
+.job-recovery,
 .overdue-history { min-width: 0; }
+.job-recovery-summary,
 .overdue-history-summary {
   min-height: var(--control-height);
   padding: 0.5rem 0.15rem;
@@ -3294,6 +3295,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.job-recovery-summary { font-size: 1rem; }
 .overdue-history-count {
   margin-inline-start: 0.4rem;
   color: var(--muted);
@@ -3973,7 +3975,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 .assignment-offer-recovery .job-row-facts {
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
 }
 .assignment-offer-recovery-actions-label {
   margin: 0;
@@ -4063,7 +4065,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 .change-request-guidance .job-row-facts {
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
 }
 .change-request-guidance-label {
   margin: 0;

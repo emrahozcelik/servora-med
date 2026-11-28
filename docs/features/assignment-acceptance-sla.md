@@ -666,6 +666,14 @@ the server contract, vocabulary and permissions are unchanged.
    refreshes the card and explains that the request was already closed.
    Mobile: the actions stack in the documented order, 44px targets.
 
+#### Job detail recovery entry
+
+Managers and admins find open change requests and assignments requiring
+recovery under **Görevi çözüme ulaştır** in Job Detail. The section opens
+expanded so the case facts and available commands are visible on arrival.
+The existing actions keep their confirmation, permissions and job-level
+feedback. A completed decision still shows its result when the section closes.
+
 ### Ownership for parallel work
 
 | Worker | Owns |

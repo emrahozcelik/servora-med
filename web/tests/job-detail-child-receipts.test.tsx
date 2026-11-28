@@ -606,6 +606,40 @@ describe('JobDetail child decision receipts', () => {
       .filter((element) => element.textContent?.includes(receipt));
   }
 
+  it('groups a declined assignment under the management recovery disclosure', async () => {
+    const decision = decisions.find(({ name }) => name === 'assignment re-offer')!;
+    const before = decision.before();
+    const harness = makeHarness({ ...decision, before, succeed: true });
+    await renderScreen(before, harness.fetch);
+
+    const recovery = host.querySelector<HTMLDetailsElement>('details.job-recovery');
+    const summary = recovery?.querySelector('summary');
+    expect(summary?.textContent).toBe('Görevi çözüme ulaştır');
+    expect(recovery?.open).toBe(true);
+    expect(recovery?.querySelector(decision.lockedControl)).not.toBeNull();
+
+    await act(async () => summary?.click());
+    expect(recovery?.open).toBe(false);
+    await act(async () => summary?.click());
+    expect(recovery?.open).toBe(true);
+    expect(harness.mutationCalls()).toBe(0);
+  });
+
+  it('groups an open change request and keeps its completed decision on the page', async () => {
+    const decision = decisions.find(({ name }) => name === 'change request record-only closure')!;
+    const before = decision.before();
+    const harness = makeHarness({ ...decision, before, succeed: true });
+    await renderScreen(before, harness.fetch);
+
+    const recovery = host.querySelector<HTMLDetailsElement>('details.job-recovery');
+    expect(recovery?.querySelector('[data-change-request="management"]')).not.toBeNull();
+    await decision.decide(host);
+
+    expect(host.querySelector('details.job-recovery')).toBeNull();
+    expect(receiptRegions(decision.receipt)).toHaveLength(1);
+    expect(harness.mutationCalls()).toBe(1);
+  });
+
   for (const decision of decisions) {
     describe(decision.name, () => {
       it('shows one page receipt and keeps it after the child section closes', async () => {

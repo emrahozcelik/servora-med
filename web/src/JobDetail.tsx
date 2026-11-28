@@ -135,6 +135,7 @@ import {
   AssignmentOfferSection,
   EMPTY_ASSIGNMENT_REASON,
   SCHEDULE_EDITOR_OPEN_EVENT,
+  hasManagementRecoveryOffer,
   type AssignmentReasonDraft,
 } from './jobs/AssignmentOffer';
 import { PastStartAcknowledgementDrawer, isPastStartAcknowledgementRequired } from './jobs/PastStartAcknowledgementDrawer';
@@ -1064,6 +1065,10 @@ export function JobDetailPanel({
   /** UI-FEEDBACK/A: the committed notice is the single visible/announced result. */
   const committedStale = committedStaleNotice !== undefined && committedStaleNotice !== null;
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
+  const showRecovery = isManagementUser(user)
+    && ((changeRequest != null && job.changeRequest != null)
+      || (assignmentOffer != null && hasManagementRecoveryOffer(job)));
+  const recoveryContent = <>{changeRequest}{assignmentOffer}</>;
   const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
     && job.workflowContext.allowedActions.includes('EDIT_DELIVERY_ACTUAL_TIME')
     && onSaveDeliveredAt !== undefined;
@@ -1301,8 +1306,12 @@ export function JobDetailPanel({
       {realtimeStaleNotice}
       {continuity}
       {submissionLateness}
-      {changeRequest}
-      {assignmentOffer}
+      {showRecovery ? (
+        <details className="job-recovery" open>
+          <summary className="job-recovery-summary">Görevi çözüme ulaştır</summary>
+          {recoveryContent}
+        </details>
+      ) : recoveryContent}
       {!narrow && overdueHistory}
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
