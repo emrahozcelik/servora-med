@@ -256,4 +256,34 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.form-drawer-header h2 \{[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere;/s);
     expect(css).toMatch(/\.drawer-close \{[^}]*width:\s*var\(--control-height\);[^}]*height:\s*var\(--control-height\);/s);
   });
+
+  it('keeps calendar agenda job links styled above Ant Card actions with owned specificity and no !important', () => {
+    const baseRule = css.match(
+      /\.servora-operational-card\.calendar-event-card \.servora-operational-card__actions \.calendar-event-actions > a\s*\{([^}]*)\}/s,
+    )?.[1];
+    expect(baseRule).toBeTruthy();
+    expect(baseRule).toMatch(/display:\s*inline-flex;/);
+    expect(baseRule).toMatch(/width:\s*auto;/);
+    expect(baseRule).toMatch(/min-height:\s*var\(--control-height\);/);
+    expect(baseRule).toMatch(/color:\s*var\(--accent-hover\);/);
+    expect(baseRule).toMatch(/background:\s*var\(--paper\);/);
+    expect(baseRule).not.toContain('!important');
+
+    const hoverRule = css.match(
+      /\.servora-operational-card\.calendar-event-card \.servora-operational-card__actions \.calendar-event-actions > a:hover\s*\{([^}]*)\}/s,
+    )?.[1];
+    expect(hoverRule).toMatch(/color:\s*var\(--accent-hover\);/);
+    expect(hoverRule).not.toContain('!important');
+
+    const focusRule = css.match(
+      /\.servora-operational-card\.calendar-event-card \.servora-operational-card__actions \.calendar-event-actions > a:focus-visible\s*\{([^}]*)\}/s,
+    )?.[1];
+    expect(focusRule).toMatch(/color:\s*var\(--accent-hover\);/);
+    expect(focusRule).toMatch(/outline:\s*var\(--focus-width\)\s+solid\s+var\(--focus\);/);
+    expect(focusRule).not.toContain('!important');
+
+    expect(css).toMatch(
+      /@media \(max-width: 40rem\)[\s\S]*\.servora-operational-card\.calendar-event-card \.servora-operational-card__actions \.calendar-event-actions > a,\s*\.calendar-form-times > \*\s*\{\s*width:\s*100%;/s,
+    );
+  });
 });

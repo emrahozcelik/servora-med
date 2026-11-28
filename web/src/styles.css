@@ -6088,7 +6088,12 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   font-size: 1rem;
 }
 
-.servora-operational-card .calendar-event-actions > a {
+/* Beat Ant Card's injected action-anchor rule (.servora-ant-card
+   .servora-ant-card-actions > li > span a:not(.servora-ant-card-btn),
+   specificity 0-3-3 / 0-4-3 on :hover) using owned classes only (0-4-1 / 0-5-1)
+   so job links keep Servora accent contrast, content width, and focus styling
+   without !important. */
+.servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6101,12 +6106,22 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   background: var(--paper);
   font-size: 1rem;
   font-weight: 700;
+  line-height: 1.25;
   text-decoration: none;
 }
 
-.servora-operational-card .calendar-event-actions > a:hover {
+.servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a:hover {
   border-color: var(--border-accent);
   background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: 3px;
 }
 
 /* ── Form (inside drawer) ── */
@@ -6426,7 +6441,8 @@ a + .follow-up-badge { margin-left: 0.5rem; }
   .calendar-toolbar > *,
   .calendar-toolbar label,
   .calendar-event-actions > *,
-  .servora-operational-card .calendar-event-actions > *,
+  .servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > *,
+  .servora-operational-card.calendar-event-card .servora-operational-card__actions .calendar-event-actions > a,
   .calendar-form-times > * {
     width: 100%;
   }

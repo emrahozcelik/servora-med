@@ -642,6 +642,76 @@ async function measureCalendar(page, mode) {
     const reducedMotionMatches = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const computedTransitionDuration = sampleTransitionEl ? getComputedStyle(sampleTransitionEl).transitionDuration : null;
 
+    const colorCanvas = document.createElement('canvas');
+    colorCanvas.width = 1;
+    colorCanvas.height = 1;
+    const colorCtx = colorCanvas.getContext('2d');
+    const resolveRgba = (cssColor) => {
+      if (!colorCtx || !cssColor) return null;
+      colorCtx.clearRect(0, 0, 1, 1);
+      colorCtx.fillStyle = 'rgba(0, 0, 0, 0)';
+      colorCtx.fillStyle = cssColor;
+      colorCtx.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = colorCtx.getImageData(0, 0, 1, 1).data;
+      return { r, g, b, a: a / 255 };
+    };
+    const compositeOver = (fg, bg) => {
+      const alpha = fg.a;
+      return {
+        r: Math.round(fg.r * alpha + bg.r * (1 - alpha)),
+        g: Math.round(fg.g * alpha + bg.g * (1 - alpha)),
+        b: Math.round(fg.b * alpha + bg.b * (1 - alpha)),
+        a: 1,
+      };
+    };
+    const effectiveBg = (el) => {
+      const chain = [];
+      for (let node = el; node; node = node.parentElement) {
+        const parsed = resolveRgba(getComputedStyle(node).backgroundColor);
+        if (parsed && parsed.a > 0) chain.push(parsed);
+        if (parsed && parsed.a >= 0.999) break;
+      }
+      let current = { r: 255, g: 255, b: 255, a: 1 };
+      for (let i = chain.length - 1; i >= 0; i -= 1) {
+        current = compositeOver(chain[i], current);
+      }
+      return current;
+    };
+    const luminance = ({ r, g, b }) => {
+      const lin = (v) => {
+        const s = v / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    };
+    const contrastRatio = (fg, bg) => {
+      const l1 = luminance(fg);
+      const l2 = luminance(bg);
+      return Math.round(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)) * 100) / 100;
+    };
+
+    const jobLinks = [...document.querySelectorAll('.calendar-event-actions a[href^="/jobs/"]')].map((link) => {
+      const style = getComputedStyle(link);
+      const rect = link.getBoundingClientRect();
+      const parentRect = link.parentElement?.getBoundingClientRect();
+      const rawFg = resolveRgba(style.color);
+      const bgRgb = effectiveBg(link);
+      const fgRgb = rawFg && rawFg.a < 1 ? compositeOver(rawFg, bgRgb) : rawFg;
+      return {
+        label: link.textContent?.trim() ?? '',
+        href: link.getAttribute('href') ?? '',
+        display: style.display,
+        fgCss: style.color,
+        bgCss: style.backgroundColor,
+        fgRgb: fgRgb ? [fgRgb.r, fgRgb.g, fgRgb.b] : null,
+        bgRgb: [bgRgb.r, bgRgb.g, bgRgb.b],
+        contrastRatio: fgRgb ? contrastRatio(fgRgb, bgRgb) : 0,
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100,
+        actionBarWidth: parentRect ? Math.round(parentRect.width * 100) / 100 : null,
+      };
+    });
+
     const cards = [...document.querySelectorAll('.calendar-event-card')].map((card) => ({
       title: card.querySelector('h3')?.textContent?.trim() ?? '',
       releasedClass: card.classList.contains('calendar-event-card--released'),
@@ -703,6 +773,7 @@ async function measureCalendar(page, mode) {
         renderedChipDimensions,
       },
       cards,
+      jobLinks,
       desktopChips,
       compactAttention: compactAttentionCount
         ? {
@@ -787,6 +858,31 @@ try {
     requireCheck(Boolean(releasedCard?.releasedClass && releasedCard.hasBadge && releasedCard.hasBadgeIcon && releasedCard.hasReleasedNote && releasedCard.hasOpenLink && releasedCard.hasEditButton), `${mode.name}: released agenda card missing required semantics or actions`);
     requireCheck(Boolean(reservedCard && !reservedCard.releasedClass && !reservedCard.hasBadge && !reservedCard.hasReleasedNote), `${mode.name}: reserved card incorrectly marked released`);
     requireCheck(Boolean(legacyCard && !legacyCard.releasedClass && !legacyCard.hasBadge && !legacyCard.hasReleasedNote), `${mode.name}: legacy card incorrectly marked released`);
+
+    if (mode.name === '390' || mode.name === '1440') {
+      requireCheck(metrics.jobLinks.length >= 3, `${mode.name}: expected >= 3 calendar job links, got ${metrics.jobLinks.length}`);
+      for (const link of metrics.jobLinks) {
+        requireCheck(
+          link.contrastRatio >= 4.5,
+          `${mode.name}: job link "${link.label}" contrast ${link.contrastRatio} < 4.5 (fg=${JSON.stringify(link.fgRgb)}, bg=${JSON.stringify(link.bgRgb)})`,
+        );
+        requireCheck(
+          link.display === 'flex' || link.display === 'inline-flex',
+          `${mode.name}: job link "${link.label}" display=${link.display}, expected flex/inline-flex`,
+        );
+        if (mode.name === '1440') {
+          requireCheck(
+            link.actionBarWidth !== null && link.width < link.actionBarWidth - 20,
+            `${mode.name}: job link "${link.label}" width ${link.width} should remain content-sized inside ${link.actionBarWidth}`,
+          );
+        } else {
+          requireCheck(
+            link.actionBarWidth !== null && Math.abs(link.width - link.actionBarWidth) <= 1,
+            `${mode.name}: job link "${link.label}" width ${link.width} should fill stacked mobile action bar (${link.actionBarWidth})`,
+          );
+        }
+      }
+    }
 
     if (mode.compact) {
       requireCheck(Boolean(metrics.compactAttention && metrics.compactAttention.text === '3' && /müdahale gerekiyor/i.test(metrics.compactAttention.ariaLabel ?? '')), `${mode.name}: compact attention cell missing`);
@@ -945,6 +1041,35 @@ try {
         await updatedCard.scrollIntoViewIfNeeded();
         await captureScreenshot(page, `calendar-form-success-${width}.png`, { fullPage: false });
       }
+      const successMeasurements = await measureCalendar(page, {
+        name: String(width),
+        width,
+        height: width === 390 ? 844 : 900,
+        compact: width < 640,
+      });
+      const successJobLink = successMeasurements.jobLinks.find((l) => l.href === `/jobs/${releasedJobId}`);
+      requireCheck(Boolean(successJobLink), `interactive-${width}: settled success card missing job link`);
+      requireCheck(
+        (successJobLink?.contrastRatio ?? 0) >= 4.5,
+        `interactive-${width}: settled job link contrast ${successJobLink?.contrastRatio} < 4.5 (fg=${JSON.stringify(successJobLink?.fgRgb)}, bg=${JSON.stringify(successJobLink?.bgRgb)})`,
+      );
+      requireCheck(
+        (successJobLink?.display === 'flex' || successJobLink?.display === 'inline-flex')
+        && (successJobLink?.width ?? 0) >= 44
+        && (successJobLink?.height ?? 0) >= 44,
+        `interactive-${width}: settled job link geometry invalid (${JSON.stringify(successJobLink)})`,
+      );
+      if (width === 1440) {
+        requireCheck(
+          successJobLink.actionBarWidth !== null && successJobLink.width < successJobLink.actionBarWidth - 20,
+          `interactive-1440: settled job link width ${successJobLink.width} should remain content-sized inside ${successJobLink.actionBarWidth}`,
+        );
+      } else {
+        requireCheck(
+          successJobLink.actionBarWidth !== null && Math.abs(successJobLink.width - successJobLink.actionBarWidth) <= 1,
+          `interactive-390: settled job link width ${successJobLink.width} should fill stacked mobile action bar (${successJobLink.actionBarWidth})`,
+        );
+      }
       assert.equal(patches.length, 2);
       assert.equal(patches[1].id, releasedJobId);
       assert.equal(patches[1].body.scheduledAt, '2026-11-26T14:00:00.000Z');
@@ -963,11 +1088,27 @@ try {
       await drawer.getByRole('button', { name: 'Vazgeç' }).click();
       await drawer.waitFor({ state: 'hidden' });
 
-      // Route navigation: Calendar -> JobDetail (confirms fresh OPEN offer) -> back to Calendar
+      // Route navigation: keyboard focus-visible on job link -> Enter -> JobDetail (confirms fresh OPEN offer) -> back to Calendar
+      const jobLinkLocator = updatedCard.getByRole('link', { name: 'İşi aç' });
+      await updatedCard.getByRole('button', { name: 'Düzenle' }).focus();
+      await page.keyboard.press('Shift+Tab');
+      const focusState = await jobLinkLocator.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return {
+          isFocused: el === document.activeElement,
+          matchesFocusVisible: el.matches(':focus-visible'),
+          outlineStyle: style.outlineStyle,
+          outlineWidthPx: Number.parseFloat(style.outlineWidth),
+        };
+      });
+      requireCheck(
+        focusState.isFocused && focusState.matchesFocusVisible && focusState.outlineStyle !== 'none' && focusState.outlineWidthPx >= 3,
+        `interactive-${width}: keyboard focus-visible missing on job link (${JSON.stringify(focusState)})`,
+      );
       const jobDetailResponsePromise = page.waitForResponse(
         (res) => res.url().includes(`/api/job-cards/${releasedJobId}`) && res.request().method() === 'GET' && !res.url().includes('/submission-lateness') && !res.url().includes('/sale-create-context'),
       );
-      await updatedCard.getByRole('link', { name: 'İşi aç' }).click();
+      await page.keyboard.press('Enter');
       await page.waitForURL(new RegExp(`/jobs/${releasedJobId}$`));
       const jobDetailJson = await (await jobDetailResponsePromise).json();
       assert.equal(jobDetailJson.scheduledAt, '2026-11-26T14:00:00.000Z');
@@ -998,6 +1139,8 @@ try {
         warningClearedAfterSave: true,
         freshOpenOfferOnJobDetail: jobDetailJson.assignmentOffer?.state === 'OPEN',
         successPersistedAndReopenedVerified: true,
+        settledJobLink: successJobLink,
+        settledJobLinkKeyboardFocus: focusState,
         patchNotBlockedByClient: patches.length === 2,
         roundTripNavigationOk: true,
       };
