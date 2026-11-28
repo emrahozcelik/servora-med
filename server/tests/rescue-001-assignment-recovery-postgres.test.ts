@@ -407,20 +407,21 @@ describe.skipIf(!databaseUrl)('RESCUE-001 PostgreSQL characterization (R01, R03,
     });
   });
 
-  it('R03: declined and released jobs stay NEW and still occupy original staff interval for create and available-slots', async () => {
+  it('R03: declined and released jobs stay NEW and release the original staff interval (RESCUE-004/A accepted policy)', async () => {
     await withSchema(async (pool) => {
       const baseline = await readDbBaseline(pool);
       const seed = await seedOrg(pool, 'R03');
       const slots = nextWorkingDaySlots(baseline);
+      // A second non-Sunday day keeps the RELEASED scenario independent from
+      // the jobs created in the DECLINED scenario.
+      const releaseSlots = nextWorkingDaySlots(new Date(baseline.valueOf() + DAY_MS));
       const clock = { now: baseline };
 
       // Verify both calendar OFF and calendar ON (core SCH-001 occupancy).
       const serviceCalOff = buildService(pool, clock, { calendar: CALENDAR_OFF, assignmentWindow: WINDOW_ON }).service;
       const serviceCalOn = buildService(pool, clock, { calendar: CALENDAR_ON, assignmentWindow: WINDOW_ON }).service;
 
-      const releaseSlotEnd = new Date(Date.parse(slots.laterFreeStart) + HOUR_MS).toISOString();
-
-      // Positive baseline: before creating the jobs, both intervals are returned for seed.staff.
+      // Positive baseline: before creating the jobs, the interval is returned.
       const availableBefore = await serviceCalOff.availableSlots(seed.manager, {
         type: 'SALES_MEETING',
         customerId: seed.secondCustomerId,
@@ -433,12 +434,8 @@ describe.skipIf(!databaseUrl)('RESCUE-001 PostgreSQL characterization (R01, R03,
         startsAt: slots.slotStart,
         endsAt: slots.slotEnd,
       });
-      expect(availableBefore.slots).toContainEqual({
-        startsAt: slots.laterFreeStart,
-        endsAt: releaseSlotEnd,
-      });
 
-      // 1) DECLINED job still occupies staff interval.
+      // 1) DECLINED job stays NEW but frees the interval, Calendar OFF.
       const declinedJob = await serviceCalOff.create(seed.manager, meetingInput({
         customerId: seed.customerId,
         assignedTo: seed.staff.id,
@@ -454,34 +451,6 @@ describe.skipIf(!databaseUrl)('RESCUE-001 PostgreSQL characterization (R01, R03,
       });
       expect(declineRes.status).toBe('NEW');
 
-      const overlapDeclinedOff = await rejectionOf(() => serviceCalOff.create(
-        seed.manager,
-        meetingInput({
-          customerId: seed.secondCustomerId,
-          assignedTo: seed.staff.id,
-          scheduledAt: slots.slotStart,
-          scheduledEndsAt: slots.slotEnd,
-          title: 'Çakışan yeni iş (cal off)',
-        }),
-      ));
-      expect(overlapDeclinedOff.code).toBe('CALENDAR_CONFLICT');
-      expect(overlapDeclinedOff.statusCode).toBe(409);
-      expect((overlapDeclinedOff.details as { conflicts: Array<{ id: string }> }).conflicts[0]?.id)
-        .toBe(declinedJob.id);
-
-      const overlapDeclinedOn = await rejectionOf(() => serviceCalOn.create(
-        seed.manager,
-        meetingInput({
-          customerId: seed.secondCustomerId,
-          assignedTo: seed.staff.id,
-          scheduledAt: slots.slotStart,
-          scheduledEndsAt: slots.slotEnd,
-          title: 'Çakışan yeni iş (cal on)',
-        }),
-      ));
-      expect(overlapDeclinedOn.code).toBe('CALENDAR_CONFLICT');
-      expect(overlapDeclinedOn.statusCode).toBe(409);
-
       const availableAfterDecline = await serviceCalOff.availableSlots(seed.manager, {
         type: 'SALES_MEETING',
         customerId: seed.secondCustomerId,
@@ -490,38 +459,69 @@ describe.skipIf(!databaseUrl)('RESCUE-001 PostgreSQL characterization (R01, R03,
         scheduledEndsAt: slots.searchEnds,
         jobCardId: null,
       });
-      expect(availableAfterDecline.slots).not.toContainEqual({
+      expect(availableAfterDecline.slots).toContainEqual({
         startsAt: slots.slotStart,
         endsAt: slots.slotEnd,
       });
-      expect(availableAfterDecline.slots).toContainEqual({
-        startsAt: slots.laterFreeStart,
-        endsAt: releaseSlotEnd,
-      });
 
-      // Control: another staff member is free on that interval.
-      const otherStaffJob = await serviceCalOff.create(seed.manager, meetingInput({
-        customerId: seed.thirdCustomerId,
-        assignedTo: seed.otherStaff.id,
+      const overlapDeclinedOff = await serviceCalOff.create(seed.manager, meetingInput({
+        customerId: seed.secondCustomerId,
+        assignedTo: seed.staff.id,
         scheduledAt: slots.slotStart,
         scheduledEndsAt: slots.slotEnd,
-        title: 'Diğer personel işi',
+        title: 'Yeniden kullanılan aralık (cal off)',
       }));
-      expect(otherStaffJob.status).toBe('NEW');
+      expect(overlapDeclinedOff.status).toBe('NEW');
 
-      // 2) RELEASED job returns to NEW and still occupies staff interval.
-      const toRelease = await serviceCalOff.create(seed.manager, meetingInput({
+      // 2) DECLINED job with Calendar ON also frees the interval.
+      const declinedOn = await serviceCalOn.create(seed.manager, meetingInput({
         customerId: seed.thirdCustomerId,
         assignedTo: seed.staff.id,
         scheduledAt: slots.laterFreeStart,
-        scheduledEndsAt: releaseSlotEnd,
+        scheduledEndsAt: new Date(Date.parse(slots.laterFreeStart) + HOUR_MS).toISOString(),
+        title: 'Reddedilecek ziyaret (cal on)',
+      }));
+      await serviceCalOn.declineAssignment(seed.staff, declinedOn.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: declinedOn.version,
+        reasonCode: 'TOO_FAR',
+        reasonText: 'Bölge dışı.',
+      });
+      const availableCalOn = await serviceCalOn.availableSlots(seed.manager, {
+        type: 'SALES_MEETING',
+        customerId: seed.fourthCustomerId,
+        assignedTo: seed.staff.id,
+        scheduledAt: slots.searchFrom,
+        scheduledEndsAt: slots.searchEnds,
+        jobCardId: null,
+      });
+      expect(availableCalOn.slots).toContainEqual({
+        startsAt: slots.laterFreeStart,
+        endsAt: new Date(Date.parse(slots.laterFreeStart) + HOUR_MS).toISOString(),
+      });
+      const overlapDeclinedOn = await serviceCalOn.create(seed.manager, meetingInput({
+        customerId: seed.fourthCustomerId,
+        assignedTo: seed.staff.id,
+        scheduledAt: slots.laterFreeStart,
+        scheduledEndsAt: new Date(Date.parse(slots.laterFreeStart) + HOUR_MS).toISOString(),
+        title: 'Yeniden kullanılan aralık (cal on)',
+      }));
+      expect(overlapDeclinedOn.status).toBe('NEW');
+
+      // 3) RELEASED job returns to NEW and frees its original interval.
+      const releasedEnd = new Date(Date.parse(releaseSlots.slotStart) + HOUR_MS).toISOString();
+      const toRelease = await serviceCalOff.create(seed.manager, meetingInput({
+        customerId: seed.thirdCustomerId,
+        assignedTo: seed.otherStaff.id,
+        scheduledAt: releaseSlots.slotStart,
+        scheduledEndsAt: releasedEnd,
         title: 'Geri bırakılacak ziyaret',
       }));
-      const accepted = await serviceCalOff.acceptAssignment(seed.staff, toRelease.id, {
+      const accepted = await serviceCalOff.acceptAssignment(seed.otherStaff, toRelease.id, {
         clientActionId: randomUUID(),
         expectedVersion: toRelease.version,
       });
-      const released = await serviceCalOff.releaseAssignment(seed.staff, toRelease.id, {
+      const released = await serviceCalOff.releaseAssignment(seed.otherStaff, toRelease.id, {
         clientActionId: randomUUID(),
         expectedVersion: accepted.version,
         reasonCode: 'TOO_FAR',
@@ -529,34 +529,34 @@ describe.skipIf(!databaseUrl)('RESCUE-001 PostgreSQL characterization (R01, R03,
       });
       expect(released.status).toBe('NEW');
 
-      const overlapReleased = await rejectionOf(() => serviceCalOff.create(
-        seed.manager,
-        meetingInput({
-          customerId: seed.fourthCustomerId,
-          assignedTo: seed.staff.id,
-          scheduledAt: slots.laterFreeStart,
-          scheduledEndsAt: releaseSlotEnd,
-          title: 'Çakışan iş (released)',
-        }),
-      ));
-      expect(overlapReleased.code).toBe('CALENDAR_CONFLICT');
-      expect(overlapReleased.statusCode).toBe(409);
-      expect((overlapReleased.details as { conflicts: Array<{ id: string }> }).conflicts[0]?.id)
-        .toBe(toRelease.id);
-
       const availableAfterRelease = await serviceCalOff.availableSlots(seed.manager, {
         type: 'SALES_MEETING',
         customerId: seed.secondCustomerId,
-        assignedTo: seed.staff.id,
-        scheduledAt: slots.searchFrom,
-        scheduledEndsAt: slots.searchEnds,
+        assignedTo: seed.otherStaff.id,
+        scheduledAt: releaseSlots.searchFrom,
+        scheduledEndsAt: releaseSlots.searchEnds,
         jobCardId: null,
       });
-      expect(availableAfterRelease.slots).not.toContainEqual({
-        startsAt: slots.laterFreeStart,
-        endsAt: releaseSlotEnd,
+      expect(availableAfterRelease.slots).toContainEqual({
+        startsAt: releaseSlots.slotStart,
+        endsAt: releasedEnd,
       });
-      expect(availableAfterRelease.slots.length).toBeGreaterThan(0);
+
+      const overlapReleased = await serviceCalOff.create(seed.manager, meetingInput({
+        customerId: seed.fourthCustomerId,
+        assignedTo: seed.otherStaff.id,
+        scheduledAt: releaseSlots.slotStart,
+        scheduledEndsAt: releasedEnd,
+        title: 'Yeniden kullanılan aralık (released)',
+      }));
+      expect(overlapReleased.status).toBe('NEW');
+
+      // The released job itself is untouched: still NEW, assigned, versioned.
+      const releasedRow = (await pool.query<{ status: string; assigned_to: string }>(
+        `SELECT status, assigned_to FROM job_cards WHERE id = $1`, [toRelease.id],
+      )).rows[0]!;
+      expect(releasedRow.status).toBe('NEW');
+      expect(releasedRow.assigned_to).toBe(seed.otherStaff.id);
     });
   });
 
