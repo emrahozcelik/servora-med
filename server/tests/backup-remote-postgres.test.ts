@@ -19,6 +19,7 @@ import { createBackupPipelineExecutor } from '../src/modules/backup/pipeline.js'
 import { PostgresBackupRepository } from '../src/modules/backup/repository.js';
 import { BackupService } from '../src/modules/backup/service.js';
 import { BackupWorker } from '../src/modules/backup/worker.js';
+import { timeAt } from './backup-time-fixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -221,7 +222,10 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
     };
   };
 
-  const buildRemote = (store: FakeR2Store, maxAtomicPutBytes?: number) =>
+  const buildRemote = (store: FakeR2Store, maxAtomicPutBytes?: number, options: {
+    sampleTrustedTime?: () => Promise<ReturnType<typeof timeAt> | null>;
+    randomId?: () => string;
+  } = {}) =>
     new RemoteBackupEngine({
       repository: repository!,
       service: service!,
@@ -232,6 +236,7 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
         client: store,
       }),
       ...(maxAtomicPutBytes === undefined ? {} : { maxAtomicPutBytes }),
+      ...options,
     });
 
   const canonicalKey = (runId: string, retentionClass: string) =>
@@ -336,6 +341,7 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
   it('BR5 worker composes the accepted engines through SUCCESS and local cleanup', async () => {
     const store = new FakeR2Store();
     const runId = await createRun();
+    const sampleTime = timeAt(Date.parse('2026-11-04T09:00:00.000Z'));
     const storage = new CloudflareR2Storage({
       config: {
         accountId: 'a'.repeat(32),
@@ -351,6 +357,7 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
       enabled: true,
       now: () => new Date((clock += 1_000)),
       sleep: async () => undefined,
+      sampleTrustedTime: async () => sampleTime,
       executeRun: createBackupPipelineExecutor({
         repository: repository!,
         pool: sourcePool!,
@@ -362,6 +369,7 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
         storage,
         instanceId: INSTANCE_ID,
         application: { applicationVersion: 'br5-test-0.1.0', gitCommit: 'b'.repeat(40) },
+        sampleTrustedTime: async () => sampleTime,
       }),
     });
 
@@ -374,11 +382,75 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
         remoteKey: expect.any(String),
         sizeBytes: expect.any(Number),
         sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
-        verifiedAt: expect.any(Date),
+        verifiedAt: new Date(sampleTime.wallAtUTC),
         warningCode: null,
         failureCode: null,
       });
+      expect(run?.verificationTimeEvidence).toMatchObject({
+        proofVersion: 2,
+        runId,
+        origin: 'MANUAL',
+        verifiedAt: sampleTime.wallAtUTC,
+      });
+      expect(run?.artifactGenerationId).not.toBeNull();
+      expect(run?.artifactGenerationTimeEvidence).toEqual(sampleTime);
       expect(store.objects.size).toBe(1);
+      expect(await stat(path.join(tempRoot, runId)).then(() => true, () => false)).toBe(false);
+    } finally {
+      storage.destroy();
+    }
+  });
+
+  it('preserves SUCCESS and R2 integrity when trusted time is unavailable', async () => {
+    const store = new FakeR2Store();
+    const runId = await createRun();
+    const storage = new CloudflareR2Storage({
+      config: {
+        accountId: 'a'.repeat(32),
+        accessKeyId: 'test-key',
+        secretAccessKey: 'test-secret',
+        bucket: 'servora-test-bucket',
+      },
+      client: store,
+    });
+    const worker = new BackupWorker({
+      repository: repository!,
+      service: service!,
+      enabled: true,
+      now: () => new Date((clock += 1_000)),
+      sleep: async () => undefined,
+      sampleTrustedTime: async () => null,
+      executeRun: createBackupPipelineExecutor({
+        repository: repository!,
+        pool: sourcePool!,
+        service: service!,
+        databaseUrl: sourceUrl,
+        tempRoot,
+        filesRoot: null,
+        recipient: recipientValue,
+        storage,
+        instanceId: INSTANCE_ID,
+        application: { applicationVersion: 'br5-test-0.1.0', gitCommit: 'b'.repeat(40) },
+        sampleTrustedTime: async () => null,
+      }),
+    });
+
+    try {
+      await expect(worker.runOnce()).resolves.toEqual({ kind: 'claimed', runId });
+      const run = await repository!.findRunById(runId);
+      expect(run).toMatchObject({
+        status: 'SUCCESS',
+        phase: 'CLEANUP',
+        remoteKey: expect.any(String),
+        sizeBytes: expect.any(Number),
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        warningCode: null,
+        failureCode: null,
+      });
+      expect(run?.verifiedAt).not.toBeNull();
+      expect(run?.artifactGenerationId).not.toBeNull();
+      expect(run?.artifactGenerationTimeEvidence).toBeNull();
+      expect(run?.verificationTimeEvidence).toBeNull();
       expect(await stat(path.join(tempRoot, runId)).then(() => true, () => false)).toBe(false);
     } finally {
       storage.destroy();

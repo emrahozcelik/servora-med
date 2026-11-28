@@ -202,6 +202,16 @@ separate authorized gate):
   cleanup may call `completeRun()` and produce `SUCCESS`; cleanup failure is a
   verified `SUCCESS` with `warning_code = CLEANUP_FAILED`. Terminal workspace
   reclamation is symlink-safe and DB-state-gated.
+- Migration `077_backup_worker_trusted_time_evidence` adds nullable worker and
+  scheduler heartbeat evidence, a write-once dump generation, and a write-once
+  proof bound to that generation and the verified remote object. Historical
+  rows retain their existing data and start with unknown evidence. A run can
+  finish with valid remote integrity evidence while trusted time is unavailable.
+- The BR5 health provider uses the durable latest scheduled run identity.
+  A failed scheduled run takes precedence over manual success and historical
+  verification. The provider can report `failed`, `stale`, or `unavailable`.
+  The source-owned positive health gate stays `BLOCKED` pending OT3-C clock
+  qualification and OT3-D producer provenance.
 - `GET /api/health` may surface aggregate backup evidence, while the existing
   `ops/scripts/operator-alerting.mjs` remains the sole monitor. Its default
   source is the legacy local dump/sidecar check; `SERVORA_ALERT_BACKUP_SOURCE=verified-runs`
