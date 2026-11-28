@@ -3433,6 +3433,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-color: var(--border-error);
   background: var(--error-soft);
 }
+.detail-feedback-confirmed {
+  color: var(--success);
+  border-color: var(--border-success);
+  background: var(--success-soft);
+}
+.detail-feedback-icon {
+  width: 1em;
+  height: 1em;
+  margin-inline-end: 0.4rem;
+  vertical-align: -0.15em;
+}
 /* UI-FEEDBACK/B: the owned Ant App resets its subtree to a fixed px base; the
    JobDetail page receipt keeps a rem size so 200% text enlarges it
    (UI-001, DESIGN.md accessibility). */
@@ -3485,6 +3496,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 /* Stacked job-detail panels (Staff request, assignment offer) keep a visible gap
    so two panels never read as one box. Early start lives inside the main column
    next to the schedule, where the grid gap owns its spacing. */
+.job-recovery > .detail-summary.surface-flat,
 .job-detail > .detail-summary.surface-flat { margin-block: 0.75rem; }
 .early-start-authorization h2 { margin: 0 0 0.35rem; font-size: 1rem; }
 .early-start-authorization .form-help { margin: 0 0 0.75rem; }
@@ -4078,7 +4090,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .change-request-closures .review-buttons {
   justify-content: flex-start;
 }
+.assignment-offer-recovery .review-buttons button,
 .change-request-guidance .review-buttons button,
+.change-request-form .review-buttons button,
 .change-request-closures .review-buttons button {
   min-height: var(--control-height);
 }

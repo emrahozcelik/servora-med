@@ -6,6 +6,9 @@ visual implementation. [AGENTS.md](../../AGENTS.md) owns engineering discipline;
 UI-001, [DESIGN.md](../../DESIGN.md), [PRODUCT.md](../../PRODUCT.md) and the
 applicable feature contract remain authoritative.
 
+Connected Workflows UI slices must also satisfy the
+[Connected Workflows UI/UX acceptance gate](../features/connected-workflows-ui-acceptance.md).
+
 ## 1. Default method
 
 Use **Playwright + headless Chromium**, a local Vite server and deterministic

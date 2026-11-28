@@ -637,6 +637,9 @@ describe('JobDetail child decision receipts', () => {
 
     expect(host.querySelector('details.job-recovery')).toBeNull();
     expect(receiptRegions(decision.receipt)).toHaveLength(1);
+    const [receipt] = receiptRegions(decision.receipt);
+    expect(receipt.classList.contains('detail-feedback-confirmed')).toBe(true);
+    expect(receipt.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     expect(harness.mutationCalls()).toBe(1);
   });
 

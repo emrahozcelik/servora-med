@@ -989,7 +989,7 @@ export function CommittedStaleNotice({ message, kind = 'committed', reloadPendin
 }
 
 export function JobDetailPanel({
-  job, items, user, pending, message, messageIsError = false,
+  job, items, user, pending, message, messageIsError = false, messageIsConfirmed = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   onSaveAllDeliveredAtNow, scheduleShiftSignal, scheduleCommittedSignal, onRequestChange,
   meetingDetails = null, records, realtimeStaleNotice, committedStaleNotice, notes, timeline, children,
@@ -1006,6 +1006,7 @@ export function JobDetailPanel({
   pendingCommand?: LifecycleCommand | null;
   message: string;
   messageIsError?: boolean;
+  messageIsConfirmed?: boolean;
   feedbackRef?: Ref<HTMLDivElement>;
   onCommand: (command: LifecycleCommand, trigger: HTMLButtonElement) => void;
   onRecordEdit?: (
@@ -1284,11 +1285,15 @@ export function JobDetailPanel({
       {message && (
         <div
           ref={committedStaleNotice ? undefined : feedbackRef}
-          className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
+          className={`detail-feedback${messageIsError ? ' detail-feedback-error'
+            : messageIsConfirmed ? ' detail-feedback-confirmed' : ''}`}
           role={messageIsError ? 'alert' : 'status'}
           tabIndex={-1}
           data-job-detail-section="feedback"
         >
+          {messageIsConfirmed && !messageIsError && (
+            <SignalGlyph name="timeline-success" className="detail-feedback-icon" size={16} />
+          )}
           {message}
         </div>
       )}
@@ -1702,6 +1707,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const meetingReceiptOnPageRef = useRef(false);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
+  const [committedChildReceipt, setCommittedChildReceipt] = useState<string | null>(null);
   /** UI-FEEDBACK/A: a committed mutation whose canonical re-read failed. */
   const [committedStale, setCommittedStale] = useState<CommittedStaleNoticeState | null>(null);
   const committedStaleRef = useRef<CommittedStaleNoticeState | null>(null);
@@ -2484,6 +2490,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
    * must be a new live-region update, not a silent text mutation.
    */
   function clearChildReceipt() {
+    setCommittedChildReceipt(null);
     setMessage('');
     setMessageIsError(false);
   }
@@ -2498,6 +2505,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
    * never re-sent by a caller that caught one.
    */
   async function settleChildCommit(receipt: string) {
+    setCommittedChildReceipt(receipt);
     // A child decision is a mutation too: invalidate reads that started before
     // the server accepted it, exactly like the in-page handlers do before their
     // request. An older realtime/refresh read must never overwrite the receipt
@@ -4243,6 +4251,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     pendingCommand={pendingCommand}
     message={message}
     messageIsError={messageIsError}
+    messageIsConfirmed={message === committedChildReceipt}
     feedbackRef={feedbackRef}
     realtimeStaleNotice={realtimeStale && !committedStale ? <div className="detail-feedback detail-feedback-error" role="status">
       <p>Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.</p>

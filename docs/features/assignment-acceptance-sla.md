@@ -673,6 +673,8 @@ recovery under **Görevi çözüme ulaştır** in Job Detail. The section opens
 expanded so the case facts and available commands are visible on arrival.
 The existing actions keep their confirmation, permissions and job-level
 feedback. A completed decision still shows its result when the section closes.
+UI changes to this recovery path follow the
+[Connected Workflows acceptance gate](connected-workflows-ui-acceptance.md).
 
 ### Ownership for parallel work
 

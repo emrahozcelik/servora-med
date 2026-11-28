@@ -8,6 +8,7 @@ import { ResultState } from '../ui/antd/ResultState';
 import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
 import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
+import { SignalGlyph } from '../ui/signal-icons';
 import { focusScheduleEditor } from './AssignmentOffer';
 import {
   changeRequestReasonLabel,
@@ -335,6 +336,12 @@ export function ManagementChangeRequestPanel({
   const [resolved, setResolved] = useState<ChangeRequestResolution | null>(null);
   const [alreadyClosed, setAlreadyClosed] = useState(false);
   const closureTriggerRef = useRef<HTMLButtonElement>(null);
+  const rejectionNoteRef = useRef<HTMLTextAreaElement>(null);
+  const linkedJobRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => {
+    if (formError) (rejectionNoteRef.current ?? linkedJobRef.current)?.focus();
+  }, [formError]);
 
   const requestId = request?.id ?? null;
   // The (job, request) the panel is answering. An async closure that settles
@@ -639,27 +646,25 @@ export function ManagementChangeRequestPanel({
 
       <ResponsiveFormDrawer
         open={dialog !== null && dialogLabel !== null}
-        title={`Öneriyi kapat: ${dialogLabel ?? ''}`}
+        title={dialogLabel ?? ''}
         onDismiss={closeDialog}
         returnFocusRef={closureTriggerRef}
         dismissDisabled={pending !== null}
       >
         {dialog !== null && dialogLabel !== null && (
           <form className="change-request-form" onSubmit={submitClosure} noValidate>
-            <p data-change-request-closure-outcome={dialog}>
-              <strong>{dialogLabel}</strong>
-            </p>
             <p>{CLOSURE_CONFIRMATION}</p>
             {dialog === 'REJECTED' && (
               <div className="field-group">
                 <label htmlFor="change-request-reject-note">Açıklama</label>
                 <textarea
                   id="change-request-reject-note"
+                  ref={rejectionNoteRef}
                   rows={4}
                   value={note}
                   disabled={pending !== null}
                   required
-                  aria-invalid={formError ? true : undefined}
+                  aria-invalid={Boolean(formError)}
                   aria-describedby={formError
                     ? 'change-request-reject-help change-request-closure-error'
                     : 'change-request-reject-help'}
@@ -690,10 +695,11 @@ export function ManagementChangeRequestPanel({
                   <>
                     <select
                       id="change-request-linked-job"
+                      ref={linkedJobRef}
                       value={linkedJobCardId}
                       disabled={pending !== null}
                       required
-                      aria-invalid={formError ? true : undefined}
+                      aria-invalid={Boolean(formError)}
                       aria-describedby={formError
                         ? 'change-request-linked-job-help change-request-closure-error'
                         : 'change-request-linked-job-help'}
@@ -717,9 +723,17 @@ export function ManagementChangeRequestPanel({
               </div>
             )}
             {formError && (
-              <p className="field-error" id="change-request-closure-error" role="alert">{formError}</p>
+              <p className="field-error" id="change-request-closure-error" role="alert">
+                <SignalGlyph name="exclamation" className="detail-feedback-icon" size={16} />
+                {formError}
+              </p>
             )}
-            {mutationError && <p className="field-error" role="alert">{mutationError}</p>}
+            {mutationError && (
+              <p className="field-error" role="alert">
+                <SignalGlyph name="exclamation" className="detail-feedback-icon" size={16} />
+                {mutationError}
+              </p>
+            )}
             <div className="review-buttons">
               <button className="secondary-button" type="button" disabled={pending !== null} onClick={closeDialog}>
                 Vazgeç
