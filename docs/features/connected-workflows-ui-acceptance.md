@@ -25,3 +25,10 @@ Status: required for all new Connected Workflows slices.
 Follow the [UI-003 rendered evidence workflow](../ui/visual-review-workflow.md). Run the actual app entry, AppShell and navigation with production styles. A component fixture provides supplementary evidence. Exercise the open wheel picker, conditional fields, validation errors, pending submission and a successful result in the applicable workflows. Use deterministic synthetic data at the API boundary and identify mocked services.
 
 Link measurements and screenshots in the PR. Record the exact source, viewport, text and zoom methods, motion preference, roles and scenarios. Measure target sizes and horizontal overflow, and verify lifecycle order, keyboard interaction, visible focus and the settled outcome. Compare against the baseline where the PR changes an existing surface. List any missing case before acceptance.
+
+The [RESCUE-003 capture runner](../../web/scripts/connected-workflows-recovery-acceptance.mjs)
+runs the real job detail route. From `web/`, set `FLEET_EVIDENCE_DIR` to the
+output path and `CONNECTED_VISUAL_SOURCE` to the tested SHA, then run
+`node scripts/connected-workflows-recovery-acceptance.mjs`. For comparison,
+run the same script from the baseline checkout's `web/` directory with
+`CONNECTED_VISUAL_BASELINE=1`, a separate evidence directory and the baseline SHA.

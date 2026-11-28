@@ -524,14 +524,14 @@ export function AssignmentOfferSection({
 
   return (
     <section
-      className="detail-summary surface-flat assignment-offer"
+      className={recovery ? 'assignment-offer assignment-offer-recovery' : 'detail-summary surface-flat assignment-offer'}
       aria-labelledby="assignment-offer-title"
       data-assignment-offer={offer.state}
+      data-assignment-offer-recovery={recovery ? offer.state : undefined}
     >
-      <h2 id="assignment-offer-title">Görev kabul durumu</h2>
       {recovery ? (
-        <div className="assignment-offer-recovery" data-assignment-offer-recovery={offer.state}>
-          <h3 className="assignment-offer-recovery-headline">{recoveryHeadline(offer)}</h3>
+        <>
+          <h2 id="assignment-offer-title" className="assignment-offer-recovery-headline">{recoveryHeadline(offer)}</h2>
           <dl className="job-row-facts">
             {closeReasonLabel !== null && (
               <div>
@@ -604,9 +604,10 @@ export function AssignmentOfferSection({
               Planlanan zamanı kaydettiğinizde {offer.assignee.name} kişisine yeni atama teklifi gider.
             </p>
           )}
-        </div>
+        </>
       ) : (
         <>
+          <h2 id="assignment-offer-title">Görev kabul durumu</h2>
           <dl className="job-row-facts">
             <div>
               <dt>Durum</dt>

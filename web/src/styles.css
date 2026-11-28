@@ -3969,8 +3969,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   font-size: 0.75rem;
   font-weight: 650;
 }
-/* JOB-010 recovery: a closed assignment offer keeps its next step visible.
-   Tonal Delay Amber callout (no nested bordered box), never the cancelled red. */
+/* JOB-010 uses one warning surface for the closed offer and its next steps. */
 .assignment-offer-recovery {
   display: grid;
   gap: 0.6rem;
@@ -3978,6 +3977,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin: 0 0 0.85rem;
   padding: 0.85rem 0.95rem;
   border: 0;
+  border-radius: var(--radius-control);
   background: var(--warning-wash);
 }
 .assignment-offer-recovery-headline {

@@ -739,6 +739,7 @@ export function ManagementChangeRequestPanel({
                 Vazgeç
               </button>
               <button className="primary-button compact-button" type="submit" disabled={pending !== null}>
+                {pending !== null && <SignalGlyph name="clock" className="detail-feedback-icon" size={16} />}
                 {pending !== null ? 'Kaydediliyor…' : 'Öneriyi kapat'}
               </button>
             </div>

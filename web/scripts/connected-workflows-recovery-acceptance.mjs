@@ -155,12 +155,16 @@ async function geometry(page) {
     const sections = [...detail.querySelectorAll('[data-job-detail-section]')]
       .filter((element) => element.getClientRects().length)
       .map((element) => element.dataset.jobDetailSection);
+    const responsibility = detail.querySelector('[data-job-detail-section="responsibility"]');
     const fixedNav = document.querySelector('.mobile-bottom-nav, .bottom-nav');
     return {
       viewport: [innerWidth, innerHeight], dpr: devicePixelRatio, documentWidth: document.documentElement.scrollWidth,
       rootFont: getComputedStyle(document.documentElement).fontSize, motion: matchMedia('(prefers-reduced-motion: reduce)').matches,
       summaryFont: scope.querySelector('summary') ? getComputedStyle(scope.querySelector('summary')).fontSize : null,
-      targets, sections, navigationLinks: [...document.querySelectorAll('nav a')].map((anchor) => anchor.getAttribute('href')),
+      targets, sections, responsibilityNested: scope.contains(responsibility),
+      assignmentUsesOneSurface: detail.querySelector('[data-assignment-offer-recovery]')
+        ?.matches('section[data-assignment-offer]') ?? null,
+      navigationLinks: [...document.querySelectorAll('nav a')].map((anchor) => anchor.getAttribute('href')),
       bottomNavigation: fixedNav ? box(fixedNav) : null,
     };
   });
@@ -172,6 +176,30 @@ async function overlayTargets(overlay) {
       const { width, height } = element.getBoundingClientRect();
       return { label: element.getAttribute('aria-label') ?? element.textContent.trim(), width, height };
     }));
+}
+
+async function captureWheel(page) {
+  await page.getByRole('button', { name: 'Yeni zaman belirle' }).click();
+  await page.locator('.schedule-quick-chips-shell[data-overflow="true"]').waitFor();
+  const rail = page.locator('.schedule-quick-chips');
+  const preset = await rail.evaluate((element) => {
+    const last = element.lastElementChild;
+    last.scrollIntoView({ block: 'nearest', inline: 'end', behavior: 'instant' });
+    const visibleEnd = last.getBoundingClientRect().right <= element.getBoundingClientRect().right + 2;
+    const fade = getComputedStyle(element.parentElement, '::after').backgroundImage;
+    const canScroll = element.scrollWidth > element.clientWidth && element.scrollLeft > 0;
+    element.scrollTo({ left: 0, behavior: 'instant' });
+    return { canScroll, visibleEnd, fade };
+  });
+  assert.equal(preset.canScroll && preset.visibleEnd, true);
+  assert.match(preset.fade, /linear-gradient/);
+  await page.locator('.wheel-field-trigger:visible').first().click();
+  const wheel = page.locator('[data-servora-wheel-sheet]');
+  await wheel.waitFor();
+  const targets = await overlayTargets(wheel);
+  await capture(page, 'wheel-picker');
+  await page.getByRole('button', { name: 'Tamam', exact: true }).click();
+  return { targets, preset };
 }
 
 const vite = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
@@ -193,6 +221,20 @@ try {
     requireMetric(metrics.sections.indexOf('heading') < metrics.sections.indexOf('lifecycle')
       && metrics.sections.indexOf('lifecycle') < metrics.sections.indexOf('facts'), sample.name + ': lifecycle order');
     requireMetric(metrics.navigationLinks.includes('/jobs'), sample.name + ': missing Jobs navigation');
+    requireMetric(!metrics.responsibilityNested, sample.name + ': responsibility is nested inside recovery');
+    if (!baseline && sample.scenario === 'assignment') {
+      requireMetric(metrics.assignmentUsesOneSurface, sample.name + ': assignment recovery has nested surfaces');
+    }
+    if (sample.dpr) {
+      const button = page.getByRole('button', { name: 'Sorumlu personeli değiştir' }).first();
+      const reachable = await button.evaluate((element) => {
+        element.scrollIntoView({ block: 'center', behavior: 'instant' });
+        const bounds = element.getBoundingClientRect();
+        return element.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
+      });
+      requireMetric(reachable, sample.name + ': secondary action stays behind fixed navigation after scrolling');
+      await capture(page, sample.name + '-secondary-action');
+    }
     for (const target of metrics.targets) {
       requireMetric(target.width >= 44 && target.height >= 44, sample.name + ': target below 44 CSS px: ' + target.label);
     }
@@ -201,7 +243,12 @@ try {
     await context.close();
   }
 
-  if (!baseline) {
+  if (baseline) {
+    const { page, context } = await openCase(browser, url, samples[1]);
+    const wheel = await captureWheel(page);
+    report.interactions.preset = wheel.preset;
+    await context.close();
+  } else {
     const test = await openCase(browser, url, samples[1]);
     const { page, context, mutations, released } = test;
     const scope = page.locator('details.job-recovery');
@@ -212,13 +259,9 @@ try {
     await page.keyboard.press('Space');
     assert.equal(await scope.evaluate((element) => element.open), true);
     assert.equal(await summary.evaluate((element) => element === document.activeElement), true);
-    await scope.getByRole('button', { name: 'Yeni zaman belirle' }).click();
-    await page.locator('.wheel-field-trigger:visible').first().click();
-    const wheel = page.locator('[data-servora-wheel-sheet]');
-    await wheel.waitFor();
-    report.interactions.wheelTargets = await overlayTargets(wheel);
-    await capture(page, 'wheel-picker');
-    await page.getByRole('button', { name: 'Tamam', exact: true }).click();
+    const wheel = await captureWheel(page);
+    report.interactions.wheelTargets = wheel.targets;
+    report.interactions.preset = wheel.preset;
     await scope.getByRole('button', { name: 'Yerine yeni iş açtım', exact: true }).click();
     const linkedForm = page.locator('.change-request-form:visible');
     await linkedForm.locator('#change-request-linked-job').waitFor();
@@ -249,6 +292,7 @@ try {
     const pending = form.getByRole('button', { name: 'Kaydediliyor…' });
     await pending.waitFor();
     assert.equal(await pending.isDisabled(), true);
+    assert.equal(await pending.locator('svg[aria-hidden="true"]').count(), 1);
     await capture(page, 'form-pending');
     released();
     const receipt = page.locator('[data-job-detail-section="feedback"]').getByText('Öneri reddedildi. İş bilgileri değişmedi.');
