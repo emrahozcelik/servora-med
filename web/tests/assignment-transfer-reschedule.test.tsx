@@ -28,6 +28,18 @@ import { withoutSaleCapability } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
+const realtimeDetail = vi.hoisted(() => ({ invalidate: () => {} }));
+vi.mock('../src/realtime/RealtimeProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/realtime/RealtimeProvider')>();
+  return {
+    ...actual,
+    useRealtimeInvalidation(keys: readonly string[], onInvalidate: () => void) {
+      actual.useRealtimeInvalidation(keys, onInvalidate);
+      if (keys.includes('job-detail:job-1')) realtimeDetail.invalidate = onInvalidate;
+    },
+  };
+});
+
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Mehmet Yönetici', email: 'm@x',
   role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
@@ -640,6 +652,9 @@ describe('RESCUE-003 on the real JobDetail page', () => {
     let after: JobCard | null = null;
     let loseResponse!: (error: Error) => void;
     let messagingReads = 0;
+    let overlapping = false;
+    let allowFreshRead = false;
+    const oldReads: Array<(response: Response) => void> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = withoutSaleCapability(String(input));
       const method = (init?.method ?? 'GET').toUpperCase();
@@ -668,7 +683,13 @@ describe('RESCUE-003 on the real JobDetail page', () => {
         if (losesResponse) return new Promise<Response>((_resolve, reject) => { loseResponse = reject; });
         return json(after);
       }
-      if (path === '/api/job-cards/job-1') return json(after ?? before);
+      if (path === '/api/job-cards/job-1') {
+        if (overlapping && oldReads.length < 2) {
+          return new Promise<Response>((resolve) => { oldReads.push(resolve); });
+        }
+        if (overlapping && !allowFreshRead) return json({}, 503);
+        return json(after ?? before);
+      }
       throw new Error(`Unexpected request: ${method} ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -699,6 +720,11 @@ describe('RESCUE-003 on the real JobDetail page', () => {
       setNativeValue(form!.querySelector<HTMLSelectElement>('select[name=assignedTo]')!, nextStaff.user.id);
       setNativeValue(form!.querySelector<HTMLInputElement>('input[name=scheduledAt]')!, NEW_START_LOCAL);
     });
+    if (losesResponse) {
+      overlapping = true;
+      await act(async () => realtimeDetail.invalidate());
+      expect(oldReads).toHaveLength(1);
+    }
     const submit = buttonByText(form!, 'Devret ve planla');
     await act(async () => submit!.click());
     await settle();
@@ -715,6 +741,9 @@ describe('RESCUE-003 on the real JobDetail page', () => {
       expect(earlyStart()?.disabled).toBe(true);
       const initialMessagingReads = messagingReads;
       expect(initialMessagingReads).toBeGreaterThan(0);
+      await act(async () => oldReads[0]!(json(before)));
+      await settle();
+      expect(oldReads).toHaveLength(2);
       await act(async () => loseResponse(new TypeError('Connection lost after commit')));
       await settle();
 
@@ -724,7 +753,11 @@ describe('RESCUE-003 on the real JobDetail page', () => {
       expect(container.querySelector<HTMLButtonElement>('[data-change-request-resolve="REJECTED"]')?.disabled).toBe(true);
       expect(earlyStart()?.disabled).toBe(true);
       expect(messagingReads).toBe(initialMessagingReads);
+      await act(async () => oldReads[1]!(json(before)));
+      await settle();
+      expect(container.querySelector('[data-job-detail-committed-refresh]')).toBe(notice);
 
+      allowFreshRead = true;
       await act(async () => buttonByText(notice!, 'Güncel durumu yenile')!.click());
       await settle();
       expect(container.querySelector('[data-job-detail-committed-refresh]')).toBeNull();

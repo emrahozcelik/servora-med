@@ -3236,6 +3236,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       const patched = await patchJobCard(jobId, input).catch((caught: unknown) => {
         if (!isAmbiguousMutationError(caught)) throw caught;
         if (isOperationCurrent(owner.sessionToken, jobId)) {
+          // A read begun during the PATCH can still describe the pre-write job.
+          mutationEpoch.current += 1;
           updateCommittedStale({
             kind: 'unknown',
             message: 'Personel ve plan değişikliğinin sonucu doğrulanamadı.',
